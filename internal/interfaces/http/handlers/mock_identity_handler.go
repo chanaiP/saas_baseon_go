@@ -196,6 +196,184 @@ func (h *MockIdentityHandler) SaveMenuOverrides(c *gin.Context) {
 	h.MenuOverrides(c)
 }
 
+func (h *MockIdentityHandler) Tenants(c *gin.Context) {
+	var rows []models.Tenant
+	_ = h.db.Order("id desc").Find(&rows).Error
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, gin.H{
+			"id":                 row.ID,
+			"code":               row.Code,
+			"name":               row.Name,
+			"status":             row.Status,
+			"plan_name":          "平台版",
+			"plan_code":          "platform",
+			"contact_name":       "平台管理员",
+			"contact_phone":      nil,
+			"company_count":      0,
+			"brand_display_name": row.BrandName,
+			"brand_logo_data":    nil,
+			"created_at":         row.CreatedAt,
+		})
+	}
+	response.OK(c, paginated(items))
+}
+
+func (h *MockIdentityHandler) Tenant(c *gin.Context) {
+	var row models.Tenant
+	if err := h.db.First(&row, c.Param("id")).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "主体不存在")
+		return
+	}
+	response.OK(c, gin.H{
+		"id":                 row.ID,
+		"code":               row.Code,
+		"name":               row.Name,
+		"status":             row.Status,
+		"plan_name":          "平台版",
+		"plan_code":          "platform",
+		"contact_name":       "平台管理员",
+		"contact_phone":      nil,
+		"company_count":      0,
+		"brand_display_name": row.BrandName,
+		"brand_logo_data":    nil,
+		"created_at":         row.CreatedAt,
+	})
+}
+
+func (h *MockIdentityHandler) Users(c *gin.Context) {
+	var rows []models.AppUser
+	_ = h.db.Order("id desc").Find(&rows).Error
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, gin.H{
+			"id":                row.ID,
+			"tenant_id":         row.TenantID,
+			"employee_no":       row.EmployeeNo,
+			"phone":             row.Phone,
+			"name":              row.Name,
+			"email":             row.Email,
+			"avatar_url":        row.AvatarURL,
+			"status":            row.Status,
+			"company_id":        nil,
+			"department_id":     nil,
+			"department_ids":    []uint64{},
+			"position_ids":      []uint64{},
+			"role_ids":          []uint64{1},
+			"is_platform_admin": row.IsPlatformAdmin,
+			"created_at":        row.CreatedAt,
+		})
+	}
+	response.OK(c, paginated(items))
+}
+
+func (h *MockIdentityHandler) AssignableRoles(c *gin.Context) {
+	var rows []models.Role
+	_ = h.db.Order("id asc").Find(&rows).Error
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, gin.H{"id": row.ID, "code": row.Code, "name": row.Name})
+	}
+	response.OK(c, paginated(items))
+}
+
+func (h *MockIdentityHandler) Roles(c *gin.Context) {
+	var rows []models.Role
+	_ = h.db.Order("id desc").Find(&rows).Error
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		var links []models.RolePermission
+		_ = h.db.Where("role_id = ?", row.ID).Find(&links).Error
+		permissionIDs := make([]uint64, 0, len(links))
+		for _, link := range links {
+			permissionIDs = append(permissionIDs, link.PermissionID)
+		}
+		items = append(items, gin.H{
+			"id":             row.ID,
+			"code":           row.Code,
+			"name":           row.Name,
+			"description":    nil,
+			"permission_ids": permissionIDs,
+			"data_overrides": []gin.H{},
+		})
+	}
+	response.OK(c, paginated(items))
+}
+
+func (h *MockIdentityHandler) Role(c *gin.Context) {
+	var row models.Role
+	if err := h.db.First(&row, c.Param("id")).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "角色不存在")
+		return
+	}
+	response.OK(c, gin.H{
+		"id":             row.ID,
+		"code":           row.Code,
+		"name":           row.Name,
+		"description":    nil,
+		"permission_ids": []uint64{},
+		"data_overrides": []gin.H{},
+	})
+}
+
+func (h *MockIdentityHandler) Plans(c *gin.Context) {
+	response.OK(c, paginated([]gin.H{{
+		"id":            1,
+		"plan_code":     "platform",
+		"plan_name":     "平台版",
+		"plan_type":     "PLATFORM",
+		"billing_cycle": "year",
+		"price":         0,
+		"status":        1,
+		"is_default":    true,
+		"sort_order":    1,
+		"description":   "平台初始化套餐",
+	}}))
+}
+
+func (h *MockIdentityHandler) PlanMatrix(c *gin.Context) {
+	response.OK(c, gin.H{"plans": []gin.H{}, "nodes": []gin.H{}})
+}
+
+func (h *MockIdentityHandler) SysParams(c *gin.Context) {
+	var rows []models.SystemParam
+	_ = h.db.Order("id desc").Find(&rows).Error
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, gin.H{
+			"id":               row.ID,
+			"param_key":        row.Key,
+			"default_value":    row.Value,
+			"param_value":      row.Value,
+			"remark":           row.Remark,
+			"value_type":       "string",
+			"tenant_editable":  true,
+			"is_platform_only": false,
+			"is_override":      false,
+		})
+	}
+	response.OK(c, paginated(items))
+}
+
+func (h *MockIdentityHandler) SysParamBatch(c *gin.Context) {
+	values := gin.H{}
+	var rows []models.SystemParam
+	_ = h.db.Find(&rows).Error
+	for _, row := range rows {
+		values[row.Key] = row.Value
+	}
+	response.OK(c, gin.H{"values": values})
+}
+
+func paginated(items interface{}) gin.H {
+	total := 0
+	switch v := items.(type) {
+	case []gin.H:
+		total = len(v)
+	}
+	return gin.H{"items": items, "total": total, "skip": 0, "limit": 50}
+}
+
 func allDevPermissionCodes() []string {
 	return []string{
 		"tenant:create", "tenant:edit", "tenant:delete", "tenant:reset_password", "tenant:quota_config",
