@@ -2,14 +2,18 @@ package handlers
 
 import (
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
+	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 	"saas_baseon_go/internal/interfaces/http/response"
 )
 
-type MockIdentityHandler struct{}
+type MockIdentityHandler struct {
+	db *gorm.DB
+}
 
-func NewMockIdentityHandler() *MockIdentityHandler {
-	return &MockIdentityHandler{}
+func NewMockIdentityHandler(db *gorm.DB) *MockIdentityHandler {
+	return &MockIdentityHandler{db: db}
 }
 
 func (h *MockIdentityHandler) Login(c *gin.Context) {
@@ -44,22 +48,54 @@ func (h *MockIdentityHandler) SwitchTenant(c *gin.Context) {
 }
 
 func (h *MockIdentityHandler) Profile(c *gin.Context) {
+	var user models.AppUser
+	var tenant models.Tenant
+	var roles []models.Role
+	var permissions []models.Permission
+	if err := h.db.Where("account = ?", "admin").First(&user).Error; err == nil {
+		_ = h.db.First(&tenant, user.TenantID).Error
+		_ = h.db.
+			Joins("JOIN user_role ur ON ur.role_id = role.id").
+			Where("ur.user_id = ?", user.ID).
+			Find(&roles).Error
+		_ = h.db.
+			Joins("JOIN role_permission rp ON rp.permission_id = permission.id").
+			Joins("JOIN user_role ur ON ur.role_id = rp.role_id").
+			Where("ur.user_id = ? AND permission.enabled = ?", user.ID, true).
+			Find(&permissions).Error
+	}
+	roleIDs := make([]uint64, 0, len(roles))
+	roleCodes := make([]string, 0, len(roles))
+	for _, role := range roles {
+		roleIDs = append(roleIDs, role.ID)
+		roleCodes = append(roleCodes, role.Code)
+	}
+	permissionCodes := make([]string, 0, len(permissions))
+	for _, permission := range permissions {
+		if permission.PermType == 2 {
+			permissionCodes = append(permissionCodes, permission.Path)
+		}
+	}
+	if len(permissionCodes) == 0 {
+		permissionCodes = allDevPermissionCodes()
+	}
+
 	response.OK(c, gin.H{
-		"id":                 1,
-		"tenant_id":          1,
-		"employee_no":        "admin",
-		"phone":              nil,
-		"name":               "平台管理员",
-		"email":              nil,
-		"avatar_url":         nil,
-		"status":             1,
+		"id":                 user.ID,
+		"tenant_id":          user.TenantID,
+		"employee_no":        user.EmployeeNo,
+		"phone":              user.Phone,
+		"name":               user.Name,
+		"email":              user.Email,
+		"avatar_url":         user.AvatarURL,
+		"status":             user.Status,
 		"company_id":         nil,
 		"department_id":      nil,
-		"role_ids":           []int{1},
-		"role_codes":         []string{"admin"},
-		"permission_codes":   allDevPermissionCodes(),
-		"is_platform_admin":  true,
-		"tenant_is_platform": true,
+		"role_ids":           roleIDs,
+		"role_codes":         roleCodes,
+		"permission_codes":   permissionCodes,
+		"is_platform_admin":  user.IsPlatformAdmin,
+		"tenant_is_platform": tenant.IsPlatform,
 		"shortcut_ids":       []string{},
 		"subscription":       nil,
 		"features":           []string{},
@@ -91,12 +127,14 @@ func (h *MockIdentityHandler) SavePreferences(c *gin.Context) {
 }
 
 func (h *MockIdentityHandler) TenantBranding(c *gin.Context) {
+	var tenant models.Tenant
+	_ = h.db.Where("code = ?", "platform").First(&tenant).Error
 	response.OK(c, gin.H{
-		"display_name":       "Ai DevOS",
-		"brand_display_name": nil,
+		"display_name":       coalesceStringPtr(tenant.BrandName, "Ai DevOS"),
+		"brand_display_name": tenant.BrandName,
 		"logo_data":          nil,
-		"footer_text":        "© 2026 SaaS - AI协作开发系统",
-		"tenant_name":        "平台主体",
+		"footer_text":        tenant.FooterText,
+		"tenant_name":        coalesceString(tenant.Name, "平台主体"),
 		"can_edit":           true,
 		"can_edit_footer":    true,
 	})
@@ -107,15 +145,51 @@ func (h *MockIdentityHandler) SaveTenantBranding(c *gin.Context) {
 }
 
 func (h *MockIdentityHandler) PublicTenantFooter(c *gin.Context) {
-	response.OK(c, gin.H{"footer_text": "© 2026 SaaS - AI协作开发系统"})
+	var tenant models.Tenant
+	_ = h.db.Where("code = ?", "platform").First(&tenant).Error
+	response.OK(c, gin.H{"footer_text": tenant.FooterText})
 }
 
 func (h *MockIdentityHandler) MenuBundles(c *gin.Context) {
-	response.OK(c, []gin.H{})
+	var permissions []models.Permission
+	_ = h.db.Where("perm_type = ? AND enabled = ? AND visible = ?", 3, true, true).Order("sort_order asc, id asc").Find(&permissions).Error
+	bundles := make([]gin.H, 0, len(permissions))
+	for _, permission := range permissions {
+		bundles = append(bundles, gin.H{
+			"path":               permission.Path,
+			"title":              permission.Name,
+			"menu_permission_id": permission.ID,
+			"data_permission_id": 0,
+			"operations":         []gin.H{},
+			"is_platform_only":   permission.IsPlatformOnly,
+			"is_package_feature": permission.IsPackageFeature,
+			"feature_code":       permission.FeatureCode,
+			"feature_type":       permission.FeatureType,
+			"tenant_visible":     permission.Visible,
+			"tenant_editable":    permission.TenantEditable,
+			"tenant_edit_scope":  permission.TenantEditScope,
+			"data_perm_mode":     permission.DataPermMode,
+		})
+	}
+	response.OK(c, bundles)
 }
 
 func (h *MockIdentityHandler) MenuOverrides(c *gin.Context) {
 	response.OK(c, gin.H{"tenant_id": 1, "overrides": []gin.H{}})
+}
+
+func coalesceString(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func coalesceStringPtr(value *string, fallback string) string {
+	if value == nil || *value == "" {
+		return fallback
+	}
+	return *value
 }
 
 func (h *MockIdentityHandler) SaveMenuOverrides(c *gin.Context) {

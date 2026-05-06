@@ -20,7 +20,7 @@ func NewRouter(cfg Config, db *gorm.DB, redisClient *redis.Client) *gin.Engine {
 	router.Use(gin.Recovery(), middleware.RequestID())
 
 	healthHandler := handlers.NewHealthHandler(db, redisClient)
-	identityHandler := handlers.NewMockIdentityHandler()
+	identityHandler := handlers.NewMockIdentityHandler(db)
 
 	paramRepo := repositories.NewSystemParamRepository(db)
 	paramService := system.NewParamService(paramRepo)

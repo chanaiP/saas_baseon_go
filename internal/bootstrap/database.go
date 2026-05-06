@@ -13,7 +13,19 @@ func NewPostgres(dsn string) (*gorm.DB, error) {
 		return nil, err
 	}
 
-	if err := db.AutoMigrate(&models.SystemParam{}); err != nil {
+	if err := db.AutoMigrate(
+		&models.Tenant{},
+		&models.AppUser{},
+		&models.Role{},
+		&models.Permission{},
+		&models.UserRole{},
+		&models.RolePermission{},
+		&models.SystemParam{},
+	); err != nil {
+		return nil, err
+	}
+
+	if err := seedCoreData(db); err != nil {
 		return nil, err
 	}
 
