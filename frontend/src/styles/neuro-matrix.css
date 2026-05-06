@@ -1,0 +1,827 @@
+/* 神经矩阵设计系统 - Ai DevOS专属 */
+
+:root {
+  /* === 色彩系统 - 神经荧光 === */
+  --nm-bg-deep: #0a0c14;          /* 深空背景 */
+  --nm-bg-surface: #111827;       /* 表面层 */
+  --nm-bg-card: #1a1f2e;          /* 卡片层 */
+  --nm-bg-elevated: #242a3a;      /* 悬浮层 */
+
+  --nm-primary: #00f5d4;          /* 主色 - 神经绿 */
+  --nm-primary-glow: rgba(0, 245, 212, 0.3);
+  --nm-secondary: #9d4edd;        /* 辅色 - 突触紫 */
+  --nm-secondary-glow: rgba(157, 78, 221, 0.3);
+  --nm-accent: #ff6b6b;           /* 强调色 - 警报红 */
+  --nm-accent-glow: rgba(255, 107, 107, 0.3);
+
+  --nm-text-primary: #f8fafc;     /* 主文本 */
+  --nm-text-secondary: #94a3b8;   /* 次文本 */
+  --nm-text-muted: #64748b;       /* 弱文本 */
+  --nm-text-on-dark: #0a0c14;     /* 深色背景文本 */
+
+  --nm-border: #2d3748;           /* 边框 */
+  --nm-border-glow: rgba(0, 245, 212, 0.1);
+
+  --nm-success: #10b981;          /* 成功 */
+  --nm-warning: #f59e0b;          /* 警告 */
+  --nm-error: #ef4444;            /* 错误 */
+  --nm-info: #3b82f6;             /* 信息 */
+
+  /* === NeuroTheme 兼容别名 === */
+  --neuro-primary: var(--nm-primary, #00f5d4);
+  --neuro-secondary: var(--nm-secondary, #9d4edd);
+  --neuro-accent: var(--nm-secondary, #9d4edd);
+  --neuro-background: var(--nm-bg-deep, #0a0c14);
+  --neuro-surface: var(--nm-bg-surface, #111827);
+  --neuro-text: var(--nm-text-primary, #f8fafc);
+  --neuro-text-secondary: var(--nm-text-secondary, #94a3b8);
+  --neuro-border: var(--nm-border, #2d3748);
+  --neuro-success: var(--nm-success, #10b981);
+  --neuro-warning: var(--nm-warning, #f59e0b);
+  --neuro-error: var(--nm-error, #ef4444);
+  --neuro-info: var(--nm-info, #3b82f6);
+  --neuro-neural: var(--nm-primary, #00f5d4);
+  --neuro-matrix: #00ff41;
+  --neuro-gradient-primary: linear-gradient(135deg, var(--nm-primary), var(--nm-secondary));
+  --neuro-gradient-secondary: linear-gradient(135deg, var(--nm-secondary), var(--nm-primary));
+  --neuro-gradient-neural: linear-gradient(135deg, var(--nm-primary), #00ff41);
+  --neuro-primary-10: rgba(0, 245, 212, 0.1);
+  --neuro-primary-20: rgba(0, 245, 212, 0.2);
+  --neuro-primary-30: rgba(0, 245, 212, 0.3);
+  --neuro-secondary-10: rgba(157, 78, 221, 0.1);
+  --neuro-secondary-20: rgba(157, 78, 221, 0.2);
+  --neuro-secondary-30: rgba(157, 78, 221, 0.3);
+  --neuro-accent-10: rgba(157, 78, 221, 0.1);
+  --neuro-accent-20: rgba(157, 78, 221, 0.2);
+  --neuro-accent-30: rgba(157, 78, 221, 0.3);
+  --neuro-success-10: rgba(16, 185, 129, 0.1);
+  --neuro-success-20: rgba(16, 185, 129, 0.2);
+  --neuro-success-30: rgba(16, 185, 129, 0.3);
+  --neuro-warning-10: rgba(245, 158, 11, 0.1);
+  --neuro-warning-20: rgba(245, 158, 11, 0.2);
+  --neuro-warning-30: rgba(245, 158, 11, 0.3);
+  --neuro-error-10: rgba(239, 68, 68, 0.1);
+  --neuro-error-20: rgba(239, 68, 68, 0.2);
+  --neuro-error-30: rgba(239, 68, 68, 0.3);
+  --neuro-info-10: rgba(59, 130, 246, 0.1);
+  --neuro-info-20: rgba(59, 130, 246, 0.2);
+  --neuro-info-30: rgba(59, 130, 246, 0.3);
+  --neuro-surface-90: rgba(30, 41, 59, 0.9);
+  --neuro-shadow-sm: 0 1px 2px 0 rgba(0, 245, 212, 0.1);
+  --neuro-shadow-md: 0 4px 6px -1px rgba(0, 245, 212, 0.1), 0 2px 4px -1px rgba(0, 245, 212, 0.06);
+  --neuro-shadow-lg: 0 10px 15px -3px rgba(0, 245, 212, 0.1), 0 4px 6px -2px rgba(0, 245, 212, 0.05);
+  --neuro-shadow-xl: 0 20px 25px -5px rgba(0, 245, 212, 0.1), 0 10px 10px -5px rgba(0, 245, 212, 0.04);
+  --neuro-glow: 0 0 20px var(--nm-primary);
+  --neuro-pulse: 0 0 0 4px var(--nm-primary);
+  --neuro-connection: 2px solid var(--nm-primary);
+  --neuro-transition-fast: var(--nm-transition-fast);
+  --neuro-transition-normal: var(--nm-transition-normal);
+  --neuro-transition-slow: var(--nm-transition-slow);
+  --neuro-spacing-xs: var(--nm-space-2xs);
+  --neuro-spacing-sm: var(--nm-space-xs);
+  --neuro-spacing-md: var(--nm-space-md);
+  --neuro-spacing-lg: var(--nm-space-lg);
+  --neuro-spacing-xl: var(--nm-space-xl);
+  --neuro-spacing-2xl: var(--nm-space-2xl);
+  --neuro-radius-sm: var(--nm-radius-sm);
+  --neuro-radius-md: var(--nm-radius-md);
+  --neuro-radius-lg: var(--nm-radius-lg);
+  --neuro-radius-xl: var(--nm-radius-xl);
+  --neuro-radius-full: var(--nm-radius-full);
+  --neuro-font-sans: var(--nm-font-body);
+  --neuro-font-mono: var(--nm-font-display);
+  --neuro-font-neural: 'Courier New', monospace;
+
+  /* === 字体系统 - 科技精密 === */
+  --nm-font-display: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
+  --nm-font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --nm-font-ui: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+
+  /* === 间距系统 - 黄金比例 === */
+  --nm-space-3xs: 0.125rem;  /* 2px */
+  --nm-space-2xs: 0.25rem;   /* 4px */
+  --nm-space-xs: 0.5rem;     /* 8px */
+  --nm-space-sm: 0.75rem;    /* 12px */
+  --nm-space-md: 1rem;       /* 16px */
+  --nm-space-lg: 1.5rem;     /* 24px */
+  --nm-space-xl: 2rem;       /* 32px */
+  --nm-space-2xl: 3rem;      /* 48px */
+  --nm-space-3xl: 4rem;      /* 64px */
+
+  /* === 圆角系统 - 微弧度 === */
+  --nm-radius-none: 0;
+  --nm-radius-sm: 0.25rem;   /* 4px */
+  --nm-radius-md: 0.5rem;    /* 8px */
+  --nm-radius-lg: 0.75rem;   /* 12px */
+  --nm-radius-xl: 1rem;      /* 16px */
+  --nm-radius-full: 9999px;
+
+  /* === 阴影系统 - 发光层 === */
+  --nm-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --nm-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --nm-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --nm-shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  --nm-shadow-glow: 0 0 20px var(--nm-primary-glow);
+  --nm-shadow-glow-secondary: 0 0 20px var(--nm-secondary-glow);
+
+  /* === 动效系统 - 神经脉冲 === */
+  --nm-transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --nm-transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --nm-transition-slow: 350ms cubic-bezier(0.4, 0, 0.2, 1);
+  --nm-transition-bounce: 400ms cubic-bezier(0.68, -0.55, 0.265, 1.55);
+
+  /* === 层级系统 === */
+  --nm-z-background: -10;
+  --nm-z-particles: -5;
+  --nm-z-base: 0;
+  --nm-z-elevated: 10;
+  --nm-z-sticky: 20;
+  --nm-z-dropdown: 30;
+  --nm-z-modal: 40;
+  --nm-z-popover: 50;
+  --nm-z-tooltip: 60;
+  --nm-z-toast: 70;
+}
+
+/* === 基础重置 === */
+.nm-reset {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: var(--nm-font-body);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* === 神经背景效果 === */
+.nm-neuro-bg {
+  position: relative;
+  background: var(--nm-bg-deep);
+  overflow: hidden;
+}
+
+.nm-neuro-bg::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background:
+    radial-gradient(circle at 20% 80%, var(--nm-primary-glow) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, var(--nm-secondary-glow) 0%, transparent 50%),
+    linear-gradient(45deg, rgba(0, 0, 0, 0.1) 1px, transparent 1px),
+    linear-gradient(-45deg, rgba(0, 0, 0, 0.1) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 50px 50px, 50px 50px;
+  opacity: 0.3;
+  z-index: var(--nm-z-background);
+  pointer-events: none;
+}
+
+/* === 神经粒子效果 === */
+.nm-particle-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  z-index: var(--nm-z-particles);
+  pointer-events: none;
+}
+
+.nm-particle {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  background: var(--nm-primary);
+  border-radius: 50%;
+  filter: blur(1px);
+  animation: nm-particle-float 20s infinite linear;
+}
+
+@keyframes nm-particle-float {
+  0% {
+    transform: translateY(100vh) translateX(0);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.8;
+  }
+  90% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateY(-100px) translateX(100px);
+    opacity: 0;
+  }
+}
+
+/* === 神经连接线 === */
+.nm-connection-line {
+  position: absolute;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--nm-primary), transparent);
+  transform-origin: left center;
+  animation: nm-connection-pulse 3s infinite;
+}
+
+@keyframes nm-connection-pulse {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scaleX(0.8);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scaleX(1);
+  }
+}
+
+/* === 排版系统 === */
+.nm-display-1 {
+  font-family: var(--nm-font-display);
+  font-size: 3.5rem;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  background: linear-gradient(135deg, var(--nm-primary) 0%, var(--nm-secondary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.nm-display-2 {
+  font-family: var(--nm-font-display);
+  font-size: 2.5rem;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--nm-text-primary);
+}
+
+.nm-heading-1 {
+  font-family: var(--nm-font-ui);
+  font-size: 2rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--nm-text-primary);
+}
+
+.nm-heading-2 {
+  font-family: var(--nm-font-ui);
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--nm-text-primary);
+}
+
+.nm-heading-3 {
+  font-family: var(--nm-font-ui);
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--nm-text-primary);
+}
+
+.nm-body-large {
+  font-family: var(--nm-font-body);
+  font-size: 1.125rem;
+  line-height: 1.6;
+  color: var(--nm-text-primary);
+}
+
+.nm-body {
+  font-family: var(--nm-font-body);
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--nm-text-primary);
+}
+
+.nm-body-small {
+  font-family: var(--nm-font-body);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--nm-text-secondary);
+}
+
+.nm-caption {
+  font-family: var(--nm-font-body);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--nm-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.nm-code {
+  font-family: var(--nm-font-display);
+  font-size: 0.875rem;
+  background: rgba(0, 245, 212, 0.1);
+  color: var(--nm-primary);
+  padding: var(--nm-space-2xs) var(--nm-space-xs);
+  border-radius: var(--nm-radius-sm);
+  border: 1px solid rgba(0, 245, 212, 0.2);
+}
+
+/* === 按钮系统 === */
+.nm-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--nm-space-xs);
+  padding: var(--nm-space-sm) var(--nm-space-lg);
+  font-family: var(--nm-font-ui);
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1;
+  border: none;
+  border-radius: var(--nm-radius-md);
+  cursor: pointer;
+  transition: all var(--nm-transition-normal);
+  position: relative;
+  overflow: hidden;
+  outline: none;
+  user-select: none;
+}
+
+.nm-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  transition: left var(--nm-transition-slow);
+}
+
+.nm-btn:hover::before {
+  left: 100%;
+}
+
+.nm-btn-primary,
+.nm-btn--primary {
+  background: linear-gradient(135deg, var(--nm-primary) 0%, #00c9a7 100%);
+  color: var(--nm-text-on-dark);
+  box-shadow: 0 4px 14px 0 var(--nm-primary-glow);
+}
+
+.nm-btn-primary:hover,
+.nm-btn--primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px 0 var(--nm-primary-glow);
+}
+
+.nm-btn-primary:active,
+.nm-btn--primary:active {
+  transform: translateY(0);
+}
+
+.nm-btn-secondary,
+.nm-btn--secondary {
+  background: transparent;
+  color: var(--nm-primary);
+  border: 1px solid var(--nm-primary);
+  box-shadow: 0 0 0 1px transparent;
+}
+
+.nm-btn-secondary:hover,
+.nm-btn--secondary:hover {
+  background: rgba(0, 245, 212, 0.1);
+  box-shadow: 0 0 0 1px var(--nm-primary);
+}
+
+.nm-btn-ghost,
+.nm-btn--ghost {
+  background: transparent;
+  color: var(--nm-text-secondary);
+  border: 1px solid var(--nm-border);
+}
+
+.nm-btn-ghost:hover,
+.nm-btn--ghost:hover {
+  background: var(--nm-bg-card);
+  color: var(--nm-text-primary);
+  border-color: var(--nm-primary);
+}
+
+.nm-btn-danger,
+.nm-btn--danger {
+  background: linear-gradient(135deg, var(--nm-error) 0%, #dc2626 100%);
+  color: white;
+  box-shadow: 0 4px 14px 0 rgba(239, 68, 68, 0.3);
+}
+
+.nm-btn-danger:hover,
+.nm-btn--danger:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px 0 rgba(239, 68, 68, 0.4);
+}
+
+.nm-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+.nm-btn-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  stroke-width: 2;
+}
+
+/* === 卡片系统 === */
+.nm-card {
+  background: var(--nm-bg-card);
+  border: 1px solid var(--nm-border);
+  border-radius: var(--nm-radius-lg);
+  position: relative;
+  overflow: hidden;
+  transition: all var(--nm-transition-normal);
+}
+
+.nm-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--nm-primary), transparent);
+  opacity: 0;
+  transition: opacity var(--nm-transition-normal);
+}
+
+.nm-card:hover {
+  border-color: var(--nm-primary);
+  transform: translateY(-4px);
+  box-shadow: var(--nm-shadow-glow);
+}
+
+.nm-card:hover::before {
+  opacity: 1;
+}
+
+.nm-card-elevated {
+  background: var(--nm-bg-elevated);
+  border: 1px solid rgba(0, 245, 212, 0.2);
+  box-shadow: var(--nm-shadow-lg), var(--nm-shadow-glow);
+}
+
+.nm-card-interactive {
+  cursor: pointer;
+}
+
+.nm-card-interactive:hover {
+  border-color: var(--nm-primary);
+  transform: translateY(-4px);
+  box-shadow: var(--nm-shadow-glow);
+}
+
+/* === 表单系统 === */
+.nm-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nm-space-xs);
+}
+
+.nm-form-label {
+  font-family: var(--nm-font-ui);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--nm-text-primary);
+}
+
+.nm-form-input {
+  padding: var(--nm-space-sm) var(--nm-space-md);
+  background: var(--nm-bg-surface);
+  border: 1px solid var(--nm-border);
+  border-radius: var(--nm-radius-md);
+  font-family: var(--nm-font-body);
+  font-size: 0.875rem;
+  color: var(--nm-text-primary);
+  transition: all var(--nm-transition-fast);
+  outline: none;
+}
+
+.nm-form-input:hover {
+  border-color: var(--nm-primary);
+}
+
+.nm-form-input:focus {
+  border-color: var(--nm-primary);
+  box-shadow: 0 0 0 3px var(--nm-primary-glow);
+}
+
+.nm-form-input::placeholder {
+  color: var(--nm-text-muted);
+}
+
+.nm-form-select {
+  padding: var(--nm-space-sm) var(--nm-space-md);
+  background: var(--nm-bg-surface);
+  border: 1px solid var(--nm-border);
+  border-radius: var(--nm-radius-md);
+  font-family: var(--nm-font-body);
+  font-size: 0.875rem;
+  color: var(--nm-text-primary);
+  cursor: pointer;
+  transition: all var(--nm-transition-fast);
+  outline: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2300f5d4'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 1rem;
+}
+
+.nm-form-select:hover {
+  border-color: var(--nm-primary);
+}
+
+.nm-form-select:focus {
+  border-color: var(--nm-primary);
+  box-shadow: 0 0 0 3px var(--nm-primary-glow);
+}
+
+.nm-form-textarea {
+  padding: var(--nm-space-sm) var(--nm-space-md);
+  background: var(--nm-bg-surface);
+  border: 1px solid var(--nm-border);
+  border-radius: var(--nm-radius-md);
+  font-family: var(--nm-font-body);
+  font-size: 0.875rem;
+  color: var(--nm-text-primary);
+  transition: all var(--nm-transition-fast);
+  outline: none;
+  resize: vertical;
+  min-height: 80px;
+}
+
+.nm-form-textarea:hover {
+  border-color: var(--nm-primary);
+}
+
+.nm-form-textarea:focus {
+  border-color: var(--nm-primary);
+  box-shadow: 0 0 0 3px var(--nm-primary-glow);
+}
+
+/* === 标签系统 === */
+.nm-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--nm-space-2xs);
+  padding: var(--nm-space-2xs) var(--nm-space-sm);
+  font-family: var(--nm-font-ui);
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: var(--nm-radius-full);
+  transition: all var(--nm-transition-fast);
+}
+
+.nm-tag-primary {
+  background: rgba(0, 245, 212, 0.1);
+  color: var(--nm-primary);
+  border: 1px solid rgba(0, 245, 212, 0.2);
+}
+
+.nm-tag-secondary {
+  background: rgba(157, 78, 221, 0.1);
+  color: var(--nm-secondary);
+  border: 1px solid rgba(157, 78, 221, 0.2);
+}
+
+.nm-tag-success {
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--nm-success);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.nm-tag-warning {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--nm-warning);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.nm-tag-error {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--nm-error);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+/* === 徽章系统 === */
+.nm-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--nm-space-2xs);
+  padding: var(--nm-space-2xs) var(--nm-space-sm);
+  font-family: var(--nm-font-ui);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-radius: var(--nm-radius-sm);
+}
+
+.nm-badge-active {
+  background: rgba(0, 245, 212, 0.15);
+  color: var(--nm-primary);
+  border: 1px solid rgba(0, 245, 212, 0.3);
+  box-shadow: 0 0 8px rgba(0, 245, 212, 0.2);
+}
+
+.nm-badge-pending {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--nm-warning);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.2);
+}
+
+.nm-badge-completed {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--nm-info);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.2);
+}
+
+/* === 加载状态 === */
+.nm-loading {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nm-loading-spinner {
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 2px solid var(--nm-border);
+  border-top-color: var(--nm-primary);
+  border-radius: 50%;
+  animation: nm-spin 1s linear infinite;
+}
+
+@keyframes nm-spin {
+  to { transform: rotate(360deg); }
+}
+
+.nm-loading-pulse {
+  width: 0.5rem;
+  height: 0.5rem;
+  background: var(--nm-primary);
+  border-radius: 50%;
+  animation: nm-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes nm-pulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+
+/* === 工具类 === */
+.nm-container {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 var(--nm-space-lg);
+}
+
+.nm-grid {
+  display: grid;
+  gap: var(--nm-space-lg);
+}
+
+.nm-grid-2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.nm-grid-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.nm-grid-4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.nm-flex {
+  display: flex;
+}
+
+.nm-flex-col {
+  flex-direction: column;
+}
+
+.nm-items-center {
+  align-items: center;
+}
+
+.nm-justify-between {
+  justify-content: space-between;
+}
+
+.nm-gap-sm {
+  gap: var(--nm-space-sm);
+}
+
+.nm-gap-md {
+  gap: var(--nm-space-md);
+}
+
+.nm-gap-lg {
+  gap: var(--nm-space-lg);
+}
+
+.nm-p-sm {
+  padding: var(--nm-space-sm);
+}
+
+.nm-p-md {
+  padding: var(--nm-space-md);
+}
+
+.nm-p-lg {
+  padding: var(--nm-space-lg);
+}
+
+.nm-p-xl {
+  padding: var(--nm-space-xl);
+}
+
+.nm-mt-sm {
+  margin-top: var(--nm-space-sm);
+}
+
+.nm-mt-md {
+  margin-top: var(--nm-space-md);
+}
+
+.nm-mt-lg {
+  margin-top: var(--nm-space-lg);
+}
+
+.nm-mb-sm {
+  margin-bottom: var(--nm-space-sm);
+}
+
+.nm-mb-md {
+  margin-bottom: var(--nm-space-md);
+}
+
+.nm-mb-lg {
+  margin-bottom: var(--nm-space-lg);
+}
+
+/* === 响应式设计 === */
+@media (max-width: 1024px) {
+  .nm-grid-4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .nm-grid-2,
+  .nm-grid-3,
+  .nm-grid-4 {
+    grid-template-columns: 1fr;
+  }
+
+  .nm-container {
+    padding: 0 var(--nm-space-md);
+  }
+
+  .nm-display-1 {
+    font-size: 2.5rem;
+  }
+
+  .nm-display-2 {
+    font-size: 2rem;
+  }
+}
+
+/* === 神经矩阵主题应用到body === */
+body.nm-theme {
+  background: var(--nm-bg-deep);
+  color: var(--nm-text-primary);
+  font-family: var(--nm-font-body);
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+body.nm-theme::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background:
+    radial-gradient(circle at 20% 80%, var(--nm-primary-glow) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, var(--nm-secondary-glow) 0%, transparent 50%);
+  opacity: 0.1;
+  z-index: -1;
+  pointer-events: none;
+}

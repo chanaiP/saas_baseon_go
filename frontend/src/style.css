@@ -1,0 +1,1370 @@
+/* 神经矩阵设计系统 */
+@import './styles/neuro-matrix.css';
+
+/* 神经矩阵主题变量覆盖 */
+:root {
+  /* 使用神经矩阵颜色系统 */
+  --text: var(--nm-text-secondary);
+  --text-h: var(--nm-text-primary);
+  --bg: var(--nm-bg-deep);
+  --border: var(--nm-border);
+  --code-bg: rgba(0, 245, 212, 0.1);
+  --accent: var(--nm-primary);
+  --accent-bg: rgba(0, 245, 212, 0.1);
+  --accent-border: rgba(0, 245, 212, 0.3);
+  --social-bg: rgba(0, 245, 212, 0.05);
+  --shadow: var(--nm-shadow-lg);
+
+  /* 使用神经矩阵字体系统 */
+  --sans: var(--nm-font-body);
+  --heading: var(--nm-font-ui);
+  --mono: var(--nm-font-display);
+
+  font: 18px/145% var(--sans);
+  letter-spacing: 0.18px;
+  color-scheme: dark;
+  color: var(--text);
+  background: var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  @media (max-width: 1024px) {
+    font-size: 16px;
+  }
+}
+
+/* 单一滚动源：浏览器文档滚动条；html/body/#app 全部不再设置自己的 overflow。 */
+html {
+  min-height: 100%;
+  overflow-x: hidden;
+}
+
+/* 应用神经矩阵主题到body */
+body {
+  background: var(--nm-bg-deep);
+  color: var(--nm-text-primary);
+  font-family: var(--nm-font-body);
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  overflow: visible;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background:
+    radial-gradient(circle at 20% 80%, var(--nm-primary-glow) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, var(--nm-secondary-glow) 0%, transparent 50%);
+  opacity: 0.1;
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* 神经矩阵主题始终为深色，移除浅色主题支持 */
+#social .button-icon {
+  filter: invert(1) brightness(2);
+}
+
+/* 业务页卡片与表格不撑破视口 */
+.el-card {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+h1,
+h2 {
+  font-family: var(--heading);
+  font-weight: 500;
+  color: var(--text-h);
+}
+
+h1 {
+  font-size: 56px;
+  letter-spacing: -1.68px;
+  margin: 32px 0;
+  @media (max-width: 1024px) {
+    font-size: 36px;
+    margin: 20px 0;
+  }
+}
+h2 {
+  font-size: 24px;
+  line-height: 118%;
+  letter-spacing: -0.24px;
+  margin: 0 0 8px;
+  @media (max-width: 1024px) {
+    font-size: 20px;
+  }
+}
+p {
+  margin: 0;
+}
+
+code,
+.counter {
+  font-family: var(--mono);
+  display: inline-flex;
+  border-radius: 4px;
+  color: var(--text-h);
+}
+
+code {
+  font-size: 15px;
+  line-height: 135%;
+  padding: 4px 8px;
+  background: var(--code-bg);
+}
+
+.counter {
+  font-size: 16px;
+  padding: 5px 10px;
+  border-radius: 5px;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border: 2px solid transparent;
+  transition: border-color 0.3s;
+  margin-bottom: 24px;
+
+  &:hover {
+    border-color: var(--accent-border);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+.hero {
+  position: relative;
+
+  .base,
+  .framework,
+  .vite {
+    inset-inline: 0;
+    margin: 0 auto;
+  }
+
+  .base {
+    width: 170px;
+    position: relative;
+    z-index: 0;
+  }
+
+  .framework,
+  .vite {
+    position: absolute;
+  }
+
+  .framework {
+    z-index: 1;
+    top: 34px;
+    height: 28px;
+    transform: perspective(2000px) rotateZ(300deg) rotateX(44deg) rotateY(39deg)
+      scale(1.4);
+  }
+
+  .vite {
+    z-index: 0;
+    top: 107px;
+    height: 26px;
+    width: auto;
+    transform: perspective(2000px) rotateZ(300deg) rotateX(40deg) rotateY(39deg)
+      scale(0.8);
+  }
+}
+
+/* 管理后台全宽布局；勿使用 Vite 模板的固定 1126px + 居中，否则会破坏响应式 */
+/* 块级文档流：勿对 #app 做 flex 列 + 子项 flex:1，否则整棵路由树会被沿主轴多抻一截，所有页面的 scrollHeight 一起偏大 */
+#app {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  text-align: initial;
+  display: block;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+#center {
+  display: flex;
+  flex-direction: column;
+  gap: 25px;
+  place-content: center;
+  place-items: center;
+  flex-grow: 1;
+
+  @media (max-width: 1024px) {
+    padding: 32px 20px 24px;
+    gap: 18px;
+  }
+}
+
+#next-steps {
+  display: flex;
+  border-top: 1px solid var(--border);
+  text-align: left;
+
+  & > div {
+    flex: 1 1 0;
+    padding: 32px;
+    @media (max-width: 1024px) {
+      padding: 24px 20px;
+    }
+  }
+
+  .icon {
+    margin-bottom: 16px;
+    width: 22px;
+    height: 22px;
+  }
+
+  @media (max-width: 1024px) {
+    flex-direction: column;
+    text-align: center;
+  }
+}
+
+#docs {
+  border-right: 1px solid var(--border);
+
+  @media (max-width: 1024px) {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+}
+
+#next-steps ul {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  gap: 8px;
+  margin: 32px 0 0;
+
+  .logo {
+    height: 18px;
+  }
+
+  a {
+    color: var(--text-h);
+    font-size: 16px;
+    border-radius: 6px;
+    background: var(--social-bg);
+    display: flex;
+    padding: 6px 12px;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+    transition: box-shadow 0.3s;
+
+    &:hover {
+      box-shadow: var(--shadow);
+    }
+    .button-icon {
+      height: 18px;
+      width: 18px;
+    }
+  }
+
+  @media (max-width: 1024px) {
+    margin-top: 20px;
+    flex-wrap: wrap;
+    justify-content: center;
+
+    li {
+      flex: 1 1 calc(50% - 8px);
+    }
+
+    a {
+      width: 100%;
+      justify-content: center;
+      box-sizing: border-box;
+    }
+  }
+}
+
+#spacer {
+  height: 88px;
+  border-top: 1px solid var(--border);
+  @media (max-width: 1024px) {
+    height: 48px;
+  }
+}
+
+.ticks {
+  position: relative;
+  width: 100%;
+
+  &::before,
+  &::after {
+    content: '';
+    position: absolute;
+    top: -4.5px;
+    border: 5px solid transparent;
+  }
+
+  &::before {
+    left: 0;
+    border-left-color: var(--border);
+  }
+  &::after {
+    right: 0;
+    border-right-color: var(--border);
+  }
+}
+
+/* —— 管理后台：神经矩阵主题 —— */
+.admin-shell {
+  font-family: var(--nm-font-body);
+  --font-display: var(--nm-font-ui);
+  /* 神经矩阵动效 */
+  --shell-ease-standard: var(--nm-transition-normal);
+  --shell-ease-emphasized: var(--nm-transition-slow);
+  --shell-ease-out: var(--nm-transition-normal);
+  --shell-ease-soft: var(--nm-transition-bounce);
+  --shell-t-fast: 0.15s;
+  --shell-t-med: 0.25s;
+  --shell-t-slow: 0.35s;
+  --shell-line: 1.5;
+  --shell-line-heading: 1.3;
+  --shell-space: var(--nm-space-lg);
+
+  --pro-border: var(--nm-border);
+  --pro-menu-active-bg: linear-gradient(90deg, rgba(0, 245, 212, 0.12), rgba(0, 245, 212, 0));
+  --pro-menu-parent-active: rgba(0, 245, 212, 0.92);
+  --shell-aside-bg: var(--nm-bg-surface);
+  --shell-border: var(--nm-border);
+  --shell-header-bg: var(--nm-bg-surface);
+  --shell-panel-bg: var(--nm-bg-card);
+  --shell-brand-text: var(--nm-text-primary);
+  --shell-main-bg: transparent;
+  --shell-menu-text: var(--nm-text-secondary);
+  --shell-menu-hover: rgba(0, 245, 212, 0.07);
+  --shell-body-gradient: linear-gradient(168deg, var(--nm-bg-deep) 0%, var(--nm-bg-surface) 38%, var(--nm-bg-card) 100%);
+  --shell-canvas-glow: radial-gradient(ellipse 100% 58% at 50% -5%, var(--nm-primary-glow) 0%, transparent 55%);
+  --shell-grid-fade: rgba(0, 245, 212, 0.04);
+
+  --el-color-primary: var(--nm-primary);
+  --el-color-primary-light-3: rgba(0, 245, 212, 0.7);
+  --el-color-primary-light-5: rgba(0, 245, 212, 0.5);
+  --el-color-primary-light-7: rgba(0, 245, 212, 0.3);
+  --el-color-primary-light-9: rgba(0, 245, 212, 0.1);
+  --el-color-primary-dark-2: #00c9a7;
+}
+
+/* 宽行距仅后台页；登录路由不含 .login-page-root 于 body 直子时可改用 :has（此处 #app 内挂载） */
+html.admin-shell body:not(:has(.login-page-root)) {
+  line-height: var(--shell-line);
+}
+
+html.admin-shell body {
+  transition:
+    background-color var(--shell-t-slow) var(--shell-ease-out),
+    color var(--shell-t-slow) var(--shell-ease-out);
+}
+
+.admin-shell:not(.dark) {
+  color-scheme: light;
+}
+
+.admin-shell:not(.dark) body {
+  background: var(--shell-body-gradient);
+  background-attachment: fixed;
+}
+
+.admin-shell.dark {
+  color-scheme: dark;
+}
+
+.admin-shell.dark body {
+  background: var(--shell-body-gradient);
+  background-attachment: fixed;
+}
+
+/* 神经矩阵主题始终为深色，移除浅色主题 */
+.admin-shell:not(.dark) {
+  color-scheme: dark;
+}
+
+.admin-shell:not(.dark) body {
+  background: var(--shell-body-gradient);
+  background-attachment: fixed;
+}
+
+.admin-shell.dark {
+  color-scheme: dark;
+}
+
+.admin-shell.dark body {
+  background: var(--shell-body-gradient);
+  background-attachment: fixed;
+}
+
+/* 壳层区块：主题切换时背景与阴影柔和过渡 */
+html.admin-shell .shell-top,
+html.admin-shell .shell-brand-col,
+html.admin-shell .aside {
+  transition:
+    background-color var(--shell-t-slow) var(--shell-ease-out),
+    box-shadow var(--shell-t-slow) var(--shell-ease-out),
+    backdrop-filter var(--shell-t-slow) var(--shell-ease-out);
+}
+
+.admin-shell .el-card {
+  --el-card-border-color: var(--nm-border);
+  border-radius: var(--nm-radius-lg);
+  border: 1px solid var(--nm-border);
+  background: var(--nm-bg-card);
+  box-shadow: var(--nm-shadow-md);
+  transition: all var(--nm-transition-normal);
+  position: relative;
+  overflow: hidden;
+}
+
+.admin-shell .el-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--nm-primary), transparent);
+  opacity: 0;
+  transition: opacity var(--nm-transition-normal);
+}
+
+.admin-shell .el-card:hover {
+  border-color: var(--nm-primary);
+  box-shadow: var(--nm-shadow-glow);
+  transform: translateY(-4px);
+}
+
+.admin-shell .el-card:hover::before {
+  opacity: 1;
+}
+
+/* 顶栏：雾面叠在冷色渐变上 */
+.admin-shell .shell-top {
+  backdrop-filter: blur(14px) saturate(1.08);
+  -webkit-backdrop-filter: blur(14px) saturate(1.08);
+  background: var(--shell-header-bg);
+  border-bottom: 1px solid var(--shell-border);
+  box-shadow: none;
+}
+
+.admin-shell.dark .shell-top {
+  box-shadow: none;
+}
+
+/* 侧栏：与画布同温，细竖线分割 */
+.admin-shell .shell-brand-col,
+.admin-shell .aside {
+  background: var(--shell-aside-bg);
+  border-right: 1px solid var(--shell-border);
+  box-shadow: none;
+}
+
+.admin-shell.dark .shell-brand-col,
+.admin-shell.dark .aside {
+  box-shadow: none;
+}
+
+/* 主布局容器：不铺实色，让 body 渐变贯通顶栏—标签—内容 */
+html.admin-shell .layout.ant-pro-layout {
+  background: transparent;
+}
+
+.admin-shell .main-wrap.el-container,
+.admin-shell .main-wrap .el-container {
+  background: transparent;
+}
+
+.admin-shell .el-main {
+  background: transparent;
+}
+
+html.admin-shell .tabs-wrap {
+  background: var(--shell-panel-bg);
+  backdrop-filter: blur(12px) saturate(1.06);
+  -webkit-backdrop-filter: blur(12px) saturate(1.06);
+  border-bottom: 1px solid var(--shell-border);
+  transition:
+    background-color var(--shell-t-slow) var(--shell-ease-standard),
+    border-color var(--shell-t-slow) var(--shell-ease-standard),
+    backdrop-filter var(--shell-t-slow) var(--shell-ease-standard);
+}
+
+.admin-shell.dark .tabs-wrap {
+  background: var(--shell-panel-bg);
+  border-bottom-color: var(--shell-border);
+}
+
+/* 主内容区：纯色底上的轻渐变（不抢内容） */
+.admin-shell .main {
+  position: relative;
+  z-index: 0;
+  background: transparent;
+}
+
+.admin-shell .main::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--shell-canvas-glow);
+  opacity: 1;
+  border-radius: 0;
+  transition: opacity var(--shell-t-slow) var(--shell-ease-standard);
+}
+
+/* 极淡控制台网格（主内容区），强化 Agent/工具感但不抢眼 */
+.admin-shell .main::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 1;
+  background-image:
+    linear-gradient(var(--shell-grid-fade) 1px, transparent 1px),
+    linear-gradient(90deg, var(--shell-grid-fade) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.45) 0%, rgba(0, 0, 0, 0.12) 38%, transparent 78%);
+  transition: opacity var(--shell-t-slow) var(--shell-ease-standard);
+}
+
+/* 后台按钮：扁平、无位移；加宽内边距与圆角，避免「细条」感；排除登录页 */
+html.admin-shell .layout.ant-pro-layout .el-button,
+html.admin-shell .el-drawer .el-button,
+html.admin-shell .el-dialog:not(.login-tech-dialog) .el-button {
+  font-family: 'IBM Plex Sans', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  transition:
+    background-color var(--shell-t-med) var(--shell-ease-standard),
+    border-color var(--shell-t-med) var(--shell-ease-standard),
+    color var(--shell-t-med) var(--shell-ease-standard),
+    box-shadow var(--shell-t-med) var(--shell-ease-standard);
+}
+
+/* 实心/默认/朴素按钮：更舒展的点击区域（不含圆形、文字链、纯 text） */
+html.admin-shell .layout.ant-pro-layout .el-button:not(.is-circle):not(.is-link):not(.is-text),
+html.admin-shell .el-drawer .el-button:not(.is-circle):not(.is-link):not(.is-text),
+html.admin-shell .el-dialog:not(.login-tech-dialog) .el-button:not(.is-circle):not(.is-link):not(.is-text) {
+  border-radius: 9px;
+  padding: 10px 22px;
+  min-height: 38px;
+  box-sizing: border-box;
+}
+
+html.admin-shell .layout.ant-pro-layout .el-button--small:not(.is-circle):not(.is-link):not(.is-text),
+html.admin-shell .el-drawer .el-button--small:not(.is-circle):not(.is-link):not(.is-text),
+html.admin-shell .el-dialog:not(.login-tech-dialog) .el-button--small:not(.is-circle):not(.is-link):not(.is-text) {
+  font-size: 13px;
+  padding: 8px 18px;
+  min-height: 34px;
+  border-radius: 8px;
+}
+
+html.admin-shell .layout.ant-pro-layout .el-button--large:not(.is-circle):not(.is-link):not(.is-text),
+html.admin-shell .el-drawer .el-button--large:not(.is-circle):not(.is-link):not(.is-text),
+html.admin-shell .el-dialog:not(.login-tech-dialog) .el-button--large:not(.is-circle):not(.is-link):not(.is-text) {
+  font-size: 15px;
+  padding: 12px 28px;
+  min-height: 44px;
+  border-radius: 10px;
+}
+
+html.admin-shell .layout.ant-pro-layout .el-button--primary,
+html.admin-shell .el-drawer .el-button--primary,
+html.admin-shell .el-dialog:not(.login-tech-dialog) .el-button--primary {
+  --el-button-text-color: var(--nm-text-on-dark);
+  --el-button-hover-text-color: var(--nm-text-on-dark);
+  --el-button-active-text-color: var(--nm-text-on-dark);
+  --el-button-hover-bg-color: transparent;
+  --el-button-active-bg-color: transparent;
+  border: 1px solid rgba(0, 245, 212, 0.3);
+  box-shadow: 0 4px 14px 0 var(--nm-primary-glow);
+  background: linear-gradient(135deg, var(--nm-primary) 0%, #00c9a7 100%);
+  filter: none;
+  transition: all var(--nm-transition-normal);
+}
+
+html.admin-shell .layout.ant-pro-layout .el-button--primary:hover,
+html.admin-shell .el-drawer .el-button--primary:hover,
+html.admin-shell .el-dialog:not(.login-tech-dialog) .el-button--primary:hover {
+  filter: none;
+  border-color: var(--nm-primary);
+  box-shadow: 0 6px 20px 0 var(--nm-primary-glow);
+  transform: translateY(-2px);
+  background: linear-gradient(135deg, var(--nm-primary) 0%, #00c9a7 100%);
+}
+
+html.admin-shell .layout.ant-pro-layout .el-button--primary:active,
+html.admin-shell .el-drawer .el-button--primary:active,
+html.admin-shell .el-dialog:not(.login-tech-dialog) .el-button--primary:active {
+  transform: translateY(0);
+  filter: none;
+  box-shadow: 0 4px 14px 0 var(--nm-primary-glow);
+  background: linear-gradient(135deg, #00c9a7 0%, var(--nm-primary) 100%);
+  transition-duration: var(--shell-t-fast);
+}
+
+html.admin-shell .layout.ant-pro-layout .el-button:focus-visible,
+html.admin-shell .el-drawer .el-button:focus-visible,
+html.admin-shell .el-dialog:not(.login-tech-dialog) .el-button:focus-visible {
+  outline: 2px solid var(--el-color-primary-light-5);
+  outline-offset: 2px;
+}
+
+html.admin-shell .layout.ant-pro-layout .el-button.is-plain:focus-visible,
+html.admin-shell .layout.ant-pro-layout .el-button.is-link:focus-visible,
+html.admin-shell .el-drawer .el-button.is-plain:focus-visible,
+html.admin-shell .el-drawer .el-button.is-link:focus-visible,
+html.admin-shell .el-dialog:not(.login-tech-dialog) .el-button.is-plain:focus-visible,
+html.admin-shell .el-dialog:not(.login-tech-dialog) .el-button.is-link:focus-visible {
+  outline-offset: 3px;
+}
+
+html.admin-shell .layout.ant-pro-layout .el-button--default:hover,
+html.admin-shell .layout.ant-pro-layout .el-button.is-plain:hover,
+html.admin-shell .el-drawer .el-button--default:hover,
+html.admin-shell .el-drawer .el-button.is-plain:hover,
+html.admin-shell .el-dialog:not(.login-tech-dialog) .el-button--default:hover,
+html.admin-shell .el-dialog:not(.login-tech-dialog) .el-button.is-plain:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.admin-shell.dark .layout.ant-pro-layout .el-button--default:hover,
+.admin-shell.dark .layout.ant-pro-layout .el-button.is-plain:hover,
+.admin-shell.dark .el-drawer .el-button--default:hover,
+.admin-shell.dark .el-drawer .el-button.is-plain:hover,
+.admin-shell.dark .el-dialog:not(.login-tech-dialog) .el-button--default:hover,
+.admin-shell.dark .el-dialog:not(.login-tech-dialog) .el-button.is-plain:hover {
+  box-shadow: none;
+}
+
+/* 列表表格：神经矩阵风格 */
+.admin-shell .el-table {
+  --el-table-border-color: var(--nm-border);
+  --el-table-header-bg-color: rgba(0, 245, 212, 0.08);
+  --el-table-row-hover-bg-color: rgba(0, 245, 212, 0.05);
+  border-radius: var(--nm-radius-lg);
+  overflow: hidden;
+  background: var(--nm-bg-card);
+  border: 1px solid var(--nm-border);
+}
+
+/* NeuroAgentListPage：表格随文档撑高，避免根节点 overflow:hidden 与内层滚动条叠加成双滚动 */
+html.admin-shell .el-table.neuro-el-table {
+  overflow: visible;
+}
+
+.admin-shell .el-table th.el-table__cell {
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  font-size: 13px;
+  line-height: var(--shell-line-heading);
+  font-family: var(--nm-font-ui);
+  color: var(--nm-text-primary);
+  background: rgba(0, 245, 212, 0.1);
+  border-bottom: 1px solid var(--nm-border);
+}
+
+.admin-shell .el-table .cell {
+  line-height: 1.58;
+  padding-top: 12px;
+  padding-bottom: 12px;
+  font-family: var(--nm-font-body);
+  color: var(--nm-text-primary);
+}
+
+.admin-shell .el-table__body tr:hover > td.el-table__cell {
+  background-color: rgba(0, 245, 212, 0.05) !important;
+}
+
+.admin-shell .el-table__body tr.el-table__row--striped {
+  background-color: rgba(0, 245, 212, 0.02);
+}
+
+/* 列表页常用 el-card 标题与 .pro-card-block 区段标题统一气质 */
+.admin-shell .el-card__header {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  line-height: var(--shell-line-heading);
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--pro-border);
+}
+
+.admin-shell .el-card__body {
+  padding: 22px 24px 24px;
+  line-height: var(--shell-line);
+}
+
+/* Ant Design Pro 式页面容器（仪表盘 / 列表 / 表单 / 详情） */
+.admin-shell .pro-page {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* 列表页：顶栏标题 + 操作区（置于白卡片上方） */
+.admin-shell .pro-page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: var(--shell-space, 24px);
+}
+
+.admin-shell .pro-page-header__title {
+  margin: 0;
+  font-family: var(--nm-font-display);
+  font-size: 2rem;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  background: linear-gradient(135deg, var(--nm-primary) 0%, var(--nm-secondary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.admin-shell .pro-page-header__desc {
+  margin: var(--nm-space-sm) 0 0;
+  font-size: 1rem;
+  color: var(--nm-text-secondary);
+  line-height: 1.6;
+  max-width: 56ch;
+  font-family: var(--nm-font-body);
+}
+
+.admin-shell .pro-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: var(--shell-space, 24px);
+}
+
+/* 内容区：神经矩阵卡片 */
+.admin-shell .pro-card-block {
+  background: var(--nm-bg-card);
+  backdrop-filter: blur(10px) saturate(1.05);
+  -webkit-backdrop-filter: blur(10px) saturate(1.05);
+  border: 1px solid var(--nm-border);
+  border-radius: var(--nm-radius-lg);
+  padding: var(--nm-space-xl);
+  box-sizing: border-box;
+  box-shadow: var(--nm-shadow-md);
+  transition: all var(--nm-transition-normal);
+  position: relative;
+  overflow: hidden;
+}
+
+.admin-shell .pro-card-block::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--nm-primary), transparent);
+  opacity: 0;
+  transition: opacity var(--nm-transition-normal);
+}
+
+.admin-shell .pro-card-block:hover {
+  border-color: var(--nm-primary);
+  box-shadow: var(--nm-shadow-glow);
+  transform: translateY(-2px);
+}
+
+.admin-shell .pro-card-block:hover::before {
+  opacity: 1;
+}
+
+.admin-shell .pro-card-block + .pro-card-block {
+  margin-top: var(--shell-space, 24px);
+}
+
+.admin-shell .pro-card-block__title {
+  margin: 0 0 calc(var(--shell-space, 24px) * 0.75);
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: var(--shell-line-heading);
+  color: var(--el-text-color-primary);
+}
+
+.admin-shell.dark .pro-card-block__title {
+  color: rgba(232, 244, 255, 0.92);
+}
+
+/* 表单：后台 / 抽屉 / 非登录弹窗内；不影响登录页 */
+html.admin-shell .layout.ant-pro-layout .el-form-item,
+html.admin-shell .el-drawer .el-form-item,
+html.admin-shell .el-dialog:not(.login-tech-dialog) .el-form-item {
+  margin-bottom: var(--shell-space, 24px);
+}
+
+html.admin-shell .layout.ant-pro-layout .el-form-item__label,
+html.admin-shell .el-drawer .el-form-item__label,
+html.admin-shell .el-dialog:not(.login-tech-dialog) .el-form-item__label {
+  line-height: 1.6;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+html.admin-shell .layout.ant-pro-layout .el-form--label-top .el-form-item__label,
+html.admin-shell .el-drawer .el-form--label-top .el-form-item__label,
+html.admin-shell .el-dialog:not(.login-tech-dialog) .el-form--label-top .el-form-item__label {
+  margin-bottom: 10px;
+}
+
+html.admin-shell .layout.ant-pro-layout .el-input__wrapper,
+html.admin-shell .el-drawer .el-input__wrapper,
+html.admin-shell .el-dialog:not(.login-tech-dialog) .el-input__wrapper {
+  background: var(--nm-bg-surface);
+  border: 1px solid var(--nm-border);
+  border-radius: var(--nm-radius-md);
+  transition: all var(--nm-transition-fast);
+}
+
+html.admin-shell .layout.ant-pro-layout .el-input__wrapper:hover,
+html.admin-shell .el-drawer .el-input__wrapper:hover,
+html.admin-shell .el-dialog:not(.login-tech-dialog) .el-input__wrapper:hover {
+  border-color: var(--nm-primary);
+}
+
+html.admin-shell .layout.ant-pro-layout .el-input__wrapper.is-focus,
+html.admin-shell .el-drawer .el-input__wrapper.is-focus,
+html.admin-shell .el-dialog:not(.login-tech-dialog) .el-input__wrapper.is-focus {
+  border-color: var(--nm-primary);
+  box-shadow: 0 0 0 3px var(--nm-primary-glow);
+}
+
+html.admin-shell .layout.ant-pro-layout .el-select__wrapper,
+html.admin-shell .el-drawer .el-select__wrapper,
+html.admin-shell .el-dialog:not(.login-tech-dialog) .el-select__wrapper {
+  transition:
+    box-shadow var(--shell-t-med) var(--shell-ease-standard),
+    background-color var(--shell-t-med) var(--shell-ease-standard);
+}
+
+/* 仅后台框架页脚；登录页 footer 仍由 LoginView 自控 */
+html.admin-shell .layout.ant-pro-layout .shell-footer {
+  line-height: var(--shell-line);
+  letter-spacing: 0.03em;
+  opacity: 0.88;
+  transition: opacity var(--shell-t-med) var(--shell-ease-out);
+}
+
+/* 登录页：背景图为 LoginView 内 <img> object-fit:cover 铺满；public 下 PNG 原样下发 */
+.login-page-root {
+  min-height: 100vh;
+  min-height: 100dvh;
+  width: 100%;
+  box-sizing: border-box;
+  position: relative;
+  --login-foot: rgba(18, 45, 62, 0.9);
+}
+
+.admin-shell.dark .login-page-root {
+  --login-foot: rgba(235, 240, 245, 0.94);
+}
+
+/* 旧版登录全图蒙层；新版 .login-tech 自带场景，避免叠两层发灰 */
+.admin-shell.dark .login-page-root:not(.login-tech) .login-bg-layer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0.52));
+  pointer-events: none;
+  z-index: 1;
+}
+
+.login-page-root .foot-note {
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.65);
+}
+
+.admin-shell.dark .login-page-root .foot-note {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75);
+}
+
+/* 登录页变量（随主题切换） */
+.admin-shell {
+  /* 登录卡片毛玻璃（浅色）：白雾 + 中等透度，保留 blur 玻璃感与可读性平衡 */
+  --login-panel-bg: rgba(255, 255, 255, 0.62);
+  --login-panel-border: rgba(0, 0, 0, 0.08);
+  --login-panel-shadow: rgba(0, 0, 0, 0.09);
+  /* 偏深灰黑，保证在白雾玻璃上对比清晰 */
+  --login-title: #0d0d0f;
+  --login-sub: #3d3d42;
+  --login-label: #262628;
+  --login-foot: #8e8e93;
+}
+
+.admin-shell.dark {
+  /* 暗色登录：半透明雾面，背景仍可透见 */
+  --login-panel-bg: rgba(22, 22, 26, 0.5);
+  --login-panel-border: rgba(255, 255, 255, 0.12);
+  --login-panel-shadow: rgba(0, 0, 0, 0.35);
+  --login-title: #f5f5f7;
+  --login-sub: #98989d;
+  --login-label: #d1d1d6;
+  --login-foot: #636366;
+}
+
+/* 神经矩阵主题色预设 */
+html[data-ui-primary='neuro'] {
+  --el-color-primary: var(--nm-primary);
+  --el-color-primary-light-3: rgba(0, 245, 212, 0.7);
+  --el-color-primary-light-5: rgba(0, 245, 212, 0.5);
+  --el-color-primary-light-7: rgba(0, 245, 212, 0.3);
+  --el-color-primary-light-9: rgba(0, 245, 212, 0.1);
+  --el-color-primary-dark-2: #00c9a7;
+}
+
+/* 色弱模式（设置面板） */
+html.ui-color-weak {
+  filter: saturate(0.72) contrast(1.06);
+}
+
+/* 所有弹窗在视口正中间，不受窗口大小影响 */
+.el-overlay-dialog {
+  margin: 0 auto;
+}
+
+/* ===== NeuroAgentDialog 表单系统 ===== */
+.nm-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.nm-form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.nm-form-section-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(45, 55, 72, 0.3);
+}
+
+html:not(.dark) .nm-form-section-title {
+  color: #94a3b8 !important;
+  border-bottom-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+.nm-form-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.nm-form-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #cbd5e1;
+}
+
+.nm-form-required {
+  color: #f87171;
+  margin-left: 2px;
+}
+
+.nm-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.nm-dialog-text {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: #cbd5e1;
+  line-height: 1.6;
+}
+
+.nm-dialog-text--muted {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.nm-info-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: rgba(45, 55, 72, 0.2);
+  border: 1px solid rgba(45, 55, 72, 0.4);
+  border-radius: 10px;
+}
+
+.nm-info-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.nm-info-label {
+  font-size: 12px;
+  color: #64748b;
+  min-width: 52px;
+  font-weight: 500;
+}
+
+.nm-info-value {
+  font-size: 13px;
+  color: #e2e8f0;
+}
+
+.nm-info-value--mono {
+  font-family: 'JetBrains Mono', monospace;
+  word-break: break-all;
+  color: #00f5d4;
+  background: rgba(0, 245, 212, 0.06);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.nm-logo-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.nm-logo-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.nm-logo-preview-box {
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(45, 55, 72, 0.3);
+  border: 1px solid rgba(45, 55, 72, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nm-logo-preview-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.nm-logo-placeholder-icon {
+  font-size: 24px;
+  opacity: 0.4;
+}
+
+.nm-logo-hint {
+  margin: 0;
+  font-size: 12px;
+  color: #64748b;
+}
+
+/* ===== NeuroAgentDialog 内的 Element Plus 表单控件 ===== */
+
+/* === 输入框 — 默认（浅色模式） === */
+.nm-form .el-input__wrapper {
+  background: rgba(0, 0, 0, 0.03) !important;
+  border: 1px solid rgba(0, 0, 0, 0.12) !important;
+  border-radius: 8px;
+  padding: 0 12px;
+  box-shadow: none !important;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.nm-form .el-input__wrapper:hover {
+  border-color: rgba(0, 245, 212, 0.4) !important;
+  background: rgba(0, 245, 212, 0.04) !important;
+}
+
+.nm-form .el-input__wrapper.is-focus {
+  border-color: rgba(0, 245, 212, 0.5) !important;
+  box-shadow: 0 0 0 3px rgba(0, 245, 212, 0.1) !important;
+}
+
+.nm-form .el-input__inner {
+  color: #1e293b !important;
+  font-size: 14px;
+  height: 36px;
+}
+
+.nm-form .el-input__inner::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* 输入框 — 深色模式 */
+.dark .nm-form .el-input__wrapper {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-color: rgba(45, 55, 72, 0.6) !important;
+}
+
+.dark .nm-form .el-input__wrapper:hover {
+  border-color: rgba(0, 245, 212, 0.3) !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+
+.dark .nm-form .el-input__wrapper.is-focus {
+  border-color: rgba(0, 245, 212, 0.5) !important;
+  box-shadow: 0 0 0 3px rgba(0, 245, 212, 0.08) !important;
+}
+
+.dark .nm-form .el-input__inner {
+  color: #e2e8f0 !important;
+}
+
+.dark .nm-form .el-input__inner::placeholder {
+  color: #475569 !important;
+}
+
+/* 禁用态输入框 */
+.nm-form .el-input.is-disabled .el-input__wrapper {
+  background: rgba(0, 0, 0, 0.02) !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+.nm-form .el-input.is-disabled .el-input__inner {
+  color: #94a3b8 !important;
+}
+
+.dark .nm-form .el-input.is-disabled .el-input__wrapper {
+  background: rgba(255, 255, 255, 0.02) !important;
+  border-color: rgba(45, 55, 72, 0.3) !important;
+}
+
+.dark .nm-form .el-input.is-disabled .el-input__inner {
+  color: #475569 !important;
+}
+
+/* 密码输入框 eye 图标 */
+.nm-form .el-input__suffix {
+  color: #64748b;
+}
+
+/* === textarea — 默认（浅色模式） === */
+.nm-form .el-textarea__inner {
+  background: rgba(0, 0, 0, 0.03) !important;
+  border: 1px solid rgba(0, 0, 0, 0.12) !important;
+  border-radius: 8px;
+  color: #1e293b !important;
+  font-size: 14px;
+  resize: vertical;
+  box-shadow: none !important;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.nm-form .el-textarea__inner::placeholder {
+  color: #94a3b8 !important;
+}
+
+.nm-form .el-textarea__inner:hover {
+  border-color: rgba(0, 245, 212, 0.4) !important;
+}
+
+.nm-form .el-textarea__inner:focus {
+  border-color: rgba(0, 245, 212, 0.5) !important;
+  box-shadow: 0 0 0 3px rgba(0, 245, 212, 0.1) !important;
+}
+
+/* textarea — 深色模式 */
+.dark .nm-form .el-textarea__inner {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-color: rgba(45, 55, 72, 0.6) !important;
+  color: #e2e8f0 !important;
+}
+
+.dark .nm-form .el-textarea__inner::placeholder {
+  color: #475569 !important;
+}
+
+.dark .nm-form .el-textarea__inner:hover {
+  border-color: rgba(0, 245, 212, 0.3) !important;
+}
+
+.dark .nm-form .el-textarea__inner:focus {
+  border-color: rgba(0, 245, 212, 0.5) !important;
+  box-shadow: 0 0 0 3px rgba(0, 245, 212, 0.08) !important;
+}
+
+/* === 数字输入框 === */
+.nm-form .el-input-number {
+  width: 100%;
+}
+
+.nm-form .el-input-number .el-input__wrapper {
+  padding-right: 40px;
+}
+
+/* 数字输入框按钮 — 默认（浅色） */
+.nm-form .el-input-number .el-input-number__decrease,
+.nm-form .el-input-number .el-input-number__increase {
+  background: rgba(0, 0, 0, 0.03) !important;
+  border-color: rgba(0, 0, 0, 0.12) !important;
+  color: #475569 !important;
+}
+
+/* 数字输入框按钮 — 深色模式 */
+.dark .nm-form .el-input-number .el-input-number__decrease,
+.dark .nm-form .el-input-number .el-input-number__increase {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-color: rgba(45, 55, 72, 0.6) !important;
+  color: #cbd5e1 !important;
+}
+
+/* === 日期选择器 === */
+.nm-form .el-date-editor .el-input__wrapper {
+  padding-right: 8px;
+}
+
+/* === 选择器 — 默认（浅色模式） === */
+.nm-form .el-select__wrapper {
+  background: rgba(0, 0, 0, 0.03) !important;
+  border: 1px solid rgba(0, 0, 0, 0.12) !important;
+  border-radius: 8px;
+  box-shadow: none !important;
+  padding: 4px 12px;
+  min-height: 38px;
+  transition: border-color 0.2s ease;
+}
+
+.nm-form .el-select__wrapper:hover {
+  border-color: rgba(0, 245, 212, 0.4) !important;
+}
+
+.nm-form .el-select__wrapper.is-focused {
+  border-color: rgba(0, 245, 212, 0.5) !important;
+  box-shadow: 0 0 0 3px rgba(0, 245, 212, 0.1) !important;
+}
+
+/* 选择器 — 深色模式 */
+.dark .nm-form .el-select__wrapper {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-color: rgba(45, 55, 72, 0.6) !important;
+}
+
+.dark .nm-form .el-select__wrapper:hover {
+  border-color: rgba(0, 245, 212, 0.3) !important;
+}
+
+.dark .nm-form .el-select__wrapper.is-focused {
+  border-color: rgba(0, 245, 212, 0.5) !important;
+  box-shadow: 0 0 0 3px rgba(0, 245, 212, 0.08) !important;
+}
+
+/* === radio / switch — 默认（浅色） === */
+.nm-form .el-radio-group {
+  display: flex;
+  gap: 16px;
+}
+
+.nm-form .el-radio__label {
+  color: #475569 !important;
+  font-size: 14px;
+}
+
+.nm-form .el-switch__label {
+  color: #475569 !important;
+  font-size: 13px;
+}
+
+/* radio / switch — 深色模式 */
+.dark .nm-form .el-radio__label {
+  color: #cbd5e1 !important;
+}
+
+.dark .nm-form .el-switch__label {
+  color: #cbd5e1 !important;
+}
+
+/* ===== 操作区渐变按钮 ===== */
+.btn-gradient {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 24px;
+  border-radius: 12px;
+  border: none;
+  background: linear-gradient(135deg, #00d4aa 0%, #7c3aed 100%) !important;
+  box-shadow: 0 4px 16px rgba(0, 212, 170, 0.3);
+  color: #fff !important;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.btn-gradient:hover {
+  box-shadow: 0 6px 24px rgba(0, 212, 170, 0.4);
+  transform: translateY(-1px);
+  background: linear-gradient(135deg, #00e4ba 0%, #8b5cf6 100%) !important;
+}
+
+.btn-gradient:active {
+  transform: translateY(0);
+}
+
+/* === 停用/未启用：暗色胶囊（全站复用；el-tag 请加 nm-status-pill--inactive，其它元素用 nm-pill--inactive） === */
+.nm-pill--inactive,
+.el-tag.nm-status-pill--inactive {
+  background-color: color-mix(in srgb, var(--nm-bg-elevated) 72%, var(--nm-bg-deep)) !important;
+  color: var(--nm-text-muted) !important;
+}
+
+.el-tag.nm-status-pill--inactive {
+  border-color: color-mix(in srgb, var(--nm-border) 90%, transparent) !important;
+}
+
+.nm-pill--inactive:not(.el-tag) {
+  border: 1px solid color-mix(in srgb, var(--nm-border) 90%, transparent) !important;
+  box-sizing: border-box;
+}
+
+html:not(.dark) .nm-pill--inactive,
+html:not(.dark) .el-tag.nm-status-pill--inactive {
+  background-color: rgba(15, 23, 42, 0.08) !important;
+  color: #64748b !important;
+}
+
+html:not(.dark) .el-tag.nm-status-pill--inactive {
+  border-color: rgba(15, 23, 42, 0.2) !important;
+}
+
+html:not(.dark) .nm-pill--inactive:not(.el-tag) {
+  border-color: rgba(15, 23, 42, 0.2) !important;
+}

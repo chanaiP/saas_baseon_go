@@ -1,0 +1,9 @@
+CREATE TABLE IF NOT EXISTS system_param (
+  id BIGSERIAL PRIMARY KEY,
+  param_key VARCHAR(128) NOT NULL UNIQUE,
+  param_value TEXT NOT NULL,
+  remark TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
