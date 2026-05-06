@@ -335,6 +335,95 @@ func (h *MockIdentityHandler) PlanMatrix(c *gin.Context) {
 	response.OK(c, gin.H{"plans": []gin.H{}, "nodes": []gin.H{}})
 }
 
+func (h *MockIdentityHandler) Features(c *gin.Context) {
+	response.OK(c, paginated([]gin.H{
+		{"id": 1, "feature_code": "tenant_manage", "feature_name": "主体管理", "feature_type": "MENU", "parent_id": 0, "status": 1, "description": "平台主体管理"},
+		{"id": 2, "feature_code": "user_manage", "feature_name": "用户管理", "feature_type": "MENU", "parent_id": 0, "status": 1, "description": "用户管理"},
+		{"id": 3, "feature_code": "role_manage", "feature_name": "角色权限", "feature_type": "MENU", "parent_id": 0, "status": 1, "description": "角色权限"},
+	}))
+}
+
+func (h *MockIdentityHandler) Quotas(c *gin.Context) {
+	response.OK(c, paginated([]gin.H{
+		{"id": 1, "quota_code": "max_users", "quota_name": "用户数", "quota_type": "STATIC", "period_type": nil, "unit": "人", "status": 1, "description": "主体可创建用户数"},
+		{"id": 2, "quota_code": "max_org_nodes", "quota_name": "组织节点数", "quota_type": "STATIC", "period_type": nil, "unit": "个", "status": 1, "description": "主体可创建组织节点数"},
+	}))
+}
+
+func (h *MockIdentityHandler) TenantQuotaRecords(c *gin.Context) {
+	response.OK(c, gin.H{
+		"tenant_id":      1,
+		"companies":      []gin.H{},
+		"stores":         []gin.H{},
+		"business_units": []gin.H{},
+	})
+}
+
+func (h *MockIdentityHandler) TenantCompanies(c *gin.Context) {
+	response.OK(c, gin.H{
+		"tenant_id":          1,
+		"billing_unit_count": 0,
+		"companies":          []gin.H{},
+	})
+}
+
+func (h *MockIdentityHandler) OrganizationTree(c *gin.Context) {
+	response.OK(c, []gin.H{})
+}
+
+func (h *MockIdentityHandler) PositionTypes(c *gin.Context) {
+	response.OK(c, paginated([]gin.H{
+		{"id": 1, "code": "default", "name": "默认岗位类型", "status": 1, "description": "初始化岗位类型"},
+	}))
+}
+
+func (h *MockIdentityHandler) Positions(c *gin.Context) {
+	response.OK(c, paginated([]gin.H{}))
+}
+
+func (h *MockIdentityHandler) BusinessUnits(c *gin.Context) {
+	response.OK(c, paginated([]gin.H{}))
+}
+
+func (h *MockIdentityHandler) BusinessUnitTree(c *gin.Context) {
+	response.OK(c, []gin.H{})
+}
+
+func (h *MockIdentityHandler) DictTypes(c *gin.Context) {
+	response.OK(c, paginated([]gin.H{
+		{"id": 1, "type_code": "common_status", "type_name": "通用状态", "status": 1, "remark": "启用/停用"},
+		{"id": 2, "type_code": "org_node_type", "type_name": "组织节点类型", "status": 1, "remark": "公司/部门/门店"},
+		{"id": 3, "type_code": "business_unit_type", "type_name": "业务单元类型", "status": 1, "remark": "默认业务单元类型"},
+	}))
+}
+
+func (h *MockIdentityHandler) DictItemsByCode(c *gin.Context) {
+	code := c.Param("code")
+	items := []gin.H{}
+	switch code {
+	case "common_status":
+		items = []gin.H{
+			{"id": 1, "item_label": "启用", "item_value": "1", "sort_order": 1, "status": 1},
+			{"id": 2, "item_label": "停用", "item_value": "0", "sort_order": 2, "status": 1},
+		}
+	case "org_node_type":
+		items = []gin.H{
+			{"id": 3, "item_label": "公司", "item_value": "COMPANY", "sort_order": 1, "status": 1},
+			{"id": 4, "item_label": "部门", "item_value": "DEPARTMENT", "sort_order": 2, "status": 1},
+			{"id": 5, "item_label": "门店", "item_value": "STORE", "sort_order": 3, "status": 1},
+		}
+	case "business_unit_type":
+		items = []gin.H{
+			{"id": 6, "item_label": "默认类型", "item_value": "default", "sort_order": 1, "status": 1},
+		}
+	}
+	response.OK(c, gin.H{"code": code, "items": items})
+}
+
+func (h *MockIdentityHandler) DictItems(c *gin.Context) {
+	response.OK(c, paginated([]gin.H{}))
+}
+
 func (h *MockIdentityHandler) SysParams(c *gin.Context) {
 	var rows []models.SystemParam
 	_ = h.db.Order("id desc").Find(&rows).Error
