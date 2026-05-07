@@ -3217,6 +3217,13 @@ func (h *IdentityHandler) BusinessUnits(c *gin.Context) {
 	if status := strings.TrimSpace(c.Query("status")); status != "" {
 		query = query.Where("status = ?", status)
 	}
+	if useBUFilter, ids := h.businessUnitDataScopeFilter(user); useBUFilter {
+		if len(ids) == 0 {
+			response.OK(c, paginatedWithTotal([]gin.H{}, 0, skip, limit))
+			return
+		}
+		query = query.Where("id IN ?", ids)
+	}
 	var total int64
 	_ = query.Model(&models.BusinessUnit{}).Count(&total).Error
 	_ = query.Order("id desc").Offset(skip).Limit(limit).Find(&rows).Error
@@ -3235,7 +3242,15 @@ func (h *IdentityHandler) BusinessUnitTree(c *gin.Context) {
 	}
 	tenantID := user.TenantID
 	var rows []models.BusinessUnit
-	_ = h.db.Where("tenant_id = ? AND deleted_at IS NULL", tenantID).Order("id asc").Find(&rows).Error
+	query := h.db.Where("tenant_id = ? AND deleted_at IS NULL", tenantID)
+	if useBUFilter, ids := h.businessUnitDataScopeFilter(user); useBUFilter {
+		if len(ids) == 0 {
+			response.OK(c, []gin.H{})
+			return
+		}
+		query = query.Where("id IN ?", ids)
+	}
+	_ = query.Order("id asc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, businessUnitToJSON(row))
@@ -6054,6 +6069,73 @@ func (h *IdentityHandler) validateBusinessUnitOrgMaps(tenantID, excludeBUID uint
 		}
 	}
 	return nil
+}
+
+func (h *IdentityHandler) businessUnitDataScopeFilter(user models.AppUser) (bool, []uint64) {
+	if user.IsPlatformAdmin {
+		return false, nil
+	}
+	var links []models.RolePermission
+	_ = h.db.Joins("JOIN permission p ON p.id = role_permission.permission_id").
+		Joins("JOIN user_role ur ON ur.role_id = role_permission.role_id").
+		Joins("JOIN role r ON r.id = ur.role_id").
+		Where("ur.user_id = ? AND p.tenant_id = ? AND p.path = ? AND p.perm_type = ? AND p.deleted_at IS NULL AND r.deleted_at IS NULL", user.ID, user.TenantID, "data:business_unit", 4).
+		Find(&links).Error
+	if len(links) == 0 {
+		return false, nil
+	}
+	for _, link := range links {
+		scope := strings.TrimSpace(derefString(link.DataScopeOverride))
+		if scope == "" {
+			var permission models.Permission
+			if err := h.db.Where("id = ? AND deleted_at IS NULL", link.PermissionID).First(&permission).Error; err == nil && permission.DataScope != nil {
+				scope = strings.TrimSpace(*permission.DataScope)
+			}
+		}
+		if scope == "ALL" {
+			return false, nil
+		}
+	}
+	useFilter := false
+	ids := []uint64{}
+	for _, link := range links {
+		mode := strings.TrimSpace(derefString(link.BUDataAccessMode))
+		specified := uint64IDsFromJSON(link.CustomBusinessUnitIDsJSON)
+		switch mode {
+		case "CURRENT_ORG_BU":
+			useFilter = true
+			anchor := user.DepartmentID
+			if anchor == nil {
+				anchor = user.CompanyID
+			}
+			if anchor != nil {
+				ids = append(ids, h.businessUnitIDsForOrgSubtree(user.TenantID, *anchor)...)
+			}
+		case "SPECIFIED_BU":
+			useFilter = true
+			ids = append(ids, specified...)
+		default:
+			if len(specified) > 0 {
+				useFilter = true
+				ids = append(ids, specified...)
+			}
+		}
+	}
+	return useFilter, uniqueUint64s(ids)
+}
+
+func (h *IdentityHandler) businessUnitIDsForOrgSubtree(tenantID, rootOrgID uint64) []uint64 {
+	orgIDs := h.descendantOrgNodeIDs(tenantID, rootOrgID)
+	if len(orgIDs) == 0 {
+		return []uint64{}
+	}
+	var ids []uint64
+	_ = h.db.Model(&models.BusinessUnitOrgMap{}).
+		Joins("JOIN business_unit b ON b.id = business_unit_org_map.business_unit_id").
+		Where("business_unit_org_map.tenant_id = ? AND business_unit_org_map.org_id IN ? AND business_unit_org_map.status = ? AND b.status = ? AND b.deleted_at IS NULL", tenantID, orgIDs, 1, 1).
+		Distinct().
+		Pluck("business_unit_org_map.business_unit_id", &ids).Error
+	return uniqueUint64s(ids)
 }
 
 func orgTypeForBusinessUnitMap(node models.OrgNode) string {
