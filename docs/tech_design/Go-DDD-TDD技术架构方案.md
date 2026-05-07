@@ -127,20 +127,20 @@ docs                            需求、技术、数据库、测试文档
 - GORM AutoMigrate 开发期建表，当前覆盖主体、套餐、组织、岗位、业务单元、用户、角色、权限、字典、参数、日志、订阅、配额等核心表
 - `DB_AUTO_MIGRATE=false` 可关闭运行时自动迁移；当前 PostgreSQL schema 基线已固化到 `internal/infrastructure/persistence/postgres/schema/current_schema.sql`
 - 初始化数据：平台主体、演示账号、管理员角色、菜单/按钮权限、套餐、功能、配额、字典、参数、登录日志、操作日志
-- 登录认证：账号/工号/手机号登录、验证码生成、失败次数追踪、密码校验、Bearer token 签发、个人密码修改、主体切换列表
+- 登录认证：账号/工号/手机号登录、验证码生成、失败次数追踪、bcrypt 密码校验、Bearer token 签发、个人密码修改、主体切换列表
 - API 安全：除公开登录/验证码/footer 外，`/api` 显式接口默认需要 token；非平台管理员按菜单 path 和操作权限码进行后端门禁
 - 前端可见系统管理页面的后端 API 覆盖：主体管理、套餐中心、组织架构、岗位管理、业务单元、用户管理、角色权限、菜单管理、数据字典、参数管理、操作日志、登录日志
 - 监控页面 API 覆盖：健康检查、服务器信息、定时任务、服务监控、Redis 缓存统计、Redis key 扫描
 - 原后端补充接口覆盖：权限 CRUD、组织详情、文件上传/下载/删除、CSV 批量导入/导出、套餐功能访问检查、配额检查
 - 未知 `/api` 路径返回严格 404，不再使用假成功兜底
-- OpenAPI 基础文档输出，支持开发者中心接口卡片展示
+- OpenAPI 文档输出已覆盖当前注册的 `/api` 路由，并通过测试防止路由与文档漂移
 - 前端项目复制与 Web 容器接入
 - 原项目 `docs` 文档复制并更新为 Go/PostgreSQL 技术栈方向
-- 验证结果：`go test ./...` 通过，新增 token/密码/权限路由/fallback/CSV 安全测试；`npm run build` 通过，严格 404 后 Playwright E2E `41 passed`
+- 验证结果：`go test ./...` 通过，新增 token/密码/权限路由/fallback/CSV/OpenAPI 覆盖测试；`npm run build` 通过，严格 404 后 Playwright E2E `41 passed`
 
 当前仍建议在下一阶段继续增强：
 
 - 将 handler 中仍偏通用 CRUD 的实现继续下沉到 application service 和 repository，收敛 DDD 边界
 - 为登录、权限、租户隔离、套餐限制、审计写入补充更完整的 handler/repository/integration 测试
-- 将 OpenAPI 从手写摘要升级为完整 schema
+- 将 OpenAPI 从路径级摘要升级为完整 request/response schema
 - 将开发期 `AutoMigrate` 固化为生产可审计 migration

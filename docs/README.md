@@ -18,4 +18,5 @@
 - 根目录 `README.md`：开发启动、Docker、端口、演示账号和故障排查。
 - 根目录 `AGENTS.md`：AI coding agent 项目导航。
 - 根目录 `CLAUDE.md`：工程规范、安全规则、租户隔离、权限、逻辑删除和发布验证规则。
-- `internal/infrastructure/persistence/postgres/migrations/README.md`：数据库初始化、生产 SQL 和 Docker 数据库入口。
+- `internal/infrastructure/persistence/postgres/migrations/`：版本化 SQL migration。
+- `internal/infrastructure/persistence/postgres/schema/current_schema.sql`：当前 PostgreSQL schema 基线。
