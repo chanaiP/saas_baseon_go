@@ -57,3 +57,22 @@ func TestFeatureQuotaMappingMatchesPlanCatalogPolicy(t *testing.T) {
 	require.ElementsMatch(t, []string{"max_webhooks"}, quotaCodesForFeatureCode("webhook"))
 	require.Empty(t, quotaCodesForFeatureCode("brand_config"))
 }
+
+func TestValidatePermissionPayloadMatchesOriginalDataPermissionPolicy(t *testing.T) {
+	dataPermType := 4
+	menuPermType := 3
+	opPermType := 2
+	allScope := "ALL"
+	customScope := "CUSTOM"
+	badScope := "BAD"
+	orgMode := "ORG"
+	badMode := "BAD"
+
+	require.Equal(t, "数据权限必须带 data_scope", validatePermissionPayload(permissionPayload{PermType: &dataPermType}))
+	require.Equal(t, "CUSTOM 范围需至少指定组织架构或用户", validatePermissionPayload(permissionPayload{PermType: &dataPermType, DataScope: &customScope}))
+	require.Empty(t, validatePermissionPayload(permissionPayload{PermType: &dataPermType, DataScope: &customScope, CustomDepartmentIDs: []uint64{1}}))
+	require.Equal(t, "无效的数据范围: BAD", validatePermissionPayload(permissionPayload{PermType: &dataPermType, DataScope: &badScope}))
+	require.Empty(t, validatePermissionPayload(permissionPayload{PermType: &menuPermType, DataScope: &allScope, DataPermMode: &orgMode}))
+	require.Equal(t, "无效的数据权限类型: BAD", validatePermissionPayload(permissionPayload{PermType: &menuPermType, DataPermMode: &badMode}))
+	require.Equal(t, "仅菜单权限支持配置数据权限类型", validatePermissionPayload(permissionPayload{PermType: &opPermType, DataPermMode: &orgMode}))
+}

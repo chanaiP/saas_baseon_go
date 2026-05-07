@@ -114,7 +114,7 @@
 - [x] O2. 原项目 `test_user_service.py` / `test_crud_user.py` 覆盖点在 Go 版有等价测试。
 - [x] O3. 原项目 `test_tenant_service.py` / `test_branding_service.py` 覆盖点在 Go 版有等价测试。
 - [x] O4. 原项目 `test_plan_service.py` 覆盖点在 Go 版有等价测试。
-- [ ] O5. 原项目 `test_permission_service.py` / `test_permission_menu_grants.py` 覆盖点在 Go 版有等价测试。
+- [x] O5. 原项目 `test_permission_service.py` / `test_permission_menu_grants.py` 覆盖点在 Go 版有等价测试。
 - [ ] O6. 原项目 `test_role_service.py` / `test_role_filters.py` 覆盖点在 Go 版有等价测试。
 - [ ] O7. 原项目 `test_organization_service.py` / `test_org_tree_cache.py` 覆盖点在 Go 版有等价测试。
 - [ ] O8. 原项目 `test_position_service.py` 覆盖点在 Go 版有等价测试。
