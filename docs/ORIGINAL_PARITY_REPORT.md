@@ -186,3 +186,20 @@ Go 版额外路由：
 状态：
 
 - F 组菜单权限与角色已完成。
+
+## 组织架构对比
+
+已对齐项：
+
+- 组织树改为按 `parent_id` 返回层级结构，不再返回扁平列表。
+- 组织树排除软删除节点，并按节点 ID 保持原项目排序语义。
+- 组织树补齐公司节点自身 `company_id`、部门类节点门店归属 `store_id`、公司/门店/集团的 `company_type` 回显。
+- 组织树按当前用户 `data:org` 数据权限过滤，支持 `ALL/SELF/ORG/ORG_SUB/CUSTOM`，并保留通向授权子节点的中间节点。
+
+验证：
+
+- `docker run --rm -e GOPROXY=https://goproxy.cn,direct -v "$PWD":/src -w /src golang:1.23-alpine sh -c 'gofmt -w ./cmd ./internal && go test ./...'` 通过。
+
+状态：
+
+- G1 已完成；G2-G4 继续对齐。

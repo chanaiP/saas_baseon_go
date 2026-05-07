@@ -2886,14 +2886,21 @@ func (h *IdentityHandler) TenantQuotaCheck(c *gin.Context) {
 }
 
 func (h *IdentityHandler) OrganizationTree(c *gin.Context) {
-	tenantID := h.requestTenantID(c)
-	var rows []models.OrgNode
-	_ = h.db.Where("tenant_id = ?", tenantID).Order("id asc").Find(&rows).Error
-	items := make([]gin.H, 0, len(rows))
-	for _, row := range rows {
-		items = append(items, orgNodeToJSON(row, []gin.H{}))
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
 	}
-	response.OK(c, items)
+	tenantID := user.TenantID
+	var rows []models.OrgNode
+	_ = h.db.Where("tenant_id = ? AND deleted_at IS NULL", tenantID).Order("id asc").Find(&rows).Error
+	tree := buildOrgTree(rows)
+	scope := h.resolveOrganizationDataScope(user)
+	if scope.Scope != "ALL" {
+		companyIDs, departmentIDs := h.allowedOrgIDsForScope(user, scope)
+		tree = filterOrgTree(tree, companyIDs, departmentIDs)
+	}
+	response.OK(c, tree)
 }
 
 func (h *IdentityHandler) OrganizationDetail(c *gin.Context) {
@@ -4242,6 +4249,227 @@ func orgNodeToJSON(row models.OrgNode, children []gin.H) gin.H {
 		"status":       row.Status,
 		"children":     children,
 	}
+}
+
+func buildOrgTree(rows []models.OrgNode) []gin.H {
+	byID := map[uint64]models.OrgNode{}
+	childrenByParent := map[uint64][]models.OrgNode{}
+	roots := make([]models.OrgNode, 0)
+	for _, row := range rows {
+		byID[row.ID] = row
+		if row.ParentID == nil {
+			roots = append(roots, row)
+			continue
+		}
+		childrenByParent[*row.ParentID] = append(childrenByParent[*row.ParentID], row)
+	}
+	var companyIDFor func(models.OrgNode) *uint64
+	companyIDFor = func(row models.OrgNode) *uint64 {
+		if row.NodeType == "company" {
+			return &row.ID
+		}
+		if row.CompanyID != nil {
+			return row.CompanyID
+		}
+		if row.ParentID == nil {
+			return nil
+		}
+		parent, ok := byID[*row.ParentID]
+		if !ok {
+			return nil
+		}
+		return companyIDFor(parent)
+	}
+	ancestorStoreID := func(row models.OrgNode) *uint64 {
+		if row.ParentID == nil {
+			return nil
+		}
+		current, ok := byID[*row.ParentID]
+		for ok {
+			if current.NodeType == "store" {
+				return &current.ID
+			}
+			if current.ParentID == nil {
+				return nil
+			}
+			current, ok = byID[*current.ParentID]
+		}
+		return nil
+	}
+	var walk func([]models.OrgNode) []gin.H
+	walk = func(nodes []models.OrgNode) []gin.H {
+		items := make([]gin.H, 0, len(nodes))
+		for _, node := range nodes {
+			companyID := companyIDFor(node)
+			item := gin.H{"id": node.ID, "node_type": node.NodeType, "name": node.Name, "code": node.Code, "status": node.Status, "company_id": companyID, "parent_id": node.ParentID, "children": walk(childrenByParent[node.ID]), "company_type": nil}
+			if node.NodeType == "group" || node.NodeType == "company" || node.NodeType == "store" {
+				item["company_type"] = node.CompanyType
+			}
+			if node.NodeType == "department" || node.NodeType == "warehouse" || node.NodeType == "project_team" {
+				item["store_id"] = ancestorStoreID(node)
+			}
+			items = append(items, item)
+		}
+		return items
+	}
+	return walk(roots)
+}
+
+type orgDataScope struct {
+	Scope         string
+	CompanyIDs    []uint64
+	DepartmentIDs []uint64
+	UserIDs       []uint64
+}
+
+func (h *IdentityHandler) resolveOrganizationDataScope(user models.AppUser) orgDataScope {
+	if user.IsPlatformAdmin {
+		return orgDataScope{Scope: "ALL"}
+	}
+	var links []models.RolePermission
+	_ = h.db.Joins("JOIN permission p ON p.id = role_permission.permission_id").
+		Joins("JOIN user_role ur ON ur.role_id = role_permission.role_id").
+		Joins("JOIN role r ON r.id = ur.role_id").
+		Where("ur.user_id = ? AND p.tenant_id = ? AND p.path = ? AND p.perm_type = ? AND p.deleted_at IS NULL AND r.deleted_at IS NULL", user.ID, user.TenantID, "data:org", 4).
+		Find(&links).Error
+	if len(links) == 0 {
+		return orgDataScope{Scope: "SELF"}
+	}
+	scopes := make([]string, 0, len(links))
+	companyIDs, departmentIDs, userIDs := []uint64{}, []uint64{}, []uint64{}
+	for _, link := range links {
+		scope := derefString(link.DataScopeOverride)
+		if scope == "" {
+			var permission models.Permission
+			if err := h.db.Where("id = ? AND deleted_at IS NULL", link.PermissionID).First(&permission).Error; err == nil && permission.DataScope != nil {
+				scope = strings.TrimSpace(*permission.DataScope)
+			}
+		}
+		if scope == "" {
+			scope = "ALL"
+		}
+		scopes = append(scopes, scope)
+		if scope == "CUSTOM" {
+			companyIDs = append(companyIDs, uint64IDsFromJSON(link.CustomCompanyIDsJSON)...)
+			departmentIDs = append(departmentIDs, uint64IDsFromJSON(link.CustomDepartmentIDsJSON)...)
+			userIDs = append(userIDs, uint64IDsFromJSON(link.CustomUserIDsJSON)...)
+		}
+	}
+	for _, scope := range scopes {
+		if scope == "ALL" {
+			return orgDataScope{Scope: "ALL"}
+		}
+	}
+	for _, scope := range scopes {
+		if scope == "CUSTOM" {
+			return orgDataScope{Scope: "CUSTOM", CompanyIDs: uniqueUint64s(companyIDs), DepartmentIDs: uniqueUint64s(departmentIDs), UserIDs: uniqueUint64s(userIDs)}
+		}
+	}
+	priority := map[string]int{"SELF": 0, "ORG": 1, "ORG_SUB": 2}
+	tightest := "SELF"
+	best := 99
+	for _, scope := range scopes {
+		if rank, ok := priority[scope]; ok && rank < best {
+			best = rank
+			tightest = scope
+		}
+	}
+	return orgDataScope{Scope: tightest}
+}
+
+func (h *IdentityHandler) allowedOrgIDsForScope(user models.AppUser, scope orgDataScope) (map[uint64]struct{}, map[uint64]struct{}) {
+	companyIDs := map[uint64]struct{}{}
+	departmentIDs := map[uint64]struct{}{}
+	addCompany := func(id *uint64) {
+		if id != nil && *id != 0 {
+			companyIDs[*id] = struct{}{}
+		}
+	}
+	addDepartment := func(id *uint64) {
+		if id != nil && *id != 0 {
+			departmentIDs[*id] = struct{}{}
+		}
+	}
+	switch scope.Scope {
+	case "SELF", "ORG":
+		addCompany(user.CompanyID)
+		addDepartment(user.DepartmentID)
+	case "ORG_SUB":
+		addCompany(user.CompanyID)
+		addDepartment(user.DepartmentID)
+		if user.DepartmentID != nil {
+			for _, id := range h.descendantOrgNodeIDs(user.TenantID, *user.DepartmentID) {
+				departmentIDs[id] = struct{}{}
+			}
+		}
+	case "CUSTOM":
+		for _, id := range scope.CompanyIDs {
+			companyIDs[id] = struct{}{}
+		}
+		for _, id := range scope.DepartmentIDs {
+			departmentIDs[id] = struct{}{}
+			for _, childID := range h.descendantOrgNodeIDs(user.TenantID, id) {
+				departmentIDs[childID] = struct{}{}
+			}
+		}
+	}
+	return companyIDs, departmentIDs
+}
+
+func filterOrgTree(nodes []gin.H, allowedCompanyIDs, allowedDepartmentIDs map[uint64]struct{}) []gin.H {
+	items := make([]gin.H, 0, len(nodes))
+	for _, node := range nodes {
+		childrenRaw, _ := node["children"].([]gin.H)
+		children := filterOrgTree(childrenRaw, allowedCompanyIDs, allowedDepartmentIDs)
+		id, _ := node["id"].(uint64)
+		nodeType, _ := node["node_type"].(string)
+		companyID := uint64FromGinValue(node["company_id"])
+		_, companyHit := allowedCompanyIDs[id]
+		_, departmentHit := allowedDepartmentIDs[id]
+		_, companyIDHit := allowedCompanyIDs[companyID]
+		extendedHit := (nodeType == "warehouse" || nodeType == "project_team") && (departmentHit || companyIDHit)
+		if (nodeType == "company" && companyHit) || (nodeType == "department" && departmentHit) || (nodeType == "store" && companyIDHit) || extendedHit || len(children) > 0 {
+			next := gin.H{}
+			for key, value := range node {
+				next[key] = value
+			}
+			next["children"] = children
+			items = append(items, next)
+		}
+	}
+	return items
+}
+
+func uint64FromGinValue(value interface{}) uint64 {
+	switch v := value.(type) {
+	case uint64:
+		return v
+	case *uint64:
+		if v != nil {
+			return *v
+		}
+	}
+	return 0
+}
+
+func (h *IdentityHandler) descendantOrgNodeIDs(tenantID uint64, rootID uint64) []uint64 {
+	var rows []models.OrgNode
+	_ = h.db.Where("tenant_id = ? AND deleted_at IS NULL", tenantID).Find(&rows).Error
+	childrenByParent := map[uint64][]uint64{}
+	for _, row := range rows {
+		if row.ParentID != nil {
+			childrenByParent[*row.ParentID] = append(childrenByParent[*row.ParentID], row.ID)
+		}
+	}
+	out := []uint64{rootID}
+	stack := append([]uint64{}, childrenByParent[rootID]...)
+	for len(stack) > 0 {
+		id := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		out = append(out, id)
+		stack = append(stack, childrenByParent[id]...)
+	}
+	return uniqueUint64s(out)
 }
 
 func dictItemsToJSON(rows []models.DictItem) []gin.H {
