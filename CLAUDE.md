@@ -9,7 +9,7 @@
 - 运行、端口、Docker、演示账号：`README.md`
 - AI 项目导航：`AGENTS.md`
 - 总体架构与目录结构：`docs/tech_design/总体技术方案.md`
-- 数据库初始化与生产 SQL：`internal/infrastructure/persistence/postgres/migrations/README.md`
+- 数据库初始化与生产 SQL：`README.md`、`cmd/migrate`、`internal/infrastructure/persistence/postgres/schema/current_schema.sql`、`internal/infrastructure/persistence/postgres/migrations/`
 - 系统管理需求/技术/数据库文档：`docs/req_design/`、`docs/tech_design/`、`docs/sql_design/`
 
 如果这些文档与当前代码冲突，以当前代码为准，并同步修正文档。
@@ -19,14 +19,14 @@
 - 不得提交或暴露密钥、token、数据库密码、生产连接串、私有证书、本机绝对路径、内部堆栈日志、真实敏感数据或第三方凭据。
 - 生产配置必须通过环境变量管理，禁止硬编码到源码、SQL 或文档示例中。
 - 生产环境必须设置 `APP_ENV=production`、强 `JWT_SECRET`、显式 `CORS_ORIGINS` 和非默认数据库账号。
-- 启动配置必须拒绝开发默认 `JWT_SECRET`、`CORS_ORIGINS=*`、默认 `root:root` 数据库连接等不安全生产配置。
+- 启动配置必须拒绝开发默认 `JWT_SECRET`、`CORS_ORIGINS=*`、默认 `saas/saas` 数据库连接等不安全生产配置。
 - 错误信息不得泄露 SQL 原文、内部堆栈、数据库连接信息、密钥、token 或其他敏感实现细节。
 - 必须写 raw SQL 时，所有外部输入必须参数化，禁止字符串拼接 SQL。
 
 ## 2. 数据库与生产初始化
 
-- 生产或准生产数据库初始化以 `internal/infrastructure/persistence/postgres/migrations/README.md` 和 `internal/infrastructure/persistence/postgres/migrations/prod/` 下的版本化 SQL 为准。
-- 开发期 `create_all` 和启动补列脚本只作为本地兜底，不得作为生产建库交付方案。
+- 生产或准生产数据库初始化以 `cmd/migrate` 执行的 `internal/infrastructure/persistence/postgres/schema/current_schema.sql` baseline 和 `internal/infrastructure/persistence/postgres/migrations/*.up.sql` 版本化 SQL 为准。
+- 开发期 GORM AutoMigrate 和启动补列脚本只作为本地兜底，不得作为生产建库交付方案。
 - 数据库结构变更必须同步维护生产 SQL、回滚说明和验证 SQL。
 - 迁移脚本禁止清空业务表；历史迁移遇到非空目标表应拒绝执行或显式保护。
 - 全站业务数据禁止物理删除。删除默认实现为逻辑删除、停用或归档，并保留历史数据、审计链路、外键可追溯性。
@@ -84,55 +84,54 @@
 
 ## 5. 后端规范
 
-后端分层固定为：
+后端分层优先采用：
 
 ```text
-router -> schema -> service/crud -> model
+router -> dto -> application service -> domain/repository contract -> postgres repository -> GORM model
 ```
 
 ### 5.1 Router
 
-`cmd/api 和 internal/api/routers/*.py` 只做 HTTP 边界：
+`cmd/api` 和 `internal/interfaces/http/handlers/*.go` 只做 HTTP 边界：
 
-- 定义路径、方法、`response_model`、summary/description。
-- 注入 `db`、当前用户、权限依赖、请求对象、Header、Query、Path、File。
+- 在 `internal/bootstrap/router.go` 注册路径、方法和 handler。
+- 读取当前用户、权限依赖、请求对象、Header、Query、Path、File。
 - 提取 IP、User-Agent、Authorization 等 HTTP 上下文。
-- 调用 `app.services.*` 服务函数。
-- 用 `schemas.ApiResponse(...)` 包装返回结果。
+- 调用 `internal/application` 服务或当前 handler 内已存在的兼容流程。
+- 用 `internal/interfaces/http/response` 统一包装返回结果。
 - 不得在 router 中写数据库查询、业务判断、审计日志、CSV/文件解析、Redis 读写、密码校验、token 签发、数据范围过滤、复杂响应组装。
 
 ### 5.2 Service
 
-`cmd/api 和 internal/services/*_service.py` 承载业务流程：
+`internal/application/**/*_service.go` 承载业务流程；历史尚未下沉的接口可在 handler 中保持兼容，但新增稳定业务规则应继续下沉：
 
-- 服务函数命名优先使用领域语义，例如 `login_for_request`、`create_user_for_viewer`、`tenant_file_path`。
+- 服务函数命名优先使用领域语义，例如 `LoginForRequest`、`CreateUserForViewer`、`TenantFilePath`。
 - 涉及当前用户权限或租户上下文的参数统一使用 `viewer` 或 `user`，并从该对象读取 `tenant_id`。
-- 负责业务规则、跨 crud 编排、事务边界、异常转换、审计日志、外部依赖降级、文件/CSV/Redis 等非 HTTP 逻辑。
-- 可以返回明确的 Go DTO schema 或简单领域结果，但不得让 router 直接透出裸 ORM model。
-- 抛出的 `HTTPException` 必须使用安全、可读的 `detail={"message": "..."}`，不得泄露 SQL、堆栈、连接串或内部实现。
-- 新增可测试分支必须同步新增 `internal/application 与 internal/domain 的 Go 测试/test_*_service.py`。
+- 负责业务规则、跨 repository 编排、事务边界、异常转换、审计日志、外部依赖降级、文件/CSV/Redis 等非 HTTP 逻辑。
+- 可以返回明确的 HTTP DTO 或简单领域结果，但不得让 handler 直接透出裸 GORM model。
+- 返回错误必须安全、可读，并由 HTTP 层转换为统一响应；不得泄露 SQL、堆栈、连接串或内部实现。
+- 新增可测试分支必须同步新增 `internal/application`、`internal/domain` 或 handler 的 Go 单测。
 
-### 5.3 CRUD
+### 5.3 Repository
 
-`cmd/api 和 internal/crud/*.py` 只做数据访问与可复用持久化操作：
+`internal/domain/*/*_repository.go` 定义 repository contract，`internal/infrastructure/persistence/postgres/repositories/*.go` 实现数据访问与可复用持久化操作：
 
 - 所有租户内查询、更新、删除必须带 `tenant_id` 过滤。
-- 删除业务数据不得调用 `db.delete(...)` 或物理 `DELETE`，应写入 `deleted_at`、`is_deleted`、`status=deleted`，或按领域语义改为停用/归档。
+- 删除业务数据不得调用 GORM 物理删除或直接 `DELETE`，应写入 `deleted_at`、`is_deleted`、`status=deleted`，或按领域语义改为停用/归档。
 - 新增支持删除的业务表默认预留逻辑删除字段，列表查询默认过滤逻辑删除数据。
 - 逻辑删除后必须处理唯一键释放。
-- crud 函数不理解 HTTP 请求，不读取 Header、Request、Authorization。
-- crud 可以 `commit/refresh`，但多步骤事务、审计日志、权限判断、异常消息编排应由 service 组织。
-- 平台管理员跨租户逻辑必须在 service 中显式表达，不得为了方便在 crud 中绕过 tenant。
+- repository 函数不理解 HTTP 请求，不读取 Header、Request、Authorization。
+- repository 可以执行单表或明确的持久化操作，但多步骤事务、审计日志、权限判断、异常消息编排应由 service 组织。
+- 平台管理员跨租户逻辑必须在 service 中显式表达，不得为了方便在 repository 中绕过 tenant。
 
-### 5.4 Schema 与 Model
+### 5.4 DTO 与 Model
 
-- `cmd/api 和 internal/schemas/*.py` 定义请求、响应、分页契约。
-- Go DTO v2 ORM 映射统一使用 `model_config = ConfigDict(from_attributes=True)`。
-- `cmd/api 和 internal/models.py` 只负责 GORM ORM 映射，不承载业务流程。
-- 请求与响应校验必须放在 Go DTO schema 中，避免直接返回 ORM model、裸数组或临时拼接结构。
+- `internal/interfaces/http/dto/*.go` 定义请求、响应、分页契约。
+- `internal/infrastructure/persistence/postgres/models/*.go` 只负责 GORM 映射，不承载业务流程。
+- 请求与响应校验必须放在 DTO、handler 绑定或 service 边界中，避免直接返回 GORM model、裸数组或临时拼接结构。
 - 数据库会话必须通过 Gin 依赖注入获取，禁止使用全局可变 session。
 - 数据库完整性异常必须捕获，并转换为 API 层可理解错误。
-- 公开函数、service 接口、crud 接口必须添加明确类型标注。
+- 公开函数、service 接口、repository 接口必须使用明确类型。
 - 非必要不写 raw SQL，优先使用 ORM 查询。
 - 必须提供健康检查端点，例如 `/health`。
 
@@ -159,7 +158,7 @@ router -> schema -> service/crud -> model
 - 优先覆盖 tenant 隔离、权限拒绝、错误分支、边界输入、外部依赖异常、文件/CSV/Redis 安全行为。
 - 套餐主链路改动必须覆盖主体创建、套餐绑定、能力上下文、菜单/按钮裁剪、后端套餐校验、配额校验、套餐变更后即时生效。
 - 数据权限改动必须覆盖越权访问、普通用户范围、平台管理员范围。
-- 测试 fixture 使用 SQLite 替身模型时，必要时通过 `monkeypatch` 注入 service 的 `models`，避免误用生产 PostgreSQL 模型。
+- 测试 fixture 使用替身 repository 或测试数据库时，必须避免误用生产 PostgreSQL 连接。
 
 提交前验证：
 
@@ -188,14 +187,14 @@ git diff --check
 
 接口契约变化时，必须同步更新：
 
-- 后端 schema
+- 后端 DTO
 - 前端 api 层
 - 页面调用逻辑
 - 权限配置
 - 套餐功能映射
 - 必要文档
 
-新增功能时，优先复用既有分层结构、schema、service、crud、model、composable、permission 模型、API 响应工具、分页工具、错误处理工具、统一列表组件和全局样式体系。
+新增功能时，优先复用既有分层结构、DTO、application service、repository、model、composable、permission 模型、API 响应工具、分页工具、错误处理工具、统一列表组件和全局样式体系。
 
 不要为了快速实现而绕过统一架构。如果现有结构不足以支撑新功能，应优先抽象公共能力，而不是复制粘贴业务代码。
 

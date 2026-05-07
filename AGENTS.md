@@ -38,7 +38,7 @@ AI 工具拿到代码后，如需构建可运行环境，优先按以下入口�
 
 开发环境可使用 `docker compose up --build` 启动 Docker PostgreSQL、Redis、API 和前端 Web 服务。
 
-生产或准生产环境不得依赖开发默认密码、默认 `JWT_SECRET` 或 `CORS_ORIGINS=*`。生产数据库初始化应优先使用 `internal/infrastructure/persistence/postgres/migrations/` 下的版本化 SQL 脚本，并按该目录 README 的顺序执行。
+生产或准生产环境不得依赖开发默认密码、默认 `JWT_SECRET` 或 `CORS_ORIGINS=*`。生产数据库初始化应优先使用 `go run ./cmd/migrate` 执行当前 schema baseline 与 `internal/infrastructure/persistence/postgres/migrations/` 下的版本化增量 SQL。
 
 ## Backend
 
