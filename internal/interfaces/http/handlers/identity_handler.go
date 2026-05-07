@@ -1698,11 +1698,12 @@ func (h *IdentityHandler) DeletePlan(c *gin.Context) {
 }
 
 func (h *IdentityHandler) PlanMatrix(c *gin.Context) {
+	h.syncPackageFeaturesFromPermissions()
 	var plans []models.SaasPlan
 	var features []models.SaasFeature
 	var links []models.SaasPlanFeature
-	_ = h.db.Order("sort_order asc, id asc").Find(&plans).Error
-	_ = h.db.Order("id asc").Find(&features).Error
+	_ = h.db.Where("deleted_at IS NULL").Order("sort_order asc, id asc").Find(&plans).Error
+	_ = h.db.Where("status = ?", 1).Order("parent_id asc, id asc").Find(&features).Error
 	_ = h.db.Find(&links).Error
 
 	enabled := map[uint64]map[uint64]bool{}
@@ -1717,7 +1718,8 @@ func (h *IdentityHandler) PlanMatrix(c *gin.Context) {
 	for _, plan := range plans {
 		planItems = append(planItems, planToJSON(plan))
 	}
-	nodes := make([]gin.H, 0, len(features))
+	nodeByID := map[uint64]gin.H{}
+	childrenByParent := map[uint64][]gin.H{}
 	for _, feature := range features {
 		cells := make([]gin.H, 0, len(plans))
 		for _, plan := range plans {
@@ -1735,7 +1737,7 @@ func (h *IdentityHandler) PlanMatrix(c *gin.Context) {
 				"quota_values": h.planMatrixQuotaValues(plan.ID, feature.FeatureCode),
 			})
 		}
-		nodes = append(nodes, gin.H{
+		node := gin.H{
 			"id":           feature.FeatureCode,
 			"label":        feature.FeatureName,
 			"node_type":    "feature",
@@ -1745,8 +1747,14 @@ func (h *IdentityHandler) PlanMatrix(c *gin.Context) {
 			"description":  feature.Description,
 			"children":     []gin.H{},
 			"cells":        cells,
-		})
+		}
+		nodeByID[feature.ID] = node
+		childrenByParent[feature.ParentID] = append(childrenByParent[feature.ParentID], node)
 	}
+	for id, node := range nodeByID {
+		node["children"] = childrenByParent[id]
+	}
+	nodes := childrenByParent[0]
 	response.OK(c, gin.H{"plans": planItems, "nodes": nodes})
 }
 
@@ -1903,6 +1911,136 @@ func (h *IdentityHandler) planMatrixQuotaValues(planID uint64, featureCode strin
 		items = append(items, gin.H{"quota_id": row.QuotaID, "quota_code": row.QuotaCode, "quota_name": row.QuotaName, "quota_value": row.QuotaValue})
 	}
 	return items
+}
+
+func (h *IdentityHandler) syncPackageFeaturesFromPermissions() {
+	var permissions []models.Permission
+	_ = h.db.Where("enabled = ? AND is_package_feature = ? AND path <> ?", true, true, "__menu_root__").Order("perm_type asc, id asc").Find(&permissions).Error
+	codeToID := map[string]uint64{}
+	var existing []models.SaasFeature
+	_ = h.db.Find(&existing).Error
+	for _, feature := range existing {
+		codeToID[feature.FeatureCode] = feature.ID
+	}
+	for _, permission := range permissions {
+		code := packageFeatureCodeForPermission(permission)
+		if code == "" {
+			continue
+		}
+		featureType := packageFeatureTypeForPermission(permission)
+		parentID := uint64(0)
+		if featureType == "BUTTON" {
+			parentCode := parentPackageFeatureCodeForOperation(permission.Path)
+			if parentCode != "" {
+				parentID = codeToID[parentCode]
+			}
+		}
+		name := packageFeatureNameForPermission(permission)
+		var feature models.SaasFeature
+		if err := h.db.Where("feature_code = ?", code).First(&feature).Error; err == nil {
+			updates := map[string]interface{}{"feature_name": name, "feature_type": featureType, "parent_id": parentID, "status": 1}
+			if permission.PermType == 3 {
+				updates["menu_id"] = permission.ID
+			}
+			_ = h.db.Model(&feature).Updates(updates).Error
+			codeToID[code] = feature.ID
+			continue
+		}
+		feature = models.SaasFeature{FeatureCode: code, FeatureName: name, FeatureType: featureType, ParentID: parentID, Status: 1}
+		if permission.PermType == 3 {
+			feature.MenuID = &permission.ID
+		}
+		if err := h.db.Create(&feature).Error; err == nil {
+			codeToID[code] = feature.ID
+		}
+	}
+}
+
+func packageFeatureCodeForPermission(permission models.Permission) string {
+	if permission.IsPlatformOnly || !permission.IsPackageFeature || permission.Path == "" {
+		return ""
+	}
+	if excludedPackageFeaturePath(permission.Path) {
+		return ""
+	}
+	if permission.FeatureCode != nil && strings.TrimSpace(*permission.FeatureCode) != "" {
+		return truncateFeatureCode(strings.TrimSpace(*permission.FeatureCode))
+	}
+	if override := packageFeatureOverride(permission.Path); override != "" {
+		return override
+	}
+	if permission.PermType != 2 && permission.PermType != 3 && permission.PermType != 5 {
+		return ""
+	}
+	prefix := "button"
+	if permission.PermType == 3 {
+		prefix = "menu"
+	}
+	return truncateFeatureCode(prefix + "_" + normalizedFeatureSlug(permission.Path))
+}
+
+func excludedPackageFeaturePath(path string) bool {
+	excluded := map[string]struct{}{"/tenants": {}, "tenant:create": {}, "tenant:edit": {}, "tenant:delete": {}, "/plans": {}, "plan:create": {}, "plan:edit": {}, "plan:config": {}}
+	_, ok := excluded[path]
+	return ok
+}
+
+func packageFeatureOverride(path string) string {
+	overrides := map[string]string{
+		"/users": "user_manage", "/organization": "org_manage", "/positions": "position_manage", "/roles": "role_manage", "/permissions": "role_manage", "/menus": "role_manage", "/dict": "dict_manage", "/params": "param_manage", "/business-units": "business_unit_manage", "/audit-logs": "audit_log", "/login-logs": "login_log", "/monitor/health": "system_monitor", "/monitor/server": "system_monitor", "/monitor/jobs": "system_monitor", "/monitor/services": "system_monitor", "/monitor/cache": "system_monitor", "/monitor/cache-keys": "system_monitor", "brand:edit": "brand_config",
+	}
+	return overrides[path]
+}
+
+func parentPackageFeatureCodeForOperation(path string) string {
+	prefix := strings.SplitN(path, ":", 2)[0]
+	parentByPrefix := map[string]string{"user": "user_manage", "org": "org_manage", "role": "role_manage", "perm": "role_manage", "menu": "role_manage", "pos": "position_manage", "dict": "dict_manage", "param": "param_manage", "business_unit": "business_unit_manage", "audit": "audit_log", "login": "login_log", "monhealth": "system_monitor", "monserver": "system_monitor", "monjobs": "system_monitor", "monservices": "system_monitor", "moncache": "system_monitor", "moncachekeys": "system_monitor", "brand": "brand_config"}
+	return parentByPrefix[prefix]
+}
+
+func packageFeatureTypeForPermission(permission models.Permission) string {
+	if permission.FeatureType != nil && strings.TrimSpace(*permission.FeatureType) != "" {
+		return strings.TrimSpace(*permission.FeatureType)
+	}
+	if permission.PermType == 3 {
+		return "MENU"
+	}
+	return "BUTTON"
+}
+
+func packageFeatureNameForPermission(permission models.Permission) string {
+	name := strings.TrimSpace(permission.Name)
+	if strings.HasSuffix(name, "-访问") {
+		name = strings.TrimSuffix(name, "-访问")
+	}
+	if name == "" {
+		return permission.Path
+	}
+	return name
+}
+
+func normalizedFeatureSlug(value string) string {
+	var b strings.Builder
+	lastUnderscore := false
+	for _, ch := range strings.ToLower(value) {
+		if (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') {
+			b.WriteRune(ch)
+			lastUnderscore = false
+			continue
+		}
+		if !lastUnderscore {
+			b.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	return strings.Trim(b.String(), "_")
+}
+
+func truncateFeatureCode(value string) string {
+	if len(value) > 100 {
+		return value[:100]
+	}
+	return value
 }
 
 func quotaCodesForFeatureCode(featureCode string) []string {

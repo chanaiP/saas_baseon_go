@@ -74,7 +74,20 @@ func (h *IdentityHandler) tenantFeatureAllowed(tenantID uint64, featureCode stri
 	}
 	var count int64
 	h.db.Model(&models.SaasPlanFeature{}).Where("plan_id = ? AND feature_id = ? AND enabled = ?", sub.PlanID, feature.ID, true).Count(&count)
-	return count > 0
+	if count > 0 {
+		return true
+	}
+	if feature.FeatureType == "BUTTON" && feature.ParentID > 0 {
+		var explicit int64
+		h.db.Model(&models.SaasPlanFeature{}).Where("plan_id = ? AND feature_id = ?", sub.PlanID, feature.ID).Count(&explicit)
+		if explicit == 0 {
+			var parent models.SaasFeature
+			if err := h.db.Where("id = ? AND status = ?", feature.ParentID, 1).First(&parent).Error; err == nil {
+				return h.tenantFeatureAllowed(tenantID, parent.FeatureCode)
+			}
+		}
+	}
+	return false
 }
 
 func (h *IdentityHandler) requireQuotaAvailable(tenantID uint64, quotaCode string, increment int) error {
