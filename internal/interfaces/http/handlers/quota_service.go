@@ -55,6 +55,14 @@ func (h *IdentityHandler) currentQuotaLimit(tenantID uint64, quotaID uint64) int
 	return 0
 }
 
+func (h *IdentityHandler) currentQuotaLimitByCode(tenantID uint64, quotaCode string) (int, bool) {
+	var quota models.SaasQuota
+	if err := h.db.Where("quota_code = ? AND status = ?", quotaCode, 1).First(&quota).Error; err != nil {
+		return 0, false
+	}
+	return h.currentQuotaLimit(tenantID, quota.ID), true
+}
+
 func (h *IdentityHandler) tenantFeatureAllowed(tenantID uint64, featureCode string) bool {
 	if !h.subscriptionAllowsLogin(tenantID) {
 		return false

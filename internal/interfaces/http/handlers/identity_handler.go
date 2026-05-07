@@ -37,6 +37,7 @@ type IdentityHandler struct {
 }
 
 var safeFileIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
+var errInvalidFileID = errors.New("invalid file_id")
 
 func NewIdentityHandler(db *gorm.DB, redisClient *redis.Client, authSecret string, tokenTTLHours int) *IdentityHandler {
 	if tokenTTLHours <= 0 {
@@ -4130,17 +4131,51 @@ func (h *IdentityHandler) UploadFile(c *gin.Context) {
 		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
 		return
 	}
+	if err := h.requireFeatureAccess(user.TenantID, "file_manage"); err != nil {
+		response.Error(c, 403, response.CodeForbidden, err.Error())
+		return
+	}
 	file, err := c.FormFile("file")
 	if err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请选择文件")
 		return
 	}
-	if file.Size > 50*1024*1024 {
-		response.Error(c, 413, response.CodeBadRequest, "文件过大（最大 50 MB）")
+	maxSize := int64(50 * 1024 * 1024)
+	if quota, ok := h.currentQuotaLimitByCode(user.TenantID, "max_file_size_mb"); ok {
+		if quota == 0 {
+			response.Error(c, 403, response.CodeForbidden, "当前套餐不支持文件上传")
+			return
+		}
+		if quota > 0 {
+			quotaSize := int64(quota) * 1024 * 1024
+			if quotaSize < maxSize {
+				maxSize = quotaSize
+			}
+		}
+	}
+	if file.Size > maxSize {
+		response.Error(c, 413, response.CodeBadRequest, fmt.Sprintf("文件过大（最大 %d MB）", maxSize/(1024*1024)))
 		return
 	}
+	if quota, ok := h.currentQuotaLimitByCode(user.TenantID, "max_storage_gb"); ok {
+		if quota == 0 {
+			response.Error(c, 403, response.CodeForbidden, "当前套餐不支持文件存储")
+			return
+		}
+		if quota > 0 {
+			used, err := tenantStorageBytes(user.TenantID)
+			if err != nil {
+				response.Error(c, 500, response.CodeInternal, "读取存储用量失败")
+				return
+			}
+			if used+file.Size > int64(quota)*1024*1024*1024 {
+				response.Error(c, 429, response.CodeBadRequest, "租户存储空间不足")
+				return
+			}
+		}
+	}
 	fileID := randomHex(16)
-	originalName := filepath.Base(file.Filename)
+	originalName := safeOriginalName(file.Filename)
 	ext := safeFileExt(originalName)
 	dir := uploadDir(user.TenantID, time.Now())
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -4149,6 +4184,7 @@ func (h *IdentityHandler) UploadFile(c *gin.Context) {
 	}
 	dst := filepath.Join(dir, fileID+ext)
 	if err := c.SaveUploadedFile(file, dst); err != nil {
+		_ = os.Remove(dst)
 		response.Error(c, 500, response.CodeInternal, "保存文件失败")
 		return
 	}
@@ -4162,8 +4198,13 @@ func (h *IdentityHandler) DownloadFile(c *gin.Context) {
 		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
 		return
 	}
-	path, err := h.findTenantFile(user.TenantID, c.Param("file_id"))
+	fileID := c.Param("file_id")
+	path, err := h.findTenantFile(user.TenantID, fileID)
 	if err != nil {
+		if errors.Is(err, errInvalidFileID) {
+			response.Error(c, 400, response.CodeBadRequest, "file_id 非法")
+			return
+		}
 		response.Error(c, 404, response.CodeNotFound, "文件不存在")
 		return
 	}
@@ -4176,8 +4217,13 @@ func (h *IdentityHandler) DeleteFile(c *gin.Context) {
 		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
 		return
 	}
-	path, err := h.findTenantFile(user.TenantID, c.Param("file_id"))
+	fileID := c.Param("file_id")
+	path, err := h.findTenantFile(user.TenantID, fileID)
 	if err != nil {
+		if errors.Is(err, errInvalidFileID) {
+			response.Error(c, 400, response.CodeBadRequest, "file_id 非法")
+			return
+		}
 		response.Error(c, 404, response.CodeNotFound, "文件不存在")
 		return
 	}
@@ -4188,7 +4234,7 @@ func (h *IdentityHandler) DeleteFile(c *gin.Context) {
 		response.Error(c, 500, response.CodeInternal, "删除文件失败")
 		return
 	}
-	h.audit(c, user.TenantID, user.ID, "file", "delete", "删除文件 "+c.Param("file_id"), gin.H{"file_id": c.Param("file_id")})
+	h.audit(c, user.TenantID, user.ID, "file", "delete", "删除文件 "+fileID, gin.H{"file_id": fileID, "trash_path": trashPath})
 	response.OK(c, gin.H{"message": "已删除"})
 }
 
@@ -5893,6 +5939,17 @@ func uploadDir(tenantID uint64, now time.Time) string {
 	return filepath.Join(uploadRoot(), strconv.FormatUint(tenantID, 10), now.Format("2006/01/02"))
 }
 
+func safeOriginalName(name string) string {
+	base := filepath.Base(strings.TrimSpace(name))
+	if base == "" || base == "." || base == string(filepath.Separator) {
+		base = "unknown"
+	}
+	if len(base) > 255 {
+		base = base[:255]
+	}
+	return base
+}
+
 func safeFileExt(name string) string {
 	ext := strings.ToLower(filepath.Ext(name))
 	if len(ext) == 0 || len(ext) > 16 {
@@ -5908,7 +5965,7 @@ func safeFileExt(name string) string {
 
 func (h *IdentityHandler) findTenantFile(tenantID uint64, fileID string) (string, error) {
 	if !safeFileIDPattern.MatchString(fileID) {
-		return "", fmt.Errorf("invalid file_id")
+		return "", errInvalidFileID
 	}
 	root := filepath.Join(uploadRoot(), strconv.FormatUint(tenantID, 10))
 	var found string
@@ -5932,6 +5989,26 @@ func (h *IdentityHandler) findTenantFile(tenantID uint64, fileID string) (string
 		return "", err
 	}
 	return "", fmt.Errorf("not found")
+}
+
+func tenantStorageBytes(tenantID uint64) (int64, error) {
+	root := filepath.Join(uploadRoot(), strconv.FormatUint(tenantID, 10))
+	var total int64
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d == nil || d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		total += info.Size()
+		return nil
+	})
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	return total, err
 }
 
 func csvHeaderIndex(headers []string) map[string]int {

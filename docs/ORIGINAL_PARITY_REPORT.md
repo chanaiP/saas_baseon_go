@@ -300,3 +300,23 @@ Go 版额外路由：
 状态：
 
 - K 组日志已完成。
+
+## 文件与批量导入导出对比
+
+已对齐项：
+
+- 文件上传接入 `file_manage` 套餐功能开关。
+- 文件上传保留 50 MB 全局上限，并叠加 `max_file_size_mb` 套餐配额，0 表示当前套餐不支持上传。
+- 文件上传接入 `max_storage_gb` 租户容量配额，按租户上传目录统计已有文件大小，0 表示当前套餐不支持文件存储。
+- 原始文件名改为安全 basename、空名兜底 `unknown`、最长 255 字节；扩展名只允许字母数字且最长 16 字符，否则保存为 `.bin`。
+- 文件仍按 `uploads/{tenant_id}/YYYY/MM/DD` 保存，下载和删除只在当前主体目录查找，并跳过 `.trash`。
+- 非法 `file_id` 返回 400，跨主体或不存在文件返回 404。
+- 文件删除改为移动到 `uploads/{tenant_id}/.trash/YYYY/MM/DD/HHMMSS_filename`，审计中记录回收路径。
+
+验证：
+
+- `docker run --rm -e GOPROXY=https://goproxy.cn,direct -v "$PWD":/src -w /src golang:1.23-alpine sh -c 'gofmt -w ./cmd ./internal && go test ./...'` 通过。
+
+状态：
+
+- L1-L2 文件上传、下载、删除已完成。
