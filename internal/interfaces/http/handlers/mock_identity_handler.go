@@ -502,6 +502,10 @@ func (h *MockIdentityHandler) DeleteRole(c *gin.Context) {
 }
 
 func (h *MockIdentityHandler) UpdatePermissionDataPermMode(c *gin.Context) {
+	if c.Param("id") == "" {
+		response.OK(c, gin.H{})
+		return
+	}
 	var body struct {
 		DataPermMode string `json:"data_perm_mode"`
 	}

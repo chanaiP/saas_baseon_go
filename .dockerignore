@@ -1,0 +1,9 @@
+.git
+frontend/node_modules
+frontend/dist
+frontend/playwright-report
+frontend/test-results
+node_modules
+dist
+tmp
+.DS_Store
