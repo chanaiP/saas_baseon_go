@@ -29,10 +29,10 @@ CREATE TABLE public.app_user (
     tenant_id bigint NOT NULL,
     employee_no character varying(64) NOT NULL,
     account character varying(64) NOT NULL,
-    password_hash character varying(255) NOT NULL,
-    name character varying(128) NOT NULL,
+    password_hash character varying(200) NOT NULL,
+    name character varying(100) NOT NULL,
     phone character varying(32),
-    email character varying(128),
+    email character varying(200),
     avatar_url text,
     status bigint DEFAULT 1 NOT NULL,
     is_platform_admin boolean DEFAULT false NOT NULL,
@@ -173,7 +173,7 @@ CREATE TABLE public.business_unit (
     bu_type character varying(32),
     status bigint DEFAULT 1 NOT NULL,
     billing_enabled boolean DEFAULT false NOT NULL,
-    statistic_enabled boolean DEFAULT false NOT NULL,
+    statistic_enabled boolean DEFAULT true NOT NULL,
     remark text,
     created_at timestamp with time zone NOT NULL,
     updated_at timestamp with time zone NOT NULL,
@@ -318,7 +318,7 @@ CREATE TABLE public.dict_type (
     name character varying(200) NOT NULL,
     remark character varying(500),
     scope character varying(32) NOT NULL,
-    tenant_editable boolean DEFAULT false NOT NULL,
+    tenant_editable boolean DEFAULT true NOT NULL,
     is_platform_only boolean DEFAULT false NOT NULL,
     created_at timestamp with time zone NOT NULL,
     updated_at timestamp with time zone NOT NULL,
@@ -428,8 +428,8 @@ CREATE TABLE public.permission (
     id bigint NOT NULL,
     tenant_id bigint NOT NULL,
     parent_id bigint,
-    name character varying(128) NOT NULL,
-    path character varying(255) NOT NULL,
+    name character varying(200) NOT NULL,
+    path character varying(500),
     perm_type bigint NOT NULL,
     sort_order bigint DEFAULT 0 NOT NULL,
     enabled boolean DEFAULT true NOT NULL,
@@ -437,8 +437,8 @@ CREATE TABLE public.permission (
     is_platform_only boolean DEFAULT false NOT NULL,
     is_package_feature boolean DEFAULT true NOT NULL,
     tenant_editable boolean DEFAULT false NOT NULL,
-    tenant_edit_scope character varying(64),
-    feature_code character varying(128),
+    tenant_edit_scope character varying(100),
+    feature_code character varying(100),
     feature_type character varying(32),
     data_perm_mode character varying(16) DEFAULT 'ORG'::character varying NOT NULL,
     created_at timestamp with time zone NOT NULL,
@@ -1905,10 +1905,24 @@ CREATE INDEX idx_business_unit_org_map_tenant_id ON public.business_unit_org_map
 
 
 --
+-- Name: idx_bu_org_map_scope; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_bu_org_map_scope ON public.business_unit_org_map USING btree (tenant_id, business_unit_id, org_id, scope_type);
+
+
+--
 -- Name: idx_business_unit_scope_business_unit_id; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_business_unit_scope_business_unit_id ON public.business_unit_scope USING btree (business_unit_id);
+
+
+--
+-- Name: idx_bu_scope_role_permission_bu; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_bu_scope_role_permission_bu ON public.business_unit_scope USING btree (role_permission_id, business_unit_id);
 
 
 --
@@ -1958,6 +1972,34 @@ CREATE INDEX idx_login_log_tenant_id ON public.login_log USING btree (tenant_id)
 --
 
 CREATE INDEX idx_login_log_user_id ON public.login_log USING btree (user_id);
+
+
+--
+-- Name: idx_app_user_tenant_employee; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_app_user_tenant_employee ON public.app_user USING btree (tenant_id, employee_no);
+
+
+--
+-- Name: idx_app_user_tenant_phone; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_app_user_tenant_phone ON public.app_user USING btree (tenant_id, phone);
+
+
+--
+-- Name: idx_app_user_department; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_app_user_department ON public.app_user_department USING btree (user_id, department_id);
+
+
+--
+-- Name: idx_app_user_position; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_app_user_position ON public.app_user_position USING btree (user_id, position_id);
 
 
 --
@@ -2073,10 +2115,24 @@ CREATE INDEX idx_role_permission_role_id ON public.role_permission USING btree (
 
 
 --
+-- Name: idx_role_permission_role_permission; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_role_permission_role_permission ON public.role_permission USING btree (role_id, permission_id);
+
+
+--
 -- Name: idx_role_tenant_id; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_role_tenant_id ON public.role USING btree (tenant_id);
+
+
+--
+-- Name: idx_role_tenant_code; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_role_tenant_code ON public.role USING btree (tenant_id, code);
 
 
 --
@@ -2136,6 +2192,13 @@ CREATE INDEX idx_tenant_dict_item_override_tenant_id ON public.tenant_dict_item_
 
 
 --
+-- Name: idx_tenant_dict_item_override; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_tenant_dict_item_override ON public.tenant_dict_item_override USING btree (tenant_id, dict_item_id);
+
+
+--
 -- Name: idx_tenant_feature; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2157,6 +2220,13 @@ CREATE INDEX idx_tenant_menu_override_tenant_id ON public.tenant_menu_override U
 
 
 --
+-- Name: idx_tenant_menu_override; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_tenant_menu_override ON public.tenant_menu_override USING btree (tenant_id, permission_id);
+
+
+--
 -- Name: idx_tenant_param_value_param_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2168,6 +2238,13 @@ CREATE INDEX idx_tenant_param_value_param_id ON public.tenant_param_value USING 
 --
 
 CREATE INDEX idx_tenant_param_value_tenant_id ON public.tenant_param_value USING btree (tenant_id);
+
+
+--
+-- Name: idx_tenant_param_value; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_tenant_param_value ON public.tenant_param_value USING btree (tenant_id, param_id);
 
 
 --
@@ -2206,6 +2283,20 @@ CREATE INDEX idx_user_preference_user_id ON public.user_preference USING btree (
 
 
 --
+-- Name: idx_user_preference_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_user_preference_key ON public.user_preference USING btree (user_id, pref_key);
+
+
+--
+-- Name: idx_user_role_user_role; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_user_role_user_role ON public.user_role USING btree (user_id, role_id);
+
+
+--
 -- Name: idx_user_role_role_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2222,5 +2313,3 @@ CREATE INDEX idx_user_role_user_id ON public.user_role USING btree (user_id);
 --
 -- PostgreSQL database dump complete
 --
-
-

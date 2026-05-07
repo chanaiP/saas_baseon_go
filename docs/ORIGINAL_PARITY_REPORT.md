@@ -359,6 +359,7 @@ Go 版额外路由：
 - TenantMenuOverride、TenantDictItemOverride、TenantParamValue 模型补齐租户维度覆盖唯一约束。
 - Permission 字段长度按原模型调整：名称 200、路径 500、功能编码 100、租户编辑范围 100。
 - DictType 租户可编辑默认值调整为启用，与原模型一致。
+- `current_schema.sql` 已同步上述字段长度、默认值和复合唯一索引，保持 schema 基线与 Go 模型一致。
 
 验证：
 
@@ -366,4 +367,4 @@ Go 版额外路由：
 
 状态：
 
-- N1 Go 模型字段、索引、唯一约束、软删除字段已完成。
+- N1-N2 Go 模型与 `current_schema.sql` 基线已完成。
