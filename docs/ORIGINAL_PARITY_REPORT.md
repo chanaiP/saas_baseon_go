@@ -210,3 +210,23 @@ Go 版额外路由：
 状态：
 
 - G 组组织架构已完成。
+
+## 岗位管理对比
+
+已对齐项：
+
+- 岗位类型列表改为当前主体作用域，排除软删除，支持 `skip/limit/keyword` 与 `position_count`。
+- 岗位类型创建、更新、删除均按当前主体隔离，并补齐审计。
+- 岗位类型删除改为软删除并 tombstone 编码，删除前校验类型下仍有岗位。
+- 岗位列表改为当前主体作用域，排除软删除，支持 `skip/limit/keyword/position_type_id`。
+- 岗位创建/更新会校验岗位类型属于当前主体。
+- 岗位删除改为软删除并 tombstone 编码，删除前校验用户岗位关联。
+- 岗位创建、更新、删除均补齐审计。
+
+验证：
+
+- `docker run --rm -e GOPROXY=https://goproxy.cn,direct -v "$PWD":/src -w /src golang:1.23-alpine sh -c 'gofmt -w ./cmd ./internal && go test ./...'` 通过。
+
+状态：
+
+- H 组岗位管理已完成。
