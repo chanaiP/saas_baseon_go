@@ -1,6 +1,8 @@
 package bootstrap
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -44,6 +46,18 @@ func TestOpenAPISpecIncludesSchemas(t *testing.T) {
 	roleResponse := createRole["responses"].(gin.H)["200"].(gin.H)
 	content := roleResponse["content"].(gin.H)["application/json"].(gin.H)
 	require.Contains(t, content["schema"].(gin.H), "properties")
+}
+
+func TestDocsRouteServesSwaggerUI(t *testing.T) {
+	router := NewRouter(Config{AppEnv: "test", AuthSecret: "test-secret", TokenTTLHours: 1}, nil, nil)
+	req := httptest.NewRequest(http.MethodGet, "/docs", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	require.Equal(t, http.StatusOK, resp.Code)
+	require.Contains(t, resp.Body.String(), "SwaggerUIBundle")
+	require.Contains(t, resp.Body.String(), `url: "/openapi.json"`)
 }
 
 func ginPathToOpenAPIPath(path string) string {

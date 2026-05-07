@@ -31,6 +31,10 @@ func NewRouter(cfg Config, db *gorm.DB, redisClient *redis.Client) *gin.Engine {
 	router.GET("/openapi.json", func(c *gin.Context) {
 		c.JSON(200, openAPISpec())
 	})
+	router.GET("/docs", func(c *gin.Context) {
+		c.Header("Content-Type", "text/html; charset=utf-8")
+		c.String(200, swaggerUIHTML())
+	})
 
 	api := router.Group("/api")
 	{
@@ -314,6 +318,29 @@ func openAPISpec() gin.H {
 			"/api/users/{id}/password":                        gin.H{"put": api("users", "重置用户密码")},
 		},
 	})
+}
+
+func swaggerUIHTML() string {
+	return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>SaaS Admin API - Swagger UI</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script>
+    SwaggerUIBundle({
+      url: "/openapi.json",
+      dom_id: "#swagger-ui",
+      presets: [SwaggerUIBundle.presets.apis],
+      layout: "BaseLayout",
+    });
+  </script>
+</body>
+</html>`
 }
 
 func withOpenAPISchemas(spec gin.H) gin.H {
