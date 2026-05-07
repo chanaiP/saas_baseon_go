@@ -10,10 +10,17 @@
 
 - `README.md`：启动方式、端口、Docker、演示账号、故障排查。
 - `CLAUDE.md`：Claude Code 专用执行规则。
-- `backend/`：Gin 后端，按 `router -> schema -> service/crud -> model` 分层。
+- `cmd/api`：Gin API 入口。
+- `cmd/migrate`：PostgreSQL SQL 迁移入口。
+- `internal/bootstrap`：配置、数据库、Redis、路由和种子数据装配。
+- `internal/interfaces/http`：handler、middleware、统一响应与 HTTP DTO。
+- `internal/application`：用例服务。
+- `internal/domain`：领域对象与 repository contract。
+- `internal/infrastructure/persistence/postgres`：GORM model、repository、schema baseline 与迁移 SQL。
 - `frontend/src/`：Vue3 前端代码，API 在 `api/`，页面在 `views/`，组件在 `components/`，路由在 `router/`。
-- `scripts/`：开发、启动、检查脚本。
-- `internal/infrastructure/persistence/postgres/migrations/`：数据库初始化、迁移、验证脚本入口。AI 或开发者需要新建开发/生产数据库时，必须先阅读该目录下的 `README.md`。
+- `docs/`：原项目文档已复制并更新为当前 Go 技术架构，最终交接见 `docs/FINAL_PARITY_REPORT.md`。
+- `internal/infrastructure/persistence/postgres/schema/current_schema.sql`：当前 PostgreSQL schema baseline。
+- `internal/infrastructure/persistence/postgres/migrations/`：后续增量迁移 SQL。
 
 ## Database & Docker Bootstrap
 
@@ -21,14 +28,15 @@ AI 工具拿到代码后，如需构建可运行环境，优先按以下入口�
 
 - Docker 编排文件：`docker-compose.yml`
 - 数据库服务名：`postgres`
-- 数据库镜像：PostgreSQL 8.0
-- 默认开发库名：`saas_admin`
-- Docker 内部连接串：`postgres+pypostgres://root:root@postgres:3306/saas_admin?charset=utf8mb4`
-- 本机开发连接串示例：`postgres+pypostgres://root:root@127.0.0.1:3306/saas_admin?charset=utf8mb4`
+- 数据库镜像：PostgreSQL 16
+- 默认开发库名：`saas_baseon`
+- Docker 内部连接串示例：`host=postgres user=saas password=saas dbname=saas_baseon port=5432 sslmode=disable TimeZone=Asia/Shanghai`
+- 本机开发连接串示例：`host=127.0.0.1 user=saas password=saas dbname=saas_baseon port=5432 sslmode=disable TimeZone=Asia/Shanghai`
 - Redis 服务名：`redis`
-- SQL 脚本入口：`internal/infrastructure/persistence/postgres/migrations/README.md`
+- SQL baseline：`internal/infrastructure/persistence/postgres/schema/current_schema.sql`
+- 增量迁移目录：`internal/infrastructure/persistence/postgres/migrations/`
 
-开发环境可使用 `bash scripts/dev-local.sh` 快速启动 Docker PostgreSQL、Redis、API 和前端开发服务器。
+开发环境可使用 `docker compose up --build` 启动 Docker PostgreSQL、Redis、API 和前端 Web 服务。
 
 生产或准生产环境不得依赖开发默认密码、默认 `JWT_SECRET` 或 `CORS_ORIGINS=*`。生产数据库初始化应优先使用 `internal/infrastructure/persistence/postgres/migrations/` 下的版本化 SQL 脚本，并按该目录 README 的顺序执行。
 
@@ -38,7 +46,7 @@ AI 工具拿到代码后，如需构建可运行环境，优先按以下入口�
 
 全站业务数据不允许物理删除；删除必须按 `CLAUDE.md` 统一做逻辑删除、停用或归档，并保留历史与审计可追溯性。
 
-后端规范见 `CLAUDE.md` 的“5. 后端规范”。新增功能默认采用薄 router、厚 service、可复用 crud、明确 schema，并同步补 service 单测。
+后端规范见 `CLAUDE.md` 的“5. 后端规范”。新增功能默认按 model -> repository -> domain/application service -> dto/handler -> router 的方向落位，并同步补 service 或 handler 单测。
 
 ## Frontend
 
