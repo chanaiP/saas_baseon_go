@@ -26,6 +26,14 @@ Health check:
 curl http://127.0.0.1:8081/health
 ```
 
+Production-like runs can disable development AutoMigrate:
+
+```bash
+DB_AUTO_MIGRATE=false docker compose up --build
+```
+
+The current PostgreSQL schema baseline is stored at `internal/infrastructure/persistence/postgres/schema/current_schema.sql`.
+
 Frontend:
 
 ```text

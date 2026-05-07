@@ -16,6 +16,7 @@ type Config struct {
 	RedisDB       int
 	AuthSecret    string
 	TokenTTLHours int
+	AutoMigrate   bool
 }
 
 func LoadConfig() Config {
@@ -30,6 +31,7 @@ func LoadConfig() Config {
 		RedisDB:       envInt("REDIS_DB", 0),
 		AuthSecret:    env("AUTH_SECRET", "saas-baseon-go-development-secret"),
 		TokenTTLHours: envInt("TOKEN_TTL_HOURS", 24),
+		AutoMigrate:   envBool("DB_AUTO_MIGRATE", true),
 	}
 }
 
@@ -51,4 +53,19 @@ func envInt(key string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+func envBool(key string, fallback bool) bool {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	switch value {
+	case "1", "true", "TRUE", "yes", "YES", "on", "ON":
+		return true
+	case "0", "false", "FALSE", "no", "NO", "off", "OFF":
+		return false
+	default:
+		return fallback
+	}
 }

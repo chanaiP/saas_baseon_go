@@ -22,7 +22,7 @@ func main() {
 func run() error {
 	cfg := bootstrap.LoadConfig()
 
-	db, err := bootstrap.NewPostgres(cfg.DatabaseDSN)
+	db, err := bootstrap.NewPostgresWithOptions(cfg.DatabaseDSN, cfg.AutoMigrate)
 	if err != nil {
 		return err
 	}
