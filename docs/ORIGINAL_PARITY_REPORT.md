@@ -329,3 +329,19 @@ Go 版额外路由：
 状态：
 
 - L 组文件与批量导入导出已完成。
+
+## 监控对比
+
+已对齐项：
+
+- 健康检查返回 `mysql/redis` 字段，数据库状态改为真实连接 ping。
+- 服务器信息返回 `python_version/pid/cpu_percent/memory_mb/note` 字段，`python_version` 在 Go 版中承载 Go runtime 版本以保持前端契约。
+- 服务概览返回 `mysql/redis/python_version/pid/cpu_percent/memory_mb/note` 字段，数据库和 Redis 状态都使用实时检查结果。
+
+验证：
+
+- `docker run --rm -e GOPROXY=https://goproxy.cn,direct -v "$PWD":/src -w /src golang:1.23-alpine sh -c 'gofmt -w ./cmd ./internal && go test ./...'` 通过。
+
+状态：
+
+- M1 健康检查、服务器信息、服务概览已完成。

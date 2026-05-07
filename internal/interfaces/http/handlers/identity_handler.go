@@ -4052,13 +4052,13 @@ func (h *IdentityHandler) MonitorHealthDetail(c *gin.Context) {
 	if h.redis != nil {
 		redisOK = h.redis.Ping(context.Background()).Err() == nil
 	}
-	response.OK(c, gin.H{"mysql": true, "postgres": true, "redis": redisOK})
+	response.OK(c, gin.H{"mysql": h.databaseOK(), "redis": redisOK})
 }
 
 func (h *IdentityHandler) MonitorServerInfo(c *gin.Context) {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
-	response.OK(c, gin.H{"python_version": "go " + runtime.Version(), "go_version": runtime.Version(), "pid": os.Getpid(), "cpu_percent": nil, "memory_mb": float64(m.Alloc) / 1024 / 1024, "note": "Go 重构版本运行中"})
+	response.OK(c, gin.H{"python_version": runtime.Version(), "pid": os.Getpid(), "cpu_percent": nil, "memory_mb": float64(m.Alloc) / 1024 / 1024, "note": nil})
 }
 
 func (h *IdentityHandler) MonitorScheduledJobs(c *gin.Context) {
@@ -4072,7 +4072,7 @@ func (h *IdentityHandler) MonitorServicesOverview(c *gin.Context) {
 	if h.redis != nil {
 		redisOK = h.redis.Ping(context.Background()).Err() == nil
 	}
-	response.OK(c, gin.H{"mysql": true, "postgres": true, "redis": redisOK, "python_version": "go " + runtime.Version(), "go_version": runtime.Version(), "pid": os.Getpid(), "cpu_percent": nil, "memory_mb": float64(m.Alloc) / 1024 / 1024, "note": "Go 重构版本服务概览"})
+	response.OK(c, gin.H{"mysql": h.databaseOK(), "redis": redisOK, "python_version": runtime.Version(), "pid": os.Getpid(), "cpu_percent": nil, "memory_mb": float64(m.Alloc) / 1024 / 1024, "note": nil})
 }
 
 func (h *IdentityHandler) MonitorCacheStats(c *gin.Context) {
@@ -4124,6 +4124,17 @@ func (h *IdentityHandler) MonitorCacheKeys(c *gin.Context) {
 		items = append(items, item)
 	}
 	response.OK(c, gin.H{"items": items, "cursor": nextCursor})
+}
+
+func (h *IdentityHandler) databaseOK() bool {
+	if h.db == nil {
+		return false
+	}
+	sqlDB, err := h.db.DB()
+	if err != nil {
+		return false
+	}
+	return sqlDB.Ping() == nil
 }
 
 func (h *IdentityHandler) UploadFile(c *gin.Context) {
