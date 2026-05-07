@@ -5920,6 +5920,7 @@ func requiredDeletionGuards() []string {
 		"position_type:position",
 		"position:app_user_position",
 		"business_unit:business_unit_org_map",
+		"business_unit:business_unit_scope",
 		"dict_type:dict_item",
 		"dict_item:tenant_dict_item_override",
 		"sys_param:tenant_param_value",

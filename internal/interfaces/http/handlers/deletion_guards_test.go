@@ -21,6 +21,7 @@ func TestRequiredDeletionGuards(t *testing.T) {
 		"position_type:position",
 		"position:app_user_position",
 		"business_unit:business_unit_org_map",
+		"business_unit:business_unit_scope",
 		"dict_type:dict_item",
 	} {
 		require.True(t, guards[key], "missing deletion guard %s", key)
