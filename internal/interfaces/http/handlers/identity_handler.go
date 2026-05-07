@@ -4003,7 +4003,7 @@ func (h *IdentityHandler) LoginLogs(c *gin.Context) {
 	_ = query.Order("login_log.id desc").Offset(skip).Limit(limit).Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, gin.H{"id": row.ID, "tenant_id": row.TenantID, "tenant_name": h.tenantName(row.TenantID), "user_id": row.UserID, "account": row.Account, "success": row.Success, "message": row.Message, "ip": row.IP, "created_at": row.CreatedAt})
+		items = append(items, loginLogToJSON(row, h.tenantName(row.TenantID)))
 	}
 	response.OK(c, paginatedWithTotal(items, total, skip, limit))
 }
@@ -4042,7 +4042,7 @@ func (h *IdentityHandler) AuditLogs(c *gin.Context) {
 	_ = query.Order("audit_log.id desc").Offset(skip).Limit(limit).Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, gin.H{"id": row.ID, "tenant_id": row.TenantID, "tenant_name": h.tenantName(row.TenantID), "user_id": row.UserID, "module": row.Module, "action": row.Action, "summary": row.Summary, "detail": row.Detail, "ip": row.IP, "created_at": row.CreatedAt})
+		items = append(items, auditLogToJSON(row, h.tenantName(row.TenantID)))
 	}
 	response.OK(c, paginatedWithTotal(items, total, skip, limit))
 }
@@ -4482,6 +4482,14 @@ func parseDateOnly(raw string) (time.Time, bool) {
 		return time.Time{}, false
 	}
 	return parsed, true
+}
+
+func loginLogToJSON(row models.LoginLog, tenantName *string) gin.H {
+	return gin.H{"id": row.ID, "tenant_id": row.TenantID, "tenant_name": tenantName, "user_id": row.UserID, "account": row.Account, "success": row.Success, "message": row.Message, "ip": row.IP, "created_at": row.CreatedAt}
+}
+
+func auditLogToJSON(row models.AuditLog, tenantName *string) gin.H {
+	return gin.H{"id": row.ID, "tenant_id": row.TenantID, "tenant_name": tenantName, "user_id": row.UserID, "module": row.Module, "action": row.Action, "summary": row.Summary, "detail": row.Detail, "ip": row.IP, "created_at": row.CreatedAt}
 }
 
 func parseOptionalUintQuery(c *gin.Context, key string) *uint64 {
