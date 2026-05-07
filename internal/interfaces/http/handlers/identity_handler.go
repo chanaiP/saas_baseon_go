@@ -3503,27 +3503,39 @@ func (h *IdentityHandler) DeleteBusinessUnitOrgMapping(c *gin.Context) {
 }
 
 func (h *IdentityHandler) DictTypes(c *gin.Context) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	skip, limit := paginationParams(c)
 	var rows []models.DictType
-	_ = h.db.Order("id asc").Find(&rows).Error
+	query := h.db.Where("tenant_id = ? AND deleted_at IS NULL", user.TenantID)
+	if !user.IsPlatformAdmin {
+		query = query.Where("is_platform_only = ?", false)
+	} else if raw := strings.TrimSpace(c.Query("platform_only")); raw != "" {
+		query = query.Where("is_platform_only = ?", raw == "true" || raw == "1")
+	}
+	if keyword := strings.TrimSpace(c.Query("keyword")); keyword != "" {
+		like := "%" + keyword + "%"
+		query = query.Where("name LIKE ? OR code LIKE ?", like, like)
+	}
+	var total int64
+	_ = query.Model(&models.DictType{}).Count(&total).Error
+	_ = query.Order("id asc").Offset(skip).Limit(limit).Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, gin.H{
-			"id":               row.ID,
-			"code":             row.Code,
-			"name":             row.Name,
-			"type_code":        row.Code,
-			"type_name":        row.Name,
-			"remark":           row.Remark,
-			"scope":            row.Scope,
-			"tenant_editable":  row.TenantEditable,
-			"is_platform_only": row.IsPlatformOnly,
-			"status":           1,
-		})
+		items = append(items, dictTypeToJSON(row))
 	}
-	response.OK(c, paginated(items))
+	response.OK(c, paginatedWithTotal(items, total, skip, limit))
 }
 
 func (h *IdentityHandler) CreateDictType(c *gin.Context) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
 	var body struct {
 		Code           string  `json:"code"`
 		Name           string  `json:"name"`
@@ -3539,61 +3551,128 @@ func (h *IdentityHandler) CreateDictType(c *gin.Context) {
 	if body.Scope == "" {
 		body.Scope = "platform"
 	}
-	row := models.DictType{TenantID: 1, Code: body.Code, Name: body.Name, Remark: body.Remark, Scope: body.Scope, TenantEditable: body.TenantEditable, IsPlatformOnly: body.IsPlatformOnly}
+	row := models.DictType{TenantID: user.TenantID, Code: strings.TrimSpace(body.Code), Name: strings.TrimSpace(body.Name), Remark: nullableTrimmed(body.Remark), Scope: body.Scope, TenantEditable: body.TenantEditable, IsPlatformOnly: body.IsPlatformOnly}
 	if err := h.db.Create(&row).Error; err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
+	h.audit(c, user.TenantID, user.ID, "dict_type", "create", "创建字典类型 "+row.Name, gin.H{"id": row.ID, "code": row.Code})
 	response.OK(c, gin.H{"id": row.ID})
 }
 
 func (h *IdentityHandler) UpdateDictType(c *gin.Context) {
-	var body map[string]interface{}
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	var body struct {
+		Name           *string `json:"name"`
+		Remark         *string `json:"remark"`
+		Scope          *string `json:"scope"`
+		TenantEditable *bool   `json:"tenant_editable"`
+		IsPlatformOnly *bool   `json:"is_platform_only"`
+	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	if err := h.db.Model(&models.DictType{}).Where("id = ?", c.Param("id")).Updates(body).Error; err != nil {
+	updates := map[string]interface{}{}
+	if body.Name != nil {
+		updates["name"] = strings.TrimSpace(*body.Name)
+	}
+	if body.Remark != nil {
+		updates["remark"] = nullableTrimmed(body.Remark)
+	}
+	if body.Scope != nil {
+		updates["scope"] = strings.TrimSpace(*body.Scope)
+	}
+	if body.TenantEditable != nil {
+		updates["tenant_editable"] = *body.TenantEditable
+	}
+	if body.IsPlatformOnly != nil {
+		updates["is_platform_only"] = *body.IsPlatformOnly
+	}
+	var row models.DictType
+	if err := h.db.Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", c.Param("id"), user.TenantID).First(&row).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "不存在")
+		return
+	}
+	if err := h.db.Model(&row).Updates(updates).Error; err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
-	var row models.DictType
-	_ = h.db.First(&row, c.Param("id")).Error
-	response.OK(c, gin.H{"id": row.ID, "code": row.Code, "name": row.Name, "remark": row.Remark, "scope": row.Scope, "tenant_editable": row.TenantEditable, "is_platform_only": row.IsPlatformOnly})
+	_ = h.db.First(&row, row.ID).Error
+	h.audit(c, user.TenantID, user.ID, "dict_type", "update", "编辑字典类型 "+row.Name, gin.H{"id": row.ID, "code": row.Code})
+	response.OK(c, dictTypeToJSON(row))
 }
 
 func (h *IdentityHandler) DeleteDictType(c *gin.Context) {
-	id := parseUintParam(c, "id")
-	if h.blockDeleteIfReferenced(c, "字典类型", ref(&models.DictItem{}, "字典项", "dict_type_id = ?", id)) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
 		return
 	}
-	h.deleteByID(c, &models.DictType{})
+	id := parseUintParam(c, "id")
+	if h.blockDeleteIfReferenced(c, "字典类型", ref(&models.DictItem{}, "字典项", "tenant_id = ? AND dict_type_id = ? AND deleted_at IS NULL", user.TenantID, id)) {
+		return
+	}
+	var row models.DictType
+	if err := h.db.Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", id, user.TenantID).First(&row).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "不存在")
+		return
+	}
+	now := time.Now()
+	if err := h.db.Model(&row).Updates(map[string]interface{}{"deleted_at": now, "code": tombstoneUniqueValue(row.Code, row.ID, 64)}).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	h.audit(c, user.TenantID, user.ID, "dict_type", "delete", "删除字典类型 "+row.Name, gin.H{"id": id})
+	response.OK(c, gin.H{"deleted": id})
 }
 
 func (h *IdentityHandler) DictItemsByCode(c *gin.Context) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
 	code := c.Param("code")
 	var dictType models.DictType
-	if err := h.db.Where("code = ?", code).First(&dictType).Error; err != nil {
+	if err := h.db.Where("tenant_id = ? AND code = ? AND deleted_at IS NULL", user.TenantID, code).First(&dictType).Error; err != nil {
 		response.OK(c, gin.H{"code": code, "items": []gin.H{}})
 		return
 	}
 	var rows []models.DictItem
-	_ = h.db.Where("dict_type_id = ?", dictType.ID).Order("sort_order asc, id asc").Find(&rows).Error
-	items := dictItemsToJSON(rows)
+	_ = h.db.Where("tenant_id = ? AND dict_type_id = ? AND deleted_at IS NULL", user.TenantID, dictType.ID).Order("sort_order asc, id asc").Find(&rows).Error
+	items := h.dictItemsToJSON(user.TenantID, rows, true)
 	response.OK(c, gin.H{"code": code, "items": items})
 }
 
 func (h *IdentityHandler) DictItems(c *gin.Context) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	skip, limit := paginationParams(c)
 	var rows []models.DictItem
-	query := h.db.Order("sort_order asc, id asc")
+	query := h.db.Where("tenant_id = ? AND deleted_at IS NULL", user.TenantID)
 	if dictTypeID := c.Query("dict_type_id"); dictTypeID != "" {
 		query = query.Where("dict_type_id = ?", dictTypeID)
 	}
-	_ = query.Find(&rows).Error
-	response.OK(c, paginated(dictItemsToJSON(rows)))
+	var total int64
+	_ = query.Model(&models.DictItem{}).Count(&total).Error
+	_ = query.Order("sort_order asc, id asc").Offset(skip).Limit(limit).Find(&rows).Error
+	response.OK(c, paginatedWithTotal(h.dictItemsToJSON(user.TenantID, rows, false), total, skip, limit))
 }
 
 func (h *IdentityHandler) CreateDictItem(c *gin.Context) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
 	var body struct {
 		DictTypeID uint64 `json:"dict_type_id"`
 		Label      string `json:"label"`
@@ -3609,44 +3688,96 @@ func (h *IdentityHandler) CreateDictItem(c *gin.Context) {
 	if body.Enabled != nil {
 		enabled = *body.Enabled
 	}
-	row := models.DictItem{TenantID: 1, DictTypeID: body.DictTypeID, Label: body.Label, Value: body.Value, SortOrder: body.SortOrder, Enabled: enabled}
+	if err := h.assertDictTypeInTenant(user.TenantID, body.DictTypeID); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	row := models.DictItem{TenantID: user.TenantID, DictTypeID: body.DictTypeID, Label: strings.TrimSpace(body.Label), Value: strings.TrimSpace(body.Value), SortOrder: body.SortOrder, Enabled: enabled}
 	if err := h.db.Create(&row).Error; err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
+	h.audit(c, user.TenantID, user.ID, "dict_item", "create", "创建字典项 "+row.Label, gin.H{"id": row.ID, "value": row.Value})
 	response.OK(c, gin.H{"id": row.ID})
 }
 
 func (h *IdentityHandler) UpdateDictItem(c *gin.Context) {
-	var body map[string]interface{}
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	var body struct {
+		Label     *string `json:"label"`
+		Value     *string `json:"value"`
+		SortOrder *int    `json:"sort_order"`
+		Enabled   *bool   `json:"enabled"`
+	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	if err := h.db.Model(&models.DictItem{}).Where("id = ?", c.Param("id")).Updates(body).Error; err != nil {
+	var row models.DictItem
+	if err := h.db.Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", c.Param("id"), user.TenantID).First(&row).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "不存在")
+		return
+	}
+	if !user.IsPlatformAdmin {
+		var dictType models.DictType
+		if err := h.db.Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", row.DictTypeID, user.TenantID).First(&dictType).Error; err != nil || !dictType.TenantEditable {
+			response.Error(c, 403, response.CodeForbidden, "该字典不允许租户覆盖")
+			return
+		}
+		override := h.upsertTenantDictItemOverride(user.TenantID, row.ID, body.Label, body.Value, body.SortOrder, body.Enabled)
+		h.audit(c, user.TenantID, user.ID, "dict_item", "update", "编辑字典项 "+row.Label, gin.H{"id": row.ID, "value": row.Value})
+		response.OK(c, h.dictItemToJSON(row, override))
+		return
+	}
+	updates := dictItemUpdates(body.Label, body.Value, body.SortOrder, body.Enabled)
+	if err := h.db.Model(&row).Updates(updates).Error; err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
-	var row models.DictItem
-	_ = h.db.First(&row, c.Param("id")).Error
-	response.OK(c, dictItemsToJSON([]models.DictItem{row})[0])
+	_ = h.db.First(&row, row.ID).Error
+	h.audit(c, user.TenantID, user.ID, "dict_item", "update", "编辑字典项 "+row.Label, gin.H{"id": row.ID, "value": row.Value})
+	response.OK(c, h.dictItemToJSON(row, nil))
 }
 
 func (h *IdentityHandler) DeleteDictItem(c *gin.Context) {
-	id := parseUintParam(c, "id")
-	if h.blockDeleteIfReferenced(c, "字典项", ref(&models.TenantDictItemOverride{}, "租户字典覆盖", "dict_item_id = ?", id)) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
 		return
 	}
-	h.deleteByID(c, &models.DictItem{})
+	id := parseUintParam(c, "id")
+	var row models.DictItem
+	if err := h.db.Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", id, user.TenantID).First(&row).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "不存在")
+		return
+	}
+	now := time.Now()
+	if err := h.db.Model(&row).Updates(map[string]interface{}{"deleted_at": now, "enabled": false}).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	h.audit(c, user.TenantID, user.ID, "dict_item", "delete", "删除字典项 "+row.Label, gin.H{"id": id})
+	response.OK(c, gin.H{"deleted": id})
 }
 
 func (h *IdentityHandler) RestoreDictItem(c *gin.Context) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
 	var row models.DictItem
-	if err := h.db.First(&row, c.Param("id")).Error; err != nil {
+	if err := h.db.Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", c.Param("id"), user.TenantID).First(&row).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "字典项不存在")
 		return
 	}
-	response.OK(c, dictItemsToJSON([]models.DictItem{row})[0])
+	_ = h.db.Where("tenant_id = ? AND dict_item_id = ?", user.TenantID, row.ID).Delete(&models.TenantDictItemOverride{}).Error
+	h.audit(c, user.TenantID, user.ID, "dict_item", "restore", "恢复字典项默认值 "+row.Label, gin.H{"id": row.ID})
+	response.OK(c, h.dictItemToJSON(row, nil))
 }
 
 func (h *IdentityHandler) SysParams(c *gin.Context) {
@@ -5020,24 +5151,106 @@ func (h *IdentityHandler) cascadeRefreshCompanyIDs(tx *gorm.DB, tenantID, rootID
 func dictItemsToJSON(rows []models.DictItem) []gin.H {
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, gin.H{
-			"id":                 row.ID,
-			"dict_type_id":       row.DictTypeID,
-			"default_label":      row.Label,
-			"default_value":      row.Value,
-			"default_sort_order": row.SortOrder,
-			"default_enabled":    row.Enabled,
-			"label":              row.Label,
-			"value":              row.Value,
-			"item_label":         row.Label,
-			"item_value":         row.Value,
-			"sort_order":         row.SortOrder,
-			"enabled":            row.Enabled,
-			"status":             boolToStatus(row.Enabled),
-			"is_override":        false,
-		})
+		items = append(items, dictItemJSON(row, nil))
 	}
 	return items
+}
+
+func dictTypeToJSON(row models.DictType) gin.H {
+	return gin.H{"id": row.ID, "code": row.Code, "name": row.Name, "type_code": row.Code, "type_name": row.Name, "remark": row.Remark, "scope": row.Scope, "tenant_editable": row.TenantEditable, "is_platform_only": row.IsPlatformOnly, "status": 1}
+}
+
+func dictItemJSON(row models.DictItem, override *models.TenantDictItemOverride) gin.H {
+	label := row.Label
+	value := row.Value
+	sortOrder := row.SortOrder
+	enabled := row.Enabled
+	isOverride := override != nil
+	if override != nil {
+		if override.CustomLabel != nil {
+			label = *override.CustomLabel
+		}
+		if override.CustomValue != nil {
+			value = *override.CustomValue
+		}
+		if override.SortOrder != nil {
+			sortOrder = *override.SortOrder
+		}
+		if override.Enabled != nil {
+			enabled = *override.Enabled
+		}
+	}
+	return gin.H{"id": row.ID, "dict_type_id": row.DictTypeID, "default_label": row.Label, "default_value": row.Value, "default_sort_order": row.SortOrder, "default_enabled": row.Enabled, "label": label, "value": value, "item_label": label, "item_value": value, "sort_order": sortOrder, "enabled": enabled, "status": boolToStatus(enabled), "is_override": isOverride}
+}
+
+func (h *IdentityHandler) dictItemToJSON(row models.DictItem, override *models.TenantDictItemOverride) gin.H {
+	return dictItemJSON(row, override)
+}
+
+func (h *IdentityHandler) dictItemsToJSON(tenantID uint64, rows []models.DictItem, enabledOnly bool) []gin.H {
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		var override models.TenantDictItemOverride
+		var overridePtr *models.TenantDictItemOverride
+		if err := h.db.Where("tenant_id = ? AND dict_item_id = ?", tenantID, row.ID).First(&override).Error; err == nil {
+			overridePtr = &override
+		}
+		item := dictItemJSON(row, overridePtr)
+		if enabledOnly {
+			enabled, _ := item["enabled"].(bool)
+			if !enabled {
+				continue
+			}
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
+func dictItemUpdates(label *string, value *string, sortOrder *int, enabled *bool) map[string]interface{} {
+	updates := map[string]interface{}{}
+	if label != nil {
+		updates["label"] = strings.TrimSpace(*label)
+	}
+	if value != nil {
+		updates["value"] = strings.TrimSpace(*value)
+	}
+	if sortOrder != nil {
+		updates["sort_order"] = *sortOrder
+	}
+	if enabled != nil {
+		updates["enabled"] = *enabled
+	}
+	return updates
+}
+
+func (h *IdentityHandler) upsertTenantDictItemOverride(tenantID uint64, itemID uint64, label *string, value *string, sortOrder *int, enabled *bool) *models.TenantDictItemOverride {
+	var row models.TenantDictItemOverride
+	err := h.db.Where("tenant_id = ? AND dict_item_id = ?", tenantID, itemID).First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		row = models.TenantDictItemOverride{TenantID: tenantID, DictItemID: itemID}
+	}
+	row.CustomLabel = nullableTrimmed(label)
+	row.CustomValue = nullableTrimmed(value)
+	row.SortOrder = sortOrder
+	row.Enabled = enabled
+	if row.ID == 0 {
+		_ = h.db.Create(&row).Error
+	} else {
+		_ = h.db.Save(&row).Error
+	}
+	return &row
+}
+
+func (h *IdentityHandler) assertDictTypeInTenant(tenantID uint64, dictTypeID uint64) error {
+	var count int64
+	if err := h.db.Model(&models.DictType{}).Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", dictTypeID, tenantID).Count(&count).Error; err != nil {
+		return err
+	}
+	if count == 0 {
+		return errors.New("字典类型不存在")
+	}
+	return nil
 }
 
 func boolToStatus(value bool) int {
