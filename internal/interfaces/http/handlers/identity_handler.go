@@ -313,7 +313,7 @@ func (h *IdentityHandler) ipLoginRateLimitMessage(c *gin.Context) string {
 	if h.redis == nil {
 		return ""
 	}
-	key := "login_ip:" + c.ClientIP()
+	key := loginIPKey(c.ClientIP())
 	ctx := context.Background()
 	count, _ := h.redis.Get(ctx, key).Int()
 	if count >= 15 {
@@ -331,7 +331,7 @@ func (h *IdentityHandler) incrIPLoginFail(c *gin.Context) {
 	if h.redis == nil {
 		return
 	}
-	key := "login_ip:" + c.ClientIP()
+	key := loginIPKey(c.ClientIP())
 	ctx := context.Background()
 	_ = h.redis.Incr(ctx, key).Err()
 	_ = h.redis.Expire(ctx, key, 5*time.Minute).Err()
@@ -339,8 +339,12 @@ func (h *IdentityHandler) incrIPLoginFail(c *gin.Context) {
 
 func (h *IdentityHandler) resetIPLoginFail(c *gin.Context) {
 	if h.redis != nil {
-		_ = h.redis.Del(context.Background(), "login_ip:"+c.ClientIP()).Err()
+		_ = h.redis.Del(context.Background(), loginIPKey(c.ClientIP())).Err()
 	}
+}
+
+func loginIPKey(ip string) string {
+	return "login_ip:" + ip
 }
 
 func validateNewPassword(oldPassword, newPassword, confirm string) string {
@@ -4108,24 +4112,10 @@ func (h *IdentityHandler) MonitorCacheKeys(c *gin.Context) {
 	}
 	ctx := context.Background()
 	cursor, _ := strconv.ParseUint(c.Query("cursor"), 10, 64)
-	limit, _ := strconv.ParseInt(c.Query("limit"), 10, 64)
-	pattern := strings.TrimSpace(c.Query("pattern"))
-	if pattern == "" {
-		pattern = "*"
-	}
-	if len(pattern) > 128 {
-		response.Error(c, 400, response.CodeBadRequest, "pattern 过长")
+	limit, pattern, err := monitorCacheKeyQuery(c.Query("limit"), c.Query("pattern"))
+	if err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
-	}
-	if strings.ContainsAny(pattern, "\n\r\x00") {
-		response.Error(c, 400, response.CodeBadRequest, "pattern 非法")
-		return
-	}
-	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 200 {
-		limit = 200
 	}
 	items := make([]gin.H, 0, limit)
 	nextCursor := cursor
@@ -4416,6 +4406,27 @@ func redisInfoMap(raw string) map[string]string {
 		}
 	}
 	return values
+}
+
+func monitorCacheKeyQuery(rawLimit string, rawPattern string) (int64, string, error) {
+	limit, _ := strconv.ParseInt(rawLimit, 10, 64)
+	pattern := strings.TrimSpace(rawPattern)
+	if pattern == "" {
+		pattern = "*"
+	}
+	if len(pattern) > 128 {
+		return 0, "", errors.New("pattern 过长")
+	}
+	if strings.ContainsAny(pattern, "\n\r\x00") {
+		return 0, "", errors.New("pattern 非法")
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	return limit, pattern, nil
 }
 
 type tenantPackagePayload struct {
