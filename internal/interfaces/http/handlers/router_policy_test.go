@@ -40,6 +40,8 @@ func TestFallbackHandlerReturnsStrict404(t *testing.T) {
 func TestCSVAndFileSafetyHelpers(t *testing.T) {
 	require.Equal(t, "'=cmd", csvSafe("=cmd"))
 	require.Equal(t, "'+cmd", csvSafe("+cmd"))
+	require.Equal(t, "'-cmd", csvSafe("-cmd"))
+	require.Equal(t, "'@cmd", csvSafe("@cmd"))
 	require.Equal(t, "normal", csvSafe("normal"))
 	require.Equal(t, "unknown", safeOriginalName(""))
 	require.Equal(t, "demo.txt", safeOriginalName("/tmp/demo.txt"))

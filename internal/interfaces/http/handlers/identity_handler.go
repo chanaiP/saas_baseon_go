@@ -4339,7 +4339,7 @@ func (h *IdentityHandler) ImportUsersCSV(c *gin.Context) {
 	}
 	defer opened.Close()
 	content, _ := io.ReadAll(opened)
-	content = bytes.TrimPrefix(content, []byte{0xEF, 0xBB, 0xBF})
+	content = decodeCSVContent(content)
 	if !utf8.Valid(content) {
 		response.Error(c, 400, response.CodeBadRequest, "CSV 格式错误")
 		return
@@ -6174,6 +6174,9 @@ func tenantStorageBytes(tenantID uint64) (int64, error) {
 	var total int64
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d == nil || d.IsDir() {
+			if d != nil && d.IsDir() && d.Name() == ".trash" {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		info, err := d.Info()
@@ -6210,6 +6213,10 @@ func csvSafe(value string) string {
 		return "'" + value
 	}
 	return value
+}
+
+func decodeCSVContent(content []byte) []byte {
+	return bytes.TrimPrefix(content, []byte{0xEF, 0xBB, 0xBF})
 }
 
 func (h *IdentityHandler) sendCSV(c *gin.Context, filename string, rows [][]string) {
