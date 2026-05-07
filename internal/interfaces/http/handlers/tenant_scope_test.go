@@ -24,3 +24,14 @@ func TestEffectiveTenantID(t *testing.T) {
 		require.Equal(t, uint64(1), effectiveTenantID("", 0, false))
 	})
 }
+
+func TestNullableTrimmedMatchesBrandingPayloadPolicy(t *testing.T) {
+	raw := "  data:image/jpeg;base64,abc  "
+	trimmed := nullableTrimmed(&raw)
+	require.NotNil(t, trimmed)
+	require.Equal(t, "data:image/jpeg;base64,abc", *trimmed)
+
+	empty := "   "
+	require.Nil(t, nullableTrimmed(&empty))
+	require.Nil(t, nullableTrimmed(nil))
+}
