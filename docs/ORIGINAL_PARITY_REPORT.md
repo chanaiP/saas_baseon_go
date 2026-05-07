@@ -362,6 +362,11 @@ Go 版额外路由：
 - `current_schema.sql` 已同步上述字段长度、默认值和复合唯一索引，保持 schema 基线与 Go 模型一致。
 - 迁移器改为显式读写 `public.schema_migrations`，并在执行 SQL 文件后恢复 `search_path`，避免 baseline SQL 改变会话状态导致迁移记录写入失败。
 - 已用 PostgreSQL 16 空库验证 `go run ./cmd/migrate` 可成功应用当前 schema baseline。
+- 种子权限补齐 `perm:create/edit/delete`、主体状态/主管理员密码操作权限，以及各菜单对应 `data:{prefix}` 数据权限。
+- 套餐功能补齐导入、导出、文件、IP 白名单、MFA、SSO、API Key、Webhook、租户数据导出等原项目默认能力。
+- 套餐配额补齐门店数、存储空间、单文件大小、API Key、Webhook、每日导入/导出、月短信/月邮件等原项目默认配额。
+- 四个默认套餐的功能开关和配额值按原项目矩阵同步，保留 Go 版文件功能所需 `file_manage` 能力。
+- 字典种子补齐公司类型、完整组织节点类型、完整业务单元类型；系统参数种子同步为 `org.default_company_type` 与 `user.list_default_page_size`。
 
 验证：
 
@@ -369,4 +374,4 @@ Go 版额外路由：
 
 状态：
 
-- N1-N3 Go 模型、schema baseline 与空库迁移链路已完成。
+- N 组数据库、迁移与种子数据已完成。

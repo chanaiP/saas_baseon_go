@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/pbkdf2"
@@ -200,13 +201,19 @@ func seedPermissions(db *gorm.DB, tenantID uint64) ([]models.Permission, error) 
 		"business_unit:create", "business_unit:edit", "business_unit:delete",
 		"user:create", "user:edit", "user:reset_password", "user:delete",
 		"role:create", "role:edit", "role:delete",
+		"perm:create", "perm:edit", "perm:delete",
 		"menu:create", "menu:edit", "menu:delete",
 		"dict:create", "dict:edit", "dict:delete",
 		"param:create", "param:edit", "param:delete",
+		"tenant:status", "tenant:reset_primary_password",
 		"audit:view", "login:view", "brand:edit",
 		"monhealth:view", "monserver:view", "monjobs:view", "monservices:view", "moncache:view", "moncachekeys:view",
 	} {
 		items = append(items, seedPermission{Name: path, Path: path, Type: 2, FeatureType: "OPERATION", DataPermMode: "ORG"})
+	}
+	for path, prefix := range map[string]string{"/tenants": "tenant", "/plans": "plan", "/organization": "org", "/positions": "pos", "/business-units": "business_unit", "/users": "user", "/roles": "role", "/menus": "menu", "/dict": "dict", "/params": "param", "/audit-logs": "audit", "/login-logs": "login", "/monitor/health": "monhealth", "/monitor/server": "monserver", "/monitor/jobs": "monjobs", "/monitor/services": "monservices", "/monitor/cache": "moncache", "/monitor/cache-keys": "moncachekeys"} {
+		platformOnly := strings.HasPrefix(path, "/monitor/") || path == "/tenants" || path == "/plans"
+		items = append(items, seedPermission{Name: path + "-数据范围", Path: "data:" + prefix, Type: 4, PlatformOnly: platformOnly, PackageFeature: false, FeatureType: "DATA", DataPermMode: "ORG"})
 	}
 
 	out := make([]models.Permission, 0, len(items))
@@ -257,8 +264,17 @@ func seedSaasPlans(db *gorm.DB, tenantID uint64) error {
 		{FeatureCode: "advanced_data_permission", FeatureName: "高级数据权限", FeatureType: "SERVICE", Status: 1, Description: stringPtr("自定义数据范围")},
 		{FeatureCode: "login_log", FeatureName: "登录日志", FeatureType: "MENU", Status: 1, Description: stringPtr("登录审计查询")},
 		{FeatureCode: "audit_log", FeatureName: "操作审计", FeatureType: "MENU", Status: 1, Description: stringPtr("操作审计查询")},
+		{FeatureCode: "import_data", FeatureName: "数据导入", FeatureType: "BUTTON", Status: 1, Description: stringPtr("CSV/Excel 批量导入")},
+		{FeatureCode: "export_data", FeatureName: "数据导出", FeatureType: "BUTTON", Status: 1, Description: stringPtr("CSV/Excel 导出")},
+		{FeatureCode: "file_manage", FeatureName: "文件管理", FeatureType: "SERVICE", Status: 1, Description: stringPtr("文件上传、下载与存储空间")},
 		{FeatureCode: "brand_config", FeatureName: "品牌配置", FeatureType: "CONFIG", Status: 1, Description: stringPtr("Logo、名称和版权配置")},
 		{FeatureCode: "system_monitor", FeatureName: "系统监控", FeatureType: "MENU", Status: 1, Description: stringPtr("健康、服务、缓存监控")},
+		{FeatureCode: "ip_whitelist", FeatureName: "IP 白名单", FeatureType: "CONFIG", Status: 1, Description: stringPtr("限制登录 IP")},
+		{FeatureCode: "mfa", FeatureName: "MFA 双因素认证", FeatureType: "SERVICE", Status: 1, Description: stringPtr("多因素认证能力")},
+		{FeatureCode: "sso_login", FeatureName: "SSO 登录", FeatureType: "SERVICE", Status: 1, Description: stringPtr("OIDC/SAML/企业平台 SSO")},
+		{FeatureCode: "api_key", FeatureName: "API Key", FeatureType: "API", Status: 1, Description: stringPtr("开放 API 访问密钥")},
+		{FeatureCode: "webhook", FeatureName: "Webhook", FeatureType: "SERVICE", Status: 1, Description: stringPtr("事件推送")},
+		{FeatureCode: "tenant_data_export", FeatureName: "租户数据导出", FeatureType: "SERVICE", Status: 1, Description: stringPtr("租户级数据导出")},
 	}
 	for i := range features {
 		if err := db.Where("feature_code = ?", features[i].FeatureCode).FirstOrCreate(&features[i]).Error; err != nil {
@@ -269,10 +285,19 @@ func seedSaasPlans(db *gorm.DB, tenantID uint64) error {
 	quotas := []models.SaasQuota{
 		{QuotaCode: "max_users", QuotaName: "最大用户数", QuotaType: "STATIC", PeriodType: stringPtr("NONE"), Unit: stringPtr("COUNT"), Status: 1},
 		{QuotaCode: "max_companies", QuotaName: "最大公司数", QuotaType: "STATIC", PeriodType: stringPtr("NONE"), Unit: stringPtr("COUNT"), Status: 1},
+		{QuotaCode: "max_stores", QuotaName: "最大门店数", QuotaType: "STATIC", PeriodType: stringPtr("NONE"), Unit: stringPtr("COUNT"), Status: 1},
 		{QuotaCode: "max_departments", QuotaName: "最大部门数", QuotaType: "STATIC", PeriodType: stringPtr("NONE"), Unit: stringPtr("COUNT"), Status: 1},
 		{QuotaCode: "max_business_units", QuotaName: "最大业务单元数", QuotaType: "STATIC", PeriodType: stringPtr("NONE"), Unit: stringPtr("COUNT"), Status: 1},
 		{QuotaCode: "max_roles", QuotaName: "最大角色数", QuotaType: "STATIC", PeriodType: stringPtr("NONE"), Unit: stringPtr("COUNT"), Status: 1},
+		{QuotaCode: "max_storage_gb", QuotaName: "存储空间", QuotaType: "STATIC", PeriodType: stringPtr("NONE"), Unit: stringPtr("GB"), Status: 1},
+		{QuotaCode: "max_file_size_mb", QuotaName: "单文件大小", QuotaType: "STATIC", PeriodType: stringPtr("NONE"), Unit: stringPtr("MB"), Status: 1},
+		{QuotaCode: "max_api_keys", QuotaName: "API Key 数量", QuotaType: "STATIC", PeriodType: stringPtr("NONE"), Unit: stringPtr("COUNT"), Status: 1},
+		{QuotaCode: "max_webhooks", QuotaName: "Webhook 数量", QuotaType: "STATIC", PeriodType: stringPtr("NONE"), Unit: stringPtr("COUNT"), Status: 1},
 		{QuotaCode: "daily_api_calls", QuotaName: "每日 API 调用量", QuotaType: "DYNAMIC", PeriodType: stringPtr("DAY"), Unit: stringPtr("COUNT"), Status: 1},
+		{QuotaCode: "daily_import_times", QuotaName: "每日导入次数", QuotaType: "DYNAMIC", PeriodType: stringPtr("DAY"), Unit: stringPtr("TIMES"), Status: 1},
+		{QuotaCode: "daily_export_times", QuotaName: "每日导出次数", QuotaType: "DYNAMIC", PeriodType: stringPtr("DAY"), Unit: stringPtr("TIMES"), Status: 1},
+		{QuotaCode: "monthly_sms_count", QuotaName: "每月短信条数", QuotaType: "DYNAMIC", PeriodType: stringPtr("MONTH"), Unit: stringPtr("COUNT"), Status: 1},
+		{QuotaCode: "monthly_email_count", QuotaName: "每月邮件条数", QuotaType: "DYNAMIC", PeriodType: stringPtr("MONTH"), Unit: stringPtr("COUNT"), Status: 1},
 	}
 	for i := range quotas {
 		if err := db.Where("quota_code = ?", quotas[i].QuotaCode).FirstOrCreate(&quotas[i]).Error; err != nil {
@@ -286,22 +311,37 @@ func seedSaasPlans(db *gorm.DB, tenantID uint64) error {
 		{PlanCode: "PRO", PlanName: "专业版", PlanType: "PRO", BillingCycle: "MONTH", Price: 0, Status: 1, SortOrder: 30, Description: stringPtr("适合中型企业的审计与开放能力套餐")},
 		{PlanCode: "ENTERPRISE", PlanName: "企业版", PlanType: "ENTERPRISE", BillingCycle: "YEAR", Price: 0, Status: 1, SortOrder: 40, Description: stringPtr("适合集团客户的高安全与可配置套餐")},
 	}
+	planFeatures := map[string][]string{
+		"TRIAL":      {"user_manage", "org_manage", "position_manage", "role_manage", "dict_manage", "param_manage", "business_unit_manage", "data_permission", "login_log", "brand_config", "file_manage"},
+		"BASIC":      {"user_manage", "org_manage", "position_manage", "role_manage", "dict_manage", "param_manage", "business_unit_manage", "data_permission", "login_log", "import_data", "brand_config", "file_manage"},
+		"PRO":        {"user_manage", "org_manage", "position_manage", "role_manage", "dict_manage", "param_manage", "business_unit_manage", "data_permission", "advanced_data_permission", "login_log", "audit_log", "import_data", "export_data", "api_key", "webhook", "tenant_data_export", "brand_config", "file_manage"},
+		"ENTERPRISE": {"user_manage", "org_manage", "position_manage", "role_manage", "dict_manage", "param_manage", "business_unit_manage", "data_permission", "advanced_data_permission", "login_log", "audit_log", "import_data", "export_data", "brand_config", "ip_whitelist", "mfa", "sso_login", "api_key", "webhook", "tenant_data_export", "file_manage"},
+	}
+	planQuotas := map[string]map[string]int{
+		"TRIAL":      {"max_users": 5, "max_companies": 1, "max_stores": 1, "max_departments": 10, "max_business_units": 10, "max_roles": 5, "max_storage_gb": 1, "max_file_size_mb": 10, "max_api_keys": 0, "max_webhooks": 0, "daily_api_calls": 1000, "daily_import_times": 1, "daily_export_times": 0, "monthly_sms_count": 0, "monthly_email_count": 100},
+		"BASIC":      {"max_users": 20, "max_companies": 1, "max_stores": 1, "max_departments": 50, "max_business_units": 50, "max_roles": 10, "max_storage_gb": 5, "max_file_size_mb": 50, "max_api_keys": 0, "max_webhooks": 0, "daily_api_calls": 5000, "daily_import_times": 5, "daily_export_times": 3, "monthly_sms_count": 100, "monthly_email_count": 1000},
+		"PRO":        {"max_users": 100, "max_companies": 10, "max_stores": 10, "max_departments": 500, "max_business_units": 500, "max_roles": 50, "max_storage_gb": 50, "max_file_size_mb": 100, "max_api_keys": 5, "max_webhooks": 5, "daily_api_calls": 50000, "daily_import_times": 50, "daily_export_times": 50, "monthly_sms_count": 1000, "monthly_email_count": 10000},
+		"ENTERPRISE": {"max_users": 1000, "max_companies": 100, "max_stores": 100, "max_departments": 5000, "max_business_units": 5000, "max_roles": 200, "max_storage_gb": 500, "max_file_size_mb": 500, "max_api_keys": 50, "max_webhooks": 50, "daily_api_calls": 500000, "daily_import_times": 500, "daily_export_times": 500, "monthly_sms_count": 10000, "monthly_email_count": 100000},
+	}
 	for i := range plans {
 		if err := db.Where("plan_code = ?", plans[i].PlanCode).FirstOrCreate(&plans[i]).Error; err != nil {
 			return err
 		}
+		enabledFeatures := stringSet(planFeatures[plans[i].PlanCode])
 		for _, feature := range features {
-			link := models.SaasPlanFeature{PlanID: plans[i].ID, FeatureID: feature.ID, Enabled: true}
+			link := models.SaasPlanFeature{PlanID: plans[i].ID, FeatureID: feature.ID, Enabled: enabledFeatures[feature.FeatureCode]}
 			if err := db.Where("plan_id = ? AND feature_id = ?", link.PlanID, link.FeatureID).FirstOrCreate(&link).Error; err != nil {
 				return err
 			}
+			_ = db.Model(&link).Update("enabled", enabledFeatures[feature.FeatureCode]).Error
 		}
 		for _, quota := range quotas {
-			value := map[string]int{"TRIAL": 5, "BASIC": 50, "PRO": 100, "ENTERPRISE": 1000}[plans[i].PlanCode]
+			value := planQuotas[plans[i].PlanCode][quota.QuotaCode]
 			link := models.SaasPlanQuota{PlanID: plans[i].ID, QuotaID: quota.ID, QuotaValue: value}
 			if err := db.Where("plan_id = ? AND quota_id = ?", link.PlanID, link.QuotaID).FirstOrCreate(&link).Error; err != nil {
 				return err
 			}
+			_ = db.Model(&link).Update("quota_value", value).Error
 		}
 	}
 
@@ -327,11 +367,12 @@ func seedDictionaries(db *gorm.DB, tenantID uint64) error {
 		items  []struct{ label, value string }
 	}{
 		{"common_status", "通用状态", "启用/停用", []struct{ label, value string }{{"启用", "1"}, {"停用", "0"}}},
-		{"org_node_type", "组织节点类型", "公司/部门/门店", []struct{ label, value string }{{"公司", "company"}, {"部门", "department"}, {"门店", "store"}}},
-		{"business_unit_type", "业务单元类型", "默认业务单元类型", []struct{ label, value string }{{"默认类型", "default"}}},
+		{"company_type", "公司类型", "公司类型", []struct{ label, value string }{{"集团公司", "GROUP"}, {"子公司", "SUBSIDIARY"}, {"分公司", "BRANCH"}, {"门店", "STORE"}, {"区域公司", "REGIONAL_COMPANY"}, {"运营公司", "OPERATING_COMPANY"}, {"关联公司", "AFFILIATE"}, {"加盟公司", "FRANCHISEE"}, {"经销商公司", "DEALER"}, {"项目公司", "PROJECT_COMPANY"}, {"其他", "OTHER"}}},
+		{"org_node_type", "组织节点类型", "组织节点类型", []struct{ label, value string }{{"集团", "group"}, {"公司", "company"}, {"部门", "department"}, {"门店", "store"}, {"仓库", "warehouse"}, {"项目组", "project_team"}}},
+		{"business_unit_type", "业务单元类型", "业务单元类型", []struct{ label, value string }{{"区域", "REGION"}, {"门店", "STORE"}, {"公司", "COMPANY"}, {"项目", "PROJECT"}, {"仓库", "WAREHOUSE"}, {"活动", "CAMPAIGN"}, {"自定义", "CUSTOM"}}},
 	}
 	for _, item := range dicts {
-		dictType := models.DictType{TenantID: tenantID, Code: item.code, Name: item.name, Remark: &item.remark, Scope: "platform", TenantEditable: true}
+		dictType := models.DictType{TenantID: tenantID, Code: item.code, Name: item.name, Remark: &item.remark, Scope: "HYBRID", TenantEditable: true}
 		if err := db.Where("tenant_id = ? AND code = ?", tenantID, item.code).FirstOrCreate(&dictType).Error; err != nil {
 			return err
 		}
@@ -347,9 +388,8 @@ func seedDictionaries(db *gorm.DB, tenantID uint64) error {
 
 func seedSystemParams(db *gorm.DB, tenantID uint64) error {
 	params := []models.SystemParam{
-		{TenantID: tenantID, Key: "site.mode", Value: "development", Remark: "运行模式", ValueType: "string", TenantEditable: true},
-		{TenantID: tenantID, Key: "security.password_min_length", Value: "8", Remark: "密码最小长度", ValueType: "number", TenantEditable: true},
-		{TenantID: tenantID, Key: "login.captcha_after_failures", Value: "3", Remark: "登录失败后验证码阈值", ValueType: "number", TenantEditable: true},
+		{TenantID: tenantID, Key: "org.default_company_type", Value: "SUBSIDIARY", Remark: "新建公司默认类型（字典 company_type 的 value，须一致）", ValueType: "string", TenantEditable: true},
+		{TenantID: tenantID, Key: "user.list_default_page_size", Value: "10", Remark: "用户列表默认每页条数", ValueType: "number", TenantEditable: true},
 	}
 	for _, param := range params {
 		err := db.Clauses(clause.OnConflict{DoNothing: true}).Where("tenant_id = ? AND param_key = ?", param.TenantID, param.Key).Create(&param).Error
@@ -372,4 +412,12 @@ func seedAuditSamples(db *gorm.DB, tenantID uint64, userID uint64) error {
 
 func stringPtr(value string) *string {
 	return &value
+}
+
+func stringSet(values []string) map[string]bool {
+	out := make(map[string]bool, len(values))
+	for _, value := range values {
+		out[value] = true
+	}
+	return out
 }
