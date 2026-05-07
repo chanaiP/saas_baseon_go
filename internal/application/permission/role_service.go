@@ -32,6 +32,7 @@ type RoleCreateCommand struct {
 
 type RoleUpdateCommand struct {
 	ID            uint64
+	TenantID      uint64
 	Name          *string
 	Description   *string
 	PermissionIDs []uint64
@@ -72,6 +73,9 @@ func (s *RoleService) Update(ctx context.Context, cmd RoleUpdateCommand) (domain
 	role, err := s.repo.FindByID(ctx, cmd.ID)
 	if err != nil {
 		return domain.Role{}, err
+	}
+	if cmd.TenantID > 0 && role.TenantID != cmd.TenantID {
+		return domain.Role{}, domain.ErrRoleNotFound
 	}
 	if cmd.Name != nil {
 		role.Name = strings.TrimSpace(*cmd.Name)

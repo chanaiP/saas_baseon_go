@@ -638,8 +638,9 @@ func (h *IdentityHandler) DeleteTenant(c *gin.Context) {
 }
 
 func (h *IdentityHandler) Users(c *gin.Context) {
+	tenantID := h.requestTenantID(c)
 	var rows []models.AppUser
-	_ = h.db.Order("id desc").Find(&rows).Error
+	_ = h.db.Where("tenant_id = ?", tenantID).Order("id desc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, h.userToJSON(row))
@@ -667,7 +668,7 @@ func (h *IdentityHandler) CreateUser(c *gin.Context) {
 	if body.Status == 0 {
 		body.Status = 1
 	}
-	user := models.AppUser{TenantID: 1, EmployeeNo: body.EmployeeNo, Account: body.EmployeeNo, PasswordHash: devPasswordHash(body.Password), Name: body.Name, Phone: body.Phone, Email: body.Email, CompanyID: body.CompanyID, DepartmentID: body.DepartmentID, Status: body.Status}
+	user := models.AppUser{TenantID: h.requestTenantID(c), EmployeeNo: body.EmployeeNo, Account: body.EmployeeNo, PasswordHash: devPasswordHash(body.Password), Name: body.Name, Phone: body.Phone, Email: body.Email, CompanyID: body.CompanyID, DepartmentID: body.DepartmentID, Status: body.Status}
 	if err := h.db.Create(&user).Error; err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
@@ -677,8 +678,9 @@ func (h *IdentityHandler) CreateUser(c *gin.Context) {
 }
 
 func (h *IdentityHandler) UpdateUser(c *gin.Context) {
+	tenantID := h.requestTenantID(c)
 	var user models.AppUser
-	if err := h.db.First(&user, c.Param("id")).Error; err != nil {
+	if err := h.db.Where("tenant_id = ?", tenantID).First(&user, c.Param("id")).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "用户不存在")
 		return
 	}
@@ -732,19 +734,24 @@ func (h *IdentityHandler) UpdateUser(c *gin.Context) {
 
 func (h *IdentityHandler) ResetUserPassword(c *gin.Context) {
 	newPassword := fmt.Sprintf("Pwd%06d", time.Now().UnixNano()%1000000)
-	if err := h.db.Model(&models.AppUser{}).Where("id = ?", c.Param("id")).Update("password_hash", devPasswordHash(newPassword)).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+	result := h.db.Model(&models.AppUser{}).Where("id = ? AND tenant_id = ?", c.Param("id"), h.requestTenantID(c)).Update("password_hash", devPasswordHash(newPassword))
+	if result.Error != nil {
+		response.Error(c, 400, response.CodeBadRequest, result.Error.Error())
+		return
+	}
+	if result.RowsAffected == 0 {
+		response.Error(c, 404, response.CodeNotFound, "用户不存在")
 		return
 	}
 	response.OK(c, gin.H{"new_password": newPassword})
 }
 
 func (h *IdentityHandler) DeleteUser(c *gin.Context) {
-	h.deleteByID(c, &models.AppUser{})
+	h.deleteTenantScopedByID(c, &models.AppUser{})
 }
 
 func (h *IdentityHandler) AssignableRoles(c *gin.Context) {
-	roles, _, err := h.roleService().List(c.Request.Context(), apppermission.RoleListQuery{TenantID: parseTenantID(c), Limit: 200})
+	roles, _, err := h.roleService().List(c.Request.Context(), apppermission.RoleListQuery{TenantID: h.requestTenantID(c), Limit: 200})
 	if err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
@@ -758,7 +765,7 @@ func (h *IdentityHandler) AssignableRoles(c *gin.Context) {
 
 func (h *IdentityHandler) Roles(c *gin.Context) {
 	skip, limit := paginationParams(c)
-	roles, total, err := h.roleService().List(c.Request.Context(), apppermission.RoleListQuery{TenantID: parseTenantID(c), Skip: skip, Limit: limit, Keyword: c.Query("kw")})
+	roles, total, err := h.roleService().List(c.Request.Context(), apppermission.RoleListQuery{TenantID: h.requestTenantID(c), Skip: skip, Limit: limit, Keyword: c.Query("kw")})
 	if err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
@@ -772,7 +779,7 @@ func (h *IdentityHandler) Roles(c *gin.Context) {
 
 func (h *IdentityHandler) Role(c *gin.Context) {
 	role, err := h.roleService().Get(c.Request.Context(), parseUintParam(c, "id"))
-	if err != nil {
+	if err != nil || role.TenantID != h.requestTenantID(c) {
 		response.Error(c, 404, response.CodeNotFound, "角色不存在")
 		return
 	}
@@ -790,7 +797,7 @@ func (h *IdentityHandler) CreateRole(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	role, err := h.roleService().Create(c.Request.Context(), apppermission.RoleCreateCommand{TenantID: parseTenantID(c), Code: body.Code, Name: body.Name, Description: body.Description, PermissionIDs: body.PermissionIDs})
+	role, err := h.roleService().Create(c.Request.Context(), apppermission.RoleCreateCommand{TenantID: h.requestTenantID(c), Code: body.Code, Name: body.Name, Description: body.Description, PermissionIDs: body.PermissionIDs})
 	if err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
@@ -808,7 +815,7 @@ func (h *IdentityHandler) UpdateRole(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	role, err := h.roleService().Update(c.Request.Context(), apppermission.RoleUpdateCommand{ID: parseUintParam(c, "id"), Name: body.Name, Description: body.Description, PermissionIDs: body.PermissionIDs, UpdatePerms: body.PermissionIDs != nil})
+	role, err := h.roleService().Update(c.Request.Context(), apppermission.RoleUpdateCommand{ID: parseUintParam(c, "id"), TenantID: h.requestTenantID(c), Name: body.Name, Description: body.Description, PermissionIDs: body.PermissionIDs, UpdatePerms: body.PermissionIDs != nil})
 	if err != nil {
 		if err == domainpermission.ErrRoleNotFound {
 			response.Error(c, 404, response.CodeNotFound, "角色不存在")
@@ -821,6 +828,11 @@ func (h *IdentityHandler) UpdateRole(c *gin.Context) {
 }
 
 func (h *IdentityHandler) DeleteRole(c *gin.Context) {
+	role, err := h.roleService().Get(c.Request.Context(), parseUintParam(c, "id"))
+	if err != nil || role.TenantID != h.requestTenantID(c) {
+		response.Error(c, 404, response.CodeNotFound, "角色不存在")
+		return
+	}
 	if err := h.roleService().Delete(c.Request.Context(), parseUintParam(c, "id")); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
@@ -1399,8 +1411,9 @@ func (h *IdentityHandler) TenantQuotaCheck(c *gin.Context) {
 }
 
 func (h *IdentityHandler) OrganizationTree(c *gin.Context) {
+	tenantID := h.requestTenantID(c)
 	var rows []models.OrgNode
-	_ = h.db.Order("id asc").Find(&rows).Error
+	_ = h.db.Where("tenant_id = ?", tenantID).Order("id asc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, orgNodeToJSON(row, []gin.H{}))
@@ -1409,7 +1422,7 @@ func (h *IdentityHandler) OrganizationTree(c *gin.Context) {
 }
 
 func (h *IdentityHandler) OrganizationDetail(c *gin.Context) {
-	tenantID := parseTenantID(c)
+	tenantID := h.requestTenantID(c)
 	var rows []models.OrgNode
 	_ = h.db.Where("tenant_id = ?", tenantID).Order("id asc").Find(&rows).Error
 	companies, departments, stores := []gin.H{}, []gin.H{}, []gin.H{}
@@ -1460,19 +1473,19 @@ func (h *IdentityHandler) UpdateStore(c *gin.Context) {
 }
 
 func (h *IdentityHandler) DeleteOrgNode(c *gin.Context) {
-	h.deleteByID(c, &models.OrgNode{})
+	h.deleteTenantScopedByID(c, &models.OrgNode{})
 }
 
 func (h *IdentityHandler) DeleteCompany(c *gin.Context) {
-	h.deleteByID(c, &models.OrgNode{})
+	h.deleteTenantScopedByID(c, &models.OrgNode{})
 }
 
 func (h *IdentityHandler) DeleteDepartment(c *gin.Context) {
-	h.deleteByID(c, &models.OrgNode{})
+	h.deleteTenantScopedByID(c, &models.OrgNode{})
 }
 
 func (h *IdentityHandler) DeleteStore(c *gin.Context) {
-	h.deleteByID(c, &models.OrgNode{})
+	h.deleteTenantScopedByID(c, &models.OrgNode{})
 }
 
 func (h *IdentityHandler) PositionTypes(c *gin.Context) {
@@ -1571,8 +1584,9 @@ func (h *IdentityHandler) DeletePosition(c *gin.Context) {
 }
 
 func (h *IdentityHandler) BusinessUnits(c *gin.Context) {
+	tenantID := h.requestTenantID(c)
 	var rows []models.BusinessUnit
-	_ = h.db.Order("id asc").Find(&rows).Error
+	_ = h.db.Where("tenant_id = ?", tenantID).Order("id asc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, businessUnitToJSON(row))
@@ -1581,8 +1595,9 @@ func (h *IdentityHandler) BusinessUnits(c *gin.Context) {
 }
 
 func (h *IdentityHandler) BusinessUnitTree(c *gin.Context) {
+	tenantID := h.requestTenantID(c)
 	var rows []models.BusinessUnit
-	_ = h.db.Order("id asc").Find(&rows).Error
+	_ = h.db.Where("tenant_id = ?", tenantID).Order("id asc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, businessUnitToJSON(row))
@@ -1606,16 +1621,22 @@ func (h *IdentityHandler) CreateBusinessUnit(c *gin.Context) {
 	if body.Status == 0 {
 		body.Status = 1
 	}
-	row := models.BusinessUnit{TenantID: 1, Name: body.Name, Code: body.Code, BUType: body.BUType, Status: body.Status, BillingEnabled: true, StatisticEnabled: true, Remark: body.Remark}
+	tenantID := h.requestTenantID(c)
+	row := models.BusinessUnit{TenantID: tenantID, Name: body.Name, Code: body.Code, BUType: body.BUType, Status: body.Status, BillingEnabled: true, StatisticEnabled: true, Remark: body.Remark}
 	if err := h.db.Create(&row).Error; err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
-	h.replaceBusinessUnitMappings(row.ID, body.OrgNodeIDs)
+	h.replaceBusinessUnitMappings(tenantID, row.ID, body.OrgNodeIDs)
 	response.OK(c, gin.H{"id": row.ID})
 }
 
 func (h *IdentityHandler) UpdateBusinessUnit(c *gin.Context) {
+	tenantID := h.requestTenantID(c)
+	if err := h.db.Where("tenant_id = ?", tenantID).First(&models.BusinessUnit{}, c.Param("id")).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "业务单元不存在")
+		return
+	}
 	var body struct {
 		Name       *string  `json:"name"`
 		Code       *string  `json:"code"`
@@ -1645,24 +1666,25 @@ func (h *IdentityHandler) UpdateBusinessUnit(c *gin.Context) {
 		updates["remark"] = *body.Remark
 	}
 	if len(updates) > 0 {
-		if err := h.db.Model(&models.BusinessUnit{}).Where("id = ?", c.Param("id")).Updates(updates).Error; err != nil {
+		if err := h.db.Model(&models.BusinessUnit{}).Where("id = ? AND tenant_id = ?", c.Param("id"), tenantID).Updates(updates).Error; err != nil {
 			response.Error(c, 400, response.CodeBadRequest, err.Error())
 			return
 		}
 	}
 	if body.OrgNodeIDs != nil {
-		h.replaceBusinessUnitMappings(parseUintParam(c, "id"), body.OrgNodeIDs)
+		h.replaceBusinessUnitMappings(tenantID, parseUintParam(c, "id"), body.OrgNodeIDs)
 	}
 	response.OK(c, gin.H{"id": parseUintParam(c, "id")})
 }
 
 func (h *IdentityHandler) DeleteBusinessUnit(c *gin.Context) {
-	h.deleteByID(c, &models.BusinessUnit{})
+	h.deleteTenantScopedByID(c, &models.BusinessUnit{})
 }
 
 func (h *IdentityHandler) BusinessUnitOrgMappings(c *gin.Context) {
+	tenantID := h.requestTenantID(c)
 	var rows []models.BusinessUnitOrgMap
-	_ = h.db.Where("business_unit_id = ?", c.Param("id")).Order("id asc").Find(&rows).Error
+	_ = h.db.Where("tenant_id = ? AND business_unit_id = ?", tenantID, c.Param("id")).Order("id asc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, businessUnitOrgMapToJSON(row))
@@ -1671,6 +1693,11 @@ func (h *IdentityHandler) BusinessUnitOrgMappings(c *gin.Context) {
 }
 
 func (h *IdentityHandler) CreateBusinessUnitOrgMapping(c *gin.Context) {
+	tenantID := h.requestTenantID(c)
+	if err := h.db.Where("tenant_id = ?", tenantID).First(&models.BusinessUnit{}, c.Param("id")).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "业务单元不存在")
+		return
+	}
 	var body struct {
 		OrgID uint64 `json:"org_id"`
 	}
@@ -1678,7 +1705,7 @@ func (h *IdentityHandler) CreateBusinessUnitOrgMapping(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	row := models.BusinessUnitOrgMap{TenantID: 1, BusinessUnitID: parseUintParam(c, "id"), OrgID: body.OrgID, OrgType: "org", ScopeType: "include", Status: 1}
+	row := models.BusinessUnitOrgMap{TenantID: tenantID, BusinessUnitID: parseUintParam(c, "id"), OrgID: body.OrgID, OrgType: "org", ScopeType: "include", Status: 1}
 	if err := h.db.Create(&row).Error; err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
@@ -1687,7 +1714,7 @@ func (h *IdentityHandler) CreateBusinessUnitOrgMapping(c *gin.Context) {
 }
 
 func (h *IdentityHandler) DeleteBusinessUnitOrgMapping(c *gin.Context) {
-	h.deleteByID(c, &models.BusinessUnitOrgMap{})
+	h.deleteTenantScopedByID(c, &models.BusinessUnitOrgMap{})
 }
 
 func (h *IdentityHandler) DictTypes(c *gin.Context) {
@@ -2404,12 +2431,34 @@ func parseUintParam(c *gin.Context, name string) uint64 {
 }
 
 func parseTenantID(c *gin.Context) uint64 {
-	if raw := c.Query("tenant_id"); raw != "" {
+	return parseTenantIDValue(c.Query("tenant_id"))
+}
+
+func parseTenantIDValue(raw string) uint64 {
+	if raw != "" {
 		if id, err := strconv.ParseUint(raw, 10, 64); err == nil && id > 0 {
 			return id
 		}
 	}
 	return 1
+}
+
+func effectiveTenantID(queryTenantID string, userTenantID uint64, isPlatformAdmin bool) uint64 {
+	if isPlatformAdmin {
+		return parseTenantIDValue(queryTenantID)
+	}
+	if userTenantID > 0 {
+		return userTenantID
+	}
+	return parseTenantIDValue(queryTenantID)
+}
+
+func (h *IdentityHandler) requestTenantID(c *gin.Context) uint64 {
+	user, ok := h.currentUser(c)
+	if !ok {
+		return parseTenantID(c)
+	}
+	return effectiveTenantID(c.Query("tenant_id"), user.TenantID, user.IsPlatformAdmin)
 }
 
 func (h *IdentityHandler) currentUser(c *gin.Context) (models.AppUser, bool) {
@@ -2518,6 +2567,20 @@ func (h *IdentityHandler) deleteByID(c *gin.Context, model interface{}) {
 	id := parseUintParam(c, "id")
 	if err := h.db.Delete(model, id).Error; err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, gin.H{"deleted": 1, "id": id})
+}
+
+func (h *IdentityHandler) deleteTenantScopedByID(c *gin.Context, model interface{}) {
+	id := parseUintParam(c, "id")
+	result := h.db.Where("tenant_id = ?", h.requestTenantID(c)).Delete(model, id)
+	if result.Error != nil {
+		response.Error(c, 400, response.CodeBadRequest, result.Error.Error())
+		return
+	}
+	if result.RowsAffected == 0 {
+		response.Error(c, 404, response.CodeNotFound, "数据不存在")
 		return
 	}
 	response.OK(c, gin.H{"deleted": 1, "id": id})
@@ -2869,7 +2932,7 @@ func (h *IdentityHandler) createOrgNode(c *gin.Context, forcedType string) {
 	if body.Status == 0 {
 		body.Status = 1
 	}
-	row := models.OrgNode{TenantID: parseTenantID(c), NodeType: body.NodeType, Name: body.Name, Code: body.Code, CompanyType: body.CompanyType, CompanyID: body.CompanyID, ParentID: body.ParentID, Status: body.Status}
+	row := models.OrgNode{TenantID: h.requestTenantID(c), NodeType: body.NodeType, Name: body.Name, Code: body.Code, CompanyType: body.CompanyType, CompanyID: body.CompanyID, ParentID: body.ParentID, Status: body.Status}
 	if err := h.db.Create(&row).Error; err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
@@ -2883,17 +2946,22 @@ func (h *IdentityHandler) updateOrgNode(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	if err := h.db.Model(&models.OrgNode{}).Where("id = ?", c.Param("id")).Updates(body).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+	result := h.db.Model(&models.OrgNode{}).Where("id = ? AND tenant_id = ?", c.Param("id"), h.requestTenantID(c)).Updates(body)
+	if result.Error != nil {
+		response.Error(c, 400, response.CodeBadRequest, result.Error.Error())
+		return
+	}
+	if result.RowsAffected == 0 {
+		response.Error(c, 404, response.CodeNotFound, "组织不存在")
 		return
 	}
 	response.OK(c, gin.H{"id": parseUintParam(c, "id")})
 }
 
-func (h *IdentityHandler) replaceBusinessUnitMappings(buID uint64, orgIDs []uint64) {
-	_ = h.db.Where("business_unit_id = ?", buID).Delete(&models.BusinessUnitOrgMap{}).Error
+func (h *IdentityHandler) replaceBusinessUnitMappings(tenantID, buID uint64, orgIDs []uint64) {
+	_ = h.db.Where("tenant_id = ? AND business_unit_id = ?", tenantID, buID).Delete(&models.BusinessUnitOrgMap{}).Error
 	for _, orgID := range orgIDs {
-		_ = h.db.Create(&models.BusinessUnitOrgMap{TenantID: 1, BusinessUnitID: buID, OrgID: orgID, OrgType: "org", ScopeType: "include", Status: 1}).Error
+		_ = h.db.Create(&models.BusinessUnitOrgMap{TenantID: tenantID, BusinessUnitID: buID, OrgID: orgID, OrgType: "org", ScopeType: "include", Status: 1}).Error
 	}
 }
 
