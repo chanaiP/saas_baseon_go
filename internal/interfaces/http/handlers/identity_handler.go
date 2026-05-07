@@ -8,6 +8,7 @@ import (
 	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -405,6 +406,129 @@ func (h *IdentityHandler) platformAdminCountExcept(userID uint64) int64 {
 	return count
 }
 
+type tenantCapabilityProfile struct {
+	Subscription interface{}
+	Features     []string
+	Quotas       gin.H
+}
+
+func (h *IdentityHandler) tenantCapabilityContext(tenantID uint64) tenantCapabilityProfile {
+	empty := tenantCapabilityProfile{Subscription: nil, Features: []string{}, Quotas: gin.H{}}
+	var tenant models.Tenant
+	if err := h.db.Where("id = ? AND deleted_at IS NULL", tenantID).First(&tenant).Error; err != nil || tenant.Status != 1 {
+		return empty
+	}
+	var sub models.TenantSubscription
+	if err := h.db.Where("tenant_id = ?", tenantID).Order("id desc").First(&sub).Error; err != nil || !h.subscriptionAllowsLogin(tenantID) {
+		return empty
+	}
+	var plan models.SaasPlan
+	if err := h.db.Where("id = ? AND deleted_at IS NULL", sub.PlanID).First(&plan).Error; err != nil || plan.Status != 1 {
+		return empty
+	}
+	now := time.Now()
+	featureIDs := map[uint64]bool{}
+	var planFeatures []models.SaasPlanFeature
+	_ = h.db.Where("plan_id = ? AND enabled = ?", plan.ID, true).Find(&planFeatures).Error
+	for _, row := range planFeatures {
+		featureIDs[row.FeatureID] = true
+	}
+	var overrides []models.TenantFeatureOverride
+	_ = h.db.Where("tenant_id = ? AND (start_time IS NULL OR start_time <= ?) AND (end_time IS NULL OR end_time >= ?)", tenantID, now, now).Find(&overrides).Error
+	for _, override := range overrides {
+		featureIDs[override.FeatureID] = override.Enabled
+	}
+	ids := make([]uint64, 0, len(featureIDs))
+	for id, enabled := range featureIDs {
+		if enabled {
+			ids = append(ids, id)
+		}
+	}
+	features := []string{}
+	if len(ids) > 0 {
+		var rows []models.SaasFeature
+		_ = h.db.Where("id IN ? AND status = ?", ids, 1).Order("feature_code asc").Find(&rows).Error
+		for _, row := range rows {
+			features = append(features, row.FeatureCode)
+		}
+	}
+	quotas := gin.H{}
+	var planQuotas []models.SaasPlanQuota
+	_ = h.db.Where("plan_id = ?", plan.ID).Find(&planQuotas).Error
+	for _, row := range planQuotas {
+		var quota models.SaasQuota
+		if err := h.db.Where("id = ? AND status = ?", row.QuotaID, 1).First(&quota).Error; err == nil {
+			quotas[quota.QuotaCode] = row.QuotaValue
+		}
+	}
+	var quotaOverrides []models.TenantQuotaOverride
+	_ = h.db.Where("tenant_id = ? AND (start_time IS NULL OR start_time <= ?) AND (end_time IS NULL OR end_time >= ?)", tenantID, now, now).Find(&quotaOverrides).Error
+	for _, override := range quotaOverrides {
+		var quota models.SaasQuota
+		if err := h.db.Where("id = ? AND status = ?", override.QuotaID, 1).First(&quota).Error; err == nil {
+			quotas[quota.QuotaCode] = override.QuotaValue
+		}
+	}
+	return tenantCapabilityProfile{
+		Subscription: gin.H{"plan_code": plan.PlanCode, "plan_name": plan.PlanName, "status": sub.SubscriptionStatus, "end_time": sub.EndTime},
+		Features:     features,
+		Quotas:       quotas,
+	}
+}
+
+func (h *IdentityHandler) filterPermissionCodesForSubscription(codes []string, features []string) []string {
+	enabled := map[string]struct{}{}
+	for _, feature := range features {
+		enabled[feature] = struct{}{}
+	}
+	out := make([]string, 0, len(codes))
+	for _, code := range codes {
+		var permission models.Permission
+		if err := h.db.Where("path = ?", code).First(&permission).Error; err != nil {
+			out = append(out, code)
+			continue
+		}
+		if !permission.IsPackageFeature || permission.FeatureCode == nil || *permission.FeatureCode == "" {
+			out = append(out, code)
+			continue
+		}
+		if _, ok := enabled[*permission.FeatureCode]; ok {
+			out = append(out, code)
+		}
+	}
+	return out
+}
+
+func (h *IdentityHandler) userShortcutIDs(userID uint64) []string {
+	var pref models.UserPreference
+	if err := h.db.Where("user_id = ? AND pref_key = ?", userID, "shortcut_ids").First(&pref).Error; err != nil || pref.PrefValue == nil {
+		return []string{}
+	}
+	var ids []string
+	if err := json.Unmarshal([]byte(*pref.PrefValue), &ids); err != nil {
+		return []string{}
+	}
+	return ids
+}
+
+func (h *IdentityHandler) saveUserShortcutIDs(userID uint64, ids []string) error {
+	raw, err := json.Marshal(ids)
+	if err != nil {
+		return err
+	}
+	value := string(raw)
+	now := time.Now()
+	var pref models.UserPreference
+	err = h.db.Where("user_id = ? AND pref_key = ?", userID, "shortcut_ids").First(&pref).Error
+	if err == nil {
+		return h.db.Model(&pref).Updates(map[string]interface{}{"pref_value": value, "updated_at": now}).Error
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	return h.db.Create(&models.UserPreference{UserID: userID, PrefKey: "shortcut_ids", PrefValue: &value, UpdatedAt: now}).Error
+}
+
 func (h *IdentityHandler) Profile(c *gin.Context) {
 	var user models.AppUser
 	var tenant models.Tenant
@@ -442,6 +566,11 @@ func (h *IdentityHandler) Profile(c *gin.Context) {
 	if len(permissionCodes) == 0 {
 		permissionCodes = allDevPermissionCodes()
 	}
+	capability := h.tenantCapabilityContext(user.TenantID)
+	tenantIsPlatform := tenant.IsPlatform
+	if !user.IsPlatformAdmin && !tenantIsPlatform {
+		permissionCodes = h.filterPermissionCodesForSubscription(permissionCodes, capability.Features)
+	}
 
 	response.OK(c, gin.H{
 		"id":                 user.ID,
@@ -458,11 +587,11 @@ func (h *IdentityHandler) Profile(c *gin.Context) {
 		"role_codes":         roleCodes,
 		"permission_codes":   permissionCodes,
 		"is_platform_admin":  user.IsPlatformAdmin,
-		"tenant_is_platform": tenant.IsPlatform,
-		"shortcut_ids":       []string{},
-		"subscription":       nil,
-		"features":           []string{},
-		"quotas":             gin.H{},
+		"tenant_is_platform": tenantIsPlatform,
+		"shortcut_ids":       h.userShortcutIDs(user.ID),
+		"subscription":       capability.Subscription,
+		"features":           capability.Features,
+		"quotas":             capability.Quotas,
 	})
 }
 
@@ -554,10 +683,20 @@ func (h *IdentityHandler) UpdatePassword(c *gin.Context) {
 }
 
 func (h *IdentityHandler) Preferences(c *gin.Context) {
-	response.OK(c, gin.H{"shortcut_ids": []string{}})
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	response.OK(c, gin.H{"shortcut_ids": h.userShortcutIDs(user.ID)})
 }
 
 func (h *IdentityHandler) SavePreferences(c *gin.Context) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
 	var body struct {
 		ShortcutIDs []string `json:"shortcut_ids"`
 	}
@@ -565,6 +704,11 @@ func (h *IdentityHandler) SavePreferences(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
+	if err := h.saveUserShortcutIDs(user.ID, body.ShortcutIDs); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	h.audit(c, user.TenantID, user.ID, "user", "update_shortcuts", "更新快捷入口 "+user.Name, nil)
 	response.OK(c, gin.H{"shortcut_ids": body.ShortcutIDs})
 }
 

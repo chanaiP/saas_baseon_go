@@ -91,6 +91,10 @@ Go 版额外路由：
 
 - `docker run --rm -e GOPROXY=https://goproxy.cn,direct -v "$PWD":/src -w /src golang:1.23-alpine sh -c 'gofmt -w ./cmd ./internal && go test ./...'` 通过。
 
-仍在后续清单中：
+- 快捷入口偏好通过 `user_preference` 持久化，`GET/PUT /api/users/me/preferences` 与原项目返回 `shortcut_ids`。
+- `/api/users/me` 返回角色、权限码、是否平台主体、快捷入口、订阅、功能和配额上下文。
+- 非平台主体、非平台管理员的权限码按订阅启用功能过滤，避免套餐外按钮/接口权限泄漏。
 
-- C5：用户偏好、个人资料、当前用户权限数据输出继续处理。
+状态：
+
+- C 组用户管理已完成。
