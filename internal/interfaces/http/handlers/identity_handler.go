@@ -529,6 +529,63 @@ func (h *IdentityHandler) saveUserShortcutIDs(userID uint64, ids []string) error
 	return h.db.Create(&models.UserPreference{UserID: userID, PrefKey: "shortcut_ids", PrefValue: &value, UpdatedAt: now}).Error
 }
 
+func (h *IdentityHandler) viewerHasPlatformScope(user models.AppUser) bool {
+	if user.IsPlatformAdmin {
+		return true
+	}
+	var tenant models.Tenant
+	if err := h.db.Where("id = ? AND deleted_at IS NULL", user.TenantID).First(&tenant).Error; err != nil {
+		return false
+	}
+	return tenant.IsPlatform
+}
+
+func (h *IdentityHandler) userCanEditTenantBranding(user models.AppUser) bool {
+	if user.IsPlatformAdmin {
+		return true
+	}
+	if !h.viewerHasPlatformScope(user) && !h.tenantFeatureAllowed(user.TenantID, "brand_config") {
+		return false
+	}
+	var count int64
+	_ = h.db.Model(&models.Permission{}).
+		Joins("JOIN role_permission rp ON rp.permission_id = permission.id").
+		Joins("JOIN user_role ur ON ur.role_id = rp.role_id").
+		Where("ur.user_id = ? AND permission.path = ? AND permission.enabled = ?", user.ID, "brand:edit", true).
+		Count(&count).Error
+	return count > 0
+}
+
+func (h *IdentityHandler) invalidateSessionsForTenant(tenantID uint64) {
+	if h.redis == nil || tenantID == 0 {
+		return
+	}
+	ctx := context.Background()
+	var cursor uint64
+	for {
+		keys, next, err := h.redis.Scan(ctx, cursor, "auth:session:*", 100).Result()
+		if err != nil {
+			return
+		}
+		for _, key := range keys {
+			raw, err := h.redis.Get(ctx, key).Result()
+			if err != nil || raw == "" {
+				continue
+			}
+			var session struct {
+				TenantID uint64 `json:"tenant_id"`
+			}
+			if json.Unmarshal([]byte(raw), &session) == nil && session.TenantID == tenantID {
+				_ = h.redis.Del(ctx, key).Err()
+			}
+		}
+		if next == 0 {
+			return
+		}
+		cursor = next
+	}
+}
+
 func (h *IdentityHandler) Profile(c *gin.Context) {
 	var user models.AppUser
 	var tenant models.Tenant
@@ -713,16 +770,35 @@ func (h *IdentityHandler) SavePreferences(c *gin.Context) {
 }
 
 func (h *IdentityHandler) TenantBranding(c *gin.Context) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
 	var tenant models.Tenant
-	_ = h.db.Where("code = ?", "platform").First(&tenant).Error
+	if err := h.db.Where("id = ? AND deleted_at IS NULL", user.TenantID).First(&tenant).Error; err != nil {
+		response.OK(c, gin.H{"display_name": "管理台", "brand_display_name": nil, "logo_data": nil, "footer_text": nil, "tenant_name": "", "can_edit": false, "can_edit_footer": false})
+		return
+	}
+	nameOverride := ""
+	if tenant.BrandName != nil {
+		nameOverride = strings.TrimSpace(*tenant.BrandName)
+	}
+	footerText := (*string)(nil)
+	if tenant.FooterText != nil {
+		trimmed := strings.TrimSpace(*tenant.FooterText)
+		if trimmed != "" {
+			footerText = &trimmed
+		}
+	}
 	response.OK(c, gin.H{
-		"display_name":       coalesceStringPtr(tenant.BrandName, "Ai DevOS"),
-		"brand_display_name": tenant.BrandName,
-		"logo_data":          nil,
-		"footer_text":        tenant.FooterText,
+		"display_name":       coalesceString(nameOverride, coalesceString(tenant.Name, "管理台")),
+		"brand_display_name": nullableFromString(nameOverride),
+		"logo_data":          tenant.LogoData,
+		"footer_text":        footerText,
 		"tenant_name":        coalesceString(tenant.Name, "平台主体"),
-		"can_edit":           true,
-		"can_edit_footer":    true,
+		"can_edit":           h.userCanEditTenantBranding(user),
+		"can_edit_footer":    h.viewerHasPlatformScope(user),
 	})
 }
 
@@ -743,19 +819,51 @@ func (h *IdentityHandler) SaveTenantBranding(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
+	if !h.userCanEditTenantBranding(user) {
+		response.Error(c, 403, response.CodeForbidden, "无品牌维护权限")
+		return
+	}
 	updates := map[string]interface{}{}
 	if body.BrandDisplayName != nil {
 		updates["brand_display_name"] = nullableTrimmed(body.BrandDisplayName)
 	}
 	if body.BrandLogoData != nil {
-		updates["brand_logo_data"] = nullableTrimmed(body.BrandLogoData)
+		logo := nullableTrimmed(body.BrandLogoData)
+		if logo != nil && len(*logo) > 800000 {
+			response.Error(c, 400, response.CodeBadRequest, "Logo 数据过大")
+			return
+		}
+		updates["brand_logo_data"] = logo
 	} else if body.LogoData != nil {
-		updates["brand_logo_data"] = nullableTrimmed(body.LogoData)
+		logo := nullableTrimmed(body.LogoData)
+		if logo != nil && len(*logo) > 800000 {
+			response.Error(c, 400, response.CodeBadRequest, "Logo 数据过大")
+			return
+		}
+		updates["brand_logo_data"] = logo
 	}
 	if body.BrandFooterText != nil {
-		updates["brand_footer_text"] = nullableTrimmed(body.BrandFooterText)
+		if !h.viewerHasPlatformScope(user) {
+			response.Error(c, 403, response.CodeForbidden, "仅平台运维账号可设置底部版权信息")
+			return
+		}
+		footer := nullableTrimmed(body.BrandFooterText)
+		if footer != nil && len(*footer) > 256 {
+			response.Error(c, 400, response.CodeBadRequest, "版权信息过长")
+			return
+		}
+		updates["brand_footer_text"] = footer
 	} else if body.FooterText != nil {
-		updates["brand_footer_text"] = nullableTrimmed(body.FooterText)
+		if !h.viewerHasPlatformScope(user) {
+			response.Error(c, 403, response.CodeForbidden, "仅平台运维账号可设置底部版权信息")
+			return
+		}
+		footer := nullableTrimmed(body.FooterText)
+		if footer != nil && len(*footer) > 256 {
+			response.Error(c, 400, response.CodeBadRequest, "版权信息过长")
+			return
+		}
+		updates["brand_footer_text"] = footer
 	}
 	if len(updates) > 0 {
 		if err := h.db.Model(&models.Tenant{}).Where("id = ?", user.TenantID).Updates(updates).Error; err != nil {
@@ -769,7 +877,7 @@ func (h *IdentityHandler) SaveTenantBranding(c *gin.Context) {
 
 func (h *IdentityHandler) PublicTenantFooter(c *gin.Context) {
 	var tenant models.Tenant
-	_ = h.db.Where("code = ?", "platform").First(&tenant).Error
+	_ = h.db.Where("deleted_at IS NULL").Order("id asc").First(&tenant).Error
 	response.OK(c, gin.H{"footer_text": tenant.FooterText})
 }
 
@@ -894,18 +1002,22 @@ func (h *IdentityHandler) SaveMenuOverrides(c *gin.Context) {
 }
 
 func (h *IdentityHandler) Tenants(c *gin.Context) {
+	skip, limit := paginationParams(c)
+	query := h.db.Where("deleted_at IS NULL")
+	var total int64
+	_ = query.Model(&models.Tenant{}).Count(&total).Error
 	var rows []models.Tenant
-	_ = h.db.Order("id desc").Find(&rows).Error
+	_ = query.Order("id desc").Offset(skip).Limit(limit).Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, tenantToJSON(h.db, row))
 	}
-	response.OK(c, paginated(items))
+	response.OK(c, paginatedWithTotal(items, total, skip, limit))
 }
 
 func (h *IdentityHandler) Tenant(c *gin.Context) {
 	var row models.Tenant
-	if err := h.db.First(&row, c.Param("id")).Error; err != nil {
+	if err := h.db.Where("deleted_at IS NULL").First(&row, c.Param("id")).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "主体不存在")
 		return
 	}
@@ -952,12 +1064,16 @@ func (h *IdentityHandler) CreateTenantWithPackage(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	tenant, err := h.createTenantWithAdmin(body.Tenant.Code, body.Tenant.Name, body.Tenant.Status, body.Tenant.AdminName, body.Tenant.AdminEmployeeNo, body.Tenant.AdminPhone, body.Tenant.AdminPassword)
+	var tenant models.Tenant
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		created, err := h.createTenantWithAdminOnDB(tx, body.Tenant.Code, body.Tenant.Name, body.Tenant.Status, body.Tenant.AdminName, body.Tenant.AdminEmployeeNo, body.Tenant.AdminPhone, body.Tenant.AdminPassword)
+		if err != nil {
+			return err
+		}
+		tenant = created
+		return h.saveTenantPackageOnDB(tx, tenant.ID, body.Package)
+	})
 	if err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
-		return
-	}
-	if err := h.saveTenantPackage(tenant.ID, body.Package); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
@@ -967,20 +1083,58 @@ func (h *IdentityHandler) CreateTenantWithPackage(c *gin.Context) {
 
 func (h *IdentityHandler) UpdateTenant(c *gin.Context) {
 	var tenant models.Tenant
-	if err := h.db.First(&tenant, c.Param("id")).Error; err != nil {
+	if err := h.db.Where("deleted_at IS NULL").First(&tenant, c.Param("id")).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "主体不存在")
 		return
 	}
-	var body map[string]interface{}
+	var body struct {
+		Name             *string `json:"name"`
+		Status           *int    `json:"status"`
+		ContactName      *string `json:"contact_name"`
+		ContactPhone     *string `json:"contact_phone"`
+		BrandDisplayName *string `json:"brand_display_name"`
+		BrandLogoData    *string `json:"brand_logo_data"`
+	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	if err := h.db.Model(&tenant).Updates(body).First(&tenant, tenant.ID).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
-		return
+	updates := map[string]interface{}{}
+	if body.Name != nil {
+		updates["name"] = strings.TrimSpace(*body.Name)
 	}
-	h.auditCurrentUser(c, "tenant", "update", "更新主体 "+tenant.Name, gin.H{"tenant_id": tenant.ID, "changes": body})
+	if body.Status != nil {
+		updates["status"] = *body.Status
+	}
+	if body.ContactName != nil {
+		updates["contact_name"] = nullableTrimmed(body.ContactName)
+	}
+	if body.ContactPhone != nil {
+		phone, msg := normalizeOptionalPhone(body.ContactPhone)
+		if msg != "" {
+			response.Error(c, 400, response.CodeBadRequest, strings.Replace(msg, "手机号", "联系人手机号", 1))
+			return
+		}
+		updates["contact_phone"] = phone
+	}
+	if body.BrandDisplayName != nil {
+		updates["brand_display_name"] = nullableTrimmed(body.BrandDisplayName)
+	}
+	if body.BrandLogoData != nil {
+		logo := nullableTrimmed(body.BrandLogoData)
+		if logo != nil && len(*logo) > 800000 {
+			response.Error(c, 400, response.CodeBadRequest, "Logo 数据过大")
+			return
+		}
+		updates["brand_logo_data"] = logo
+	}
+	if len(updates) > 0 {
+		if err := h.db.Model(&tenant).Updates(updates).First(&tenant, tenant.ID).Error; err != nil {
+			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			return
+		}
+	}
+	h.auditCurrentUser(c, "tenant", "update", "更新主体 "+tenant.Name, gin.H{"tenant_id": tenant.ID, "changes": updates})
 	response.OK(c, tenantToJSON(h.db, tenant))
 }
 
@@ -989,9 +1143,12 @@ func (h *IdentityHandler) UpdateTenantStatus(c *gin.Context) {
 		Status int `json:"status"`
 	}
 	_ = c.ShouldBindJSON(&body)
-	if err := h.db.Model(&models.Tenant{}).Where("id = ?", c.Param("id")).Update("status", body.Status).Error; err != nil {
+	if err := h.db.Model(&models.Tenant{}).Where("id = ? AND deleted_at IS NULL", c.Param("id")).Update("status", body.Status).Error; err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
+	}
+	if body.Status == 0 {
+		h.invalidateSessionsForTenant(parseUintParam(c, "id"))
 	}
 	var tenant models.Tenant
 	_ = h.db.First(&tenant, c.Param("id")).Error
@@ -1001,12 +1158,25 @@ func (h *IdentityHandler) UpdateTenantStatus(c *gin.Context) {
 
 func (h *IdentityHandler) DeleteTenant(c *gin.Context) {
 	id := parseUintParam(c, "id")
-	if h.blockDeleteIfReferenced(c, "主体", ref(&models.AppUser{}, "用户", "tenant_id = ?", id), ref(&models.OrgNode{}, "组织", "tenant_id = ?", id), ref(&models.BusinessUnit{}, "业务单元", "tenant_id = ?", id), ref(&models.TenantSubscription{}, "套餐订阅", "tenant_id = ?", id)) {
+	var tenant models.Tenant
+	if err := h.db.Where("id = ? AND deleted_at IS NULL", id).First(&tenant).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "主体不存在")
 		return
 	}
-	if h.deleteByID(c, &models.Tenant{}) {
-		h.auditCurrentUser(c, "tenant", "delete", "删除主体", gin.H{"tenant_id": id})
+	var platformAdminCount int64
+	_ = h.db.Model(&models.AppUser{}).Where("tenant_id = ? AND is_platform_admin = ? AND deleted_at IS NULL", id, true).Count(&platformAdminCount).Error
+	if platformAdminCount > 0 {
+		response.Error(c, 400, response.CodeBadRequest, "该主体下存在系统管理员账号，请先取消其平台权限或迁移后再删除")
+		return
 	}
+	h.invalidateSessionsForTenant(id)
+	now := time.Now()
+	if err := h.db.Model(&tenant).Updates(map[string]interface{}{"deleted_at": now, "status": 0, "code": tombstoneUniqueValue(tenant.Code, tenant.ID, 64)}).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "删除失败："+err.Error())
+		return
+	}
+	h.auditCurrentUser(c, "tenant", "delete", "删除主体「"+tenant.Name+"」", gin.H{"tenant_id": id})
+	response.OK(c, gin.H{"deleted": id})
 }
 
 func (h *IdentityHandler) Users(c *gin.Context) {
@@ -2840,12 +3010,89 @@ func tenantToJSON(db *gorm.DB, row models.Tenant) gin.H {
 		}
 	}
 	var companyCount int64
+	var storeCount int64
 	var userCount int64
 	var buCount int64
-	db.Model(&models.OrgNode{}).Where("tenant_id = ? AND node_type = ?", row.ID, "company").Count(&companyCount)
-	db.Model(&models.AppUser{}).Where("tenant_id = ?", row.ID).Count(&userCount)
-	db.Model(&models.BusinessUnit{}).Where("tenant_id = ?", row.ID).Count(&buCount)
-	return gin.H{"id": row.ID, "code": row.Code, "name": row.Name, "status": row.Status, "start_date": row.StartDate, "expire_date": row.ExpireDate, "max_companies": row.MaxCompanies, "max_users": row.MaxUsers, "used_companies": companyCount, "used_users": userCount, "used_business_units": buCount, "plan_name": planName, "plan_code": planCode, "contact_name": row.ContactName, "contact_phone": row.ContactPhone, "company_count": companyCount, "brand_display_name": row.BrandName, "brand_logo_data": row.LogoData, "created_at": row.CreatedAt}
+	db.Model(&models.OrgNode{}).Where("tenant_id = ? AND node_type = ? AND status = ? AND deleted_at IS NULL", row.ID, "company", 1).Count(&companyCount)
+	db.Model(&models.OrgNode{}).Where("tenant_id = ? AND node_type = ? AND status = ? AND deleted_at IS NULL", row.ID, "store", 1).Count(&storeCount)
+	db.Model(&models.AppUser{}).Where("tenant_id = ? AND status = ? AND deleted_at IS NULL", row.ID, 1).Count(&userCount)
+	db.Model(&models.BusinessUnit{}).Where("tenant_id = ? AND status = ? AND deleted_at IS NULL", row.ID, 1).Count(&buCount)
+	contactName, contactPhone := tenantContact(db, row)
+	return gin.H{"id": row.ID, "code": row.Code, "name": row.Name, "status": row.Status, "start_date": coalesceTimePtr(row.StartDate, timePtr(sub.StartTime)), "expire_date": coalesceTimePtr(row.ExpireDate, sub.EndTime), "max_companies": tenantQuotaValue(db, row.ID, "max_companies", row.MaxCompanies), "max_stores": tenantQuotaValue(db, row.ID, "max_stores", 0), "max_business_units": tenantQuotaValue(db, row.ID, "max_business_units", 0), "max_users": tenantQuotaValue(db, row.ID, "max_users", row.MaxUsers), "used_companies": companyCount, "used_stores": storeCount, "used_users": userCount, "used_business_units": buCount, "plan_name": planName, "plan_code": planCode, "contact_name": contactName, "contact_phone": contactPhone, "company_count": companyCount, "brand_display_name": row.BrandName, "brand_logo_data": row.LogoData, "created_at": row.CreatedAt}
+}
+
+func coalesceTimePtr(primary *time.Time, fallback *time.Time) *time.Time {
+	if primary != nil {
+		return primary
+	}
+	return fallback
+}
+
+func timePtr(value time.Time) *time.Time {
+	if value.IsZero() {
+		return nil
+	}
+	return &value
+}
+
+func tenantQuotaValue(db *gorm.DB, tenantID uint64, quotaCode string, fallback int) int {
+	var quota models.SaasQuota
+	if err := db.Where("quota_code = ?", quotaCode).First(&quota).Error; err != nil {
+		return fallback
+	}
+	now := time.Now()
+	var override models.TenantQuotaOverride
+	if err := db.Where("tenant_id = ? AND quota_id = ? AND (start_time IS NULL OR start_time <= ?) AND (end_time IS NULL OR end_time >= ?)", tenantID, quota.ID, now, now).Order("id desc").First(&override).Error; err == nil {
+		return override.QuotaValue
+	}
+	var sub models.TenantSubscription
+	if err := db.Where("tenant_id = ?", tenantID).Order("id desc").First(&sub).Error; err != nil {
+		return fallback
+	}
+	var planQuota models.SaasPlanQuota
+	if err := db.Where("plan_id = ? AND quota_id = ?", sub.PlanID, quota.ID).First(&planQuota).Error; err == nil {
+		return planQuota.QuotaValue
+	}
+	return fallback
+}
+
+func tenantContact(db *gorm.DB, tenant models.Tenant) (*string, *string) {
+	name := tenant.ContactName
+	phone := tenant.ContactPhone
+	if name != nil && strings.TrimSpace(*name) == "" {
+		name = nil
+	}
+	if phone != nil && strings.TrimSpace(*phone) == "" {
+		phone = nil
+	}
+	if name != nil && phone != nil {
+		return name, phone
+	}
+	if admin, ok := primaryAdminForTenant(db, tenant.ID); ok {
+		if name == nil && strings.TrimSpace(admin.Name) != "" {
+			name = &admin.Name
+		}
+		if phone == nil {
+			phone = admin.Phone
+		}
+	}
+	return name, phone
+}
+
+func primaryAdminForTenant(db *gorm.DB, tenantID uint64) (models.AppUser, bool) {
+	var user models.AppUser
+	if err := db.
+		Joins("JOIN user_role ur ON ur.user_id = app_user.id").
+		Joins("JOIN role r ON r.id = ur.role_id").
+		Where("app_user.tenant_id = ? AND app_user.deleted_at IS NULL AND r.tenant_id = ? AND r.deleted_at IS NULL AND r.code = ?", tenantID, tenantID, "admin").
+		Order("app_user.id asc").
+		First(&user).Error; err == nil {
+		return user, true
+	}
+	if err := db.Where("tenant_id = ? AND deleted_at IS NULL", tenantID).Order("id asc").First(&user).Error; err == nil {
+		return user, true
+	}
+	return models.AppUser{}, false
 }
 
 func (h *IdentityHandler) userToJSON(row models.AppUser) gin.H {
@@ -3650,21 +3897,57 @@ func (h *IdentityHandler) assertUserUniqueFields(tenantID uint64, exceptUserID u
 }
 
 func (h *IdentityHandler) createTenantWithAdmin(code, name string, status int, adminName, adminEmployeeNo string, adminPhone *string, adminPassword string) (models.Tenant, error) {
+	var tenant models.Tenant
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		created, err := h.createTenantWithAdminOnDB(tx, code, name, status, adminName, adminEmployeeNo, adminPhone, adminPassword)
+		if err != nil {
+			return err
+		}
+		tenant = created
+		return nil
+	})
+	return tenant, err
+}
+
+func (h *IdentityHandler) createTenantWithAdminOnDB(db *gorm.DB, code, name string, status int, adminName, adminEmployeeNo string, adminPhone *string, adminPassword string) (models.Tenant, error) {
 	if status == 0 {
 		status = 1
 	}
-	tenant := models.Tenant{Code: code, Name: name, Status: status, ContactName: &adminName, ContactPhone: adminPhone}
-	if err := h.db.Create(&tenant).Error; err != nil {
+	phone, msg := normalizeOptionalPhone(adminPhone)
+	if msg != "" {
+		return models.Tenant{}, errors.New(strings.Replace(msg, "手机号", "管理员手机号", 1))
+	}
+	var tenant models.Tenant
+	tenant = models.Tenant{Code: strings.TrimSpace(code), Name: strings.TrimSpace(name), Status: status, ContactName: nullableFromString(adminName), ContactPhone: phone}
+	if err := db.Create(&tenant).Error; err != nil {
 		return tenant, err
 	}
-	companyCode := strings.ToUpper(code)
-	company := models.OrgNode{TenantID: tenant.ID, NodeType: "company", Name: name, Code: &companyCode, Status: 1}
-	_ = h.db.Create(&company).Error
-	role := models.Role{TenantID: tenant.ID, Code: "admin", Name: "主体管理员", Status: 1}
-	_ = h.db.Create(&role).Error
-	user := models.AppUser{TenantID: tenant.ID, CompanyID: &company.ID, EmployeeNo: adminEmployeeNo, Account: adminEmployeeNo, PasswordHash: devPasswordHash(adminPassword), Name: adminName, Phone: adminPhone, Status: 1, IsPlatformAdmin: false}
-	_ = h.db.Create(&user).Error
-	_ = h.db.Create(&models.UserRole{UserID: user.ID, RoleID: role.ID}).Error
+	companyCode := strings.ToUpper(strings.TrimSpace(code))
+	companyType := "GROUP"
+	company := models.OrgNode{TenantID: tenant.ID, NodeType: "company", Name: tenant.Name, Code: &companyCode, CompanyType: &companyType, Status: 1}
+	if err := db.Create(&company).Error; err != nil {
+		return tenant, err
+	}
+	roleDescription := "超级管理员（系统自动创建）"
+	role := models.Role{TenantID: tenant.ID, Code: "admin", Name: "超级管理员", Description: &roleDescription, Status: 1}
+	if err := db.Create(&role).Error; err != nil {
+		return tenant, err
+	}
+	user := models.AppUser{TenantID: tenant.ID, CompanyID: &company.ID, EmployeeNo: strings.TrimSpace(adminEmployeeNo), Account: strings.TrimSpace(adminEmployeeNo), PasswordHash: devPasswordHash(adminPassword), Name: strings.TrimSpace(adminName), Phone: phone, Status: 1, IsPlatformAdmin: false}
+	if err := db.Create(&user).Error; err != nil {
+		return tenant, err
+	}
+	if err := db.Create(&models.UserRole{UserID: user.ID, RoleID: role.ID}).Error; err != nil {
+		return tenant, err
+	}
+	var permissions []models.Permission
+	if err := db.Where("tenant_id = ? OR tenant_id = ?", tenant.ID, 1).Find(&permissions).Error; err == nil {
+		for _, permission := range permissions {
+			if err := db.Where("role_id = ? AND permission_id = ?", role.ID, permission.ID).FirstOrCreate(&models.RolePermission{RoleID: role.ID, PermissionID: permission.ID}).Error; err != nil {
+				return tenant, err
+			}
+		}
+	}
 	return tenant, nil
 }
 
@@ -3681,6 +3964,10 @@ func parseTimePtr(value *string) *time.Time {
 }
 
 func (h *IdentityHandler) saveTenantPackage(tenantID uint64, body tenantPackagePayload) error {
+	return h.saveTenantPackageOnDB(h.db, tenantID, body)
+}
+
+func (h *IdentityHandler) saveTenantPackageOnDB(db *gorm.DB, tenantID uint64, body tenantPackagePayload) error {
 	start := time.Now()
 	if body.StartTime != "" {
 		if parsed := parseTimePtr(&body.StartTime); parsed != nil {
@@ -3690,20 +3977,33 @@ func (h *IdentityHandler) saveTenantPackage(tenantID uint64, body tenantPackageP
 	if body.SubscriptionStatus == "" {
 		body.SubscriptionStatus = "ACTIVE"
 	}
+	if body.PlanID == 0 {
+		return errors.New("套餐不存在")
+	}
 	var existing models.TenantSubscription
 	sub := models.TenantSubscription{TenantID: tenantID, PlanID: body.PlanID, SubscriptionStatus: body.SubscriptionStatus, StartTime: start, EndTime: parseTimePtr(body.EndTime), TrialEndTime: parseTimePtr(body.TrialEndTime), AutoRenew: body.AutoRenew, FrozenReason: body.FrozenReason}
-	if err := h.db.Where("tenant_id = ?", tenantID).First(&existing).Error; err == nil {
-		sub.ID = existing.ID
-		return h.db.Model(&existing).Updates(sub).Error
-	}
-	if err := h.db.Create(&sub).Error; err != nil {
+	if err := db.Where("tenant_id = ?", tenantID).First(&existing).Error; err == nil {
+		if err := db.Model(&existing).Updates(sub).Error; err != nil {
+			return err
+		}
+	} else if errors.Is(err, gorm.ErrRecordNotFound) {
+		if err := db.Create(&sub).Error; err != nil {
+			return err
+		}
+	} else {
 		return err
 	}
 	for _, quota := range body.Quotas {
-		_ = h.db.Where("tenant_id = ? AND quota_id = ?", tenantID, quota.QuotaID).Delete(&models.TenantQuotaOverride{}).Error
-		_ = h.db.Create(&models.TenantQuotaOverride{TenantID: tenantID, QuotaID: quota.QuotaID, QuotaValue: quota.QuotaValue}).Error
+		_ = db.Where("tenant_id = ? AND quota_id = ?", tenantID, quota.QuotaID).Delete(&models.TenantQuotaOverride{}).Error
+		if err := db.Create(&models.TenantQuotaOverride{TenantID: tenantID, QuotaID: quota.QuotaID, QuotaValue: quota.QuotaValue, Reason: stringPtrLocal("主体套餐配置")}).Error; err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+func stringPtrLocal(value string) *string {
+	return &value
 }
 
 func (h *IdentityHandler) findTenantSubscription(tenantID uint64) (models.TenantSubscription, bool) {
