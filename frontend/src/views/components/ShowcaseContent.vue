@@ -527,6 +527,7 @@
 </template>
 
 <script setup lang="ts">
+import { silentDebug } from '@/utils/debug'
 import NeuroAgentListPage, { type FilterField, type TableColumn } from '@/views/components/NeuroAgentListPage.vue'
 import NeuroAgentDetailPage from '@/views/components/NeuroAgentDetailPage.vue'
 import NeuroAgentFormPage, { type FormConfig, type FormField } from '@/views/components/NeuroAgentFormPage.vue'
@@ -875,7 +876,7 @@ const treeTableData = ref([
   },
 ])
 
-const handleTreeCellChange = (_key: string, row: any) => console.log('tree cell change', row)
+const handleTreeCellChange = (_key: string, row: any) => silentDebug('tree cell change', row)
 const handleTreeEdit = (item: any) => alert(`编辑菜单: ${item.name}`)
 
 // --- 详情 ---
@@ -976,7 +977,7 @@ const cardListFilters = ref([
   { label: '草稿', value: 'draft', count: 1 },
 ])
 
-const handleCardClick = (card: any) => console.log('clicked card:', card)
+const handleCardClick = (card: any) => silentDebug('clicked card:', card)
 
 // --- 操作栏 ---
 const actionSelectedItems = ref(['project-1', 'project-2'])

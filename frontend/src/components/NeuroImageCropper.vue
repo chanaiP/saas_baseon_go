@@ -288,6 +288,7 @@
 </template>
 
 <script setup lang="ts">
+import { silentDebug } from '@/utils/debug'
 import { ref, computed, onUnmounted } from 'vue'
 
 interface Props {
@@ -489,7 +490,7 @@ const onImageLoad = () => {
     height: containerHeight
   }
 
-  console.log('🖼️ 图片加载完成:', {
+  silentDebug('🖼️ 图片加载完成:', {
     图片尺寸: `${naturalWidth}×${naturalHeight}`,
     容器尺寸: `${containerWidth}×${containerHeight}`,
     裁剪框尺寸: `${cropFrame.value.width}×${cropFrame.value.height}`
@@ -499,7 +500,7 @@ const onImageLoad = () => {
   cropFrame.value.x = (containerWidth - cropFrame.value.width) / 2
   cropFrame.value.y = (containerHeight - cropFrame.value.height) / 2
 
-  console.log('🎯 裁剪框位置:', { x: cropFrame.value.x, y: cropFrame.value.y })
+  silentDebug('🎯 裁剪框位置:', { x: cropFrame.value.x, y: cropFrame.value.y })
 
   // 智能居中图片：确保裁剪框在图片内部
   smartCenterImage()
@@ -594,27 +595,27 @@ const setZoom = (scale: number) => {
   const oldScale = imageState.value.scale
   const newScale = Math.max(minScale.value, Math.min(maxScale.value, scale))
 
-  console.log('🔍 setZoom调用:', { oldScale, newScale, currentX: imageState.value.x, currentY: imageState.value.y })
+  silentDebug('🔍 setZoom调用:', { oldScale, newScale, currentX: imageState.value.x, currentY: imageState.value.y })
 
   if (newScale !== oldScale) {
     // 计算图片中心点
     const centerX = imageState.value.x + (imageState.value.naturalWidth * oldScale) / 2
     const centerY = imageState.value.y + (imageState.value.naturalHeight * oldScale) / 2
 
-    console.log('📐 中心点计算:', { centerX, centerY, naturalWidth: imageState.value.naturalWidth, naturalHeight: imageState.value.naturalHeight })
+    silentDebug('📐 中心点计算:', { centerX, centerY, naturalWidth: imageState.value.naturalWidth, naturalHeight: imageState.value.naturalHeight })
 
     // 新的左上角位置 = 中心点 - (新尺寸/2)
     const newX = centerX - (imageState.value.naturalWidth * newScale) / 2
     const newY = centerY - (imageState.value.naturalHeight * newScale) / 2
 
-    console.log('📍 新位置计算:', { newX, newY, oldX: imageState.value.x, oldY: imageState.value.y })
+    silentDebug('📍 新位置计算:', { newX, newY, oldX: imageState.value.x, oldY: imageState.value.y })
 
     imageState.value.x = newX
     imageState.value.y = newY
     imageState.value.scale = newScale
     lastScale.value = newScale
 
-    console.log('✅ 缩放完成:', { x: imageState.value.x, y: imageState.value.y, scale: imageState.value.scale })
+    silentDebug('✅ 缩放完成:', { x: imageState.value.x, y: imageState.value.y, scale: imageState.value.scale })
   }
 }
 
@@ -623,27 +624,27 @@ const updateImageScale = (event: Event) => {
   const newScale = parseFloat(target.value)
   const oldScale = lastScale.value
 
-  console.log('🔍 updateImageScale调用:', { oldScale, newScale, currentX: imageState.value.x, currentY: imageState.value.y })
+  silentDebug('🔍 updateImageScale调用:', { oldScale, newScale, currentX: imageState.value.x, currentY: imageState.value.y })
 
   if (Math.abs(newScale - oldScale) > 0.0001) { // 使用容差比较
     // 计算图片中心点
     const centerX = imageState.value.x + (imageState.value.naturalWidth * oldScale) / 2
     const centerY = imageState.value.y + (imageState.value.naturalHeight * oldScale) / 2
 
-    console.log('📐 中心点计算:', { centerX, centerY })
+    silentDebug('📐 中心点计算:', { centerX, centerY })
 
     // 新的左上角位置 = 中心点 - (新尺寸/2)
     const newX = centerX - (imageState.value.naturalWidth * newScale) / 2
     const newY = centerY - (imageState.value.naturalHeight * newScale) / 2
 
-    console.log('📍 新位置计算:', { newX, newY, oldX: imageState.value.x, oldY: imageState.value.y })
+    silentDebug('📍 新位置计算:', { newX, newY, oldX: imageState.value.x, oldY: imageState.value.y })
 
     imageState.value.x = newX
     imageState.value.y = newY
     imageState.value.scale = newScale
     lastScale.value = newScale
 
-    console.log('✅ 滑块缩放完成:', { x: imageState.value.x, y: imageState.value.y, scale: imageState.value.scale })
+    silentDebug('✅ 滑块缩放完成:', { x: imageState.value.x, y: imageState.value.y, scale: imageState.value.scale })
   }
 }
 
@@ -719,7 +720,7 @@ const smartCenterImage = () => {
   const naturalWidth = imageState.value.naturalWidth
   const naturalHeight = imageState.value.naturalHeight
 
-  console.log('🖼️ 简单居中开始:', {
+  silentDebug('🖼️ 简单居中开始:', {
     容器: `${containerWidth}×${containerHeight}`,
     图片: `${naturalWidth}×${naturalHeight}`,
     裁剪框: `${cropFrame.value.width}×${cropFrame.value.height}`
@@ -729,7 +730,7 @@ const smartCenterImage = () => {
   cropFrame.value.x = (containerWidth - cropFrame.value.width) / 2
   cropFrame.value.y = (containerHeight - cropFrame.value.height) / 2
 
-  console.log('🎯 裁剪框位置:', { x: cropFrame.value.x, y: cropFrame.value.y })
+  silentDebug('🎯 裁剪框位置:', { x: cropFrame.value.x, y: cropFrame.value.y })
 
   // 2. 计算需要的缩放，让图片至少覆盖裁剪框
   const neededScaleX = cropFrame.value.width / naturalWidth
@@ -738,7 +739,7 @@ const smartCenterImage = () => {
 
   if (imageState.value.scale < neededScale) {
     imageState.value.scale = neededScale
-    console.log(`📏 设置缩放: ${neededScale.toFixed(3)}`)
+    silentDebug(`📏 设置缩放: ${neededScale.toFixed(3)}`)
   }
 
   // 3. 计算显示尺寸
@@ -750,7 +751,7 @@ const smartCenterImage = () => {
   imageState.value.x = cropFrame.value.x + cropFrame.value.width / 2 - displayWidth / 2
   imageState.value.y = cropFrame.value.y + cropFrame.value.height / 2 - displayHeight / 2
 
-  console.log('✅ 最终设置:', {
+  silentDebug('✅ 最终设置:', {
     图片位置: `(${imageState.value.x.toFixed(1)}, ${imageState.value.y.toFixed(1)})`,
     显示尺寸: `${displayWidth.toFixed(1)}×${displayHeight.toFixed(1)}`,
     缩放: imageState.value.scale.toFixed(3),
@@ -786,14 +787,14 @@ const confirmCrop = async () => {
   isProcessing.value = true
 
   try {
-    console.log('🔄 开始裁剪，优化图片质量...')
+    silentDebug('🔄 开始裁剪，优化图片质量...')
 
     // 获取图片原始尺寸
     const imgNaturalWidth = imageState.value.naturalWidth
     const imgNaturalHeight = imageState.value.naturalHeight
     const scale = imageState.value.scale
 
-    console.log('📐 图片信息:', {
+    silentDebug('📐 图片信息:', {
       原始尺寸: `${imgNaturalWidth}×${imgNaturalHeight}`,
       当前缩放: scale,
       裁剪框尺寸: `${cropFrame.value.width}×${cropFrame.value.height}`
@@ -809,7 +810,7 @@ const confirmCrop = async () => {
     const imgWidth = cropFrame.value.width / scale
     const imgHeight = cropFrame.value.height / scale
 
-    console.log('🎯 简单裁剪计算:', {
+    silentDebug('🎯 简单裁剪计算:', {
       图片位置: `(${imgLeft.toFixed(1)}, ${imgTop.toFixed(1)})`,
       显示尺寸: `${(imgNaturalWidth * scale).toFixed(1)}×${(imgNaturalHeight * scale).toFixed(1)}`,
       裁剪框: `(${cropFrame.value.x}, ${cropFrame.value.y}) ${cropFrame.value.width}×${cropFrame.value.height}`,
@@ -830,7 +831,7 @@ const confirmCrop = async () => {
     const overflowRight = Math.max(0, imgX + imgWidth - imgNaturalWidth)
     const overflowBottom = Math.max(0, imgY + imgHeight - imgNaturalHeight)
 
-    console.log('📏 裁剪区域分析:', {
+    silentDebug('📏 裁剪区域分析:', {
       源起点: `(${sourceX.toFixed(2)}, ${sourceY.toFixed(2)})`,
       源尺寸: `${sourceWidth.toFixed(2)}×${sourceHeight.toFixed(2)}`,
       超出部分: `左:${overflowLeft.toFixed(2)}, 上:${overflowTop.toFixed(2)}, 右:${overflowRight.toFixed(2)}, 下:${overflowBottom.toFixed(2)}`,
@@ -868,7 +869,7 @@ const confirmCrop = async () => {
     canvas.style.width = `${targetWidth}px`
     canvas.style.height = `${targetHeight}px`
 
-    console.log('🎨 Canvas设置:', {
+    silentDebug('🎨 Canvas设置:', {
       逻辑尺寸: `${targetWidth}×${targetHeight}`,
       实际尺寸: `${canvas.width}×${canvas.height}`,
       设备像素比: devicePixelRatio
@@ -896,9 +897,9 @@ const confirmCrop = async () => {
       const drawWidth = targetWidth
       const drawHeight = targetHeight
 
-      console.log('🖼️ 开始绘制图片...')
-      console.log('源区域:', `(${sourceX.toFixed(2)}, ${sourceY.toFixed(2)}) ${sourceWidth.toFixed(2)}×${sourceHeight.toFixed(2)}`)
-      console.log('目标区域:', `(${drawX}, ${drawY}) ${drawWidth}×${drawHeight}`)
+      silentDebug('🖼️ 开始绘制图片...')
+      silentDebug('源区域:', `(${sourceX.toFixed(2)}, ${sourceY.toFixed(2)}) ${sourceWidth.toFixed(2)}×${sourceHeight.toFixed(2)}`)
+      silentDebug('目标区域:', `(${drawX}, ${drawY}) ${drawWidth}×${drawHeight}`)
 
       // 先填充白色背景（如果使用JPEG格式，需要不透明背景）
       ctx.fillStyle = '#ffffff'
@@ -913,7 +914,7 @@ const confirmCrop = async () => {
       const finalTargetWidth = (sourceWidth / imgWidth) * drawWidth
       const finalTargetHeight = (sourceHeight / imgHeight) * drawHeight
 
-      console.log('🎯 绘制参数:', {
+      silentDebug('🎯 绘制参数:', {
         目标位置: `(${targetX.toFixed(2)}, ${targetY.toFixed(2)})`,
         目标尺寸: `${finalTargetWidth.toFixed(2)}×${finalTargetHeight.toFixed(2)}`,
         超出处理: `左移:${overflowLeft.toFixed(2)}px, 上移:${overflowTop.toFixed(2)}px`
@@ -933,7 +934,7 @@ const confirmCrop = async () => {
       )
 
       ctx.restore()
-      console.log('✅ 图片绘制成功')
+      silentDebug('✅ 图片绘制成功')
 
     } catch (drawError) {
       ctx.restore()
@@ -947,26 +948,26 @@ const confirmCrop = async () => {
     try {
       // 尝试使用JPEG格式，质量为0.92（高质量）
       croppedImageData = canvas.toDataURL('image/jpeg', 0.92)
-      console.log('✅ 使用JPEG格式，质量: 0.92')
+      silentDebug('✅ 使用JPEG格式，质量: 0.92')
     } catch (jpegError) {
       // 如果JPEG失败，回退到PNG
-      console.log('🔄 JPEG失败，回退到PNG格式')
+      silentDebug('🔄 JPEG失败，回退到PNG格式')
       croppedImageData = canvas.toDataURL('image/png')
     }
 
-    console.log('🔥 裁剪完成，图片数据长度:', croppedImageData.length)
-    console.log('📊 图片格式:', croppedImageData.substring(0, 20))
+    silentDebug('🔥 裁剪完成，图片数据长度:', croppedImageData.length)
+    silentDebug('📊 图片格式:', croppedImageData.substring(0, 20))
 
     // 发出事件
     emit('update:image', croppedImageData)
-    console.log('✅ update:image 事件已触发')
+    silentDebug('✅ update:image 事件已触发')
 
     emit('upload-success', croppedImageData)
-    console.log('✅ upload-success 事件已触发')
+    silentDebug('✅ upload-success 事件已触发')
 
     // 等待一小段时间，确保事件被处理
     setTimeout(() => {
-      console.log('⏰ 关闭编辑器')
+      silentDebug('⏰ 关闭编辑器')
       cancelEdit()
     }, 100)
 

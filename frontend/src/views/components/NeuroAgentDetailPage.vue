@@ -375,6 +375,7 @@
 </template>
 
 <script setup lang="ts">
+import { silentDebug } from '@/utils/debug'
 import { ref, computed, onMounted } from 'vue'
 
 // 组件属性
@@ -475,7 +476,7 @@ const handleEdit = () => {
 }
 
 const handleAction = (actionType: string) => {
-  console.log('执行操作:', actionType)
+  silentDebug('执行操作:', actionType)
   emit('action', { type: actionType, data: props.data })
 }
 
@@ -513,7 +514,7 @@ const handleAddDescription = () => {
 }
 
 const handleDownload = (attachment: any) => {
-  console.log('下载附件:', attachment)
+  silentDebug('下载附件:', attachment)
   emit('download', attachment)
 }
 
@@ -559,7 +560,7 @@ const getAttachmentIcon = (type: string) => {
 }
 
 const handleSuggestion = (suggestion: any) => {
-  console.log('执行AI建议:', suggestion)
+  silentDebug('执行AI建议:', suggestion)
   emit('suggestion', suggestion)
 }
 
@@ -580,7 +581,7 @@ const toggleAssistant = () => {
 }
 
 const askAssistant = (question: string) => {
-  console.log('询问AI助手:', question)
+  silentDebug('询问AI助手:', question)
   emit('assistant-ask', question)
 }
 

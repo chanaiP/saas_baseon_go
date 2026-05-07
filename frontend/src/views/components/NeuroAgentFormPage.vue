@@ -525,6 +525,7 @@
 </template>
 
 <script setup lang="ts">
+import { silentDebug } from '@/utils/debug'
 import { ref, computed, reactive, watch, onMounted } from 'vue'
 
 // 组件属性
@@ -901,7 +902,7 @@ const applyAutocomplete = (fieldId: string, suggestion: string) => {
 }
 
 const applySuggestion = (suggestion: any) => {
-  console.log('应用AI建议:', suggestion)
+  silentDebug('应用AI建议:', suggestion)
   emit('ai-suggestion', suggestion)
 
   // 根据建议类型执行不同的AI操作
@@ -1422,13 +1423,13 @@ const handleReset = () => {
 }
 
 const handleSaveDraft = () => {
-  console.log('保存草稿:', formData)
+  silentDebug('保存草稿:', formData)
   emit('save-draft', formData)
   alert('草稿已保存')
 }
 
 const handlePreview = () => {
-  console.log('预览表单:', formData)
+  silentDebug('预览表单:', formData)
   emit('preview', formData)
 }
 
@@ -1449,7 +1450,7 @@ const handleSubmit = async () => {
   isSubmitting.value = true
 
   try {
-    console.log('提交表单数据:', formData)
+    silentDebug('提交表单数据:', formData)
     // 模拟API调用
     await new Promise(resolve => setTimeout(resolve, 1500))
 

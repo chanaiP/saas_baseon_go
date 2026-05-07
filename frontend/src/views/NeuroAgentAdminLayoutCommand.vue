@@ -402,6 +402,7 @@
 </template>
 
 <script setup lang="ts">
+import { silentDebug } from '@/utils/debug'
 import { ref, reactive, watch, onMounted, onBeforeUnmount, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
@@ -897,7 +898,7 @@ const handleNeuronClick = (neuron: NeuronNode) => {
     case 'navigate':
       if (neuron.target) {
         // 这里可以添加导航逻辑
-        console.log('导航到:', neuron.target)
+        silentDebug('导航到:', neuron.target)
       }
       break
   }
@@ -926,10 +927,10 @@ const pinCurrentPage = () => {
   const pageId = currentPage.value.id
   if (pinnedPages.value.has(pageId)) {
     pinnedPages.value.delete(pageId)
-    console.log('取消固定页面:', currentPage.value.title)
+    silentDebug('取消固定页面:', currentPage.value.title)
   } else {
     pinnedPages.value.add(pageId)
-    console.log('固定页面:', currentPage.value.title)
+    silentDebug('固定页面:', currentPage.value.title)
   }
 }
 
@@ -945,7 +946,7 @@ const createRelatedPage = () => {
   }
 
   const related = relatedPages[currentPage.value.id] || { title: '新建页面', path: '/new', icon: '📄' }
-  console.log('创建相关页面:', related.title)
+  silentDebug('创建相关页面:', related.title)
 
   // 这里可以触发页面创建逻辑
   // 例如: router.push(related.path)

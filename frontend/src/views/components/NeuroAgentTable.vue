@@ -152,6 +152,7 @@
 </template>
 
 <script setup lang="ts">
+import { silentDebug } from '@/utils/debug'
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 
 // Props
@@ -415,7 +416,7 @@ const getEstimatedCompletion = () => {
 }
 
 const showOperationStatus = (message: string, type: 'success' | 'error' | 'info' | 'warning') => {
-  console.log(`[${type.toUpperCase()}] ${message}`)
+  silentDebug(`[${type.toUpperCase()}] ${message}`)
   // 这里可以添加更复杂的状态显示逻辑
 }
 

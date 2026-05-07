@@ -46,6 +46,7 @@
 </template>
 
 <script setup lang="ts">
+import { silentDebug } from '@/utils/debug'
 import { ref, computed, onMounted } from 'vue'
 import NeuroImageCropper from './NeuroImageCropper.vue'
 import { useAvatarStore } from '@/stores/avatar'
@@ -96,7 +97,7 @@ const handleAvatarUpdate = (imageData: string) => {
   emit('update:avatar', imageData)
   emit('upload-success', imageData)
 
-  console.log('头像已更新:', imageData)
+  silentDebug('头像已更新:', imageData)
 }
 
 // 处理头像上传成功
@@ -108,7 +109,7 @@ const handleAvatarUploadSuccess = (imageData: string) => {
   emit('update:avatar', imageData)
   emit('upload-success', imageData)
 
-  console.log('头像上传成功:', imageData)
+  silentDebug('头像上传成功:', imageData)
 }
 
 // 处理头像上传错误
@@ -119,7 +120,7 @@ const handleAvatarUploadError = (error: string) => {
 
 // 处理头像上传取消
 const handleAvatarUploadCancel = () => {
-  console.log('头像上传已取消')
+  silentDebug('头像上传已取消')
 }
 
 // 组件挂载时加载头像

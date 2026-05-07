@@ -224,6 +224,7 @@
 </template>
 
 <script setup lang="ts">
+import { silentDebug } from '@/utils/debug'
 import { ref, computed } from 'vue'
 import NeuroImageCropper from './NeuroImageCropper.vue'
 
@@ -246,14 +247,14 @@ const hasChanges = computed(() => {
 
 // Logo处理函数
 const handleLogoUpdate = (imageData: string) => {
-  console.log('Logo更新:', imageData.substring(0, 50) + '...')
+  silentDebug('Logo更新:', imageData.substring(0, 50) + '...')
   newLogo.value = imageData
   // 立即更新预览
   currentLogo.value = imageData
 }
 
 const handleLogoSuccess = (_imageData: string) => {
-  console.log('Logo上传成功')
+  silentDebug('Logo上传成功')
   // 这里可以添加保存到服务器的逻辑
 }
 
@@ -263,19 +264,19 @@ const handleLogoError = (error: string) => {
 }
 
 const handleLogoCancel = () => {
-  console.log('Logo上传取消')
+  silentDebug('Logo上传取消')
 }
 
 // 头像处理函数
 const handleAvatarUpdate = (imageData: string) => {
-  console.log('头像更新:', imageData.substring(0, 50) + '...')
+  silentDebug('头像更新:', imageData.substring(0, 50) + '...')
   newAvatar.value = imageData
   // 立即更新预览
   currentAvatar.value = imageData
 }
 
 const handleAvatarSuccess = (_imageData: string) => {
-  console.log('头像上传成功')
+  silentDebug('头像上传成功')
   // 这里可以添加保存到服务器的逻辑
 }
 
@@ -285,39 +286,39 @@ const handleAvatarError = (error: string) => {
 }
 
 const handleAvatarCancel = () => {
-  console.log('头像上传取消')
+  silentDebug('头像上传取消')
 }
 
 // 悬停模式处理函数
 const handleHoverLogoUpdate = (imageData: string) => {
-  console.log('悬停Logo更新')
+  silentDebug('悬停Logo更新')
   hoverLogo.value = imageData
 }
 
 const handleHoverLogoSuccess = () => {
-  console.log('悬停Logo上传成功')
+  silentDebug('悬停Logo上传成功')
 }
 
 const handleHoverAvatarUpdate = (imageData: string) => {
-  console.log('悬停头像更新')
+  silentDebug('悬停头像更新')
   hoverAvatar.value = imageData
 }
 
 const handleHoverAvatarSuccess = () => {
-  console.log('悬停头像上传成功')
+  silentDebug('悬停头像上传成功')
 }
 
 // 重置功能
 const resetLogo = () => {
   currentLogo.value = ''
   newLogo.value = ''
-  console.log('Logo已重置')
+  silentDebug('Logo已重置')
 }
 
 const resetAvatar = () => {
   currentAvatar.value = ''
   newAvatar.value = ''
-  console.log('头像已重置')
+  silentDebug('头像已重置')
 }
 
 const resetAll = () => {
@@ -325,7 +326,7 @@ const resetAll = () => {
   resetAvatar()
   hoverLogo.value = ''
   hoverAvatar.value = ''
-  console.log('所有图片已重置')
+  silentDebug('所有图片已重置')
 }
 
 // 下载功能
@@ -364,7 +365,7 @@ const saveAll = () => {
   if (newAvatar.value) changes.push('头像')
 
   alert(`已保存更改: ${changes.join(', ')}`)
-  console.log('保存所有更改:', { logo: newLogo.value ? '已更新' : '未更新', avatar: newAvatar.value ? '已更新' : '未更新' })
+  silentDebug('保存所有更改:', { logo: newLogo.value ? '已更新' : '未更新', avatar: newAvatar.value ? '已更新' : '未更新' })
 
   // 重置新图片状态
   newLogo.value = ''
@@ -373,14 +374,14 @@ const saveAll = () => {
 
 // 测试集成
 const testIntegration = () => {
-  console.log('测试集成功能')
+  silentDebug('测试集成功能')
 
-  // 模拟从服务器获取现有图片
-  const mockLogo = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgdmlld0JveD0iMCAwIDEyOCAxMjgiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIxMjgiIGhlaWdodD0iMTI4IiBmaWxsPSIjMDA5OUZGIi8+Cjx0ZXh0IHg9IjY0IiB5PSI3MCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjI0IiBmaWxsPSJ3aGl0ZSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+TE9HTzwvdGV4dD4KPC9zdmc+'
-  const mockAvatar = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjE1MCIgdmlld0JveD0iMCAwIDE1MCAxNTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIxNTAiIGhlaWdodD0iMTUwIiByeD0iNzUiIGZpbGw9IiM2NjY2NjYiLz4KPHRleHQgeD0iNzUiIHk9IjgwIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMzIiIGZpbGw9IndoaXRlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5BPC90ZXh0Pgo8L3N2Zz4='
+  // 使用内置示例图片
+  const sampleLogo = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgdmlld0JveD0iMCAwIDEyOCAxMjgiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIxMjgiIGhlaWdodD0iMTI4IiBmaWxsPSIjMDA5OUZGIi8+Cjx0ZXh0IHg9IjY0IiB5PSI3MCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjI0IiBmaWxsPSJ3aGl0ZSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+TE9HTzwvdGV4dD4KPC9zdmc+'
+  const sampleAvatar = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjE1MCIgdmlld0JveD0iMCAwIDE1MCAxNTAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIxNTAiIGhlaWdodD0iMTUwIiByeD0iNzUiIGZpbGw9IiM2NjY2NjYiLz4KPHRleHQgeD0iNzUiIHk9IjgwIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMzIiIGZpbGw9IndoaXRlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5BPC90ZXh0Pgo8L3N2Zz4='
 
-  currentLogo.value = mockLogo
-  currentAvatar.value = mockAvatar
+  currentLogo.value = sampleLogo
+  currentAvatar.value = sampleAvatar
 
   alert('测试集成完成：已加载示例Logo和头像')
 }
