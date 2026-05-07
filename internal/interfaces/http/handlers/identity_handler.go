@@ -3972,23 +3972,77 @@ func (h *IdentityHandler) SysParamBatch(c *gin.Context) {
 }
 
 func (h *IdentityHandler) LoginLogs(c *gin.Context) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	skip, limit := paginationParams(c)
 	var rows []models.LoginLog
-	_ = h.db.Order("id desc").Find(&rows).Error
+	query := h.db.Model(&models.LoginLog{})
+	if !h.viewerHasPlatformScope(user) {
+		query = query.Where("login_log.tenant_id = ?", user.TenantID)
+	} else if tenantName := strings.TrimSpace(c.Query("tenant_name")); tenantName != "" {
+		like := "%" + tenantName + "%"
+		query = query.Joins("LEFT JOIN tenant t ON t.id = login_log.tenant_id").Where("t.name LIKE ? OR t.code LIKE ?", like, like)
+	}
+	if raw := strings.TrimSpace(c.Query("success")); raw != "" {
+		query = query.Where("login_log.success = ?", raw == "true" || raw == "1")
+	}
+	if account := strings.TrimSpace(c.Query("account")); account != "" {
+		query = query.Where("login_log.account LIKE ?", "%"+account+"%")
+	}
+	if ip := strings.TrimSpace(c.Query("ip")); ip != "" {
+		query = query.Where("login_log.ip LIKE ?", "%"+ip+"%")
+	}
+	query = applyDateRange(query, "login_log.created_at", c.Query("date_from"), c.Query("date_to"))
+	var total int64
+	_ = query.Count(&total).Error
+	_ = query.Order("login_log.id desc").Offset(skip).Limit(limit).Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, gin.H{"id": row.ID, "tenant_id": row.TenantID, "tenant_name": h.tenantName(row.TenantID), "user_id": row.UserID, "account": row.Account, "success": row.Success, "message": row.Message, "ip": row.IP, "created_at": row.CreatedAt})
 	}
-	response.OK(c, paginated(items))
+	response.OK(c, paginatedWithTotal(items, total, skip, limit))
 }
 
 func (h *IdentityHandler) AuditLogs(c *gin.Context) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	skip, limit := paginationParams(c)
 	var rows []models.AuditLog
-	_ = h.db.Order("id desc").Find(&rows).Error
+	query := h.db.Model(&models.AuditLog{})
+	if !h.viewerHasPlatformScope(user) {
+		query = query.Where("audit_log.tenant_id = ?", user.TenantID)
+	} else if tenantName := strings.TrimSpace(c.Query("tenant_name")); tenantName != "" {
+		like := "%" + tenantName + "%"
+		query = query.Joins("LEFT JOIN tenant t ON t.id = audit_log.tenant_id").Where("t.name LIKE ? OR t.code LIKE ?", like, like)
+	}
+	if keyword := strings.TrimSpace(c.Query("keyword")); keyword != "" {
+		like := "%" + keyword + "%"
+		query = query.Where("audit_log.module LIKE ? OR audit_log.action LIKE ? OR audit_log.summary LIKE ? OR audit_log.detail LIKE ?", like, like, like, like)
+	} else if module := strings.TrimSpace(c.Query("module")); module != "" {
+		query = query.Where("audit_log.module = ?", module)
+	}
+	if account := strings.TrimSpace(c.Query("account")); account != "" {
+		like := "%" + account + "%"
+		query = query.Joins("LEFT JOIN app_user au ON au.id = audit_log.user_id").Where("au.employee_no LIKE ? OR au.name LIKE ? OR au.phone LIKE ? OR au.email LIKE ?", like, like, like, like)
+	}
+	if ip := strings.TrimSpace(c.Query("ip")); ip != "" {
+		query = query.Where("audit_log.ip LIKE ?", "%"+ip+"%")
+	}
+	query = applyDateRange(query, "audit_log.created_at", c.Query("date_from"), c.Query("date_to"))
+	var total int64
+	_ = query.Count(&total).Error
+	_ = query.Order("audit_log.id desc").Offset(skip).Limit(limit).Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, gin.H{"id": row.ID, "tenant_id": row.TenantID, "tenant_name": h.tenantName(row.TenantID), "user_id": row.UserID, "module": row.Module, "action": row.Action, "summary": row.Summary, "detail": row.Detail, "ip": row.IP, "created_at": row.CreatedAt})
 	}
-	response.OK(c, paginated(items))
+	response.OK(c, paginatedWithTotal(items, total, skip, limit))
 }
 
 func (h *IdentityHandler) MonitorHealthDetail(c *gin.Context) {
@@ -4284,6 +4338,28 @@ func paginationParams(c *gin.Context) (int, int) {
 		limit = 50
 	}
 	return skip, limit
+}
+
+func applyDateRange(query *gorm.DB, column string, dateFrom string, dateTo string) *gorm.DB {
+	if start, ok := parseDateOnly(dateFrom); ok {
+		query = query.Where(column+" >= ?", start)
+	}
+	if end, ok := parseDateOnly(dateTo); ok {
+		query = query.Where(column+" < ?", end.Add(24*time.Hour))
+	}
+	return query
+}
+
+func parseDateOnly(raw string) (time.Time, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}, false
+	}
+	parsed, err := time.Parse("2006-01-02", raw)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return parsed, true
 }
 
 func parseOptionalUintQuery(c *gin.Context, key string) *uint64 {

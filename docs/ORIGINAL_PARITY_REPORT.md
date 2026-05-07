@@ -280,3 +280,23 @@ Go 版额外路由：
 状态：
 
 - J 组数据字典与系统参数已完成。
+
+## 日志对比
+
+已对齐项：
+
+- 登录日志列表改为分页返回，支持 `success/account/ip/date_from/date_to` 筛选。
+- 登录日志按当前用户范围隔离：普通主体只能看本主体，平台范围可跨主体并支持 `tenant_name` 模糊筛选。
+- 登录日志输出补齐主体名称、用户 ID、账号、成功状态、失败/提示信息、IP 和创建时间。
+- 操作日志列表改为分页返回，支持 `module/keyword/account/ip/date_from/date_to` 筛选。
+- 操作日志按当前用户范围隔离：普通主体只能看本主体，平台范围可跨主体并支持 `tenant_name` 模糊筛选。
+- 操作日志输出补齐主体名称、用户 ID、模块、动作、摘要、明细、IP 和创建时间。
+- 日志查询接口保持只读，不产生新的审计日志。
+
+验证：
+
+- `docker run --rm -e GOPROXY=https://goproxy.cn,direct -v "$PWD":/src -w /src golang:1.23-alpine sh -c 'gofmt -w ./cmd ./internal && go test ./...'` 通过。
+
+状态：
+
+- K 组日志已完成。
