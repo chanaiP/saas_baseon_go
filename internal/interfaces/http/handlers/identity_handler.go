@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -4275,6 +4276,14 @@ func (h *IdentityHandler) ImportUsersCSV(c *gin.Context) {
 		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
 		return
 	}
+	if err := h.requireFeatureAccess(user.TenantID, "import_data"); err != nil {
+		response.Error(c, 403, response.CodeForbidden, err.Error())
+		return
+	}
+	if err := h.consumeQuota(user.TenantID, "daily_import_times", 1); err != nil {
+		response.Error(c, 429, response.CodeBadRequest, err.Error())
+		return
+	}
 	file, err := c.FormFile("file")
 	if err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请选择 CSV 文件")
@@ -4291,7 +4300,12 @@ func (h *IdentityHandler) ImportUsersCSV(c *gin.Context) {
 	}
 	defer opened.Close()
 	content, _ := io.ReadAll(opened)
-	reader := csv.NewReader(bytes.NewReader(bytes.TrimPrefix(content, []byte{0xEF, 0xBB, 0xBF})))
+	content = bytes.TrimPrefix(content, []byte{0xEF, 0xBB, 0xBF})
+	if !utf8.Valid(content) {
+		response.Error(c, 400, response.CodeBadRequest, "CSV 格式错误")
+		return
+	}
+	reader := csv.NewReader(bytes.NewReader(content))
 	records, err := reader.ReadAll()
 	if err != nil || len(records) == 0 {
 		response.Error(c, 400, response.CodeBadRequest, "CSV 格式错误")
@@ -4308,7 +4322,7 @@ func (h *IdentityHandler) ImportUsersCSV(c *gin.Context) {
 			continue
 		}
 		var count int64
-		h.db.Model(&models.AppUser{}).Where("tenant_id = ? AND employee_no = ?", user.TenantID, employeeNo).Count(&count)
+		h.db.Model(&models.AppUser{}).Where("tenant_id = ? AND employee_no = ? AND deleted_at IS NULL", user.TenantID, employeeNo).Count(&count)
 		if count > 0 {
 			skipped++
 			continue
@@ -4317,16 +4331,29 @@ func (h *IdentityHandler) ImportUsersCSV(c *gin.Context) {
 		if csvCell(record, index, "status") == "停用" || csvCell(record, index, "status") == "0" {
 			status = 0
 		}
+		if status == 1 {
+			if err := h.requireQuotaAvailable(user.TenantID, "max_users", 1); err != nil {
+				response.Error(c, 429, response.CodeBadRequest, err.Error())
+				return
+			}
+		}
+		companyID := h.resolveCompanyIDByName(user.TenantID, csvCell(record, index, "company_name"))
+		departmentID := h.resolveDepartmentIDByName(user.TenantID, companyID, csvCell(record, index, "department_name"))
+		phone, msg := normalizeOptionalPhone(nullableFromString(csvCell(record, index, "phone")))
+		if msg != "" {
+			errors = append(errors, fmt.Sprintf("第 %d 行：%s", line+2, msg))
+			continue
+		}
 		password := mustHashPassword(employeeNo)
-		newUser := models.AppUser{TenantID: user.TenantID, EmployeeNo: employeeNo, Account: employeeNo, PasswordHash: password, Name: name, Phone: nullableFromString(csvCell(record, index, "phone")), Email: nullableFromString(csvCell(record, index, "email")), Status: status}
+		newUser := models.AppUser{TenantID: user.TenantID, EmployeeNo: employeeNo, Account: employeeNo, PasswordHash: password, Name: name, Phone: phone, Email: nullableFromString(csvCell(record, index, "email")), CompanyID: companyID, DepartmentID: departmentID, Status: status}
 		if err := h.db.Create(&newUser).Error; err != nil {
 			errors = append(errors, fmt.Sprintf("第 %d 行：%s", line+2, err.Error()))
 			continue
 		}
 		created++
 	}
-	h.audit(c, user.TenantID, user.ID, "user", "batch_import", fmt.Sprintf("批量导入用户：创建 %d，跳过 %d", created, skipped), gin.H{"created": created, "skipped": skipped, "errors": errors})
-	response.OK(c, gin.H{"created": created, "skipped": skipped, "errors": errors})
+	h.audit(c, user.TenantID, user.ID, "user", "batch_import", fmt.Sprintf("批量导入用户：创建 %d，跳过 %d", created, skipped), gin.H{"created": created, "skipped": skipped, "errors": firstStrings(errors, 10)})
+	response.OK(c, gin.H{"created": created, "skipped": skipped, "errors": firstStrings(errors, 20)})
 }
 
 func (h *IdentityHandler) ExportCompaniesCSV(c *gin.Context) {
@@ -6152,6 +6179,37 @@ func (h *IdentityHandler) orgNameMaps(tenantID uint64) (map[uint64]string, map[u
 		}
 	}
 	return companies, depts
+}
+
+func (h *IdentityHandler) resolveCompanyIDByName(tenantID uint64, name string) *uint64 {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil
+	}
+	var row models.OrgNode
+	if err := h.db.Where("tenant_id = ? AND node_type = ? AND name = ? AND deleted_at IS NULL", tenantID, "company", name).First(&row).Error; err != nil {
+		return nil
+	}
+	return &row.ID
+}
+
+func (h *IdentityHandler) resolveDepartmentIDByName(tenantID uint64, companyID *uint64, name string) *uint64 {
+	name = strings.TrimSpace(name)
+	if companyID == nil || name == "" {
+		return nil
+	}
+	var row models.OrgNode
+	if err := h.db.Where("tenant_id = ? AND node_type = ? AND company_id = ? AND name = ? AND deleted_at IS NULL", tenantID, "department", *companyID, name).First(&row).Error; err != nil {
+		return nil
+	}
+	return &row.ID
+}
+
+func firstStrings(values []string, limit int) []string {
+	if limit <= 0 || len(values) <= limit {
+		return values
+	}
+	return values[:limit]
 }
 
 func (h *IdentityHandler) exportOrgCSV(c *gin.Context, filename, nodeType string, headers []string) {
