@@ -1,7 +1,11 @@
 package handlers
 
 import (
+	"fmt"
+	"runtime"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -203,20 +207,7 @@ func (h *MockIdentityHandler) Tenants(c *gin.Context) {
 	_ = h.db.Order("id desc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, gin.H{
-			"id":                 row.ID,
-			"code":               row.Code,
-			"name":               row.Name,
-			"status":             row.Status,
-			"plan_name":          "平台版",
-			"plan_code":          "platform",
-			"contact_name":       "平台管理员",
-			"contact_phone":      nil,
-			"company_count":      0,
-			"brand_display_name": row.BrandName,
-			"brand_logo_data":    nil,
-			"created_at":         row.CreatedAt,
-		})
+		items = append(items, tenantToJSON(h.db, row))
 	}
 	response.OK(c, paginated(items))
 }
@@ -227,20 +218,94 @@ func (h *MockIdentityHandler) Tenant(c *gin.Context) {
 		response.Error(c, 404, response.CodeNotFound, "主体不存在")
 		return
 	}
-	response.OK(c, gin.H{
-		"id":                 row.ID,
-		"code":               row.Code,
-		"name":               row.Name,
-		"status":             row.Status,
-		"plan_name":          "平台版",
-		"plan_code":          "platform",
-		"contact_name":       "平台管理员",
-		"contact_phone":      nil,
-		"company_count":      0,
-		"brand_display_name": row.BrandName,
-		"brand_logo_data":    nil,
-		"created_at":         row.CreatedAt,
-	})
+	response.OK(c, tenantToJSON(h.db, row))
+}
+
+func (h *MockIdentityHandler) CreateTenant(c *gin.Context) {
+	var body struct {
+		Code            string  `json:"code"`
+		Name            string  `json:"name"`
+		Status          int     `json:"status"`
+		AdminName       string  `json:"admin_name"`
+		AdminEmployeeNo string  `json:"admin_employee_no"`
+		AdminPhone      *string `json:"admin_phone"`
+		AdminPassword   string  `json:"admin_password"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	tenant, err := h.createTenantWithAdmin(body.Code, body.Name, body.Status, body.AdminName, body.AdminEmployeeNo, body.AdminPhone, body.AdminPassword)
+	if err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, tenantToJSON(h.db, tenant))
+}
+
+func (h *MockIdentityHandler) CreateTenantWithPackage(c *gin.Context) {
+	var body struct {
+		Tenant struct {
+			Code            string  `json:"code"`
+			Name            string  `json:"name"`
+			Status          int     `json:"status"`
+			AdminName       string  `json:"admin_name"`
+			AdminEmployeeNo string  `json:"admin_employee_no"`
+			AdminPhone      *string `json:"admin_phone"`
+			AdminPassword   string  `json:"admin_password"`
+		} `json:"tenant"`
+		Package tenantPackagePayload `json:"package"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	tenant, err := h.createTenantWithAdmin(body.Tenant.Code, body.Tenant.Name, body.Tenant.Status, body.Tenant.AdminName, body.Tenant.AdminEmployeeNo, body.Tenant.AdminPhone, body.Tenant.AdminPassword)
+	if err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	if err := h.saveTenantPackage(tenant.ID, body.Package); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, tenantToJSON(h.db, tenant))
+}
+
+func (h *MockIdentityHandler) UpdateTenant(c *gin.Context) {
+	var tenant models.Tenant
+	if err := h.db.First(&tenant, c.Param("id")).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "主体不存在")
+		return
+	}
+	var body map[string]interface{}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	if err := h.db.Model(&tenant).Updates(body).First(&tenant, tenant.ID).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, tenantToJSON(h.db, tenant))
+}
+
+func (h *MockIdentityHandler) UpdateTenantStatus(c *gin.Context) {
+	var body struct {
+		Status int `json:"status"`
+	}
+	_ = c.ShouldBindJSON(&body)
+	if err := h.db.Model(&models.Tenant{}).Where("id = ?", c.Param("id")).Update("status", body.Status).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	var tenant models.Tenant
+	_ = h.db.First(&tenant, c.Param("id")).Error
+	response.OK(c, tenantToJSON(h.db, tenant))
+}
+
+func (h *MockIdentityHandler) DeleteTenant(c *gin.Context) {
+	h.deleteByID(c, &models.Tenant{})
 }
 
 func (h *MockIdentityHandler) Users(c *gin.Context) {
@@ -248,25 +313,105 @@ func (h *MockIdentityHandler) Users(c *gin.Context) {
 	_ = h.db.Order("id desc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, gin.H{
-			"id":                row.ID,
-			"tenant_id":         row.TenantID,
-			"employee_no":       row.EmployeeNo,
-			"phone":             row.Phone,
-			"name":              row.Name,
-			"email":             row.Email,
-			"avatar_url":        row.AvatarURL,
-			"status":            row.Status,
-			"company_id":        nil,
-			"department_id":     nil,
-			"department_ids":    []uint64{},
-			"position_ids":      []uint64{},
-			"role_ids":          []uint64{1},
-			"is_platform_admin": row.IsPlatformAdmin,
-			"created_at":        row.CreatedAt,
-		})
+		items = append(items, h.userToJSON(row))
 	}
 	response.OK(c, paginated(items))
+}
+
+func (h *MockIdentityHandler) CreateUser(c *gin.Context) {
+	var body struct {
+		EmployeeNo   string   `json:"employee_no"`
+		Password     string   `json:"password"`
+		Name         string   `json:"name"`
+		Phone        *string  `json:"phone"`
+		Email        *string  `json:"email"`
+		CompanyID    *uint64  `json:"company_id"`
+		DepartmentID *uint64  `json:"department_id"`
+		PositionIDs  []uint64 `json:"position_ids"`
+		RoleIDs      []uint64 `json:"role_ids"`
+		Status       int      `json:"status"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	if body.Status == 0 {
+		body.Status = 1
+	}
+	user := models.AppUser{TenantID: 1, EmployeeNo: body.EmployeeNo, Account: body.EmployeeNo, PasswordHash: devPasswordHash(body.Password), Name: body.Name, Phone: body.Phone, Email: body.Email, CompanyID: body.CompanyID, DepartmentID: body.DepartmentID, Status: body.Status}
+	if err := h.db.Create(&user).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	h.replaceUserRelations(user.ID, body.RoleIDs, body.PositionIDs, nil)
+	response.OK(c, h.userToJSON(user))
+}
+
+func (h *MockIdentityHandler) UpdateUser(c *gin.Context) {
+	var user models.AppUser
+	if err := h.db.First(&user, c.Param("id")).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "用户不存在")
+		return
+	}
+	var body struct {
+		Name            *string  `json:"name"`
+		Phone           *string  `json:"phone"`
+		Email           *string  `json:"email"`
+		CompanyID       *uint64  `json:"company_id"`
+		DepartmentID    *uint64  `json:"department_id"`
+		DepartmentIDs   []uint64 `json:"department_ids"`
+		PositionIDs     []uint64 `json:"position_ids"`
+		RoleIDs         []uint64 `json:"role_ids"`
+		Status          *int     `json:"status"`
+		IsPlatformAdmin *bool    `json:"is_platform_admin"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	updates := map[string]interface{}{}
+	if body.Name != nil {
+		updates["name"] = *body.Name
+	}
+	if body.Phone != nil {
+		updates["phone"] = *body.Phone
+	}
+	if body.Email != nil {
+		updates["email"] = *body.Email
+	}
+	if body.CompanyID != nil {
+		updates["company_id"] = *body.CompanyID
+	}
+	if body.DepartmentID != nil {
+		updates["department_id"] = *body.DepartmentID
+	}
+	if body.Status != nil {
+		updates["status"] = *body.Status
+	}
+	if body.IsPlatformAdmin != nil {
+		updates["is_platform_admin"] = *body.IsPlatformAdmin
+	}
+	if len(updates) > 0 {
+		if err := h.db.Model(&user).Updates(updates).First(&user, user.ID).Error; err != nil {
+			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			return
+		}
+	}
+	h.replaceUserRelations(user.ID, body.RoleIDs, body.PositionIDs, body.DepartmentIDs)
+	response.OK(c, h.userToJSON(user))
+}
+
+func (h *MockIdentityHandler) ResetUserPassword(c *gin.Context) {
+	newPassword := fmt.Sprintf("Pwd%06d", time.Now().UnixNano()%1000000)
+	if err := h.db.Model(&models.AppUser{}).Where("id = ?", c.Param("id")).Update("password_hash", devPasswordHash(newPassword)).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, gin.H{"new_password": newPassword})
+}
+
+func (h *MockIdentityHandler) DeleteUser(c *gin.Context) {
+	h.deleteByID(c, &models.AppUser{})
 }
 
 func (h *MockIdentityHandler) AssignableRoles(c *gin.Context) {
@@ -284,20 +429,7 @@ func (h *MockIdentityHandler) Roles(c *gin.Context) {
 	_ = h.db.Order("id desc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
-		var links []models.RolePermission
-		_ = h.db.Where("role_id = ?", row.ID).Find(&links).Error
-		permissionIDs := make([]uint64, 0, len(links))
-		for _, link := range links {
-			permissionIDs = append(permissionIDs, link.PermissionID)
-		}
-		items = append(items, gin.H{
-			"id":             row.ID,
-			"code":           row.Code,
-			"name":           row.Name,
-			"description":    nil,
-			"permission_ids": permissionIDs,
-			"data_overrides": []gin.H{},
-		})
+		items = append(items, h.roleToJSON(row))
 	}
 	response.OK(c, paginated(items))
 }
@@ -308,14 +440,83 @@ func (h *MockIdentityHandler) Role(c *gin.Context) {
 		response.Error(c, 404, response.CodeNotFound, "角色不存在")
 		return
 	}
-	response.OK(c, gin.H{
-		"id":             row.ID,
-		"code":           row.Code,
-		"name":           row.Name,
-		"description":    nil,
-		"permission_ids": []uint64{},
-		"data_overrides": []gin.H{},
-	})
+	response.OK(c, h.roleToJSON(row))
+}
+
+func (h *MockIdentityHandler) CreateRole(c *gin.Context) {
+	var body struct {
+		Code          string   `json:"code"`
+		Name          string   `json:"name"`
+		Description   *string  `json:"description"`
+		PermissionIDs []uint64 `json:"permission_ids"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	role := models.Role{TenantID: 1, Code: body.Code, Name: body.Name, Description: body.Description, Status: 1}
+	if err := h.db.Create(&role).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	h.replaceRolePermissions(role.ID, body.PermissionIDs)
+	response.OK(c, h.roleToJSON(role))
+}
+
+func (h *MockIdentityHandler) UpdateRole(c *gin.Context) {
+	var role models.Role
+	if err := h.db.First(&role, c.Param("id")).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "角色不存在")
+		return
+	}
+	var body struct {
+		Name          *string  `json:"name"`
+		Description   *string  `json:"description"`
+		PermissionIDs []uint64 `json:"permission_ids"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	updates := map[string]interface{}{}
+	if body.Name != nil {
+		updates["name"] = *body.Name
+	}
+	if body.Description != nil {
+		updates["description"] = *body.Description
+	}
+	if len(updates) > 0 {
+		if err := h.db.Model(&role).Updates(updates).First(&role, role.ID).Error; err != nil {
+			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			return
+		}
+	}
+	if body.PermissionIDs != nil {
+		h.replaceRolePermissions(role.ID, body.PermissionIDs)
+	}
+	response.OK(c, h.roleToJSON(role))
+}
+
+func (h *MockIdentityHandler) DeleteRole(c *gin.Context) {
+	h.deleteByID(c, &models.Role{})
+}
+
+func (h *MockIdentityHandler) UpdatePermissionDataPermMode(c *gin.Context) {
+	var body struct {
+		DataPermMode string `json:"data_perm_mode"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	if body.DataPermMode == "" {
+		body.DataPermMode = "ORG"
+	}
+	if err := h.db.Model(&models.Permission{}).Where("id = ?", c.Param("id")).Update("data_perm_mode", body.DataPermMode).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, gin.H{"id": parseUintParam(c, "id"), "data_perm_mode": body.DataPermMode})
 }
 
 func (h *MockIdentityHandler) Plans(c *gin.Context) {
@@ -677,20 +878,164 @@ func (h *MockIdentityHandler) SavePlanQuotas(c *gin.Context) {
 }
 
 func (h *MockIdentityHandler) TenantQuotaRecords(c *gin.Context) {
-	response.OK(c, gin.H{
-		"tenant_id":      1,
-		"companies":      []gin.H{},
-		"stores":         []gin.H{},
-		"business_units": []gin.H{},
-	})
+	tenantID := parseUintParam(c, "id")
+	var orgs []models.OrgNode
+	var bus []models.BusinessUnit
+	_ = h.db.Where("tenant_id = ?", tenantID).Order("id asc").Find(&orgs).Error
+	_ = h.db.Where("tenant_id = ?", tenantID).Order("id asc").Find(&bus).Error
+	companies, stores := []gin.H{}, []gin.H{}
+	for _, org := range orgs {
+		item := gin.H{"id": org.ID, "code": org.Code, "name": org.Name, "node_type": org.NodeType, "company_name": nil, "status": org.Status}
+		if org.NodeType == "company" {
+			companies = append(companies, item)
+		}
+		if org.NodeType == "store" {
+			stores = append(stores, item)
+		}
+	}
+	businessUnits := make([]gin.H, 0, len(bus))
+	for _, bu := range bus {
+		businessUnits = append(businessUnits, businessUnitToJSON(bu))
+	}
+	response.OK(c, gin.H{"tenant_id": tenantID, "companies": companies, "stores": stores, "business_units": businessUnits})
 }
 
 func (h *MockIdentityHandler) TenantCompanies(c *gin.Context) {
+	tenantID := parseUintParam(c, "id")
+	var rows []models.OrgNode
+	_ = h.db.Where("tenant_id = ? AND node_type = ?", tenantID, "company").Order("id asc").Find(&rows).Error
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, orgNodeToJSON(row, []gin.H{}))
+	}
 	response.OK(c, gin.H{
-		"tenant_id":          1,
-		"billing_unit_count": 0,
-		"companies":          []gin.H{},
+		"tenant_id":          tenantID,
+		"billing_unit_count": len(items),
+		"companies":          items,
 	})
+}
+
+func (h *MockIdentityHandler) TenantPrimaryAdmin(c *gin.Context) {
+	user, ok := h.primaryAdmin(parseUintParam(c, "id"))
+	if !ok {
+		response.Error(c, 404, response.CodeNotFound, "主管理员不存在")
+		return
+	}
+	response.OK(c, gin.H{"employee_no": user.EmployeeNo, "phone": user.Phone, "name": user.Name})
+}
+
+func (h *MockIdentityHandler) ResetTenantPrimaryAdminPassword(c *gin.Context) {
+	user, ok := h.primaryAdmin(parseUintParam(c, "id"))
+	if !ok {
+		response.Error(c, 404, response.CodeNotFound, "主管理员不存在")
+		return
+	}
+	newPassword := fmt.Sprintf("Pwd%06d", time.Now().UnixNano()%1000000)
+	_ = h.db.Model(&user).Update("password_hash", devPasswordHash(newPassword)).Error
+	response.OK(c, gin.H{"employee_no": user.EmployeeNo, "phone": user.Phone, "name": user.Name, "new_password": newPassword})
+}
+
+func (h *MockIdentityHandler) TenantSubscription(c *gin.Context) {
+	sub, ok := h.findTenantSubscription(parseUintParam(c, "id"))
+	if !ok {
+		response.OK(c, nil)
+		return
+	}
+	response.OK(c, tenantSubscriptionToJSON(sub))
+}
+
+func (h *MockIdentityHandler) SaveTenantSubscription(c *gin.Context) {
+	var body tenantPackagePayload
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	if err := h.saveTenantPackage(parseUintParam(c, "id"), body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	h.TenantSubscription(c)
+}
+
+func (h *MockIdentityHandler) SaveTenantPackageConfig(c *gin.Context) {
+	var body tenantPackagePayload
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	tenantID := parseUintParam(c, "id")
+	if err := h.saveTenantPackage(tenantID, body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	sub, _ := h.findTenantSubscription(tenantID)
+	response.OK(c, gin.H{"tenant_id": tenantID, "subscription": tenantSubscriptionToJSON(sub), "quotas": h.tenantQuotaOverridesPayload(tenantID)})
+}
+
+func (h *MockIdentityHandler) TenantFeatureOverrides(c *gin.Context) {
+	response.OK(c, h.tenantFeatureOverridesPayload(parseUintParam(c, "id")))
+}
+
+func (h *MockIdentityHandler) SaveTenantFeatureOverrides(c *gin.Context) {
+	tenantID := parseUintParam(c, "id")
+	var body struct {
+		Overrides []struct {
+			FeatureID uint64  `json:"feature_id"`
+			Enabled   bool    `json:"enabled"`
+			Reason    *string `json:"reason"`
+		} `json:"overrides"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	_ = h.db.Where("tenant_id = ?", tenantID).Delete(&models.TenantFeatureOverride{}).Error
+	for _, item := range body.Overrides {
+		_ = h.db.Create(&models.TenantFeatureOverride{TenantID: tenantID, FeatureID: item.FeatureID, Enabled: item.Enabled, Reason: item.Reason}).Error
+	}
+	response.OK(c, h.tenantFeatureOverridesPayload(tenantID))
+}
+
+func (h *MockIdentityHandler) TenantQuotaOverrides(c *gin.Context) {
+	response.OK(c, h.tenantQuotaOverridesPayload(parseUintParam(c, "id")))
+}
+
+func (h *MockIdentityHandler) SaveTenantQuotaOverrides(c *gin.Context) {
+	tenantID := parseUintParam(c, "id")
+	var body struct {
+		Overrides []struct {
+			QuotaID    uint64  `json:"quota_id"`
+			QuotaValue int     `json:"quota_value"`
+			Reason     *string `json:"reason"`
+		} `json:"overrides"`
+		Quotas []struct {
+			QuotaID    uint64 `json:"quota_id"`
+			QuotaValue int    `json:"quota_value"`
+		} `json:"quotas"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	_ = h.db.Where("tenant_id = ?", tenantID).Delete(&models.TenantQuotaOverride{}).Error
+	for _, item := range body.Overrides {
+		_ = h.db.Create(&models.TenantQuotaOverride{TenantID: tenantID, QuotaID: item.QuotaID, QuotaValue: item.QuotaValue, Reason: item.Reason}).Error
+	}
+	for _, item := range body.Quotas {
+		_ = h.db.Create(&models.TenantQuotaOverride{TenantID: tenantID, QuotaID: item.QuotaID, QuotaValue: item.QuotaValue}).Error
+	}
+	response.OK(c, h.tenantQuotaOverridesPayload(tenantID))
+}
+
+func (h *MockIdentityHandler) TenantQuotaUsage(c *gin.Context) {
+	tenantID := parseUintParam(c, "id")
+	var quotas []models.SaasQuota
+	_ = h.db.Find(&quotas).Error
+	usages := make([]gin.H, 0, len(quotas))
+	for _, quota := range quotas {
+		usages = append(usages, gin.H{"quota_id": quota.ID, "quota_code": quota.QuotaCode, "quota_name": quota.QuotaName, "quota_type": quota.QuotaType, "period_type": quota.PeriodType, "period_key": "current", "unit": quota.Unit, "used_value": 0, "limit_value": 0, "remaining_value": 0})
+	}
+	response.OK(c, gin.H{"tenant_id": tenantID, "usages": usages})
 }
 
 func (h *MockIdentityHandler) OrganizationTree(c *gin.Context) {
@@ -701,6 +1046,54 @@ func (h *MockIdentityHandler) OrganizationTree(c *gin.Context) {
 		items = append(items, orgNodeToJSON(row, []gin.H{}))
 	}
 	response.OK(c, items)
+}
+
+func (h *MockIdentityHandler) CreateOrgNode(c *gin.Context) {
+	h.createOrgNode(c, "")
+}
+
+func (h *MockIdentityHandler) CreateCompany(c *gin.Context) {
+	h.createOrgNode(c, "company")
+}
+
+func (h *MockIdentityHandler) CreateDepartment(c *gin.Context) {
+	h.createOrgNode(c, "department")
+}
+
+func (h *MockIdentityHandler) CreateStore(c *gin.Context) {
+	h.createOrgNode(c, "store")
+}
+
+func (h *MockIdentityHandler) UpdateOrgNode(c *gin.Context) {
+	h.updateOrgNode(c)
+}
+
+func (h *MockIdentityHandler) UpdateCompany(c *gin.Context) {
+	h.updateOrgNode(c)
+}
+
+func (h *MockIdentityHandler) UpdateDepartment(c *gin.Context) {
+	h.updateOrgNode(c)
+}
+
+func (h *MockIdentityHandler) UpdateStore(c *gin.Context) {
+	h.updateOrgNode(c)
+}
+
+func (h *MockIdentityHandler) DeleteOrgNode(c *gin.Context) {
+	h.deleteByID(c, &models.OrgNode{})
+}
+
+func (h *MockIdentityHandler) DeleteCompany(c *gin.Context) {
+	h.deleteByID(c, &models.OrgNode{})
+}
+
+func (h *MockIdentityHandler) DeleteDepartment(c *gin.Context) {
+	h.deleteByID(c, &models.OrgNode{})
+}
+
+func (h *MockIdentityHandler) DeleteStore(c *gin.Context) {
+	h.deleteByID(c, &models.OrgNode{})
 }
 
 func (h *MockIdentityHandler) PositionTypes(c *gin.Context) {
@@ -799,11 +1192,123 @@ func (h *MockIdentityHandler) DeletePosition(c *gin.Context) {
 }
 
 func (h *MockIdentityHandler) BusinessUnits(c *gin.Context) {
-	response.OK(c, paginated([]gin.H{}))
+	var rows []models.BusinessUnit
+	_ = h.db.Order("id asc").Find(&rows).Error
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, businessUnitToJSON(row))
+	}
+	response.OK(c, paginated(items))
 }
 
 func (h *MockIdentityHandler) BusinessUnitTree(c *gin.Context) {
-	response.OK(c, []gin.H{})
+	var rows []models.BusinessUnit
+	_ = h.db.Order("id asc").Find(&rows).Error
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, businessUnitToJSON(row))
+	}
+	response.OK(c, items)
+}
+
+func (h *MockIdentityHandler) CreateBusinessUnit(c *gin.Context) {
+	var body struct {
+		Name       string   `json:"name"`
+		Code       string   `json:"code"`
+		BUType     *string  `json:"bu_type"`
+		OrgNodeIDs []uint64 `json:"org_node_ids"`
+		Status     int      `json:"status"`
+		Remark     *string  `json:"remark"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	if body.Status == 0 {
+		body.Status = 1
+	}
+	row := models.BusinessUnit{TenantID: 1, Name: body.Name, Code: body.Code, BUType: body.BUType, Status: body.Status, BillingEnabled: true, StatisticEnabled: true, Remark: body.Remark}
+	if err := h.db.Create(&row).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	h.replaceBusinessUnitMappings(row.ID, body.OrgNodeIDs)
+	response.OK(c, gin.H{"id": row.ID})
+}
+
+func (h *MockIdentityHandler) UpdateBusinessUnit(c *gin.Context) {
+	var body struct {
+		Name       *string  `json:"name"`
+		Code       *string  `json:"code"`
+		BUType     *string  `json:"bu_type"`
+		OrgNodeIDs []uint64 `json:"org_node_ids"`
+		Status     *int     `json:"status"`
+		Remark     *string  `json:"remark"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	updates := map[string]interface{}{}
+	if body.Name != nil {
+		updates["name"] = *body.Name
+	}
+	if body.Code != nil {
+		updates["code"] = *body.Code
+	}
+	if body.BUType != nil {
+		updates["bu_type"] = *body.BUType
+	}
+	if body.Status != nil {
+		updates["status"] = *body.Status
+	}
+	if body.Remark != nil {
+		updates["remark"] = *body.Remark
+	}
+	if len(updates) > 0 {
+		if err := h.db.Model(&models.BusinessUnit{}).Where("id = ?", c.Param("id")).Updates(updates).Error; err != nil {
+			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			return
+		}
+	}
+	if body.OrgNodeIDs != nil {
+		h.replaceBusinessUnitMappings(parseUintParam(c, "id"), body.OrgNodeIDs)
+	}
+	response.OK(c, gin.H{"id": parseUintParam(c, "id")})
+}
+
+func (h *MockIdentityHandler) DeleteBusinessUnit(c *gin.Context) {
+	h.deleteByID(c, &models.BusinessUnit{})
+}
+
+func (h *MockIdentityHandler) BusinessUnitOrgMappings(c *gin.Context) {
+	var rows []models.BusinessUnitOrgMap
+	_ = h.db.Where("business_unit_id = ?", c.Param("id")).Order("id asc").Find(&rows).Error
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, businessUnitOrgMapToJSON(row))
+	}
+	response.OK(c, items)
+}
+
+func (h *MockIdentityHandler) CreateBusinessUnitOrgMapping(c *gin.Context) {
+	var body struct {
+		OrgID uint64 `json:"org_id"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	row := models.BusinessUnitOrgMap{TenantID: 1, BusinessUnitID: parseUintParam(c, "id"), OrgID: body.OrgID, OrgType: "org", ScopeType: "include", Status: 1}
+	if err := h.db.Create(&row).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, gin.H{"id": row.ID})
+}
+
+func (h *MockIdentityHandler) DeleteBusinessUnitOrgMapping(c *gin.Context) {
+	h.deleteByID(c, &models.BusinessUnitOrgMap{})
 }
 
 func (h *MockIdentityHandler) DictTypes(c *gin.Context) {
@@ -1036,6 +1541,68 @@ func (h *MockIdentityHandler) SysParamBatch(c *gin.Context) {
 	response.OK(c, gin.H{"values": values})
 }
 
+func (h *MockIdentityHandler) LoginLogs(c *gin.Context) {
+	var rows []models.LoginLog
+	_ = h.db.Order("id desc").Find(&rows).Error
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, gin.H{"id": row.ID, "tenant_id": row.TenantID, "tenant_name": h.tenantName(row.TenantID), "user_id": row.UserID, "account": row.Account, "success": row.Success, "message": row.Message, "ip": row.IP, "created_at": row.CreatedAt})
+	}
+	response.OK(c, paginated(items))
+}
+
+func (h *MockIdentityHandler) AuditLogs(c *gin.Context) {
+	var rows []models.AuditLog
+	_ = h.db.Order("id desc").Find(&rows).Error
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, gin.H{"id": row.ID, "tenant_id": row.TenantID, "tenant_name": h.tenantName(row.TenantID), "user_id": row.UserID, "module": row.Module, "action": row.Action, "summary": row.Summary, "detail": row.Detail, "ip": row.IP, "created_at": row.CreatedAt})
+	}
+	response.OK(c, paginated(items))
+}
+
+func (h *MockIdentityHandler) MonitorHealthDetail(c *gin.Context) {
+	response.OK(c, gin.H{"mysql": true, "postgres": true, "redis": true})
+}
+
+func (h *MockIdentityHandler) MonitorServerInfo(c *gin.Context) {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	response.OK(c, gin.H{"python_version": "go " + runtime.Version(), "go_version": runtime.Version(), "pid": 1, "cpu_percent": nil, "memory_mb": float64(m.Alloc) / 1024 / 1024, "note": "Go 重构版本运行中"})
+}
+
+func (h *MockIdentityHandler) MonitorScheduledJobs(c *gin.Context) {
+	response.OK(c, gin.H{"items": []gin.H{}, "note": "当前 Go 版本暂未启用后台定时任务"})
+}
+
+func (h *MockIdentityHandler) MonitorServicesOverview(c *gin.Context) {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	response.OK(c, gin.H{"mysql": true, "postgres": true, "redis": true, "python_version": "go " + runtime.Version(), "go_version": runtime.Version(), "pid": 1, "cpu_percent": nil, "memory_mb": float64(m.Alloc) / 1024 / 1024, "note": "Go 重构版本服务概览"})
+}
+
+func (h *MockIdentityHandler) MonitorCacheStats(c *gin.Context) {
+	response.OK(c, gin.H{"ok": true, "used_memory_human": nil, "keys": 0, "connected_clients": 1, "message": "Redis 已连接，详细 INFO 待接入"})
+}
+
+func (h *MockIdentityHandler) MonitorCacheKeys(c *gin.Context) {
+	response.OK(c, gin.H{"items": []gin.H{}, "cursor": 0})
+}
+
+type tenantPackagePayload struct {
+	PlanID             uint64  `json:"plan_id"`
+	SubscriptionStatus string  `json:"subscription_status"`
+	StartTime          string  `json:"start_time"`
+	EndTime            *string `json:"end_time"`
+	TrialEndTime       *string `json:"trial_end_time"`
+	AutoRenew          bool    `json:"auto_renew"`
+	FrozenReason       *string `json:"frozen_reason"`
+	Quotas             []struct {
+		QuotaID    uint64 `json:"quota_id"`
+		QuotaValue int    `json:"quota_value"`
+	} `json:"quotas"`
+}
+
 func paginated(items interface{}) gin.H {
 	total := 0
 	switch v := items.(type) {
@@ -1043,6 +1610,65 @@ func paginated(items interface{}) gin.H {
 		total = len(v)
 	}
 	return gin.H{"items": items, "total": total, "skip": 0, "limit": 50}
+}
+
+func tenantToJSON(db *gorm.DB, row models.Tenant) gin.H {
+	planName, planCode := (*string)(nil), (*string)(nil)
+	var sub models.TenantSubscription
+	if err := db.Where("tenant_id = ?", row.ID).Order("id desc").First(&sub).Error; err == nil {
+		var plan models.SaasPlan
+		if err := db.First(&plan, sub.PlanID).Error; err == nil {
+			planName = &plan.PlanName
+			planCode = &plan.PlanCode
+		}
+	}
+	var companyCount int64
+	var userCount int64
+	var buCount int64
+	db.Model(&models.OrgNode{}).Where("tenant_id = ? AND node_type = ?", row.ID, "company").Count(&companyCount)
+	db.Model(&models.AppUser{}).Where("tenant_id = ?", row.ID).Count(&userCount)
+	db.Model(&models.BusinessUnit{}).Where("tenant_id = ?", row.ID).Count(&buCount)
+	return gin.H{"id": row.ID, "code": row.Code, "name": row.Name, "status": row.Status, "start_date": row.StartDate, "expire_date": row.ExpireDate, "max_companies": row.MaxCompanies, "max_users": row.MaxUsers, "used_companies": companyCount, "used_users": userCount, "used_business_units": buCount, "plan_name": planName, "plan_code": planCode, "contact_name": row.ContactName, "contact_phone": row.ContactPhone, "company_count": companyCount, "brand_display_name": row.BrandName, "brand_logo_data": row.LogoData, "created_at": row.CreatedAt}
+}
+
+func (h *MockIdentityHandler) userToJSON(row models.AppUser) gin.H {
+	var roles []models.UserRole
+	var positions []models.AppUserPosition
+	var departments []models.AppUserDepartment
+	_ = h.db.Where("user_id = ?", row.ID).Find(&roles).Error
+	_ = h.db.Where("user_id = ?", row.ID).Find(&positions).Error
+	_ = h.db.Where("user_id = ?", row.ID).Find(&departments).Error
+	roleIDs := make([]uint64, 0, len(roles))
+	positionIDs := make([]uint64, 0, len(positions))
+	departmentIDs := make([]uint64, 0, len(departments))
+	for _, item := range roles {
+		roleIDs = append(roleIDs, item.RoleID)
+	}
+	for _, item := range positions {
+		positionIDs = append(positionIDs, item.PositionID)
+	}
+	for _, item := range departments {
+		departmentIDs = append(departmentIDs, item.DepartmentID)
+	}
+	return gin.H{"id": row.ID, "tenant_id": row.TenantID, "employee_no": row.EmployeeNo, "phone": row.Phone, "name": row.Name, "email": row.Email, "avatar_url": row.AvatarURL, "status": row.Status, "company_id": row.CompanyID, "department_id": row.DepartmentID, "department_ids": departmentIDs, "position_ids": positionIDs, "role_ids": roleIDs, "is_platform_admin": row.IsPlatformAdmin, "created_at": row.CreatedAt}
+}
+
+func (h *MockIdentityHandler) roleToJSON(row models.Role) gin.H {
+	var links []models.RolePermission
+	_ = h.db.Where("role_id = ?", row.ID).Find(&links).Error
+	permissionIDs := make([]uint64, 0, len(links))
+	for _, link := range links {
+		permissionIDs = append(permissionIDs, link.PermissionID)
+	}
+	return gin.H{"id": row.ID, "code": row.Code, "name": row.Name, "description": row.Description, "permission_ids": permissionIDs, "data_overrides": []gin.H{}}
+}
+
+func businessUnitToJSON(row models.BusinessUnit) gin.H {
+	return gin.H{"id": row.ID, "tenant_id": row.TenantID, "name": row.Name, "code": row.Code, "bu_type": row.BUType, "status": row.Status, "billing_enabled": row.BillingEnabled, "statistic_enabled": row.StatisticEnabled, "remark": row.Remark}
+}
+
+func businessUnitOrgMapToJSON(row models.BusinessUnitOrgMap) gin.H {
+	return gin.H{"id": row.ID, "tenant_id": row.TenantID, "business_unit_id": row.BusinessUnitID, "org_id": row.OrgID, "org_type": row.OrgType, "scope_type": row.ScopeType, "priority": row.Priority, "status": row.Status}
 }
 
 func planToJSON(row models.SaasPlan) gin.H {
@@ -1141,6 +1767,15 @@ func parseUintParam(c *gin.Context, name string) uint64 {
 	return value
 }
 
+func parseTenantID(c *gin.Context) uint64 {
+	if raw := c.Query("tenant_id"); raw != "" {
+		if id, err := strconv.ParseUint(raw, 10, 64); err == nil && id > 0 {
+			return id
+		}
+	}
+	return 1
+}
+
 func (h *MockIdentityHandler) deleteByID(c *gin.Context, model interface{}) {
 	id := parseUintParam(c, "id")
 	if err := h.db.Delete(model, id).Error; err != nil {
@@ -1148,6 +1783,202 @@ func (h *MockIdentityHandler) deleteByID(c *gin.Context, model interface{}) {
 		return
 	}
 	response.OK(c, gin.H{"deleted": 1, "id": id})
+}
+
+func devPasswordHash(password string) string {
+	if password == "" {
+		password = "112233"
+	}
+	return "dev:" + password
+}
+
+func (h *MockIdentityHandler) replaceUserRelations(userID uint64, roleIDs []uint64, positionIDs []uint64, departmentIDs []uint64) {
+	if roleIDs != nil {
+		_ = h.db.Where("user_id = ?", userID).Delete(&models.UserRole{}).Error
+		for _, id := range roleIDs {
+			_ = h.db.Create(&models.UserRole{UserID: userID, RoleID: id}).Error
+		}
+	}
+	if positionIDs != nil {
+		_ = h.db.Where("user_id = ?", userID).Delete(&models.AppUserPosition{}).Error
+		for _, id := range positionIDs {
+			_ = h.db.Create(&models.AppUserPosition{UserID: userID, PositionID: id}).Error
+		}
+	}
+	if departmentIDs != nil {
+		_ = h.db.Where("user_id = ?", userID).Delete(&models.AppUserDepartment{}).Error
+		for _, id := range departmentIDs {
+			_ = h.db.Create(&models.AppUserDepartment{UserID: userID, DepartmentID: id}).Error
+		}
+	}
+}
+
+func (h *MockIdentityHandler) replaceRolePermissions(roleID uint64, permissionIDs []uint64) {
+	_ = h.db.Where("role_id = ?", roleID).Delete(&models.RolePermission{}).Error
+	for _, id := range permissionIDs {
+		_ = h.db.Create(&models.RolePermission{RoleID: roleID, PermissionID: id}).Error
+	}
+}
+
+func (h *MockIdentityHandler) createTenantWithAdmin(code, name string, status int, adminName, adminEmployeeNo string, adminPhone *string, adminPassword string) (models.Tenant, error) {
+	if status == 0 {
+		status = 1
+	}
+	tenant := models.Tenant{Code: code, Name: name, Status: status, ContactName: &adminName, ContactPhone: adminPhone}
+	if err := h.db.Create(&tenant).Error; err != nil {
+		return tenant, err
+	}
+	companyCode := strings.ToUpper(code)
+	company := models.OrgNode{TenantID: tenant.ID, NodeType: "company", Name: name, Code: &companyCode, Status: 1}
+	_ = h.db.Create(&company).Error
+	role := models.Role{TenantID: tenant.ID, Code: "admin", Name: "主体管理员", Status: 1}
+	_ = h.db.Create(&role).Error
+	user := models.AppUser{TenantID: tenant.ID, CompanyID: &company.ID, EmployeeNo: adminEmployeeNo, Account: adminEmployeeNo, PasswordHash: devPasswordHash(adminPassword), Name: adminName, Phone: adminPhone, Status: 1, IsPlatformAdmin: false}
+	_ = h.db.Create(&user).Error
+	_ = h.db.Create(&models.UserRole{UserID: user.ID, RoleID: role.ID}).Error
+	return tenant, nil
+}
+
+func parseTimePtr(value *string) *time.Time {
+	if value == nil || *value == "" {
+		return nil
+	}
+	for _, layout := range []string{time.RFC3339, "2006-01-02"} {
+		if parsed, err := time.Parse(layout, *value); err == nil {
+			return &parsed
+		}
+	}
+	return nil
+}
+
+func (h *MockIdentityHandler) saveTenantPackage(tenantID uint64, body tenantPackagePayload) error {
+	start := time.Now()
+	if body.StartTime != "" {
+		if parsed := parseTimePtr(&body.StartTime); parsed != nil {
+			start = *parsed
+		}
+	}
+	if body.SubscriptionStatus == "" {
+		body.SubscriptionStatus = "ACTIVE"
+	}
+	var existing models.TenantSubscription
+	sub := models.TenantSubscription{TenantID: tenantID, PlanID: body.PlanID, SubscriptionStatus: body.SubscriptionStatus, StartTime: start, EndTime: parseTimePtr(body.EndTime), TrialEndTime: parseTimePtr(body.TrialEndTime), AutoRenew: body.AutoRenew, FrozenReason: body.FrozenReason}
+	if err := h.db.Where("tenant_id = ?", tenantID).First(&existing).Error; err == nil {
+		sub.ID = existing.ID
+		return h.db.Model(&existing).Updates(sub).Error
+	}
+	if err := h.db.Create(&sub).Error; err != nil {
+		return err
+	}
+	for _, quota := range body.Quotas {
+		_ = h.db.Where("tenant_id = ? AND quota_id = ?", tenantID, quota.QuotaID).Delete(&models.TenantQuotaOverride{}).Error
+		_ = h.db.Create(&models.TenantQuotaOverride{TenantID: tenantID, QuotaID: quota.QuotaID, QuotaValue: quota.QuotaValue}).Error
+	}
+	return nil
+}
+
+func (h *MockIdentityHandler) findTenantSubscription(tenantID uint64) (models.TenantSubscription, bool) {
+	var sub models.TenantSubscription
+	if err := h.db.Where("tenant_id = ?", tenantID).Order("id desc").First(&sub).Error; err != nil {
+		return sub, false
+	}
+	return sub, true
+}
+
+func tenantSubscriptionToJSON(row models.TenantSubscription) gin.H {
+	return gin.H{"id": row.ID, "tenant_id": row.TenantID, "plan_id": row.PlanID, "subscription_status": row.SubscriptionStatus, "start_time": row.StartTime, "end_time": row.EndTime, "trial_end_time": row.TrialEndTime, "auto_renew": row.AutoRenew, "frozen_reason": row.FrozenReason, "created_at": row.CreatedAt, "updated_at": row.UpdatedAt}
+}
+
+func (h *MockIdentityHandler) primaryAdmin(tenantID uint64) (models.AppUser, bool) {
+	var user models.AppUser
+	err := h.db.Where("tenant_id = ?", tenantID).Order("is_platform_admin desc, id asc").First(&user).Error
+	return user, err == nil
+}
+
+func (h *MockIdentityHandler) tenantFeatureOverridesPayload(tenantID uint64) gin.H {
+	var rows []models.TenantFeatureOverride
+	_ = h.db.Where("tenant_id = ?", tenantID).Find(&rows).Error
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		var feature models.SaasFeature
+		_ = h.db.First(&feature, row.FeatureID).Error
+		items = append(items, gin.H{"id": row.ID, "tenant_id": row.TenantID, "feature_id": row.FeatureID, "feature_code": feature.FeatureCode, "feature_name": feature.FeatureName, "enabled": row.Enabled, "reason": row.Reason, "start_time": row.StartTime, "end_time": row.EndTime})
+	}
+	return gin.H{"tenant_id": tenantID, "overrides": items}
+}
+
+func (h *MockIdentityHandler) tenantQuotaOverridesPayload(tenantID uint64) gin.H {
+	var rows []models.TenantQuotaOverride
+	_ = h.db.Where("tenant_id = ?", tenantID).Find(&rows).Error
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		var quota models.SaasQuota
+		_ = h.db.First(&quota, row.QuotaID).Error
+		items = append(items, gin.H{"id": row.ID, "tenant_id": row.TenantID, "quota_id": row.QuotaID, "quota_code": quota.QuotaCode, "quota_name": quota.QuotaName, "quota_value": row.QuotaValue, "period_type": quota.PeriodType, "unit": quota.Unit, "reason": row.Reason, "start_time": row.StartTime, "end_time": row.EndTime})
+	}
+	return gin.H{"tenant_id": tenantID, "overrides": items}
+}
+
+func (h *MockIdentityHandler) createOrgNode(c *gin.Context, forcedType string) {
+	var body struct {
+		NodeType    string  `json:"node_type"`
+		Name        string  `json:"name"`
+		Code        *string `json:"code"`
+		CompanyType *string `json:"company_type"`
+		CompanyID   *uint64 `json:"company_id"`
+		ParentID    *uint64 `json:"parent_id"`
+		Status      int     `json:"status"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	if forcedType != "" {
+		body.NodeType = forcedType
+	}
+	if body.NodeType == "" {
+		body.NodeType = "department"
+	}
+	if body.Status == 0 {
+		body.Status = 1
+	}
+	row := models.OrgNode{TenantID: parseTenantID(c), NodeType: body.NodeType, Name: body.Name, Code: body.Code, CompanyType: body.CompanyType, CompanyID: body.CompanyID, ParentID: body.ParentID, Status: body.Status}
+	if err := h.db.Create(&row).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, gin.H{"id": row.ID})
+}
+
+func (h *MockIdentityHandler) updateOrgNode(c *gin.Context) {
+	var body map[string]interface{}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	if err := h.db.Model(&models.OrgNode{}).Where("id = ?", c.Param("id")).Updates(body).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, gin.H{"id": parseUintParam(c, "id")})
+}
+
+func (h *MockIdentityHandler) replaceBusinessUnitMappings(buID uint64, orgIDs []uint64) {
+	_ = h.db.Where("business_unit_id = ?", buID).Delete(&models.BusinessUnitOrgMap{}).Error
+	for _, orgID := range orgIDs {
+		_ = h.db.Create(&models.BusinessUnitOrgMap{TenantID: 1, BusinessUnitID: buID, OrgID: orgID, OrgType: "org", ScopeType: "include", Status: 1}).Error
+	}
+}
+
+func (h *MockIdentityHandler) tenantName(tenantID *uint64) *string {
+	if tenantID == nil {
+		return nil
+	}
+	var tenant models.Tenant
+	if err := h.db.First(&tenant, *tenantID).Error; err != nil {
+		return nil
+	}
+	return &tenant.Name
 }
 
 func allDevPermissionCodes() []string {
