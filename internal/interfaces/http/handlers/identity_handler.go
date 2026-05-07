@@ -3836,7 +3836,7 @@ func (h *IdentityHandler) CreateSysParam(c *gin.Context) {
 	}
 	row := models.SystemParam{TenantID: user.TenantID, Key: strings.TrimSpace(body.Key), Value: value, Remark: body.Remark, ValueType: body.ValueType, TenantEditable: body.TenantEditable, IsPlatformOnly: body.IsPlatformOnly}
 	if err := h.db.Create(&row).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		response.Error(c, 400, response.CodeBadRequest, safeDBErrorMessage(err))
 		return
 	}
 	h.audit(c, user.TenantID, user.ID, "sys_param", "create", "创建系统参数 "+row.Key, gin.H{"id": row.ID, "param_key": row.Key})
@@ -5673,6 +5673,17 @@ func splitCSVParam(raw string) []string {
 		items = append(items, item)
 	}
 	return items
+}
+
+func safeDBErrorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "duplicate key") || strings.Contains(msg, "unique constraint") {
+		return "数据已存在，请检查唯一字段"
+	}
+	return err.Error()
 }
 
 func boolToStatus(value bool) int {

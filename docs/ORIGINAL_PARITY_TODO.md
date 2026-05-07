@@ -119,7 +119,7 @@
 - [x] O7. 原项目 `test_organization_service.py` / `test_org_tree_cache.py` 覆盖点在 Go 版有等价测试。
 - [x] O8. 原项目 `test_position_service.py` 覆盖点在 Go 版有等价测试。
 - [x] O9. 原项目 `test_business_unit_service.py` / `test_data_scope.py` 覆盖点在 Go 版有等价测试。
-- [ ] O10. 原项目 `test_dict_param_service.py` 覆盖点在 Go 版有等价测试。
+- [x] O10. 原项目 `test_dict_param_service.py` 覆盖点在 Go 版有等价测试。
 - [ ] O11. 原项目 `test_log_service.py` / `test_log_crud.py` 覆盖点在 Go 版有等价测试。
 - [ ] O12. 原项目 `test_file_service.py` / `test_batch_service.py` 覆盖点在 Go 版有等价测试。
 - [ ] O13. 原项目 `test_monitor_service.py` / `test_rate_limit.py` / `test_security_guards.py` 覆盖点在 Go 版有等价测试。
