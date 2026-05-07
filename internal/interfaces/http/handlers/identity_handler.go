@@ -510,6 +510,10 @@ func (h *IdentityHandler) UpdatePermission(c *gin.Context) {
 }
 
 func (h *IdentityHandler) DeletePermission(c *gin.Context) {
+	id := parseUintParam(c, "id")
+	if h.blockDeleteIfReferenced(c, "权限", ref(&models.Permission{}, "子权限", "parent_id = ?", id), ref(&models.RolePermission{}, "角色权限", "permission_id = ?", id), ref(&models.TenantMenuOverride{}, "租户菜单覆盖", "permission_id = ?", id)) {
+		return
+	}
 	h.deleteByID(c, &models.Permission{})
 }
 
@@ -639,6 +643,9 @@ func (h *IdentityHandler) UpdateTenantStatus(c *gin.Context) {
 
 func (h *IdentityHandler) DeleteTenant(c *gin.Context) {
 	id := parseUintParam(c, "id")
+	if h.blockDeleteIfReferenced(c, "主体", ref(&models.AppUser{}, "用户", "tenant_id = ?", id), ref(&models.OrgNode{}, "组织", "tenant_id = ?", id), ref(&models.BusinessUnit{}, "业务单元", "tenant_id = ?", id), ref(&models.TenantSubscription{}, "套餐订阅", "tenant_id = ?", id)) {
+		return
+	}
 	if h.deleteByID(c, &models.Tenant{}) {
 		h.auditCurrentUser(c, "tenant", "delete", "删除主体", gin.H{"tenant_id": id})
 	}
@@ -976,6 +983,10 @@ func (h *IdentityHandler) CopyPlan(c *gin.Context) {
 }
 
 func (h *IdentityHandler) DeletePlan(c *gin.Context) {
+	id := parseUintParam(c, "id")
+	if h.blockDeleteIfReferenced(c, "套餐", ref(&models.TenantSubscription{}, "主体订阅", "plan_id = ?", id)) {
+		return
+	}
 	h.deleteByID(c, &models.SaasPlan{})
 }
 
@@ -1547,6 +1558,10 @@ func (h *IdentityHandler) UpdatePositionType(c *gin.Context) {
 }
 
 func (h *IdentityHandler) DeletePositionType(c *gin.Context) {
+	id := parseUintParam(c, "id")
+	if h.blockDeleteIfReferenced(c, "岗位类型", ref(&models.Position{}, "岗位", "position_type_id = ?", id)) {
+		return
+	}
 	h.deleteByID(c, &models.PositionType{})
 }
 
@@ -1596,6 +1611,10 @@ func (h *IdentityHandler) UpdatePosition(c *gin.Context) {
 }
 
 func (h *IdentityHandler) DeletePosition(c *gin.Context) {
+	id := parseUintParam(c, "id")
+	if h.blockDeleteIfReferenced(c, "岗位", ref(&models.AppUserPosition{}, "用户岗位", "position_id = ?", id)) {
+		return
+	}
 	h.deleteByID(c, &models.Position{})
 }
 
@@ -1697,6 +1716,9 @@ func (h *IdentityHandler) UpdateBusinessUnit(c *gin.Context) {
 
 func (h *IdentityHandler) DeleteBusinessUnit(c *gin.Context) {
 	id := parseUintParam(c, "id")
+	if h.blockDeleteIfReferenced(c, "业务单元", ref(&models.BusinessUnitOrgMap{}, "组织映射", "business_unit_id = ?", id), ref(&models.BusinessUnitScope{}, "数据权限范围", "business_unit_id = ?", id)) {
+		return
+	}
 	if h.deleteTenantScopedByID(c, &models.BusinessUnit{}) {
 		h.auditCurrentUser(c, "business_unit", "delete", "删除业务单元", gin.H{"business_unit_id": id})
 	}
@@ -1803,6 +1825,10 @@ func (h *IdentityHandler) UpdateDictType(c *gin.Context) {
 }
 
 func (h *IdentityHandler) DeleteDictType(c *gin.Context) {
+	id := parseUintParam(c, "id")
+	if h.blockDeleteIfReferenced(c, "字典类型", ref(&models.DictItem{}, "字典项", "dict_type_id = ?", id)) {
+		return
+	}
 	h.deleteByID(c, &models.DictType{})
 }
 
@@ -1869,6 +1895,10 @@ func (h *IdentityHandler) UpdateDictItem(c *gin.Context) {
 }
 
 func (h *IdentityHandler) DeleteDictItem(c *gin.Context) {
+	id := parseUintParam(c, "id")
+	if h.blockDeleteIfReferenced(c, "字典项", ref(&models.TenantDictItemOverride{}, "租户字典覆盖", "dict_item_id = ?", id)) {
+		return
+	}
 	h.deleteByID(c, &models.DictItem{})
 }
 
@@ -1950,6 +1980,10 @@ func (h *IdentityHandler) UpdateSysParam(c *gin.Context) {
 }
 
 func (h *IdentityHandler) DeleteSysParam(c *gin.Context) {
+	id := parseUintParam(c, "id")
+	if h.blockDeleteIfReferenced(c, "系统参数", ref(&models.TenantParamValue{}, "租户参数值", "param_id = ?", id)) {
+		return
+	}
 	h.deleteByID(c, &models.SystemParam{})
 }
 
@@ -2626,6 +2660,48 @@ func requiredAuditEvents() []auditRequiredEvent {
 	}
 }
 
+type deletionReference struct {
+	Model interface{}
+	Name  string
+	Query string
+	Args  []interface{}
+}
+
+func ref(model interface{}, name, query string, args ...interface{}) deletionReference {
+	return deletionReference{Model: model, Name: name, Query: query, Args: args}
+}
+
+func (h *IdentityHandler) blockDeleteIfReferenced(c *gin.Context, resource string, refs ...deletionReference) bool {
+	for _, item := range refs {
+		var count int64
+		if err := h.db.Model(item.Model).Where(item.Query, item.Args...).Count(&count).Error; err != nil {
+			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			return true
+		}
+		if count > 0 {
+			response.Error(c, 400, response.CodeBadRequest, fmt.Sprintf("%s已被%s引用，不能删除", resource, item.Name))
+			return true
+		}
+	}
+	return false
+}
+
+func requiredDeletionGuards() []string {
+	return []string{
+		"permission:role_permission",
+		"tenant:app_user",
+		"plan:tenant_subscription",
+		"org_node:app_user",
+		"org_node:business_unit_org_map",
+		"position_type:position",
+		"position:app_user_position",
+		"business_unit:business_unit_org_map",
+		"dict_type:dict_item",
+		"dict_item:tenant_dict_item_override",
+		"sys_param:tenant_param_value",
+	}
+}
+
 func (h *IdentityHandler) deleteByID(c *gin.Context, model interface{}) bool {
 	id := parseUintParam(c, "id")
 	if err := h.db.Delete(model, id).Error; err != nil {
@@ -3027,6 +3103,9 @@ func (h *IdentityHandler) updateOrgNode(c *gin.Context) {
 
 func (h *IdentityHandler) deleteOrgNodeWithAudit(c *gin.Context, summary string) {
 	id := parseUintParam(c, "id")
+	if h.blockDeleteIfReferenced(c, "组织", ref(&models.OrgNode{}, "下级组织", "parent_id = ? OR company_id = ?", id, id), ref(&models.AppUser{}, "用户主组织", "company_id = ? OR department_id = ?", id, id), ref(&models.AppUserDepartment{}, "用户兼任部门", "department_id = ?", id), ref(&models.BusinessUnitOrgMap{}, "业务单元组织映射", "org_id = ?", id)) {
+		return
+	}
 	if h.deleteTenantScopedByID(c, &models.OrgNode{}) {
 		h.auditCurrentUser(c, "organization", "delete", summary, gin.H{"org_id": id})
 	}
