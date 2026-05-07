@@ -382,6 +382,7 @@ Go 版额外路由：
 
 - Auth 覆盖已包含 Redis session namespace、手机号登录识别、密码策略、PBKDF2 哈希校验、随机密码策略、token 签发/解析/篡改/过期、Bearer 解析。
 - 新增订阅状态等价测试，覆盖 `TRIAL/ACTIVE` 可登录、过期时间阻止登录，以及 `OVERDUE/FROZEN/EXPIRED/CANCELLED/UNKNOWN` 阻止登录。
+- 用户相关覆盖包含手机号规范化、用户部门 ID 规整、软删除唯一值 tombstone、随机密码字符策略和最短 8 位边界。
 
 验证：
 
@@ -389,4 +390,4 @@ Go 版额外路由：
 
 状态：
 
-- O1 认证服务测试等价已完成。
+- O1-O2 认证与用户服务测试等价已完成。

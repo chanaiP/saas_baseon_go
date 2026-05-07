@@ -32,6 +32,14 @@ func TestGenerateRandomPasswordMatchesOriginalPolicy(t *testing.T) {
 	require.Regexp(t, `\d`, password)
 }
 
+func TestGenerateRandomPasswordEnforcesMinimumLength(t *testing.T) {
+	password := generateRandomPassword(4)
+
+	require.GreaterOrEqual(t, len(password), 8)
+	require.Regexp(t, `[A-Za-z]`, password)
+	require.Regexp(t, `\d`, password)
+}
+
 func TestIssueAndParseToken(t *testing.T) {
 	token, err := issueToken(7, 11, "secret", time.Hour)
 

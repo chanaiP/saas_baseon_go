@@ -111,7 +111,7 @@
 ## O. 测试等价
 
 - [x] O1. 原项目 `test_auth_service.py` 覆盖点在 Go 版有等价测试。
-- [ ] O2. 原项目 `test_user_service.py` / `test_crud_user.py` 覆盖点在 Go 版有等价测试。
+- [x] O2. 原项目 `test_user_service.py` / `test_crud_user.py` 覆盖点在 Go 版有等价测试。
 - [ ] O3. 原项目 `test_tenant_service.py` / `test_branding_service.py` 覆盖点在 Go 版有等价测试。
 - [ ] O4. 原项目 `test_plan_service.py` 覆盖点在 Go 版有等价测试。
 - [ ] O5. 原项目 `test_permission_service.py` / `test_permission_menu_grants.py` 覆盖点在 Go 版有等价测试。
