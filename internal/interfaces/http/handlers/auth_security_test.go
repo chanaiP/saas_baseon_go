@@ -17,10 +17,10 @@ func TestPasswordHashAndVerify(t *testing.T) {
 	require.False(t, verifyPassword("bad-password", hashed))
 }
 
-func TestVerifyLegacyDevPassword(t *testing.T) {
-	require.True(t, verifyPassword("112233", "dev:112233"))
-	require.True(t, verifyPassword("112233", "dev-password-placeholder"))
-	require.False(t, verifyPassword("000000", "dev:112233"))
+func TestVerifyPasswordRejectsLegacyAndPlaintextPasswords(t *testing.T) {
+	require.False(t, verifyPassword("112233", "dev:112233"))
+	require.False(t, verifyPassword("112233", "dev-password-placeholder"))
+	require.False(t, verifyPassword("112233", "112233"))
 }
 
 func TestIssueAndParseToken(t *testing.T) {

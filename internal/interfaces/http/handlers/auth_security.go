@@ -39,16 +39,10 @@ func mustHashPassword(password string) string {
 }
 
 func verifyPassword(password, stored string) bool {
-	switch {
-	case strings.HasPrefix(stored, "bcrypt:"):
-		return bcrypt.CompareHashAndPassword([]byte(strings.TrimPrefix(stored, "bcrypt:")), []byte(password)) == nil
-	case strings.HasPrefix(stored, "dev:"):
-		return strings.TrimPrefix(stored, "dev:") == password
-	case stored == "dev-password-placeholder":
-		return password == "112233"
-	default:
-		return stored == password
+	if !strings.HasPrefix(stored, "bcrypt:") {
+		return false
 	}
+	return bcrypt.CompareHashAndPassword([]byte(strings.TrimPrefix(stored, "bcrypt:")), []byte(password)) == nil
 }
 
 func issueToken(userID, tenantID uint64, secret string, ttl time.Duration) (string, error) {
