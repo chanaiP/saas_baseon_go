@@ -1276,6 +1276,10 @@ func (h *IdentityHandler) CreateUser(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
+	if err := h.requireQuotaAvailable(tenantID, "max_users", 1); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
 	user := models.AppUser{TenantID: tenantID, EmployeeNo: body.EmployeeNo, Account: body.EmployeeNo, PasswordHash: devPasswordHash(body.Password), Name: body.Name, Phone: phone, Email: body.Email, CompanyID: companyID, DepartmentID: departmentID, Status: body.Status}
 	if err := h.db.Create(&user).Error; err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
@@ -1488,7 +1492,12 @@ func (h *IdentityHandler) CreateRole(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	role, err := h.roleService().Create(c.Request.Context(), apppermission.RoleCreateCommand{TenantID: h.requestTenantID(c), Code: body.Code, Name: body.Name, Description: body.Description, PermissionIDs: body.PermissionIDs})
+	tenantID := h.requestTenantID(c)
+	if err := h.requireQuotaAvailable(tenantID, "max_roles", 1); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	role, err := h.roleService().Create(c.Request.Context(), apppermission.RoleCreateCommand{TenantID: tenantID, Code: body.Code, Name: body.Name, Description: body.Description, PermissionIDs: body.PermissionIDs})
 	if err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
@@ -2440,6 +2449,10 @@ func (h *IdentityHandler) CreateBusinessUnit(c *gin.Context) {
 		body.Status = 1
 	}
 	tenantID := h.requestTenantID(c)
+	if err := h.requireQuotaAvailable(tenantID, "max_business_units", 1); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
 	row := models.BusinessUnit{TenantID: tenantID, Name: body.Name, Code: body.Code, BUType: body.BUType, Status: body.Status, BillingEnabled: true, StatisticEnabled: true, Remark: body.Remark}
 	if err := h.db.Create(&row).Error; err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
@@ -3178,6 +3191,19 @@ func quotaCheckReason(limit int, used int, increment int) string {
 		return "允许使用"
 	}
 	return "已超出套餐配额"
+}
+
+func quotaCodeForOrgNodeType(nodeType string) string {
+	switch nodeType {
+	case "company":
+		return "max_companies"
+	case "store":
+		return "max_stores"
+	case "department", "warehouse", "project_team":
+		return "max_departments"
+	default:
+		return ""
+	}
 }
 
 func tenantContact(db *gorm.DB, tenant models.Tenant) (*string, *string) {
@@ -4195,7 +4221,15 @@ func (h *IdentityHandler) createOrgNode(c *gin.Context, forcedType string) {
 	if body.Status == 0 {
 		body.Status = 1
 	}
-	row := models.OrgNode{TenantID: h.requestTenantID(c), NodeType: body.NodeType, Name: body.Name, Code: body.Code, CompanyType: body.CompanyType, CompanyID: body.CompanyID, ParentID: body.ParentID, Status: body.Status}
+	tenantID := h.requestTenantID(c)
+	quotaCode := quotaCodeForOrgNodeType(body.NodeType)
+	if quotaCode != "" {
+		if err := h.requireQuotaAvailable(tenantID, quotaCode, 1); err != nil {
+			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			return
+		}
+	}
+	row := models.OrgNode{TenantID: tenantID, NodeType: body.NodeType, Name: body.Name, Code: body.Code, CompanyType: body.CompanyType, CompanyID: body.CompanyID, ParentID: body.ParentID, Status: body.Status}
 	if err := h.db.Create(&row).Error; err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return

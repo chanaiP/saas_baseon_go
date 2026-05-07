@@ -76,3 +76,32 @@ func (h *IdentityHandler) tenantFeatureAllowed(tenantID uint64, featureCode stri
 	h.db.Model(&models.SaasPlanFeature{}).Where("plan_id = ? AND feature_id = ? AND enabled = ?", sub.PlanID, feature.ID, true).Count(&count)
 	return count > 0
 }
+
+func (h *IdentityHandler) requireQuotaAvailable(tenantID uint64, quotaCode string, increment int) error {
+	if increment <= 0 {
+		increment = 1
+	}
+	var quota models.SaasQuota
+	if err := h.db.Where("quota_code = ? AND status = ?", quotaCode, 1).First(&quota).Error; err != nil {
+		return nil
+	}
+	limit := h.currentQuotaLimit(tenantID, quota.ID)
+	if limit < 0 {
+		return nil
+	}
+	used := h.currentQuotaUsage(tenantID, quotaCode)
+	if used+increment > limit {
+		return &quotaExceededError{QuotaName: quota.QuotaName, Limit: limit, Used: used}
+	}
+	return nil
+}
+
+type quotaExceededError struct {
+	QuotaName string
+	Limit     int
+	Used      int
+}
+
+func (e *quotaExceededError) Error() string {
+	return e.QuotaName + "已超出套餐配额"
+}
