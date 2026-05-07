@@ -3781,26 +3781,37 @@ func (h *IdentityHandler) RestoreDictItem(c *gin.Context) {
 }
 
 func (h *IdentityHandler) SysParams(c *gin.Context) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	skip, limit := paginationParams(c)
 	var rows []models.SystemParam
-	_ = h.db.Order("id desc").Find(&rows).Error
+	query := h.db.Where("tenant_id = ? AND deleted_at IS NULL", user.TenantID)
+	if !user.IsPlatformAdmin {
+		query = query.Where("is_platform_only = ?", false)
+	}
+	if keyword := strings.TrimSpace(c.Query("keyword")); keyword != "" {
+		like := "%" + keyword + "%"
+		query = query.Where("param_key LIKE ?", like)
+	}
+	var total int64
+	_ = query.Model(&models.SystemParam{}).Count(&total).Error
+	_ = query.Order("id asc").Offset(skip).Limit(limit).Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, gin.H{
-			"id":               row.ID,
-			"param_key":        row.Key,
-			"default_value":    row.Value,
-			"param_value":      row.Value,
-			"remark":           row.Remark,
-			"value_type":       "string",
-			"tenant_editable":  true,
-			"is_platform_only": false,
-			"is_override":      false,
-		})
+		items = append(items, h.sysParamToJSON(user.TenantID, row))
 	}
-	response.OK(c, paginated(items))
+	response.OK(c, paginatedWithTotal(items, total, skip, limit))
 }
 
 func (h *IdentityHandler) CreateSysParam(c *gin.Context) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
 	var body struct {
 		Key            string `json:"param_key"`
 		Value          string `json:"param_value"`
@@ -3821,56 +3832,141 @@ func (h *IdentityHandler) CreateSysParam(c *gin.Context) {
 	if body.ValueType == "" {
 		body.ValueType = "string"
 	}
-	row := models.SystemParam{TenantID: 1, Key: body.Key, Value: value, Remark: body.Remark, ValueType: body.ValueType, TenantEditable: body.TenantEditable, IsPlatformOnly: body.IsPlatformOnly}
+	row := models.SystemParam{TenantID: user.TenantID, Key: strings.TrimSpace(body.Key), Value: value, Remark: body.Remark, ValueType: body.ValueType, TenantEditable: body.TenantEditable, IsPlatformOnly: body.IsPlatformOnly}
 	if err := h.db.Create(&row).Error; err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
+	h.audit(c, user.TenantID, user.ID, "sys_param", "create", "创建系统参数 "+row.Key, gin.H{"id": row.ID, "param_key": row.Key})
 	response.OK(c, gin.H{"id": row.ID})
 }
 
 func (h *IdentityHandler) UpdateSysParam(c *gin.Context) {
-	var body map[string]interface{}
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	var body struct {
+		ParamValue     *string `json:"param_value"`
+		DefaultValue   *string `json:"default_value"`
+		Remark         *string `json:"remark"`
+		ValueType      *string `json:"value_type"`
+		TenantEditable *bool   `json:"tenant_editable"`
+		IsPlatformOnly *bool   `json:"is_platform_only"`
+	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	if v, ok := body["default_value"]; ok {
-		body["param_value"] = v
-		delete(body, "default_value")
-	}
-	if err := h.db.Model(&models.SystemParam{}).Where("id = ?", c.Param("id")).Updates(body).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
-		return
-	}
 	var row models.SystemParam
-	_ = h.db.First(&row, c.Param("id")).Error
-	response.OK(c, gin.H{"id": row.ID, "param_key": row.Key, "default_value": row.Value, "param_value": row.Value, "remark": row.Remark, "value_type": row.ValueType, "tenant_editable": row.TenantEditable, "is_platform_only": row.IsPlatformOnly, "is_override": false})
-}
-
-func (h *IdentityHandler) DeleteSysParam(c *gin.Context) {
-	id := parseUintParam(c, "id")
-	if h.blockDeleteIfReferenced(c, "系统参数", ref(&models.TenantParamValue{}, "租户参数值", "param_id = ?", id)) {
-		return
-	}
-	h.deleteByID(c, &models.SystemParam{})
-}
-
-func (h *IdentityHandler) RestoreSysParam(c *gin.Context) {
-	var row models.SystemParam
-	if err := h.db.First(&row, c.Param("id")).Error; err != nil {
+	if err := h.db.Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", c.Param("id"), user.TenantID).First(&row).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "参数不存在")
 		return
 	}
-	response.OK(c, gin.H{"id": row.ID, "param_key": row.Key, "default_value": row.Value, "param_value": row.Value, "remark": row.Remark, "value_type": row.ValueType, "tenant_editable": row.TenantEditable, "is_platform_only": row.IsPlatformOnly, "is_override": false})
+	value := body.ParamValue
+	if value == nil {
+		value = body.DefaultValue
+	}
+	if !user.IsPlatformAdmin {
+		if !row.TenantEditable || row.IsPlatformOnly {
+			response.Error(c, 403, response.CodeForbidden, "该参数不允许租户覆盖")
+			return
+		}
+		h.upsertTenantParamValue(user.TenantID, row.ID, value)
+		h.audit(c, user.TenantID, user.ID, "sys_param", "update", "覆盖系统参数 "+row.Key, gin.H{"id": row.ID, "param_key": row.Key})
+		response.OK(c, h.sysParamToJSON(user.TenantID, row))
+		return
+	}
+	updates := map[string]interface{}{}
+	if value != nil {
+		updates["param_value"] = *value
+	}
+	if body.Remark != nil {
+		updates["remark"] = *body.Remark
+	}
+	if body.ValueType != nil {
+		updates["value_type"] = *body.ValueType
+	}
+	if body.TenantEditable != nil {
+		updates["tenant_editable"] = *body.TenantEditable
+	}
+	if body.IsPlatformOnly != nil {
+		updates["is_platform_only"] = *body.IsPlatformOnly
+	}
+	if err := h.db.Model(&row).Updates(updates).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	_ = h.db.First(&row, row.ID).Error
+	h.audit(c, user.TenantID, user.ID, "sys_param", "update", "编辑系统参数 "+row.Key, gin.H{"id": row.ID, "param_key": row.Key})
+	response.OK(c, h.sysParamToJSON(user.TenantID, row))
+}
+
+func (h *IdentityHandler) DeleteSysParam(c *gin.Context) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	id := parseUintParam(c, "id")
+	var row models.SystemParam
+	if err := h.db.Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", id, user.TenantID).First(&row).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "参数不存在")
+		return
+	}
+	now := time.Now()
+	if err := h.db.Model(&row).Updates(map[string]interface{}{"deleted_at": now, "param_key": tombstoneUniqueValue(row.Key, row.ID, 128)}).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	h.audit(c, user.TenantID, user.ID, "sys_param", "delete", "删除系统参数 "+row.Key, gin.H{"id": id})
+	response.OK(c, gin.H{"deleted": id})
+}
+
+func (h *IdentityHandler) RestoreSysParam(c *gin.Context) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	var row models.SystemParam
+	if err := h.db.Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", c.Param("id"), user.TenantID).First(&row).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "参数不存在")
+		return
+	}
+	_ = h.db.Where("tenant_id = ? AND param_id = ?", user.TenantID, row.ID).Delete(&models.TenantParamValue{}).Error
+	h.audit(c, user.TenantID, user.ID, "sys_param", "restore", "恢复系统参数默认值 "+row.Key, gin.H{"id": row.ID})
+	response.OK(c, h.sysParamToJSON(user.TenantID, row))
 }
 
 func (h *IdentityHandler) SysParamBatch(c *gin.Context) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
 	values := gin.H{}
 	var rows []models.SystemParam
-	_ = h.db.Find(&rows).Error
+	keys := splitCSVParam(c.Query("keys"))
+	query := h.db.Where("tenant_id = ? AND deleted_at IS NULL", user.TenantID)
+	if len(keys) > 0 {
+		query = query.Where("param_key IN ?", keys)
+	}
+	if !user.IsPlatformAdmin {
+		query = query.Where("is_platform_only = ?", false)
+	}
+	_ = query.Find(&rows).Error
 	for _, row := range rows {
-		values[row.Key] = row.Value
+		item := h.sysParamToJSON(user.TenantID, row)
+		values[row.Key] = item["param_value"]
+	}
+	if len(keys) > 0 {
+		for _, key := range keys {
+			if _, ok := values[key]; !ok {
+				values[key] = nil
+			}
+		}
 	}
 	response.OK(c, gin.H{"values": values})
 }
@@ -5251,6 +5347,56 @@ func (h *IdentityHandler) assertDictTypeInTenant(tenantID uint64, dictTypeID uin
 		return errors.New("字典类型不存在")
 	}
 	return nil
+}
+
+func (h *IdentityHandler) sysParamToJSON(tenantID uint64, row models.SystemParam) gin.H {
+	var override models.TenantParamValue
+	paramValue := row.Value
+	isOverride := false
+	if !row.IsPlatformOnly {
+		if err := h.db.Where("tenant_id = ? AND param_id = ?", tenantID, row.ID).First(&override).Error; err == nil {
+			isOverride = true
+			if override.ParamValue != nil {
+				paramValue = *override.ParamValue
+			} else {
+				paramValue = ""
+			}
+		}
+	}
+	return gin.H{"id": row.ID, "param_key": row.Key, "default_value": row.Value, "param_value": paramValue, "remark": row.Remark, "value_type": row.ValueType, "tenant_editable": row.TenantEditable, "is_platform_only": row.IsPlatformOnly, "is_override": isOverride}
+}
+
+func (h *IdentityHandler) upsertTenantParamValue(tenantID uint64, paramID uint64, value *string) *models.TenantParamValue {
+	var row models.TenantParamValue
+	err := h.db.Where("tenant_id = ? AND param_id = ?", tenantID, paramID).First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		row = models.TenantParamValue{TenantID: tenantID, ParamID: paramID}
+	}
+	row.ParamValue = value
+	if row.ID == 0 {
+		_ = h.db.Create(&row).Error
+	} else {
+		_ = h.db.Save(&row).Error
+	}
+	return &row
+}
+
+func splitCSVParam(raw string) []string {
+	parts := strings.Split(raw, ",")
+	items := make([]string, 0, len(parts))
+	seen := map[string]struct{}{}
+	for _, part := range parts {
+		item := strings.TrimSpace(part)
+		if item == "" {
+			continue
+		}
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		items = append(items, item)
+	}
+	return items
 }
 
 func boolToStatus(value bool) int {
