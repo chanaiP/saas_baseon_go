@@ -360,6 +360,8 @@ Go 版额外路由：
 - Permission 字段长度按原模型调整：名称 200、路径 500、功能编码 100、租户编辑范围 100。
 - DictType 租户可编辑默认值调整为启用，与原模型一致。
 - `current_schema.sql` 已同步上述字段长度、默认值和复合唯一索引，保持 schema 基线与 Go 模型一致。
+- 迁移器改为显式读写 `public.schema_migrations`，并在执行 SQL 文件后恢复 `search_path`，避免 baseline SQL 改变会话状态导致迁移记录写入失败。
+- 已用 PostgreSQL 16 空库验证 `go run ./cmd/migrate` 可成功应用当前 schema baseline。
 
 验证：
 
@@ -367,4 +369,4 @@ Go 版额外路由：
 
 状态：
 
-- N1-N2 Go 模型与 `current_schema.sql` 基线已完成。
+- N1-N3 Go 模型、schema baseline 与空库迁移链路已完成。

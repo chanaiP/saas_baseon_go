@@ -78,7 +78,7 @@ func RunMigrations(dsn, repoRoot string) error {
 
 func ensureSchemaMigrations(db *gorm.DB) error {
 	return db.Exec(`
-CREATE TABLE IF NOT EXISTS schema_migrations (
+CREATE TABLE IF NOT EXISTS public.schema_migrations (
   version varchar(255) PRIMARY KEY,
   checksum varchar(64) NOT NULL,
   applied_at timestamptz NOT NULL
@@ -100,7 +100,7 @@ func appliedMigrations(db *gorm.DB) (map[string]bool, error) {
 	rows := []struct {
 		Version string
 	}{}
-	if err := db.Raw("SELECT version FROM schema_migrations").Scan(&rows).Error; err != nil {
+	if err := db.Raw("SELECT version FROM public.schema_migrations").Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	applied := map[string]bool{}
@@ -112,7 +112,7 @@ func appliedMigrations(db *gorm.DB) (map[string]bool, error) {
 
 func markMigrationApplied(db *gorm.DB, version, checksum string) error {
 	return db.Exec(`
-INSERT INTO schema_migrations (version, checksum, applied_at)
+INSERT INTO public.schema_migrations (version, checksum, applied_at)
 VALUES (?, ?, ?)
 ON CONFLICT (version) DO NOTHING`, version, checksum, time.Now().UTC()).Error
 }
@@ -122,7 +122,9 @@ func execSQLFile(db *gorm.DB, path string) error {
 	if err != nil {
 		return err
 	}
-	return db.Exec(string(raw)).Error
+	err = db.Exec(string(raw)).Error
+	_ = db.Exec("SET search_path TO public").Error
+	return err
 }
 
 func loadMigrationFiles(dir string) ([]migrationFile, error) {
