@@ -13,7 +13,7 @@
 ## P1
 
 - [x] OpenAPI 从路径级摘要升级为 request/response schema。
-- [ ] 完善生产 migration 链路，降低对 AutoMigrate 的依赖。
+- [x] 完善生产 migration 链路，降低对 AutoMigrate 的依赖。
 - [ ] 补业务级 E2E/接口回归，覆盖 CRUD、权限拒绝、套餐配额、审计落库。
 
 ## P2

@@ -32,7 +32,13 @@ Production-like runs can disable development AutoMigrate:
 DB_AUTO_MIGRATE=false docker compose up --build
 ```
 
-The current PostgreSQL schema baseline is stored at `internal/infrastructure/persistence/postgres/schema/current_schema.sql`.
+Before running with `DB_AUTO_MIGRATE=false`, apply the audited SQL baseline/migration chain:
+
+```bash
+go run ./cmd/migrate
+```
+
+The current PostgreSQL schema baseline is stored at `internal/infrastructure/persistence/postgres/schema/current_schema.sql`; future SQL changes belong in `internal/infrastructure/persistence/postgres/migrations/*.up.sql`.
 
 Frontend:
 
@@ -79,7 +85,7 @@ Current implementation contains:
 
 - Docker Compose runtime for API, Web, PostgreSQL and Redis
 - Gin router with frontend-compatible API response envelope
-- PostgreSQL schema migration through GORM AutoMigrate for the rebuilt modules
+- PostgreSQL schema migration through `cmd/migrate`; GORM AutoMigrate remains a development fallback
 - seed data for platform tenant, demo users, role, menu/button permissions, SaaS plans, dictionaries, params and logs
 - login with password verification and signed bearer token
 - captcha generation, login failure tracking, protected API authentication and permission-code gate checks
