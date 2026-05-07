@@ -569,6 +569,7 @@ func (h *IdentityHandler) CreateTenant(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
+	h.auditCurrentUser(c, "tenant", "create", "创建主体 "+tenant.Name, gin.H{"tenant_id": tenant.ID, "code": tenant.Code, "name": tenant.Name})
 	response.OK(c, tenantToJSON(h.db, tenant))
 }
 
@@ -598,6 +599,7 @@ func (h *IdentityHandler) CreateTenantWithPackage(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
+	h.auditCurrentUser(c, "tenant", "create_with_package", "创建主体并配置套餐 "+tenant.Name, gin.H{"tenant_id": tenant.ID, "code": tenant.Code, "name": tenant.Name})
 	response.OK(c, tenantToJSON(h.db, tenant))
 }
 
@@ -616,6 +618,7 @@ func (h *IdentityHandler) UpdateTenant(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
+	h.auditCurrentUser(c, "tenant", "update", "更新主体 "+tenant.Name, gin.H{"tenant_id": tenant.ID, "changes": body})
 	response.OK(c, tenantToJSON(h.db, tenant))
 }
 
@@ -630,11 +633,15 @@ func (h *IdentityHandler) UpdateTenantStatus(c *gin.Context) {
 	}
 	var tenant models.Tenant
 	_ = h.db.First(&tenant, c.Param("id")).Error
+	h.auditCurrentUser(c, "tenant", "status_update", "更新主体状态 "+tenant.Name, gin.H{"tenant_id": tenant.ID, "status": body.Status})
 	response.OK(c, tenantToJSON(h.db, tenant))
 }
 
 func (h *IdentityHandler) DeleteTenant(c *gin.Context) {
-	h.deleteByID(c, &models.Tenant{})
+	id := parseUintParam(c, "id")
+	if h.deleteByID(c, &models.Tenant{}) {
+		h.auditCurrentUser(c, "tenant", "delete", "删除主体", gin.H{"tenant_id": id})
+	}
 }
 
 func (h *IdentityHandler) Users(c *gin.Context) {
@@ -674,6 +681,7 @@ func (h *IdentityHandler) CreateUser(c *gin.Context) {
 		return
 	}
 	h.replaceUserRelations(user.ID, body.RoleIDs, body.PositionIDs, nil)
+	h.auditCurrentUser(c, "user", "create", "创建用户 "+user.Name, gin.H{"user_id": user.ID, "tenant_id": user.TenantID, "employee_no": user.EmployeeNo})
 	response.OK(c, h.userToJSON(user))
 }
 
@@ -729,6 +737,7 @@ func (h *IdentityHandler) UpdateUser(c *gin.Context) {
 		}
 	}
 	h.replaceUserRelations(user.ID, body.RoleIDs, body.PositionIDs, body.DepartmentIDs)
+	h.auditCurrentUser(c, "user", "update", "更新用户 "+user.Name, gin.H{"user_id": user.ID, "tenant_id": user.TenantID, "changes": updates})
 	response.OK(c, h.userToJSON(user))
 }
 
@@ -743,11 +752,15 @@ func (h *IdentityHandler) ResetUserPassword(c *gin.Context) {
 		response.Error(c, 404, response.CodeNotFound, "用户不存在")
 		return
 	}
+	h.auditCurrentUser(c, "user", "password_reset", "重置用户密码", gin.H{"user_id": parseUintParam(c, "id")})
 	response.OK(c, gin.H{"new_password": newPassword})
 }
 
 func (h *IdentityHandler) DeleteUser(c *gin.Context) {
-	h.deleteTenantScopedByID(c, &models.AppUser{})
+	id := parseUintParam(c, "id")
+	if h.deleteTenantScopedByID(c, &models.AppUser{}) {
+		h.auditCurrentUser(c, "user", "delete", "删除用户", gin.H{"user_id": id})
+	}
 }
 
 func (h *IdentityHandler) AssignableRoles(c *gin.Context) {
@@ -802,6 +815,7 @@ func (h *IdentityHandler) CreateRole(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
+	h.auditCurrentUser(c, "role", "create", "创建角色 "+role.Name, gin.H{"role_id": role.ID, "tenant_id": role.TenantID, "code": role.Code})
 	response.OK(c, roleToJSON(role))
 }
 
@@ -824,6 +838,7 @@ func (h *IdentityHandler) UpdateRole(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
+	h.auditCurrentUser(c, "role", "update", "更新角色 "+role.Name, gin.H{"role_id": role.ID, "tenant_id": role.TenantID, "permission_ids": role.PermissionIDs})
 	response.OK(c, roleToJSON(role))
 }
 
@@ -837,6 +852,7 @@ func (h *IdentityHandler) DeleteRole(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
+	h.auditCurrentUser(c, "role", "delete", "删除角色 "+role.Name, gin.H{"role_id": role.ID, "tenant_id": role.TenantID})
 	response.OK(c, gin.H{"deleted": parseUintParam(c, "id")})
 }
 
@@ -1473,19 +1489,19 @@ func (h *IdentityHandler) UpdateStore(c *gin.Context) {
 }
 
 func (h *IdentityHandler) DeleteOrgNode(c *gin.Context) {
-	h.deleteTenantScopedByID(c, &models.OrgNode{})
+	h.deleteOrgNodeWithAudit(c, "删除组织")
 }
 
 func (h *IdentityHandler) DeleteCompany(c *gin.Context) {
-	h.deleteTenantScopedByID(c, &models.OrgNode{})
+	h.deleteOrgNodeWithAudit(c, "删除公司")
 }
 
 func (h *IdentityHandler) DeleteDepartment(c *gin.Context) {
-	h.deleteTenantScopedByID(c, &models.OrgNode{})
+	h.deleteOrgNodeWithAudit(c, "删除部门")
 }
 
 func (h *IdentityHandler) DeleteStore(c *gin.Context) {
-	h.deleteTenantScopedByID(c, &models.OrgNode{})
+	h.deleteOrgNodeWithAudit(c, "删除门店")
 }
 
 func (h *IdentityHandler) PositionTypes(c *gin.Context) {
@@ -1628,6 +1644,7 @@ func (h *IdentityHandler) CreateBusinessUnit(c *gin.Context) {
 		return
 	}
 	h.replaceBusinessUnitMappings(tenantID, row.ID, body.OrgNodeIDs)
+	h.auditCurrentUser(c, "business_unit", "create", "创建业务单元 "+row.Name, gin.H{"business_unit_id": row.ID, "tenant_id": row.TenantID, "code": row.Code})
 	response.OK(c, gin.H{"id": row.ID})
 }
 
@@ -1674,11 +1691,15 @@ func (h *IdentityHandler) UpdateBusinessUnit(c *gin.Context) {
 	if body.OrgNodeIDs != nil {
 		h.replaceBusinessUnitMappings(tenantID, parseUintParam(c, "id"), body.OrgNodeIDs)
 	}
+	h.auditCurrentUser(c, "business_unit", "update", "更新业务单元", gin.H{"business_unit_id": parseUintParam(c, "id"), "tenant_id": tenantID, "changes": updates, "org_node_ids": body.OrgNodeIDs})
 	response.OK(c, gin.H{"id": parseUintParam(c, "id")})
 }
 
 func (h *IdentityHandler) DeleteBusinessUnit(c *gin.Context) {
-	h.deleteTenantScopedByID(c, &models.BusinessUnit{})
+	id := parseUintParam(c, "id")
+	if h.deleteTenantScopedByID(c, &models.BusinessUnit{}) {
+		h.auditCurrentUser(c, "business_unit", "delete", "删除业务单元", gin.H{"business_unit_id": id})
+	}
 }
 
 func (h *IdentityHandler) BusinessUnitOrgMappings(c *gin.Context) {
@@ -1710,11 +1731,15 @@ func (h *IdentityHandler) CreateBusinessUnitOrgMapping(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
+	h.auditCurrentUser(c, "business_unit", "org_mapping_create", "绑定业务单元组织", gin.H{"mapping_id": row.ID, "business_unit_id": row.BusinessUnitID, "org_id": row.OrgID, "tenant_id": row.TenantID})
 	response.OK(c, gin.H{"id": row.ID})
 }
 
 func (h *IdentityHandler) DeleteBusinessUnitOrgMapping(c *gin.Context) {
-	h.deleteTenantScopedByID(c, &models.BusinessUnitOrgMap{})
+	id := parseUintParam(c, "id")
+	if h.deleteTenantScopedByID(c, &models.BusinessUnitOrgMap{}) {
+		h.auditCurrentUser(c, "business_unit", "org_mapping_delete", "删除业务单元组织映射", gin.H{"mapping_id": id})
+	}
 }
 
 func (h *IdentityHandler) DictTypes(c *gin.Context) {
@@ -2563,27 +2588,67 @@ func (h *IdentityHandler) audit(c *gin.Context, tenantID uint64, userID uint64, 
 	}).Error
 }
 
-func (h *IdentityHandler) deleteByID(c *gin.Context, model interface{}) {
+func (h *IdentityHandler) auditCurrentUser(c *gin.Context, module, action, summary string, detail interface{}) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		return
+	}
+	h.audit(c, user.TenantID, user.ID, module, action, summary, detail)
+}
+
+type auditRequiredEvent struct {
+	Module string
+	Action string
+}
+
+func requiredAuditEvents() []auditRequiredEvent {
+	return []auditRequiredEvent{
+		{Module: "tenant", Action: "create"},
+		{Module: "tenant", Action: "create_with_package"},
+		{Module: "tenant", Action: "update"},
+		{Module: "tenant", Action: "status_update"},
+		{Module: "tenant", Action: "delete"},
+		{Module: "user", Action: "create"},
+		{Module: "user", Action: "update"},
+		{Module: "user", Action: "password_reset"},
+		{Module: "user", Action: "delete"},
+		{Module: "role", Action: "create"},
+		{Module: "role", Action: "update"},
+		{Module: "role", Action: "delete"},
+		{Module: "organization", Action: "create"},
+		{Module: "organization", Action: "update"},
+		{Module: "organization", Action: "delete"},
+		{Module: "business_unit", Action: "create"},
+		{Module: "business_unit", Action: "update"},
+		{Module: "business_unit", Action: "delete"},
+		{Module: "business_unit", Action: "org_mapping_create"},
+		{Module: "business_unit", Action: "org_mapping_delete"},
+	}
+}
+
+func (h *IdentityHandler) deleteByID(c *gin.Context, model interface{}) bool {
 	id := parseUintParam(c, "id")
 	if err := h.db.Delete(model, id).Error; err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
-		return
+		return false
 	}
 	response.OK(c, gin.H{"deleted": 1, "id": id})
+	return true
 }
 
-func (h *IdentityHandler) deleteTenantScopedByID(c *gin.Context, model interface{}) {
+func (h *IdentityHandler) deleteTenantScopedByID(c *gin.Context, model interface{}) bool {
 	id := parseUintParam(c, "id")
 	result := h.db.Where("tenant_id = ?", h.requestTenantID(c)).Delete(model, id)
 	if result.Error != nil {
 		response.Error(c, 400, response.CodeBadRequest, result.Error.Error())
-		return
+		return false
 	}
 	if result.RowsAffected == 0 {
 		response.Error(c, 404, response.CodeNotFound, "数据不存在")
-		return
+		return false
 	}
 	response.OK(c, gin.H{"deleted": 1, "id": id})
+	return true
 }
 
 func nullableTrimmed(value *string) *string {
@@ -2937,6 +3002,7 @@ func (h *IdentityHandler) createOrgNode(c *gin.Context, forcedType string) {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
+	h.auditCurrentUser(c, "organization", "create", "创建组织 "+row.Name, gin.H{"org_id": row.ID, "tenant_id": row.TenantID, "node_type": row.NodeType, "code": row.Code})
 	response.OK(c, gin.H{"id": row.ID})
 }
 
@@ -2955,7 +3021,15 @@ func (h *IdentityHandler) updateOrgNode(c *gin.Context) {
 		response.Error(c, 404, response.CodeNotFound, "组织不存在")
 		return
 	}
+	h.auditCurrentUser(c, "organization", "update", "更新组织", gin.H{"org_id": parseUintParam(c, "id"), "changes": body})
 	response.OK(c, gin.H{"id": parseUintParam(c, "id")})
+}
+
+func (h *IdentityHandler) deleteOrgNodeWithAudit(c *gin.Context, summary string) {
+	id := parseUintParam(c, "id")
+	if h.deleteTenantScopedByID(c, &models.OrgNode{}) {
+		h.auditCurrentUser(c, "organization", "delete", summary, gin.H{"org_id": id})
+	}
 }
 
 func (h *IdentityHandler) replaceBusinessUnitMappings(tenantID, buID uint64, orgIDs []uint64) {
