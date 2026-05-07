@@ -348,3 +348,22 @@ Go 版额外路由：
 状态：
 
 - M 组监控已完成。
+
+## 数据库与迁移对比
+
+已对齐项：
+
+- AppUser 模型补齐 `tenant_id + employee_no`、`tenant_id + phone` 唯一约束，并把密码、姓名、邮箱长度调整为原模型口径。
+- Role、UserRole、RolePermission、AppUserDepartment、AppUserPosition、UserPreference 模型补齐原模型唯一约束。
+- BusinessUnit 统计开关默认值调整为启用，BusinessUnitOrgMap 和 BusinessUnitScope 补齐复合唯一约束。
+- TenantMenuOverride、TenantDictItemOverride、TenantParamValue 模型补齐租户维度覆盖唯一约束。
+- Permission 字段长度按原模型调整：名称 200、路径 500、功能编码 100、租户编辑范围 100。
+- DictType 租户可编辑默认值调整为启用，与原模型一致。
+
+验证：
+
+- `docker run --rm -e GOPROXY=https://goproxy.cn,direct -v "$PWD":/src -w /src golang:1.23-alpine sh -c 'gofmt -w ./cmd ./internal && go test ./...'` 通过。
+
+状态：
+
+- N1 Go 模型字段、索引、唯一约束、软删除字段已完成。

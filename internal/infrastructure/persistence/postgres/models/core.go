@@ -28,15 +28,15 @@ func (Tenant) TableName() string {
 
 type AppUser struct {
 	ID              uint64     `gorm:"primaryKey;autoIncrement;column:id"`
-	TenantID        uint64     `gorm:"column:tenant_id;not null;index"`
+	TenantID        uint64     `gorm:"column:tenant_id;not null;index;index:idx_app_user_tenant_employee,unique;index:idx_app_user_tenant_phone,unique"`
 	CompanyID       *uint64    `gorm:"column:company_id;index"`
 	DepartmentID    *uint64    `gorm:"column:department_id;index"`
-	EmployeeNo      string     `gorm:"column:employee_no;type:varchar(64);not null"`
+	EmployeeNo      string     `gorm:"column:employee_no;type:varchar(64);not null;index:idx_app_user_tenant_employee,unique"`
 	Account         string     `gorm:"column:account;type:varchar(64);index"`
-	PasswordHash    string     `gorm:"column:password_hash;type:varchar(255);not null"`
-	Name            string     `gorm:"column:name;type:varchar(128);not null"`
-	Phone           *string    `gorm:"column:phone;type:varchar(32)"`
-	Email           *string    `gorm:"column:email;type:varchar(128)"`
+	PasswordHash    string     `gorm:"column:password_hash;type:varchar(200);not null"`
+	Name            string     `gorm:"column:name;type:varchar(100);not null"`
+	Phone           *string    `gorm:"column:phone;type:varchar(32);index:idx_app_user_tenant_phone,unique"`
+	Email           *string    `gorm:"column:email;type:varchar(200)"`
 	AvatarURL       *string    `gorm:"column:avatar_url;type:text"`
 	Status          int        `gorm:"column:status;not null;default:1"`
 	IsPlatformAdmin bool       `gorm:"column:is_platform_admin;not null;default:false"`
@@ -51,8 +51,8 @@ func (AppUser) TableName() string {
 
 type Role struct {
 	ID          uint64     `gorm:"primaryKey;autoIncrement;column:id"`
-	TenantID    uint64     `gorm:"column:tenant_id;not null;index"`
-	Code        string     `gorm:"column:code;type:varchar(64);not null"`
+	TenantID    uint64     `gorm:"column:tenant_id;not null;index;index:idx_role_tenant_code,unique"`
+	Code        string     `gorm:"column:code;type:varchar(64);not null;index:idx_role_tenant_code,unique"`
 	Name        string     `gorm:"column:name;type:varchar(200);not null"`
 	Description *string    `gorm:"column:description;type:varchar(500)"`
 	Status      int        `gorm:"column:status;not null;default:1"`
@@ -69,8 +69,8 @@ type Permission struct {
 	ID               uint64     `gorm:"primaryKey;autoIncrement;column:id"`
 	TenantID         uint64     `gorm:"column:tenant_id;not null;index"`
 	ParentID         *uint64    `gorm:"column:parent_id"`
-	Name             string     `gorm:"column:name;type:varchar(128);not null"`
-	Path             string     `gorm:"column:path;type:varchar(255);not null;index"`
+	Name             string     `gorm:"column:name;type:varchar(200);not null"`
+	Path             string     `gorm:"column:path;type:varchar(500);index"`
 	PermType         int        `gorm:"column:perm_type;not null"`
 	DataScope        *string    `gorm:"column:data_scope;type:varchar(32)"`
 	SortOrder        int        `gorm:"column:sort_order;not null;default:0"`
@@ -79,8 +79,8 @@ type Permission struct {
 	IsPlatformOnly   bool       `gorm:"column:is_platform_only;not null;default:false"`
 	IsPackageFeature bool       `gorm:"column:is_package_feature;not null;default:true"`
 	TenantEditable   bool       `gorm:"column:tenant_editable;not null;default:false"`
-	TenantEditScope  *string    `gorm:"column:tenant_edit_scope;type:varchar(64)"`
-	FeatureCode      *string    `gorm:"column:feature_code;type:varchar(128)"`
+	TenantEditScope  *string    `gorm:"column:tenant_edit_scope;type:varchar(100)"`
+	FeatureCode      *string    `gorm:"column:feature_code;type:varchar(100);index"`
 	FeatureType      *string    `gorm:"column:feature_type;type:varchar(32)"`
 	DataPermMode     string     `gorm:"column:data_perm_mode;type:varchar(16);not null;default:'ORG'"`
 	CreatedAt        time.Time  `gorm:"column:created_at;not null"`
@@ -94,8 +94,8 @@ func (Permission) TableName() string {
 
 type UserRole struct {
 	ID        uint64    `gorm:"primaryKey;autoIncrement;column:id"`
-	UserID    uint64    `gorm:"column:user_id;not null;index"`
-	RoleID    uint64    `gorm:"column:role_id;not null;index"`
+	UserID    uint64    `gorm:"column:user_id;not null;index;index:idx_user_role_user_role,unique"`
+	RoleID    uint64    `gorm:"column:role_id;not null;index;index:idx_user_role_user_role,unique"`
 	CreatedAt time.Time `gorm:"column:created_at;not null"`
 }
 
@@ -105,8 +105,8 @@ func (UserRole) TableName() string {
 
 type RolePermission struct {
 	ID                        uint64    `gorm:"primaryKey;autoIncrement;column:id"`
-	RoleID                    uint64    `gorm:"column:role_id;not null;index"`
-	PermissionID              uint64    `gorm:"column:permission_id;not null;index"`
+	RoleID                    uint64    `gorm:"column:role_id;not null;index;index:idx_role_permission_role_permission,unique"`
+	PermissionID              uint64    `gorm:"column:permission_id;not null;index;index:idx_role_permission_role_permission,unique"`
 	DataScopeOverride         *string   `gorm:"column:data_scope_override;type:varchar(32)"`
 	CustomCompanyIDsJSON      *string   `gorm:"column:custom_company_ids_json;type:text"`
 	CustomDepartmentIDsJSON   *string   `gorm:"column:custom_department_ids_json;type:text"`

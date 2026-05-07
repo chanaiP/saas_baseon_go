@@ -52,7 +52,7 @@ type BusinessUnit struct {
 	BUType           *string    `gorm:"column:bu_type;type:varchar(32)"`
 	Status           int        `gorm:"column:status;not null;default:1"`
 	BillingEnabled   bool       `gorm:"column:billing_enabled;not null;default:false"`
-	StatisticEnabled bool       `gorm:"column:statistic_enabled;not null;default:false"`
+	StatisticEnabled bool       `gorm:"column:statistic_enabled;not null;default:true"`
 	Remark           *string    `gorm:"column:remark;type:text"`
 	CreatedAt        time.Time  `gorm:"column:created_at;not null"`
 	UpdatedAt        time.Time  `gorm:"column:updated_at;not null"`
@@ -63,11 +63,11 @@ func (BusinessUnit) TableName() string { return "business_unit" }
 
 type BusinessUnitOrgMap struct {
 	ID             uint64     `gorm:"primaryKey;autoIncrement;column:id"`
-	TenantID       uint64     `gorm:"column:tenant_id;not null;index"`
-	BusinessUnitID uint64     `gorm:"column:business_unit_id;not null;index"`
-	OrgID          uint64     `gorm:"column:org_id;not null;index"`
+	TenantID       uint64     `gorm:"column:tenant_id;not null;index;index:idx_bu_org_map_scope,unique"`
+	BusinessUnitID uint64     `gorm:"column:business_unit_id;not null;index;index:idx_bu_org_map_scope,unique"`
+	OrgID          uint64     `gorm:"column:org_id;not null;index;index:idx_bu_org_map_scope,unique"`
 	OrgType        string     `gorm:"column:org_type;type:varchar(32);not null"`
-	ScopeType      string     `gorm:"column:scope_type;type:varchar(32);not null"`
+	ScopeType      string     `gorm:"column:scope_type;type:varchar(32);not null;index:idx_bu_org_map_scope,unique"`
 	Priority       int        `gorm:"column:priority;not null;default:0"`
 	EffectiveStart *time.Time `gorm:"column:effective_start"`
 	EffectiveEnd   *time.Time `gorm:"column:effective_end"`
@@ -80,8 +80,8 @@ func (BusinessUnitOrgMap) TableName() string { return "business_unit_org_map" }
 
 type BusinessUnitScope struct {
 	ID               uint64    `gorm:"primaryKey;autoIncrement;column:id"`
-	RolePermissionID uint64    `gorm:"column:role_permission_id;not null;index"`
-	BusinessUnitID   uint64    `gorm:"column:business_unit_id;not null;index"`
+	RolePermissionID uint64    `gorm:"column:role_permission_id;not null;index;index:idx_bu_scope_role_permission_bu,unique"`
+	BusinessUnitID   uint64    `gorm:"column:business_unit_id;not null;index;index:idx_bu_scope_role_permission_bu,unique"`
 	CreatedAt        time.Time `gorm:"column:created_at;not null"`
 }
 
@@ -94,7 +94,7 @@ type DictType struct {
 	Name           string     `gorm:"column:name;type:varchar(200);not null"`
 	Remark         *string    `gorm:"column:remark;type:varchar(500)"`
 	Scope          string     `gorm:"column:scope;type:varchar(32);not null"`
-	TenantEditable bool       `gorm:"column:tenant_editable;not null;default:false"`
+	TenantEditable bool       `gorm:"column:tenant_editable;not null;default:true"`
 	IsPlatformOnly bool       `gorm:"column:is_platform_only;not null;default:false"`
 	CreatedAt      time.Time  `gorm:"column:created_at;not null"`
 	UpdatedAt      time.Time  `gorm:"column:updated_at;not null"`
@@ -120,8 +120,8 @@ func (DictItem) TableName() string { return "dict_item" }
 
 type TenantDictItemOverride struct {
 	ID          uint64    `gorm:"primaryKey;autoIncrement;column:id"`
-	TenantID    uint64    `gorm:"column:tenant_id;not null;index"`
-	DictItemID  uint64    `gorm:"column:dict_item_id;not null;index"`
+	TenantID    uint64    `gorm:"column:tenant_id;not null;index;index:idx_tenant_dict_item_override,unique"`
+	DictItemID  uint64    `gorm:"column:dict_item_id;not null;index;index:idx_tenant_dict_item_override,unique"`
 	CustomLabel *string   `gorm:"column:custom_label;type:varchar(200)"`
 	CustomValue *string   `gorm:"column:custom_value;type:varchar(200)"`
 	Enabled     *bool     `gorm:"column:enabled"`
@@ -134,8 +134,8 @@ func (TenantDictItemOverride) TableName() string { return "tenant_dict_item_over
 
 type TenantMenuOverride struct {
 	ID           uint64    `gorm:"primaryKey;autoIncrement;column:id"`
-	TenantID     uint64    `gorm:"column:tenant_id;not null;index"`
-	PermissionID uint64    `gorm:"column:permission_id;not null;index"`
+	TenantID     uint64    `gorm:"column:tenant_id;not null;index;index:idx_tenant_menu_override,unique"`
+	PermissionID uint64    `gorm:"column:permission_id;not null;index;index:idx_tenant_menu_override,unique"`
 	CustomName   *string   `gorm:"column:custom_name;type:varchar(200)"`
 	CustomIcon   *string   `gorm:"column:custom_icon;type:varchar(100)"`
 	Enabled      *bool     `gorm:"column:enabled"`
@@ -149,8 +149,8 @@ func (TenantMenuOverride) TableName() string { return "tenant_menu_override" }
 
 type TenantParamValue struct {
 	ID         uint64    `gorm:"primaryKey;autoIncrement;column:id"`
-	TenantID   uint64    `gorm:"column:tenant_id;not null;index"`
-	ParamID    uint64    `gorm:"column:param_id;not null;index"`
+	TenantID   uint64    `gorm:"column:tenant_id;not null;index;index:idx_tenant_param_value,unique"`
+	ParamID    uint64    `gorm:"column:param_id;not null;index;index:idx_tenant_param_value,unique"`
 	ParamValue *string   `gorm:"column:param_value;type:text"`
 	CreatedAt  time.Time `gorm:"column:created_at;not null"`
 	UpdatedAt  time.Time `gorm:"column:updated_at;not null"`
@@ -160,8 +160,8 @@ func (TenantParamValue) TableName() string { return "tenant_param_value" }
 
 type AppUserDepartment struct {
 	ID           uint64    `gorm:"primaryKey;autoIncrement;column:id"`
-	UserID       uint64    `gorm:"column:user_id;not null;index"`
-	DepartmentID uint64    `gorm:"column:department_id;not null;index"`
+	UserID       uint64    `gorm:"column:user_id;not null;index;index:idx_app_user_department,unique"`
+	DepartmentID uint64    `gorm:"column:department_id;not null;index;index:idx_app_user_department,unique"`
 	CreatedAt    time.Time `gorm:"column:created_at;not null"`
 }
 
@@ -169,8 +169,8 @@ func (AppUserDepartment) TableName() string { return "app_user_department" }
 
 type AppUserPosition struct {
 	ID         uint64    `gorm:"primaryKey;autoIncrement;column:id"`
-	UserID     uint64    `gorm:"column:user_id;not null;index"`
-	PositionID uint64    `gorm:"column:position_id;not null;index"`
+	UserID     uint64    `gorm:"column:user_id;not null;index;index:idx_app_user_position,unique"`
+	PositionID uint64    `gorm:"column:position_id;not null;index;index:idx_app_user_position,unique"`
 	CreatedAt  time.Time `gorm:"column:created_at;not null"`
 }
 
@@ -196,8 +196,8 @@ func (PermissionCustomUser) TableName() string { return "permission_custom_user"
 
 type UserPreference struct {
 	ID        uint64    `gorm:"primaryKey;autoIncrement;column:id"`
-	UserID    uint64    `gorm:"column:user_id;not null;index"`
-	PrefKey   string    `gorm:"column:pref_key;type:varchar(64);not null"`
+	UserID    uint64    `gorm:"column:user_id;not null;index;index:idx_user_preference_key,unique"`
+	PrefKey   string    `gorm:"column:pref_key;type:varchar(64);not null;index:idx_user_preference_key,unique"`
 	PrefValue *string   `gorm:"column:pref_value;type:text"`
 	UpdatedAt time.Time `gorm:"column:updated_at;not null"`
 }
