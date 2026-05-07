@@ -1723,7 +1723,7 @@ func (h *IdentityHandler) PlanMatrix(c *gin.Context) {
 				"enabled":      isEnabled,
 				"state":        state,
 				"feature_ids":  []uint64{feature.ID},
-				"quota_values": []gin.H{},
+				"quota_values": h.planMatrixQuotaValues(plan.ID, feature.FeatureCode),
 			})
 		}
 		nodes = append(nodes, gin.H{
@@ -1823,11 +1823,8 @@ func (h *IdentityHandler) SavePlanFeatures(c *gin.Context) {
 
 func (h *IdentityHandler) SavePlanCapabilities(c *gin.Context) {
 	var body struct {
-		FeatureIDs []uint64 `json:"feature_ids"`
-		Quotas     []struct {
-			QuotaID    uint64 `json:"quota_id"`
-			QuotaValue int    `json:"quota_value"`
-		} `json:"quotas"`
+		FeatureIDs []uint64         `json:"feature_ids"`
+		Quotas     []planQuotaInput `json:"quotas"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
@@ -1838,10 +1835,12 @@ func (h *IdentityHandler) SavePlanCapabilities(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
-	_ = h.db.Where("plan_id = ?", planID).Delete(&models.SaasPlanQuota{}).Error
+	if err := h.savePlanQuotasWithValues(planID, body.Quotas); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
 	quotaItems := make([]gin.H, 0, len(body.Quotas))
 	for _, quota := range body.Quotas {
-		_ = h.db.Create(&models.SaasPlanQuota{PlanID: planID, QuotaID: quota.QuotaID, QuotaValue: quota.QuotaValue}).Error
 		quotaItems = append(quotaItems, gin.H{"quota_id": quota.QuotaID, "quota_value": quota.QuotaValue})
 	}
 	response.OK(c, gin.H{"plan_id": planID, "feature_ids": body.FeatureIDs, "quotas": quotaItems})
@@ -1874,23 +1873,55 @@ func (h *IdentityHandler) savePlanFeaturesWithIDs(planID uint64, featureIDs []ui
 	})
 }
 
-func (h *IdentityHandler) Quotas(c *gin.Context) {
-	var rows []models.SaasQuota
-	_ = h.db.Order("id asc").Find(&rows).Error
+func (h *IdentityHandler) planMatrixQuotaValues(planID uint64, featureCode string) []gin.H {
+	quotaCodes := quotaCodesForFeatureCode(featureCode)
+	if len(quotaCodes) == 0 {
+		return []gin.H{}
+	}
+	var rows []struct {
+		QuotaID    uint64
+		QuotaCode  string
+		QuotaName  string
+		QuotaValue int
+	}
+	_ = h.db.Table("saas_plan_quota pq").
+		Select("pq.quota_id, q.quota_code, q.quota_name, pq.quota_value").
+		Joins("join saas_quota q on q.id = pq.quota_id").
+		Where("pq.plan_id = ? AND q.quota_code IN ?", planID, quotaCodes).
+		Scan(&rows).Error
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, gin.H{
-			"id":          row.ID,
-			"quota_code":  row.QuotaCode,
-			"quota_name":  row.QuotaName,
-			"quota_type":  row.QuotaType,
-			"period_type": row.PeriodType,
-			"unit":        row.Unit,
-			"status":      row.Status,
-			"description": row.Description,
-		})
+		items = append(items, gin.H{"quota_id": row.QuotaID, "quota_code": row.QuotaCode, "quota_name": row.QuotaName, "quota_value": row.QuotaValue})
 	}
-	response.OK(c, paginated(items))
+	return items
+}
+
+func quotaCodesForFeatureCode(featureCode string) []string {
+	mapping := map[string][]string{
+		"user_manage":          {"max_users"},
+		"org_manage":           {"max_companies", "max_stores", "max_departments"},
+		"business_unit_manage": {"max_business_units"},
+		"role_manage":          {"max_roles"},
+		"import_data":          {"daily_import_times"},
+		"export_data":          {"daily_export_times"},
+		"api_key":              {"max_api_keys", "daily_api_calls"},
+		"webhook":              {"max_webhooks"},
+	}
+	return mapping[featureCode]
+}
+
+func (h *IdentityHandler) Quotas(c *gin.Context) {
+	skip, limit := paginationParams(c)
+	query := h.db.Order("id asc")
+	var total int64
+	_ = query.Model(&models.SaasQuota{}).Count(&total).Error
+	var rows []models.SaasQuota
+	_ = query.Offset(skip).Limit(limit).Find(&rows).Error
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, quotaToJSON(row))
+	}
+	response.OK(c, paginatedWithTotal(items, total, skip, limit))
 }
 
 func (h *IdentityHandler) CreateQuota(c *gin.Context) {
@@ -1899,6 +1930,11 @@ func (h *IdentityHandler) CreateQuota(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
+	if row.Status == 0 {
+		row.Status = 1
+	}
+	row.QuotaCode = strings.TrimSpace(row.QuotaCode)
+	row.QuotaName = strings.TrimSpace(row.QuotaName)
 	if err := h.db.Create(&row).Error; err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
@@ -1949,20 +1985,43 @@ func (h *IdentityHandler) PlanQuotas(c *gin.Context) {
 func (h *IdentityHandler) SavePlanQuotas(c *gin.Context) {
 	planID := parseUintParam(c, "id")
 	var body struct {
-		Quotas []struct {
-			QuotaID    uint64 `json:"quota_id"`
-			QuotaValue int    `json:"quota_value"`
-		} `json:"quotas"`
+		Quotas []planQuotaInput `json:"quotas"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	_ = h.db.Where("plan_id = ?", planID).Delete(&models.SaasPlanQuota{}).Error
-	for _, quota := range body.Quotas {
-		_ = h.db.Create(&models.SaasPlanQuota{PlanID: planID, QuotaID: quota.QuotaID, QuotaValue: quota.QuotaValue}).Error
+	if err := h.savePlanQuotasWithValues(planID, body.Quotas); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
 	}
 	h.PlanQuotas(c)
+}
+
+func (h *IdentityHandler) savePlanQuotasWithValues(planID uint64, quotas []planQuotaInput) error {
+	return h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("plan_id = ?", planID).Delete(&models.SaasPlanQuota{}).Error; err != nil {
+			return err
+		}
+		seen := map[uint64]struct{}{}
+		for _, item := range quotas {
+			if item.QuotaID == 0 {
+				continue
+			}
+			if _, ok := seen[item.QuotaID]; ok {
+				continue
+			}
+			seen[item.QuotaID] = struct{}{}
+			var quota models.SaasQuota
+			if err := tx.Where("id = ? AND status = ?", item.QuotaID, 1).First(&quota).Error; err != nil {
+				return fmt.Errorf("配额不存在或已停用")
+			}
+			if err := tx.Create(&models.SaasPlanQuota{PlanID: planID, QuotaID: item.QuotaID, QuotaValue: item.QuotaValue}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (h *IdentityHandler) TenantQuotaRecords(c *gin.Context) {
@@ -3013,6 +3072,11 @@ type tenantPackagePayload struct {
 		QuotaID    uint64 `json:"quota_id"`
 		QuotaValue int    `json:"quota_value"`
 	} `json:"quotas"`
+}
+
+type planQuotaInput struct {
+	QuotaID    uint64 `json:"quota_id"`
+	QuotaValue int    `json:"quota_value"`
 }
 
 func paginated(items interface{}) gin.H {
