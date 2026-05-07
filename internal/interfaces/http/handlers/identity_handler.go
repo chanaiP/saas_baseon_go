@@ -341,6 +341,64 @@ func (h *IdentityHandler) resetIPLoginFail(c *gin.Context) {
 	}
 }
 
+func validateNewPassword(oldPassword, newPassword, confirm string) string {
+	if len(oldPassword) < 1 || len(oldPassword) > 128 || len(newPassword) < 8 || len(newPassword) > 128 || len(confirm) < 8 || len(confirm) > 128 {
+		return "请求参数错误"
+	}
+	hasLetter := false
+	hasDigit := false
+	for _, ch := range newPassword {
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') {
+			hasLetter = true
+		}
+		if ch >= '0' && ch <= '9' {
+			hasDigit = true
+		}
+	}
+	if !hasLetter || !hasDigit {
+		return "新密码须同时包含英文字母与数字"
+	}
+	if newPassword != confirm {
+		return "两次输入的新密码不一致"
+	}
+	if oldPassword == newPassword {
+		return "新密码不能与当前密码相同"
+	}
+	return ""
+}
+
+func (h *IdentityHandler) passwordChangeBlockMessage(userID uint64) string {
+	if h.redis == nil {
+		return ""
+	}
+	if v, err := h.redis.Get(context.Background(), fmt.Sprintf("auth:pwd_block:%d", userID)).Result(); err == nil && v != "" {
+		return "密码错误尝试过多，请 15 分钟后再试修改密码"
+	}
+	return ""
+}
+
+func (h *IdentityHandler) recordPasswordChangeFailure(userID uint64) {
+	if h.redis == nil {
+		return
+	}
+	ctx := context.Background()
+	failKey := fmt.Sprintf("auth:pwd_fail:%d", userID)
+	n, _ := h.redis.Incr(ctx, failKey).Result()
+	if n == 1 {
+		_ = h.redis.Expire(ctx, failKey, 15*time.Minute).Err()
+	}
+	if n >= 5 {
+		_ = h.redis.Set(ctx, fmt.Sprintf("auth:pwd_block:%d", userID), "1", 15*time.Minute).Err()
+		_ = h.redis.Del(ctx, failKey).Err()
+	}
+}
+
+func (h *IdentityHandler) clearPasswordChangeGuard(userID uint64) {
+	if h.redis != nil {
+		_ = h.redis.Del(context.Background(), fmt.Sprintf("auth:pwd_fail:%d", userID), fmt.Sprintf("auth:pwd_block:%d", userID)).Err()
+	}
+}
+
 func (h *IdentityHandler) Profile(c *gin.Context) {
 	var user models.AppUser
 	var tenant models.Tenant
@@ -451,17 +509,28 @@ func (h *IdentityHandler) UpdatePassword(c *gin.Context) {
 		OldPassword        string `json:"old_password"`
 		NewPassword        string `json:"new_password"`
 		NewPasswordConfirm string `json:"new_password_confirm"`
+		CaptchaID          string `json:"captcha_id"`
+		CaptchaCode        string `json:"captcha_code"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	if body.NewPassword == "" || body.NewPassword != body.NewPasswordConfirm {
-		response.Error(c, 400, response.CodeBadRequest, "两次输入的新密码不一致")
+	if block := h.passwordChangeBlockMessage(user.ID); block != "" {
+		c.JSON(429, response.Body{Code: 42900, Message: block})
+		return
+	}
+	if strings.TrimSpace(body.CaptchaID) == "" || strings.TrimSpace(body.CaptchaCode) == "" || !h.verifyCaptcha(c, body.CaptchaID, body.CaptchaCode) {
+		response.Error(c, 400, response.CodeBadRequest, "验证码错误或已过期，请刷新验证码后重试")
+		return
+	}
+	if msg := validateNewPassword(body.OldPassword, body.NewPassword, body.NewPasswordConfirm); msg != "" {
+		response.Error(c, 400, response.CodeBadRequest, msg)
 		return
 	}
 	if !verifyPassword(body.OldPassword, user.PasswordHash) {
-		response.Error(c, 400, response.CodeBadRequest, "当前密码错误")
+		h.recordPasswordChangeFailure(user.ID)
+		response.Error(c, 400, response.CodeBadRequest, "旧密码不正确")
 		return
 	}
 	hashed, err := hashPassword(body.NewPassword)
@@ -473,6 +542,8 @@ func (h *IdentityHandler) UpdatePassword(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
+	h.clearPasswordChangeGuard(user.ID)
+	h.audit(c, user.TenantID, user.ID, "user", "update_password", "修改密码 "+user.Name, nil)
 	response.OK(c, gin.H{})
 }
 
@@ -886,8 +957,8 @@ func (h *IdentityHandler) UpdateUser(c *gin.Context) {
 }
 
 func (h *IdentityHandler) ResetUserPassword(c *gin.Context) {
-	newPassword := fmt.Sprintf("Pwd%06d", time.Now().UnixNano()%1000000)
-	result := h.db.Model(&models.AppUser{}).Where("id = ? AND tenant_id = ?", c.Param("id"), h.requestTenantID(c)).Update("password_hash", devPasswordHash(newPassword))
+	newPassword := generateRandomPassword(14)
+	result := h.db.Model(&models.AppUser{}).Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", c.Param("id"), h.requestTenantID(c)).Update("password_hash", devPasswordHash(newPassword))
 	if result.Error != nil {
 		response.Error(c, 400, response.CodeBadRequest, result.Error.Error())
 		return
@@ -1441,7 +1512,7 @@ func (h *IdentityHandler) ResetTenantPrimaryAdminPassword(c *gin.Context) {
 		response.Error(c, 404, response.CodeNotFound, "主管理员不存在")
 		return
 	}
-	newPassword := fmt.Sprintf("Pwd%06d", time.Now().UnixNano()%1000000)
+	newPassword := generateRandomPassword(14)
 	_ = h.db.Model(&user).Update("password_hash", devPasswordHash(newPassword)).Error
 	response.OK(c, gin.H{"employee_no": user.EmployeeNo, "phone": user.Phone, "name": user.Name, "new_password": newPassword})
 }
@@ -2726,8 +2797,11 @@ func (h *IdentityHandler) verifyCaptcha(c *gin.Context, id, code string) bool {
 			return false
 		}
 	}
-	_ = h.redis.Del(ctx, key).Err()
-	return strings.EqualFold(strings.TrimSpace(stored), strings.TrimSpace(code))
+	ok := strings.EqualFold(strings.TrimSpace(stored), strings.TrimSpace(code))
+	if ok {
+		_ = h.redis.Del(ctx, key).Err()
+	}
+	return ok
 }
 
 func (h *IdentityHandler) subscriptionAllowsLogin(tenantID uint64) bool {

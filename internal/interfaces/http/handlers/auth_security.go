@@ -2,15 +2,18 @@ package handlers
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"math/big"
 	"strconv"
 	"strings"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/crypto/pbkdf2"
 )
 
 type tokenClaims struct {
@@ -23,26 +26,67 @@ func hashPassword(password string) (string, error) {
 	if password == "" {
 		password = "112233"
 	}
-	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
+	saltBytes := make([]byte, 16)
+	if _, err := rand.Read(saltBytes); err != nil {
 		return "", err
 	}
-	return "bcrypt:" + string(hashed), nil
+	salt := hex.EncodeToString(saltBytes)
+	digest := pbkdf2.Key([]byte(password), []byte(salt), 390000, 32, sha256.New)
+	return "pbkdf2_sha256$" + salt + "$" + hex.EncodeToString(digest), nil
 }
 
 func mustHashPassword(password string) string {
 	hashed, err := hashPassword(password)
 	if err != nil {
-		return "bcrypt-error"
+		return "pbkdf2-error"
 	}
 	return hashed
 }
 
 func verifyPassword(password, stored string) bool {
-	if !strings.HasPrefix(stored, "bcrypt:") {
+	if !strings.HasPrefix(stored, "pbkdf2_sha256$") {
 		return false
 	}
-	return bcrypt.CompareHashAndPassword([]byte(strings.TrimPrefix(stored, "bcrypt:")), []byte(password)) == nil
+	parts := strings.SplitN(stored, "$", 3)
+	if len(parts) != 3 {
+		return false
+	}
+	digest := pbkdf2.Key([]byte(password), []byte(parts[1]), 390000, 32, sha256.New)
+	return hmac.Equal([]byte(hex.EncodeToString(digest)), []byte(parts[2]))
+}
+
+func generateRandomPassword(length int) string {
+	n := length
+	if n < 8 {
+		n = 8
+	}
+	if n > 128 {
+		n = 128
+	}
+	const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	for {
+		var b strings.Builder
+		b.Grow(n)
+		hasLetter := false
+		hasDigit := false
+		for i := 0; i < n; i++ {
+			idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(alphabet))))
+			if err != nil {
+				return "A1122334455667"
+			}
+			ch := alphabet[idx.Int64()]
+			if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') {
+				hasLetter = true
+			}
+			if ch >= '0' && ch <= '9' {
+				hasDigit = true
+			}
+			b.WriteByte(ch)
+		}
+		if hasLetter && hasDigit {
+			return b.String()
+		}
+	}
 }
 
 func issueToken(userID, tenantID uint64, secret string, ttl time.Duration) (string, error) {

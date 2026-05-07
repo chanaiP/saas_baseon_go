@@ -12,7 +12,7 @@ func TestPasswordHashAndVerify(t *testing.T) {
 	hashed, err := hashPassword("112233")
 
 	require.NoError(t, err)
-	require.True(t, strings.HasPrefix(hashed, "bcrypt:"))
+	require.True(t, strings.HasPrefix(hashed, "pbkdf2_sha256$"))
 	require.True(t, verifyPassword("112233", hashed))
 	require.False(t, verifyPassword("bad-password", hashed))
 }
@@ -20,7 +20,16 @@ func TestPasswordHashAndVerify(t *testing.T) {
 func TestVerifyPasswordRejectsLegacyAndPlaintextPasswords(t *testing.T) {
 	require.False(t, verifyPassword("112233", "dev:112233"))
 	require.False(t, verifyPassword("112233", "dev-password-placeholder"))
+	require.False(t, verifyPassword("112233", "bcrypt:$2a$10$dummydummydummydummydummydummy"))
 	require.False(t, verifyPassword("112233", "112233"))
+}
+
+func TestGenerateRandomPasswordMatchesOriginalPolicy(t *testing.T) {
+	password := generateRandomPassword(14)
+
+	require.Len(t, password, 14)
+	require.Regexp(t, `[A-Za-z]`, password)
+	require.Regexp(t, `\d`, password)
 }
 
 func TestIssueAndParseToken(t *testing.T) {

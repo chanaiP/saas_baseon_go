@@ -1,10 +1,13 @@
 package bootstrap
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/crypto/pbkdf2"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -110,11 +113,13 @@ func seedCoreData(db *gorm.DB) error {
 }
 
 func seedPasswordHash(password string) (string, error) {
-	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
+	saltBytes := make([]byte, 16)
+	if _, err := rand.Read(saltBytes); err != nil {
 		return "", err
 	}
-	return "bcrypt:" + string(hashed), nil
+	salt := hex.EncodeToString(saltBytes)
+	digest := pbkdf2.Key([]byte(password), []byte(salt), 390000, 32, sha256.New)
+	return "pbkdf2_sha256$" + salt + "$" + hex.EncodeToString(digest), nil
 }
 
 func seedPlatformStructure(db *gorm.DB, tenantID uint64) (models.OrgNode, models.PositionType, models.Position, error) {
