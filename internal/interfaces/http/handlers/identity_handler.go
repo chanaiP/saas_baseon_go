@@ -22,7 +22,10 @@ import (
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
+	apppermission "saas_baseon_go/internal/application/permission"
+	domainpermission "saas_baseon_go/internal/domain/permission"
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
+	"saas_baseon_go/internal/infrastructure/persistence/postgres/repositories"
 	"saas_baseon_go/internal/interfaces/http/response"
 )
 
@@ -741,32 +744,39 @@ func (h *IdentityHandler) DeleteUser(c *gin.Context) {
 }
 
 func (h *IdentityHandler) AssignableRoles(c *gin.Context) {
-	var rows []models.Role
-	_ = h.db.Order("id asc").Find(&rows).Error
-	items := make([]gin.H, 0, len(rows))
-	for _, row := range rows {
-		items = append(items, gin.H{"id": row.ID, "code": row.Code, "name": row.Name})
+	roles, _, err := h.roleService().List(c.Request.Context(), apppermission.RoleListQuery{TenantID: parseTenantID(c), Limit: 200})
+	if err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	items := make([]gin.H, 0, len(roles))
+	for _, role := range roles {
+		items = append(items, gin.H{"id": role.ID, "code": role.Code, "name": role.Name})
 	}
 	response.OK(c, paginated(items))
 }
 
 func (h *IdentityHandler) Roles(c *gin.Context) {
-	var rows []models.Role
-	_ = h.db.Order("id desc").Find(&rows).Error
-	items := make([]gin.H, 0, len(rows))
-	for _, row := range rows {
-		items = append(items, h.roleToJSON(row))
+	skip, limit := paginationParams(c)
+	roles, total, err := h.roleService().List(c.Request.Context(), apppermission.RoleListQuery{TenantID: parseTenantID(c), Skip: skip, Limit: limit, Keyword: c.Query("kw")})
+	if err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
 	}
-	response.OK(c, paginated(items))
+	items := make([]gin.H, 0, len(roles))
+	for _, role := range roles {
+		items = append(items, roleToJSON(role))
+	}
+	response.OK(c, paginatedWithTotal(items, total, skip, limit))
 }
 
 func (h *IdentityHandler) Role(c *gin.Context) {
-	var row models.Role
-	if err := h.db.First(&row, c.Param("id")).Error; err != nil {
+	role, err := h.roleService().Get(c.Request.Context(), parseUintParam(c, "id"))
+	if err != nil {
 		response.Error(c, 404, response.CodeNotFound, "角色不存在")
 		return
 	}
-	response.OK(c, h.roleToJSON(row))
+	response.OK(c, roleToJSON(role))
 }
 
 func (h *IdentityHandler) CreateRole(c *gin.Context) {
@@ -780,21 +790,15 @@ func (h *IdentityHandler) CreateRole(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	role := models.Role{TenantID: 1, Code: body.Code, Name: body.Name, Description: body.Description, Status: 1}
-	if err := h.db.Create(&role).Error; err != nil {
+	role, err := h.roleService().Create(c.Request.Context(), apppermission.RoleCreateCommand{TenantID: parseTenantID(c), Code: body.Code, Name: body.Name, Description: body.Description, PermissionIDs: body.PermissionIDs})
+	if err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
-	h.replaceRolePermissions(role.ID, body.PermissionIDs)
-	response.OK(c, h.roleToJSON(role))
+	response.OK(c, roleToJSON(role))
 }
 
 func (h *IdentityHandler) UpdateRole(c *gin.Context) {
-	var role models.Role
-	if err := h.db.First(&role, c.Param("id")).Error; err != nil {
-		response.Error(c, 404, response.CodeNotFound, "角色不存在")
-		return
-	}
 	var body struct {
 		Name          *string  `json:"name"`
 		Description   *string  `json:"description"`
@@ -804,27 +808,28 @@ func (h *IdentityHandler) UpdateRole(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	updates := map[string]interface{}{}
-	if body.Name != nil {
-		updates["name"] = *body.Name
-	}
-	if body.Description != nil {
-		updates["description"] = *body.Description
-	}
-	if len(updates) > 0 {
-		if err := h.db.Model(&role).Updates(updates).First(&role, role.ID).Error; err != nil {
-			response.Error(c, 400, response.CodeBadRequest, err.Error())
+	role, err := h.roleService().Update(c.Request.Context(), apppermission.RoleUpdateCommand{ID: parseUintParam(c, "id"), Name: body.Name, Description: body.Description, PermissionIDs: body.PermissionIDs, UpdatePerms: body.PermissionIDs != nil})
+	if err != nil {
+		if err == domainpermission.ErrRoleNotFound {
+			response.Error(c, 404, response.CodeNotFound, "角色不存在")
 			return
 		}
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
 	}
-	if body.PermissionIDs != nil {
-		h.replaceRolePermissions(role.ID, body.PermissionIDs)
-	}
-	response.OK(c, h.roleToJSON(role))
+	response.OK(c, roleToJSON(role))
 }
 
 func (h *IdentityHandler) DeleteRole(c *gin.Context) {
-	h.deleteByID(c, &models.Role{})
+	if err := h.roleService().Delete(c.Request.Context(), parseUintParam(c, "id")); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, gin.H{"deleted": parseUintParam(c, "id")})
+}
+
+func (h *IdentityHandler) roleService() *apppermission.RoleService {
+	return apppermission.NewRoleService(repositories.NewRoleRepository(h.db))
 }
 
 func (h *IdentityHandler) UpdatePermissionDataPermMode(c *gin.Context) {
@@ -2209,6 +2214,22 @@ func paginated(items interface{}) gin.H {
 	return gin.H{"items": items, "total": total, "skip": 0, "limit": 50}
 }
 
+func paginatedWithTotal(items interface{}, total int64, skip int, limit int) gin.H {
+	return gin.H{"items": items, "total": total, "skip": skip, "limit": limit}
+}
+
+func paginationParams(c *gin.Context) (int, int) {
+	skip, _ := strconv.Atoi(c.DefaultQuery("skip", "0"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	if skip < 0 {
+		skip = 0
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	return skip, limit
+}
+
 func tenantToJSON(db *gorm.DB, row models.Tenant) gin.H {
 	planName, planCode := (*string)(nil), (*string)(nil)
 	var sub models.TenantSubscription
@@ -2250,14 +2271,8 @@ func (h *IdentityHandler) userToJSON(row models.AppUser) gin.H {
 	return gin.H{"id": row.ID, "tenant_id": row.TenantID, "employee_no": row.EmployeeNo, "phone": row.Phone, "name": row.Name, "email": row.Email, "avatar_url": row.AvatarURL, "status": row.Status, "company_id": row.CompanyID, "department_id": row.DepartmentID, "department_ids": departmentIDs, "position_ids": positionIDs, "role_ids": roleIDs, "is_platform_admin": row.IsPlatformAdmin, "created_at": row.CreatedAt}
 }
 
-func (h *IdentityHandler) roleToJSON(row models.Role) gin.H {
-	var links []models.RolePermission
-	_ = h.db.Where("role_id = ?", row.ID).Find(&links).Error
-	permissionIDs := make([]uint64, 0, len(links))
-	for _, link := range links {
-		permissionIDs = append(permissionIDs, link.PermissionID)
-	}
-	return gin.H{"id": row.ID, "code": row.Code, "name": row.Name, "description": row.Description, "permission_ids": permissionIDs, "data_overrides": []gin.H{}}
+func roleToJSON(row domainpermission.Role) gin.H {
+	return gin.H{"id": row.ID, "code": row.Code, "name": row.Name, "description": row.Description, "permission_ids": row.PermissionIDs, "data_overrides": []gin.H{}}
 }
 
 func businessUnitToJSON(row models.BusinessUnit) gin.H {
@@ -2729,13 +2744,6 @@ func (h *IdentityHandler) replaceUserRelations(userID uint64, roleIDs []uint64, 
 		for _, id := range departmentIDs {
 			_ = h.db.Create(&models.AppUserDepartment{UserID: userID, DepartmentID: id}).Error
 		}
-	}
-}
-
-func (h *IdentityHandler) replaceRolePermissions(roleID uint64, permissionIDs []uint64) {
-	_ = h.db.Where("role_id = ?", roleID).Delete(&models.RolePermission{}).Error
-	for _, id := range permissionIDs {
-		_ = h.db.Create(&models.RolePermission{RoleID: roleID, PermissionID: id}).Error
 	}
 }
 
