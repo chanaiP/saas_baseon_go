@@ -882,16 +882,29 @@ func (h *IdentityHandler) PublicTenantFooter(c *gin.Context) {
 }
 
 func (h *IdentityHandler) MenuBundles(c *gin.Context) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	forPlatform := user.IsPlatformAdmin || h.viewerHasPlatformScope(user)
 	var permissions []models.Permission
-	_ = h.db.Where("perm_type = ? AND enabled = ? AND visible = ?", 3, true, true).Order("sort_order asc, id asc").Find(&permissions).Error
+	_ = h.db.Where("tenant_id = ? AND perm_type = ? AND enabled = ? AND visible = ? AND deleted_at IS NULL", user.TenantID, 3, true, true).Order("sort_order asc, id asc").Find(&permissions).Error
 	bundles := make([]gin.H, 0, len(permissions))
 	for _, permission := range permissions {
+		if !forPlatform && permission.IsPlatformOnly {
+			continue
+		}
+		if !forPlatform && !h.permissionAllowedForTenantSubscription(user.TenantID, permission) {
+			continue
+		}
+		operations := h.menuBundleOperations(user.TenantID, permission.Path, forPlatform)
 		bundles = append(bundles, gin.H{
 			"path":               permission.Path,
 			"title":              permission.Name,
 			"menu_permission_id": permission.ID,
-			"data_permission_id": 0,
-			"operations":         []gin.H{},
+			"data_permission_id": h.dataPermissionIDForMenu(user.TenantID, permission.Path),
+			"operations":         operations,
 			"is_platform_only":   permission.IsPlatformOnly,
 			"is_package_feature": permission.IsPackageFeature,
 			"feature_code":       permission.FeatureCode,
@@ -906,7 +919,18 @@ func (h *IdentityHandler) MenuBundles(c *gin.Context) {
 }
 
 func (h *IdentityHandler) MenuOverrides(c *gin.Context) {
-	response.OK(c, gin.H{"tenant_id": 1, "overrides": []gin.H{}})
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	var rows []models.TenantMenuOverride
+	_ = h.db.Where("tenant_id = ?", user.TenantID).Order("id asc").Find(&rows).Error
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, gin.H{"id": row.ID, "tenant_id": row.TenantID, "permission_id": row.PermissionID, "custom_name": row.CustomName, "custom_icon": row.CustomIcon, "enabled": row.Enabled, "visible": row.Visible, "sort_order": row.SortOrder})
+	}
+	response.OK(c, gin.H{"tenant_id": user.TenantID, "overrides": items})
 }
 
 func (h *IdentityHandler) Permissions(c *gin.Context) {
@@ -998,6 +1022,74 @@ func coalesceStringPtr(value *string, fallback string) string {
 }
 
 func (h *IdentityHandler) SaveMenuOverrides(c *gin.Context) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	var body struct {
+		Overrides []struct {
+			PermissionID uint64  `json:"permission_id"`
+			CustomName   *string `json:"custom_name"`
+			CustomIcon   *string `json:"custom_icon"`
+			Enabled      *bool   `json:"enabled"`
+			Visible      *bool   `json:"visible"`
+			SortOrder    *int    `json:"sort_order"`
+		} `json:"overrides"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	seen := map[uint64]struct{}{}
+	for _, item := range body.Overrides {
+		if _, ok := seen[item.PermissionID]; ok {
+			response.Error(c, 400, response.CodeBadRequest, "菜单覆盖配置重复")
+			return
+		}
+		seen[item.PermissionID] = struct{}{}
+		var permission models.Permission
+		if err := h.db.Where("id = ? AND tenant_id = ? AND perm_type = ? AND deleted_at IS NULL", item.PermissionID, user.TenantID, 3).First(&permission).Error; err != nil {
+			response.Error(c, 404, response.CodeNotFound, "菜单不存在")
+			return
+		}
+		if permission.IsPlatformOnly {
+			response.Error(c, 403, response.CodeForbidden, "平台专属菜单不可被租户覆盖")
+			return
+		}
+		if !permission.TenantEditable {
+			response.Error(c, 403, response.CodeForbidden, "该菜单不允许租户覆盖")
+			return
+		}
+	}
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		for _, item := range body.Overrides {
+			var row models.TenantMenuOverride
+			err := tx.Where("tenant_id = ? AND permission_id = ?", user.TenantID, item.PermissionID).First(&row).Error
+			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+			row.TenantID = user.TenantID
+			row.PermissionID = item.PermissionID
+			row.CustomName = nullableTrimmed(item.CustomName)
+			row.CustomIcon = nullableTrimmed(item.CustomIcon)
+			row.Enabled = item.Enabled
+			row.Visible = item.Visible
+			row.SortOrder = item.SortOrder
+			if row.ID == 0 {
+				if err := tx.Create(&row).Error; err != nil {
+					return err
+				}
+			} else if err := tx.Save(&row).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	h.audit(c, user.TenantID, user.ID, "menu", "override", "保存租户菜单覆盖", gin.H{"count": len(body.Overrides)})
 	h.MenuOverrides(c)
 }
 
@@ -1954,6 +2046,76 @@ func (h *IdentityHandler) syncPackageFeaturesFromPermissions() {
 			codeToID[code] = feature.ID
 		}
 	}
+}
+
+func (h *IdentityHandler) menuBundleOperations(tenantID uint64, menuPath string, forPlatform bool) []gin.H {
+	prefixes := operationPrefixesForMenuPath(menuPath)
+	if len(prefixes) == 0 {
+		return []gin.H{}
+	}
+	query := h.db.Where("tenant_id = ? AND perm_type = ? AND deleted_at IS NULL", tenantID, 2)
+	parts := make([]string, 0, len(prefixes))
+	args := make([]interface{}, 0, len(prefixes))
+	for _, prefix := range prefixes {
+		parts = append(parts, "path LIKE ?")
+		args = append(args, prefix+":%")
+	}
+	var rows []models.Permission
+	_ = query.Where(strings.Join(parts, " OR "), args...).Order("id asc").Find(&rows).Error
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		if !forPlatform && row.IsPlatformOnly {
+			continue
+		}
+		if !forPlatform && !h.permissionAllowedForTenantSubscription(tenantID, row) {
+			continue
+		}
+		items = append(items, gin.H{"id": row.ID, "path": row.Path, "name": row.Name, "is_platform_only": row.IsPlatformOnly, "is_package_feature": row.IsPackageFeature, "feature_code": row.FeatureCode, "feature_type": row.FeatureType, "tenant_visible": row.Visible, "tenant_editable": row.TenantEditable, "tenant_edit_scope": row.TenantEditScope, "data_perm_mode": row.DataPermMode})
+	}
+	return items
+}
+
+func operationPrefixesForMenuPath(menuPath string) []string {
+	mapping := map[string][]string{
+		"/users":              {"user"},
+		"/organization":       {"org"},
+		"/positions":          {"pos"},
+		"/roles":              {"role"},
+		"/permissions":        {"perm"},
+		"/menus":              {"menu"},
+		"/dict":               {"dict"},
+		"/params":             {"param"},
+		"/business-units":     {"business_unit"},
+		"/audit-logs":         {"audit"},
+		"/login-logs":         {"login"},
+		"/monitor/health":     {"monhealth"},
+		"/monitor/server":     {"monserver"},
+		"/monitor/jobs":       {"monjobs"},
+		"/monitor/services":   {"monservices"},
+		"/monitor/cache":      {"moncache"},
+		"/monitor/cache-keys": {"moncachekeys"},
+	}
+	return mapping[menuPath]
+}
+
+func (h *IdentityHandler) dataPermissionIDForMenu(tenantID uint64, menuPath string) uint64 {
+	prefixes := operationPrefixesForMenuPath(menuPath)
+	if len(prefixes) == 0 {
+		return 0
+	}
+	var row models.Permission
+	if err := h.db.Where("tenant_id = ? AND path = ? AND perm_type = ? AND deleted_at IS NULL", tenantID, "data:"+prefixes[0], 4).First(&row).Error; err != nil {
+		return 0
+	}
+	return row.ID
+}
+
+func (h *IdentityHandler) permissionAllowedForTenantSubscription(tenantID uint64, permission models.Permission) bool {
+	code := packageFeatureCodeForPermission(permission)
+	if code == "" {
+		return true
+	}
+	return h.tenantFeatureAllowed(tenantID, code)
 }
 
 func packageFeatureCodeForPermission(permission models.Permission) string {
