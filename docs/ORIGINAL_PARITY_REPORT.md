@@ -339,6 +339,7 @@ Go 版额外路由：
 - 服务概览返回 `mysql/redis/python_version/pid/cpu_percent/memory_mb/note` 字段，数据库和 Redis 状态都使用实时检查结果。
 - Redis key scan 参数规范化为 `limit` 1-200、默认 pattern 为 `*`，拒绝过长或包含换行/空字符的 pattern。
 - Redis key scan 会循环扫描直到达到 limit 或游标归零，返回字段保持 `key/ttl`，Redis 错误返回 503。
+- 定时任务展示恢复为原项目 3 条 Redis 相关内置行为说明：会话校验、验证码存储、登录失败计数。
 
 验证：
 
@@ -346,4 +347,4 @@ Go 版额外路由：
 
 状态：
 
-- M1-M2 健康检查、服务器信息、服务概览、Redis 缓存统计和 key scan 已完成。
+- M 组监控已完成。
