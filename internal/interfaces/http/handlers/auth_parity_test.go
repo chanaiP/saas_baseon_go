@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -15,6 +16,22 @@ func TestLooksLikeMobileAccount(t *testing.T) {
 	require.False(t, looksLikeMobileAccount("23800138000"))
 	require.False(t, looksLikeMobileAccount("1380013800"))
 	require.False(t, looksLikeMobileAccount("1380013800a"))
+}
+
+func TestSubscriptionStatusAllowsLoginMatchesOriginalPolicy(t *testing.T) {
+	now := time.Date(2026, 5, 7, 10, 0, 0, 0, time.UTC)
+	future := now.Add(time.Hour)
+	past := now.Add(-time.Hour)
+
+	require.True(t, subscriptionStatusAllowsLogin("", nil, now))
+	require.True(t, subscriptionStatusAllowsLogin("TRIAL", &future, now))
+	require.True(t, subscriptionStatusAllowsLogin("ACTIVE", &future, now))
+	require.False(t, subscriptionStatusAllowsLogin("ACTIVE", &past, now))
+	require.False(t, subscriptionStatusAllowsLogin("OVERDUE", &future, now))
+	require.False(t, subscriptionStatusAllowsLogin("FROZEN", &future, now))
+	require.False(t, subscriptionStatusAllowsLogin("EXPIRED", &future, now))
+	require.False(t, subscriptionStatusAllowsLogin("CANCELLED", &future, now))
+	require.False(t, subscriptionStatusAllowsLogin("UNKNOWN", &future, now))
 }
 
 func TestValidateNewPasswordMatchesOriginalPolicy(t *testing.T) {

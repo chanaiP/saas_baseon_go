@@ -375,3 +375,18 @@ Go 版额外路由：
 状态：
 
 - N 组数据库、迁移与种子数据已完成。
+
+## 测试等价对比
+
+已对齐项：
+
+- Auth 覆盖已包含 Redis session namespace、手机号登录识别、密码策略、PBKDF2 哈希校验、随机密码策略、token 签发/解析/篡改/过期、Bearer 解析。
+- 新增订阅状态等价测试，覆盖 `TRIAL/ACTIVE` 可登录、过期时间阻止登录，以及 `OVERDUE/FROZEN/EXPIRED/CANCELLED/UNKNOWN` 阻止登录。
+
+验证：
+
+- `docker run --rm -e GOPROXY=https://goproxy.cn,direct -v "$PWD":/src -w /src golang:1.23-alpine sh -c 'gofmt -w ./cmd ./internal && go test ./...'` 通过。
+
+状态：
+
+- O1 认证服务测试等价已完成。

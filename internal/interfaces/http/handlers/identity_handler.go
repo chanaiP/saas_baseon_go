@@ -5799,14 +5799,18 @@ func (h *IdentityHandler) subscriptionAllowsLogin(tenantID uint64) bool {
 	if err := h.db.Where("tenant_id = ?", tenantID).Order("id desc").First(&sub).Error; err != nil {
 		return true
 	}
-	status := strings.ToUpper(sub.SubscriptionStatus)
+	return subscriptionStatusAllowsLogin(sub.SubscriptionStatus, sub.EndTime, time.Now())
+}
+
+func subscriptionStatusAllowsLogin(statusRaw string, endTime *time.Time, now time.Time) bool {
+	status := strings.ToUpper(statusRaw)
 	if status == "OVERDUE" || status == "FROZEN" || status == "EXPIRED" || status == "CANCELLED" {
 		return false
 	}
 	if status != "" && status != "TRIAL" && status != "ACTIVE" {
 		return false
 	}
-	return sub.EndTime == nil || sub.EndTime.After(time.Now())
+	return endTime == nil || endTime.After(now)
 }
 
 func (h *IdentityHandler) recordLogin(c *gin.Context, account string, userID *uint64, tenantID *uint64, success bool, message string) {
