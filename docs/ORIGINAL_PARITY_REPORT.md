@@ -319,6 +319,8 @@ Go 版额外路由：
 - 用户 CSV 导入支持 UTF-8 BOM 识别，保持 5 MB 文件大小限制，校验工号/姓名必填和手机号格式。
 - 用户 CSV 导入按公司名称、部门名称解析组织归属，重复工号只统计未软删除用户，活跃用户创建前校验 `max_users` 配额。
 - 用户 CSV 导入审计只记录前 10 条错误，响应返回前 20 条错误，与原项目错误汇总边界一致。
+- 公司/部门 CSV 导出接入 `export_data` 套餐功能开关和 `daily_export_times` 日配额，只导出未软删除组织节点。
+- 公司 CSV 字段保持 `name,code,company_type,parent_name,status`；部门 CSV 字段保持 `name,code,company_name,parent_name,status`，部门父级名称只取部门父级。
 
 验证：
 
@@ -326,4 +328,4 @@ Go 版额外路由：
 
 状态：
 
-- L1-L4 文件上传、下载、删除、用户 CSV 导入导出已完成。
+- L 组文件与批量导入导出已完成。

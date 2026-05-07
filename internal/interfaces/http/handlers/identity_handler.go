@@ -6218,10 +6218,18 @@ func (h *IdentityHandler) exportOrgCSV(c *gin.Context, filename, nodeType string
 		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
 		return
 	}
+	if err := h.requireFeatureAccess(user.TenantID, "export_data"); err != nil {
+		response.Error(c, 403, response.CodeForbidden, err.Error())
+		return
+	}
+	if err := h.consumeQuota(user.TenantID, "daily_export_times", 1); err != nil {
+		response.Error(c, 429, response.CodeBadRequest, err.Error())
+		return
+	}
 	var rows []models.OrgNode
-	_ = h.db.Where("tenant_id = ? AND node_type = ?", user.TenantID, nodeType).Order("id asc").Find(&rows).Error
+	_ = h.db.Where("tenant_id = ? AND node_type = ? AND deleted_at IS NULL", user.TenantID, nodeType).Order("id asc").Find(&rows).Error
 	var all []models.OrgNode
-	_ = h.db.Where("tenant_id = ?", user.TenantID).Find(&all).Error
+	_ = h.db.Where("tenant_id = ? AND deleted_at IS NULL", user.TenantID).Find(&all).Error
 	names := map[uint64]models.OrgNode{}
 	for _, row := range all {
 		names[row.ID] = row
@@ -6242,6 +6250,9 @@ func (h *IdentityHandler) exportOrgCSV(c *gin.Context, filename, nodeType string
 			companyName := ""
 			if row.CompanyID != nil {
 				companyName = names[*row.CompanyID].Name
+			}
+			if parentName != "" && names[valueOrZero(row.ParentID)].NodeType != "department" {
+				parentName = ""
 			}
 			out = append(out, []string{row.Name, derefString(row.Code), companyName, parentName, status})
 		}
