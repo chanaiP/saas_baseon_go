@@ -1220,8 +1220,8 @@ onMounted(async () => {
           <div class="nm-form-item">
             <label class="nm-form-label">状态</label>
             <el-radio-group v-model="editForm.status">
-              <el-radio :label="1">启用</el-radio>
-              <el-radio :label="0">停用</el-radio>
+              <el-radio :value="1">启用</el-radio>
+              <el-radio :value="0">停用</el-radio>
             </el-radio-group>
           </div>
         </div>

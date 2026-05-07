@@ -442,7 +442,7 @@ function brandClickHandler() {
     >
       <p class="tenant-pick-hint">请选择要进入的主体。</p>
       <el-radio-group v-model="pickedTenantId" class="tenant-pick-group">
-        <el-radio v-for="t in tenantPickList" :key="t.tenant_id" :label="t.tenant_id" class="tenant-pick-row">
+        <el-radio v-for="t in tenantPickList" :key="t.tenant_id" :value="t.tenant_id" class="tenant-pick-row">
           {{ t.name }}（{{ t.code }}）
         </el-radio>
       </el-radio-group>

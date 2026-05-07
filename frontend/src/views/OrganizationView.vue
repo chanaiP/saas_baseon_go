@@ -578,11 +578,11 @@ onMounted(load)
         <div class="nm-form-item">
           <label class="nm-form-label">状态</label>
           <el-radio-group v-if="statusDictItems.length" v-model="nodeForm.status">
-            <el-radio v-for="it in statusDictItems" :key="it.id" :label="Number(it.value)">{{ it.label }}</el-radio>
+            <el-radio v-for="it in statusDictItems" :key="it.id" :value="Number(it.value)">{{ it.label }}</el-radio>
           </el-radio-group>
           <el-radio-group v-else v-model="nodeForm.status">
-            <el-radio :label="1">启用</el-radio>
-            <el-radio :label="0">停用</el-radio>
+            <el-radio :value="1">启用</el-radio>
+            <el-radio :value="0">停用</el-radio>
           </el-radio-group>
         </div>
       </div>
