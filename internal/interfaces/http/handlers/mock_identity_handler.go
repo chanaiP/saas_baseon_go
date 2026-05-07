@@ -317,37 +317,120 @@ func (h *MockIdentityHandler) Role(c *gin.Context) {
 }
 
 func (h *MockIdentityHandler) Plans(c *gin.Context) {
-	response.OK(c, paginated([]gin.H{{
-		"id":            1,
-		"plan_code":     "platform",
-		"plan_name":     "平台版",
-		"plan_type":     "PLATFORM",
-		"billing_cycle": "year",
-		"price":         0,
-		"status":        1,
-		"is_default":    true,
-		"sort_order":    1,
-		"description":   "平台初始化套餐",
-	}}))
+	var rows []models.SaasPlan
+	_ = h.db.Order("sort_order asc, id asc").Find(&rows).Error
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, gin.H{
+			"id":            row.ID,
+			"plan_code":     row.PlanCode,
+			"plan_name":     row.PlanName,
+			"plan_type":     row.PlanType,
+			"billing_cycle": row.BillingCycle,
+			"price":         row.Price,
+			"status":        row.Status,
+			"is_default":    row.IsDefault,
+			"sort_order":    row.SortOrder,
+			"description":   row.Description,
+			"created_at":    row.CreatedAt,
+			"updated_at":    row.UpdatedAt,
+		})
+	}
+	response.OK(c, paginated(items))
 }
 
 func (h *MockIdentityHandler) PlanMatrix(c *gin.Context) {
-	response.OK(c, gin.H{"plans": []gin.H{}, "nodes": []gin.H{}})
+	var plans []models.SaasPlan
+	var features []models.SaasFeature
+	var links []models.SaasPlanFeature
+	_ = h.db.Order("sort_order asc, id asc").Find(&plans).Error
+	_ = h.db.Order("id asc").Find(&features).Error
+	_ = h.db.Find(&links).Error
+
+	enabled := map[uint64]map[uint64]bool{}
+	for _, link := range links {
+		if enabled[link.FeatureID] == nil {
+			enabled[link.FeatureID] = map[uint64]bool{}
+		}
+		enabled[link.FeatureID][link.PlanID] = link.Enabled
+	}
+
+	planItems := make([]gin.H, 0, len(plans))
+	for _, plan := range plans {
+		planItems = append(planItems, planToJSON(plan))
+	}
+	nodes := make([]gin.H, 0, len(features))
+	for _, feature := range features {
+		cells := make([]gin.H, 0, len(plans))
+		for _, plan := range plans {
+			isEnabled := enabled[feature.ID][plan.ID]
+			state := "disabled"
+			if isEnabled {
+				state = "enabled"
+			}
+			cells = append(cells, gin.H{
+				"plan_id":      plan.ID,
+				"plan_code":    plan.PlanCode,
+				"enabled":      isEnabled,
+				"state":        state,
+				"feature_ids":  []uint64{feature.ID},
+				"quota_values": []gin.H{},
+			})
+		}
+		nodes = append(nodes, gin.H{
+			"id":           feature.FeatureCode,
+			"label":        feature.FeatureName,
+			"node_type":    "feature",
+			"feature_id":   feature.ID,
+			"feature_code": feature.FeatureCode,
+			"feature_type": feature.FeatureType,
+			"description":  feature.Description,
+			"children":     []gin.H{},
+			"cells":        cells,
+		})
+	}
+	response.OK(c, gin.H{"plans": planItems, "nodes": nodes})
 }
 
 func (h *MockIdentityHandler) Features(c *gin.Context) {
-	response.OK(c, paginated([]gin.H{
-		{"id": 1, "feature_code": "tenant_manage", "feature_name": "主体管理", "feature_type": "MENU", "parent_id": 0, "status": 1, "description": "平台主体管理"},
-		{"id": 2, "feature_code": "user_manage", "feature_name": "用户管理", "feature_type": "MENU", "parent_id": 0, "status": 1, "description": "用户管理"},
-		{"id": 3, "feature_code": "role_manage", "feature_name": "角色权限", "feature_type": "MENU", "parent_id": 0, "status": 1, "description": "角色权限"},
-	}))
+	var rows []models.SaasFeature
+	_ = h.db.Order("id asc").Find(&rows).Error
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, gin.H{
+			"id":           row.ID,
+			"feature_code": row.FeatureCode,
+			"feature_name": row.FeatureName,
+			"feature_type": row.FeatureType,
+			"parent_id":    row.ParentID,
+			"menu_id":      row.MenuID,
+			"api_method":   row.APIMethod,
+			"api_path":     row.APIPath,
+			"service_key":  row.ServiceKey,
+			"status":       row.Status,
+			"description":  row.Description,
+		})
+	}
+	response.OK(c, paginated(items))
 }
 
 func (h *MockIdentityHandler) Quotas(c *gin.Context) {
-	response.OK(c, paginated([]gin.H{
-		{"id": 1, "quota_code": "max_users", "quota_name": "用户数", "quota_type": "STATIC", "period_type": nil, "unit": "人", "status": 1, "description": "主体可创建用户数"},
-		{"id": 2, "quota_code": "max_org_nodes", "quota_name": "组织节点数", "quota_type": "STATIC", "period_type": nil, "unit": "个", "status": 1, "description": "主体可创建组织节点数"},
-	}))
+	var rows []models.SaasQuota
+	_ = h.db.Order("id asc").Find(&rows).Error
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, gin.H{
+			"id":          row.ID,
+			"quota_code":  row.QuotaCode,
+			"quota_name":  row.QuotaName,
+			"quota_type":  row.QuotaType,
+			"period_type": row.PeriodType,
+			"unit":        row.Unit,
+			"status":      row.Status,
+			"description": row.Description,
+		})
+	}
+	response.OK(c, paginated(items))
 }
 
 func (h *MockIdentityHandler) TenantQuotaRecords(c *gin.Context) {
@@ -368,17 +451,39 @@ func (h *MockIdentityHandler) TenantCompanies(c *gin.Context) {
 }
 
 func (h *MockIdentityHandler) OrganizationTree(c *gin.Context) {
-	response.OK(c, []gin.H{})
+	var rows []models.OrgNode
+	_ = h.db.Order("id asc").Find(&rows).Error
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, orgNodeToJSON(row, []gin.H{}))
+	}
+	response.OK(c, items)
 }
 
 func (h *MockIdentityHandler) PositionTypes(c *gin.Context) {
-	response.OK(c, paginated([]gin.H{
-		{"id": 1, "code": "default", "name": "默认岗位类型", "status": 1, "description": "初始化岗位类型"},
-	}))
+	var rows []models.PositionType
+	_ = h.db.Order("id asc").Find(&rows).Error
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		var count int64
+		_ = h.db.Model(&models.Position{}).Where("position_type_id = ?", row.ID).Count(&count).Error
+		items = append(items, gin.H{"id": row.ID, "code": row.Code, "name": row.Name, "position_count": count})
+	}
+	response.OK(c, paginated(items))
 }
 
 func (h *MockIdentityHandler) Positions(c *gin.Context) {
-	response.OK(c, paginated([]gin.H{}))
+	var rows []models.Position
+	query := h.db.Order("id asc")
+	if positionTypeID := c.Query("position_type_id"); positionTypeID != "" {
+		query = query.Where("position_type_id = ?", positionTypeID)
+	}
+	_ = query.Find(&rows).Error
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, gin.H{"id": row.ID, "position_type_id": row.PositionTypeID, "name": row.Name, "code": row.Code})
+	}
+	response.OK(c, paginated(items))
 }
 
 func (h *MockIdentityHandler) BusinessUnits(c *gin.Context) {
@@ -390,38 +495,47 @@ func (h *MockIdentityHandler) BusinessUnitTree(c *gin.Context) {
 }
 
 func (h *MockIdentityHandler) DictTypes(c *gin.Context) {
-	response.OK(c, paginated([]gin.H{
-		{"id": 1, "type_code": "common_status", "type_name": "通用状态", "status": 1, "remark": "启用/停用"},
-		{"id": 2, "type_code": "org_node_type", "type_name": "组织节点类型", "status": 1, "remark": "公司/部门/门店"},
-		{"id": 3, "type_code": "business_unit_type", "type_name": "业务单元类型", "status": 1, "remark": "默认业务单元类型"},
-	}))
+	var rows []models.DictType
+	_ = h.db.Order("id asc").Find(&rows).Error
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, gin.H{
+			"id":               row.ID,
+			"code":             row.Code,
+			"name":             row.Name,
+			"type_code":        row.Code,
+			"type_name":        row.Name,
+			"remark":           row.Remark,
+			"scope":            row.Scope,
+			"tenant_editable":  row.TenantEditable,
+			"is_platform_only": row.IsPlatformOnly,
+			"status":           1,
+		})
+	}
+	response.OK(c, paginated(items))
 }
 
 func (h *MockIdentityHandler) DictItemsByCode(c *gin.Context) {
 	code := c.Param("code")
-	items := []gin.H{}
-	switch code {
-	case "common_status":
-		items = []gin.H{
-			{"id": 1, "item_label": "启用", "item_value": "1", "sort_order": 1, "status": 1},
-			{"id": 2, "item_label": "停用", "item_value": "0", "sort_order": 2, "status": 1},
-		}
-	case "org_node_type":
-		items = []gin.H{
-			{"id": 3, "item_label": "公司", "item_value": "COMPANY", "sort_order": 1, "status": 1},
-			{"id": 4, "item_label": "部门", "item_value": "DEPARTMENT", "sort_order": 2, "status": 1},
-			{"id": 5, "item_label": "门店", "item_value": "STORE", "sort_order": 3, "status": 1},
-		}
-	case "business_unit_type":
-		items = []gin.H{
-			{"id": 6, "item_label": "默认类型", "item_value": "default", "sort_order": 1, "status": 1},
-		}
+	var dictType models.DictType
+	if err := h.db.Where("code = ?", code).First(&dictType).Error; err != nil {
+		response.OK(c, gin.H{"code": code, "items": []gin.H{}})
+		return
 	}
+	var rows []models.DictItem
+	_ = h.db.Where("dict_type_id = ?", dictType.ID).Order("sort_order asc, id asc").Find(&rows).Error
+	items := dictItemsToJSON(rows)
 	response.OK(c, gin.H{"code": code, "items": items})
 }
 
 func (h *MockIdentityHandler) DictItems(c *gin.Context) {
-	response.OK(c, paginated([]gin.H{}))
+	var rows []models.DictItem
+	query := h.db.Order("sort_order asc, id asc")
+	if dictTypeID := c.Query("dict_type_id"); dictTypeID != "" {
+		query = query.Where("dict_type_id = ?", dictTypeID)
+	}
+	_ = query.Find(&rows).Error
+	response.OK(c, paginated(dictItemsToJSON(rows)))
 }
 
 func (h *MockIdentityHandler) SysParams(c *gin.Context) {
@@ -461,6 +575,68 @@ func paginated(items interface{}) gin.H {
 		total = len(v)
 	}
 	return gin.H{"items": items, "total": total, "skip": 0, "limit": 50}
+}
+
+func planToJSON(row models.SaasPlan) gin.H {
+	return gin.H{
+		"id":            row.ID,
+		"plan_code":     row.PlanCode,
+		"plan_name":     row.PlanName,
+		"plan_type":     row.PlanType,
+		"billing_cycle": row.BillingCycle,
+		"price":         row.Price,
+		"status":        row.Status,
+		"is_default":    row.IsDefault,
+		"sort_order":    row.SortOrder,
+		"description":   row.Description,
+		"created_at":    row.CreatedAt,
+		"updated_at":    row.UpdatedAt,
+	}
+}
+
+func orgNodeToJSON(row models.OrgNode, children []gin.H) gin.H {
+	return gin.H{
+		"id":           row.ID,
+		"node_type":    row.NodeType,
+		"name":         row.Name,
+		"code":         row.Code,
+		"company_type": row.CompanyType,
+		"company_id":   row.CompanyID,
+		"store_id":     nil,
+		"parent_id":    row.ParentID,
+		"status":       row.Status,
+		"children":     children,
+	}
+}
+
+func dictItemsToJSON(rows []models.DictItem) []gin.H {
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, gin.H{
+			"id":                 row.ID,
+			"dict_type_id":       row.DictTypeID,
+			"default_label":      row.Label,
+			"default_value":      row.Value,
+			"default_sort_order": row.SortOrder,
+			"default_enabled":    row.Enabled,
+			"label":              row.Label,
+			"value":              row.Value,
+			"item_label":         row.Label,
+			"item_value":         row.Value,
+			"sort_order":         row.SortOrder,
+			"enabled":            row.Enabled,
+			"status":             boolToStatus(row.Enabled),
+			"is_override":        false,
+		})
+	}
+	return items
+}
+
+func boolToStatus(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func allDevPermissionCodes() []string {

@@ -18,6 +18,7 @@ func NewRouter(cfg Config, db *gorm.DB, redisClient *redis.Client) *gin.Engine {
 
 	router := gin.New()
 	router.Use(gin.Recovery(), middleware.RequestID())
+	router.NoRoute(handlers.NewFallbackHandler().NoRoute)
 
 	healthHandler := handlers.NewHealthHandler(db, redisClient)
 	identityHandler := handlers.NewMockIdentityHandler(db)

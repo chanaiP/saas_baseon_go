@@ -45,9 +45,12 @@ func (r *SystemParamRepository) FindByKey(ctx context.Context, key string) (doma
 
 func (r *SystemParamRepository) Create(ctx context.Context, param domain.Param) (domain.Param, error) {
 	row := models.SystemParam{
-		Key:    param.Key,
-		Value:  param.Value,
-		Remark: param.Remark,
+		TenantID:       1,
+		Key:            param.Key,
+		Value:          param.Value,
+		Remark:         param.Remark,
+		ValueType:      "string",
+		TenantEditable: true,
 	}
 	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
 		return domain.Param{}, err
