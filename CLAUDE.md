@@ -168,8 +168,7 @@ router -> schema -> service/crud -> model
 - 底座级发布前至少执行：
 
 ```bash
-python3 -m compileall cmd/api 和 internal backend/scripts internal/application 与 internal/domain 的 Go 测试
-cd backend && python -m go test -q
+docker run --rm -e GOPROXY=https://goproxy.cn,direct -v "$PWD":/src -w /src golang:1.23-alpine sh -c 'gofmt -w ./cmd ./internal && go test ./...'
 cd frontend && npm run build
 git diff --check
 ```
