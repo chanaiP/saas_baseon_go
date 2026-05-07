@@ -16,6 +16,7 @@ func TestRequiredDeletionGuards(t *testing.T) {
 		"permission:role_permission",
 		"tenant:app_user",
 		"plan:tenant_subscription",
+		"org_node:app_user",
 		"org_node:business_unit_org_map",
 		"business_unit:business_unit_org_map",
 		"dict_type:dict_item",
