@@ -142,6 +142,12 @@ func seedPermissions(db *gorm.DB, tenantID uint64) ([]models.Permission, error) 
 		{Name: "参数管理", Path: "/params", Type: 3, SortOrder: 10, FeatureCode: "param_manage", FeatureType: "MENU", DataPermMode: "ORG"},
 		{Name: "操作日志", Path: "/audit-logs", Type: 3, SortOrder: 11, FeatureCode: "audit_log", FeatureType: "MENU", DataPermMode: "ORG"},
 		{Name: "登录日志", Path: "/login-logs", Type: 3, SortOrder: 12, FeatureCode: "login_log", FeatureType: "MENU", DataPermMode: "ORG"},
+		{Name: "健康检查", Path: "/monitor/health", Type: 3, SortOrder: 101, PlatformOnly: true, FeatureCode: "system_monitor", FeatureType: "MENU", DataPermMode: "NONE"},
+		{Name: "服务器信息", Path: "/monitor/server", Type: 3, SortOrder: 102, PlatformOnly: true, FeatureCode: "system_monitor", FeatureType: "MENU", DataPermMode: "NONE"},
+		{Name: "定时任务", Path: "/monitor/jobs", Type: 3, SortOrder: 103, PlatformOnly: true, FeatureCode: "system_monitor", FeatureType: "MENU", DataPermMode: "NONE"},
+		{Name: "服务监控", Path: "/monitor/services", Type: 3, SortOrder: 104, PlatformOnly: true, FeatureCode: "system_monitor", FeatureType: "MENU", DataPermMode: "NONE"},
+		{Name: "缓存监控", Path: "/monitor/cache", Type: 3, SortOrder: 105, PlatformOnly: true, FeatureCode: "system_monitor", FeatureType: "MENU", DataPermMode: "NONE"},
+		{Name: "缓存列表", Path: "/monitor/cache-keys", Type: 3, SortOrder: 106, PlatformOnly: true, FeatureCode: "system_monitor", FeatureType: "MENU", DataPermMode: "NONE"},
 		{Name: "主体-新增", Path: "tenant:create", Type: 2, PlatformOnly: true, PackageFeature: false, FeatureType: "OPERATION", DataPermMode: "NONE"},
 		{Name: "主体-编辑", Path: "tenant:edit", Type: 2, PlatformOnly: true, PackageFeature: false, FeatureType: "OPERATION", DataPermMode: "NONE"},
 		{Name: "主体-删除", Path: "tenant:delete", Type: 2, PlatformOnly: true, PackageFeature: false, FeatureType: "OPERATION", DataPermMode: "NONE"},
@@ -162,6 +168,7 @@ func seedPermissions(db *gorm.DB, tenantID uint64) ([]models.Permission, error) 
 		"dict:create", "dict:edit", "dict:delete",
 		"param:create", "param:edit", "param:delete",
 		"audit:view", "login:view", "brand:edit",
+		"monhealth:view", "monserver:view", "monjobs:view", "monservices:view", "moncache:view", "moncachekeys:view",
 	} {
 		items = append(items, seedPermission{Name: path, Path: path, Type: 2, FeatureType: "OPERATION", DataPermMode: "ORG"})
 	}
