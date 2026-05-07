@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"strconv"
+
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
@@ -339,6 +341,80 @@ func (h *MockIdentityHandler) Plans(c *gin.Context) {
 	response.OK(c, paginated(items))
 }
 
+func (h *MockIdentityHandler) CreatePlan(c *gin.Context) {
+	var body struct {
+		PlanCode     string  `json:"plan_code"`
+		PlanName     string  `json:"plan_name"`
+		PlanType     string  `json:"plan_type"`
+		BillingCycle string  `json:"billing_cycle"`
+		Price        float64 `json:"price"`
+		Status       int     `json:"status"`
+		IsDefault    bool    `json:"is_default"`
+		SortOrder    int     `json:"sort_order"`
+		Description  *string `json:"description"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	row := models.SaasPlan{PlanCode: body.PlanCode, PlanName: body.PlanName, PlanType: body.PlanType, BillingCycle: body.BillingCycle, Price: body.Price, Status: body.Status, IsDefault: body.IsDefault, SortOrder: body.SortOrder, Description: body.Description}
+	if err := h.db.Create(&row).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, planToJSON(row))
+}
+
+func (h *MockIdentityHandler) UpdatePlan(c *gin.Context) {
+	var row models.SaasPlan
+	if err := h.db.First(&row, c.Param("id")).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "套餐不存在")
+		return
+	}
+	var body map[string]interface{}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	if err := h.db.Model(&row).Updates(body).First(&row, row.ID).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, planToJSON(row))
+}
+
+func (h *MockIdentityHandler) CopyPlan(c *gin.Context) {
+	var src models.SaasPlan
+	if err := h.db.First(&src, c.Param("id")).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "套餐不存在")
+		return
+	}
+	var body struct {
+		PlanCode    string  `json:"plan_code"`
+		PlanName    string  `json:"plan_name"`
+		Description *string `json:"description"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	dst := src
+	dst.ID = 0
+	dst.PlanCode = body.PlanCode
+	dst.PlanName = body.PlanName
+	dst.Description = body.Description
+	dst.IsDefault = false
+	if err := h.db.Create(&dst).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, planToJSON(dst))
+}
+
+func (h *MockIdentityHandler) DeletePlan(c *gin.Context) {
+	h.deleteByID(c, &models.SaasPlan{})
+}
+
 func (h *MockIdentityHandler) PlanMatrix(c *gin.Context) {
 	var plans []models.SaasPlan
 	var features []models.SaasFeature
@@ -414,6 +490,101 @@ func (h *MockIdentityHandler) Features(c *gin.Context) {
 	response.OK(c, paginated(items))
 }
 
+func (h *MockIdentityHandler) CreateFeature(c *gin.Context) {
+	var body models.SaasFeature
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	if err := h.db.Create(&body).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, featureToJSON(body))
+}
+
+func (h *MockIdentityHandler) UpdateFeature(c *gin.Context) {
+	var row models.SaasFeature
+	if err := h.db.First(&row, c.Param("id")).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "功能不存在")
+		return
+	}
+	var body map[string]interface{}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	if err := h.db.Model(&row).Updates(body).First(&row, row.ID).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, featureToJSON(row))
+}
+
+func (h *MockIdentityHandler) PlanFeatures(c *gin.Context) {
+	planID := parseUintParam(c, "id")
+	var links []models.SaasPlanFeature
+	_ = h.db.Where("plan_id = ? AND enabled = ?", planID, true).Find(&links).Error
+	ids := make([]uint64, 0, len(links))
+	for _, link := range links {
+		ids = append(ids, link.FeatureID)
+	}
+	response.OK(c, gin.H{"plan_id": planID, "feature_ids": ids})
+}
+
+func (h *MockIdentityHandler) SavePlanFeatures(c *gin.Context) {
+	planID := parseUintParam(c, "id")
+	var body struct {
+		FeatureIDs []uint64 `json:"feature_ids"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	_ = h.db.Where("plan_id = ?", planID).Delete(&models.SaasPlanFeature{}).Error
+	for _, featureID := range body.FeatureIDs {
+		_ = h.db.Create(&models.SaasPlanFeature{PlanID: planID, FeatureID: featureID, Enabled: true}).Error
+	}
+	response.OK(c, gin.H{"plan_id": planID, "feature_ids": body.FeatureIDs})
+}
+
+func (h *MockIdentityHandler) SavePlanCapabilities(c *gin.Context) {
+	var body struct {
+		FeatureIDs []uint64 `json:"feature_ids"`
+		Quotas     []struct {
+			QuotaID    uint64 `json:"quota_id"`
+			QuotaValue int    `json:"quota_value"`
+		} `json:"quotas"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	h.SavePlanFeaturesWithIDs(c, body.FeatureIDs)
+	if c.Writer.Written() {
+		return
+	}
+	planID := parseUintParam(c, "id")
+	_ = h.db.Where("plan_id = ?", planID).Delete(&models.SaasPlanQuota{}).Error
+	quotaItems := make([]gin.H, 0, len(body.Quotas))
+	for _, quota := range body.Quotas {
+		_ = h.db.Create(&models.SaasPlanQuota{PlanID: planID, QuotaID: quota.QuotaID, QuotaValue: quota.QuotaValue}).Error
+		quotaItems = append(quotaItems, gin.H{"quota_id": quota.QuotaID, "quota_value": quota.QuotaValue})
+	}
+	response.OK(c, gin.H{"plan_id": planID, "feature_ids": body.FeatureIDs, "quotas": quotaItems})
+}
+
+func (h *MockIdentityHandler) SavePlanFeaturesWithIDs(c *gin.Context, featureIDs []uint64) {
+	planID := parseUintParam(c, "id")
+	_ = h.db.Where("plan_id = ?", planID).Delete(&models.SaasPlanFeature{}).Error
+	for _, featureID := range featureIDs {
+		if err := h.db.Create(&models.SaasPlanFeature{PlanID: planID, FeatureID: featureID, Enabled: true}).Error; err != nil {
+			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			return
+		}
+	}
+}
+
 func (h *MockIdentityHandler) Quotas(c *gin.Context) {
 	var rows []models.SaasQuota
 	_ = h.db.Order("id asc").Find(&rows).Error
@@ -431,6 +602,78 @@ func (h *MockIdentityHandler) Quotas(c *gin.Context) {
 		})
 	}
 	response.OK(c, paginated(items))
+}
+
+func (h *MockIdentityHandler) CreateQuota(c *gin.Context) {
+	var row models.SaasQuota
+	if err := c.ShouldBindJSON(&row); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	if err := h.db.Create(&row).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, quotaToJSON(row))
+}
+
+func (h *MockIdentityHandler) UpdateQuota(c *gin.Context) {
+	var row models.SaasQuota
+	if err := h.db.First(&row, c.Param("id")).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "配额不存在")
+		return
+	}
+	var body map[string]interface{}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	if err := h.db.Model(&row).Updates(body).First(&row, row.ID).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, quotaToJSON(row))
+}
+
+func (h *MockIdentityHandler) PlanQuotas(c *gin.Context) {
+	planID := parseUintParam(c, "id")
+	var rows []struct {
+		QuotaID    uint64
+		QuotaCode  string
+		QuotaName  string
+		QuotaValue int
+		PeriodType *string
+		Unit       *string
+	}
+	_ = h.db.Table("saas_plan_quota pq").
+		Select("pq.quota_id, q.quota_code, q.quota_name, pq.quota_value, q.period_type, q.unit").
+		Joins("join saas_quota q on q.id = pq.quota_id").
+		Where("pq.plan_id = ?", planID).
+		Scan(&rows).Error
+	items := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, gin.H{"quota_id": row.QuotaID, "quota_code": row.QuotaCode, "quota_name": row.QuotaName, "quota_value": row.QuotaValue, "period_type": row.PeriodType, "unit": row.Unit})
+	}
+	response.OK(c, gin.H{"plan_id": planID, "quotas": items})
+}
+
+func (h *MockIdentityHandler) SavePlanQuotas(c *gin.Context) {
+	planID := parseUintParam(c, "id")
+	var body struct {
+		Quotas []struct {
+			QuotaID    uint64 `json:"quota_id"`
+			QuotaValue int    `json:"quota_value"`
+		} `json:"quotas"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	_ = h.db.Where("plan_id = ?", planID).Delete(&models.SaasPlanQuota{}).Error
+	for _, quota := range body.Quotas {
+		_ = h.db.Create(&models.SaasPlanQuota{PlanID: planID, QuotaID: quota.QuotaID, QuotaValue: quota.QuotaValue}).Error
+	}
+	h.PlanQuotas(c)
 }
 
 func (h *MockIdentityHandler) TenantQuotaRecords(c *gin.Context) {
@@ -472,6 +715,40 @@ func (h *MockIdentityHandler) PositionTypes(c *gin.Context) {
 	response.OK(c, paginated(items))
 }
 
+func (h *MockIdentityHandler) CreatePositionType(c *gin.Context) {
+	var body struct {
+		Name string `json:"name"`
+		Code string `json:"code"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	row := models.PositionType{TenantID: 1, Name: body.Name, Code: body.Code}
+	if err := h.db.Create(&row).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, gin.H{"id": row.ID})
+}
+
+func (h *MockIdentityHandler) UpdatePositionType(c *gin.Context) {
+	var body map[string]interface{}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	if err := h.db.Model(&models.PositionType{}).Where("id = ?", c.Param("id")).Updates(body).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, gin.H{"id": parseUintParam(c, "id")})
+}
+
+func (h *MockIdentityHandler) DeletePositionType(c *gin.Context) {
+	h.deleteByID(c, &models.PositionType{})
+}
+
 func (h *MockIdentityHandler) Positions(c *gin.Context) {
 	var rows []models.Position
 	query := h.db.Order("id asc")
@@ -484,6 +761,41 @@ func (h *MockIdentityHandler) Positions(c *gin.Context) {
 		items = append(items, gin.H{"id": row.ID, "position_type_id": row.PositionTypeID, "name": row.Name, "code": row.Code})
 	}
 	response.OK(c, paginated(items))
+}
+
+func (h *MockIdentityHandler) CreatePosition(c *gin.Context) {
+	var body struct {
+		PositionTypeID uint64 `json:"position_type_id"`
+		Name           string `json:"name"`
+		Code           string `json:"code"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	row := models.Position{TenantID: 1, PositionTypeID: body.PositionTypeID, Name: body.Name, Code: body.Code}
+	if err := h.db.Create(&row).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, gin.H{"id": row.ID})
+}
+
+func (h *MockIdentityHandler) UpdatePosition(c *gin.Context) {
+	var body map[string]interface{}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	if err := h.db.Model(&models.Position{}).Where("id = ?", c.Param("id")).Updates(body).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, gin.H{"id": parseUintParam(c, "id")})
+}
+
+func (h *MockIdentityHandler) DeletePosition(c *gin.Context) {
+	h.deleteByID(c, &models.Position{})
 }
 
 func (h *MockIdentityHandler) BusinessUnits(c *gin.Context) {
@@ -515,6 +827,49 @@ func (h *MockIdentityHandler) DictTypes(c *gin.Context) {
 	response.OK(c, paginated(items))
 }
 
+func (h *MockIdentityHandler) CreateDictType(c *gin.Context) {
+	var body struct {
+		Code           string  `json:"code"`
+		Name           string  `json:"name"`
+		Remark         *string `json:"remark"`
+		Scope          string  `json:"scope"`
+		TenantEditable bool    `json:"tenant_editable"`
+		IsPlatformOnly bool    `json:"is_platform_only"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	if body.Scope == "" {
+		body.Scope = "platform"
+	}
+	row := models.DictType{TenantID: 1, Code: body.Code, Name: body.Name, Remark: body.Remark, Scope: body.Scope, TenantEditable: body.TenantEditable, IsPlatformOnly: body.IsPlatformOnly}
+	if err := h.db.Create(&row).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, gin.H{"id": row.ID})
+}
+
+func (h *MockIdentityHandler) UpdateDictType(c *gin.Context) {
+	var body map[string]interface{}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	if err := h.db.Model(&models.DictType{}).Where("id = ?", c.Param("id")).Updates(body).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	var row models.DictType
+	_ = h.db.First(&row, c.Param("id")).Error
+	response.OK(c, gin.H{"id": row.ID, "code": row.Code, "name": row.Name, "remark": row.Remark, "scope": row.Scope, "tenant_editable": row.TenantEditable, "is_platform_only": row.IsPlatformOnly})
+}
+
+func (h *MockIdentityHandler) DeleteDictType(c *gin.Context) {
+	h.deleteByID(c, &models.DictType{})
+}
+
 func (h *MockIdentityHandler) DictItemsByCode(c *gin.Context) {
 	code := c.Param("code")
 	var dictType models.DictType
@@ -538,6 +893,58 @@ func (h *MockIdentityHandler) DictItems(c *gin.Context) {
 	response.OK(c, paginated(dictItemsToJSON(rows)))
 }
 
+func (h *MockIdentityHandler) CreateDictItem(c *gin.Context) {
+	var body struct {
+		DictTypeID uint64 `json:"dict_type_id"`
+		Label      string `json:"label"`
+		Value      string `json:"value"`
+		SortOrder  int    `json:"sort_order"`
+		Enabled    *bool  `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	enabled := true
+	if body.Enabled != nil {
+		enabled = *body.Enabled
+	}
+	row := models.DictItem{TenantID: 1, DictTypeID: body.DictTypeID, Label: body.Label, Value: body.Value, SortOrder: body.SortOrder, Enabled: enabled}
+	if err := h.db.Create(&row).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, gin.H{"id": row.ID})
+}
+
+func (h *MockIdentityHandler) UpdateDictItem(c *gin.Context) {
+	var body map[string]interface{}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	if err := h.db.Model(&models.DictItem{}).Where("id = ?", c.Param("id")).Updates(body).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	var row models.DictItem
+	_ = h.db.First(&row, c.Param("id")).Error
+	response.OK(c, dictItemsToJSON([]models.DictItem{row})[0])
+}
+
+func (h *MockIdentityHandler) DeleteDictItem(c *gin.Context) {
+	h.deleteByID(c, &models.DictItem{})
+}
+
+func (h *MockIdentityHandler) RestoreDictItem(c *gin.Context) {
+	var row models.DictItem
+	if err := h.db.First(&row, c.Param("id")).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "字典项不存在")
+		return
+	}
+	response.OK(c, dictItemsToJSON([]models.DictItem{row})[0])
+}
+
 func (h *MockIdentityHandler) SysParams(c *gin.Context) {
 	var rows []models.SystemParam
 	_ = h.db.Order("id desc").Find(&rows).Error
@@ -556,6 +963,67 @@ func (h *MockIdentityHandler) SysParams(c *gin.Context) {
 		})
 	}
 	response.OK(c, paginated(items))
+}
+
+func (h *MockIdentityHandler) CreateSysParam(c *gin.Context) {
+	var body struct {
+		Key            string `json:"param_key"`
+		Value          string `json:"param_value"`
+		DefaultValue   string `json:"default_value"`
+		Remark         string `json:"remark"`
+		ValueType      string `json:"value_type"`
+		TenantEditable bool   `json:"tenant_editable"`
+		IsPlatformOnly bool   `json:"is_platform_only"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	value := body.Value
+	if value == "" {
+		value = body.DefaultValue
+	}
+	if body.ValueType == "" {
+		body.ValueType = "string"
+	}
+	row := models.SystemParam{TenantID: 1, Key: body.Key, Value: value, Remark: body.Remark, ValueType: body.ValueType, TenantEditable: body.TenantEditable, IsPlatformOnly: body.IsPlatformOnly}
+	if err := h.db.Create(&row).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, gin.H{"id": row.ID})
+}
+
+func (h *MockIdentityHandler) UpdateSysParam(c *gin.Context) {
+	var body map[string]interface{}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	if v, ok := body["default_value"]; ok {
+		body["param_value"] = v
+		delete(body, "default_value")
+	}
+	if err := h.db.Model(&models.SystemParam{}).Where("id = ?", c.Param("id")).Updates(body).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	var row models.SystemParam
+	_ = h.db.First(&row, c.Param("id")).Error
+	response.OK(c, gin.H{"id": row.ID, "param_key": row.Key, "default_value": row.Value, "param_value": row.Value, "remark": row.Remark, "value_type": row.ValueType, "tenant_editable": row.TenantEditable, "is_platform_only": row.IsPlatformOnly, "is_override": false})
+}
+
+func (h *MockIdentityHandler) DeleteSysParam(c *gin.Context) {
+	h.deleteByID(c, &models.SystemParam{})
+}
+
+func (h *MockIdentityHandler) RestoreSysParam(c *gin.Context) {
+	var row models.SystemParam
+	if err := h.db.First(&row, c.Param("id")).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "参数不存在")
+		return
+	}
+	response.OK(c, gin.H{"id": row.ID, "param_key": row.Key, "default_value": row.Value, "param_value": row.Value, "remark": row.Remark, "value_type": row.ValueType, "tenant_editable": row.TenantEditable, "is_platform_only": row.IsPlatformOnly, "is_override": false})
 }
 
 func (h *MockIdentityHandler) SysParamBatch(c *gin.Context) {
@@ -591,6 +1059,35 @@ func planToJSON(row models.SaasPlan) gin.H {
 		"description":   row.Description,
 		"created_at":    row.CreatedAt,
 		"updated_at":    row.UpdatedAt,
+	}
+}
+
+func featureToJSON(row models.SaasFeature) gin.H {
+	return gin.H{
+		"id":           row.ID,
+		"feature_code": row.FeatureCode,
+		"feature_name": row.FeatureName,
+		"feature_type": row.FeatureType,
+		"parent_id":    row.ParentID,
+		"menu_id":      row.MenuID,
+		"api_method":   row.APIMethod,
+		"api_path":     row.APIPath,
+		"service_key":  row.ServiceKey,
+		"status":       row.Status,
+		"description":  row.Description,
+	}
+}
+
+func quotaToJSON(row models.SaasQuota) gin.H {
+	return gin.H{
+		"id":          row.ID,
+		"quota_code":  row.QuotaCode,
+		"quota_name":  row.QuotaName,
+		"quota_type":  row.QuotaType,
+		"period_type": row.PeriodType,
+		"unit":        row.Unit,
+		"status":      row.Status,
+		"description": row.Description,
 	}
 }
 
@@ -637,6 +1134,20 @@ func boolToStatus(value bool) int {
 		return 1
 	}
 	return 0
+}
+
+func parseUintParam(c *gin.Context, name string) uint64 {
+	value, _ := strconv.ParseUint(c.Param(name), 10, 64)
+	return value
+}
+
+func (h *MockIdentityHandler) deleteByID(c *gin.Context, model interface{}) {
+	id := parseUintParam(c, "id")
+	if err := h.db.Delete(model, id).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, gin.H{"deleted": 1, "id": id})
 }
 
 func allDevPermissionCodes() []string {
