@@ -337,6 +337,8 @@ Go 版额外路由：
 - 健康检查返回 `mysql/redis` 字段，数据库状态改为真实连接 ping。
 - 服务器信息返回 `python_version/pid/cpu_percent/memory_mb/note` 字段，`python_version` 在 Go 版中承载 Go runtime 版本以保持前端契约。
 - 服务概览返回 `mysql/redis/python_version/pid/cpu_percent/memory_mb/note` 字段，数据库和 Redis 状态都使用实时检查结果。
+- Redis key scan 参数规范化为 `limit` 1-200、默认 pattern 为 `*`，拒绝过长或包含换行/空字符的 pattern。
+- Redis key scan 会循环扫描直到达到 limit 或游标归零，返回字段保持 `key/ttl`，Redis 错误返回 503。
 
 验证：
 
@@ -344,4 +346,4 @@ Go 版额外路由：
 
 状态：
 
-- M1 健康检查、服务器信息、服务概览已完成。
+- M1-M2 健康检查、服务器信息、服务概览、Redis 缓存统计和 key scan 已完成。

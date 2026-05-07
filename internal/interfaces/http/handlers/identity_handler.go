@@ -4096,32 +4096,53 @@ func (h *IdentityHandler) MonitorCacheStats(c *gin.Context) {
 
 func (h *IdentityHandler) MonitorCacheKeys(c *gin.Context) {
 	if h.redis == nil {
-		response.OK(c, gin.H{"items": []gin.H{}, "cursor": 0})
+		response.Error(c, 503, response.CodeBadRequest, "Redis 未配置")
 		return
 	}
 	ctx := context.Background()
+	cursor, _ := strconv.ParseUint(c.Query("cursor"), 10, 64)
+	limit, _ := strconv.ParseInt(c.Query("limit"), 10, 64)
 	pattern := strings.TrimSpace(c.Query("pattern"))
 	if pattern == "" {
 		pattern = "*"
 	}
-	cursor, _ := strconv.ParseUint(c.Query("cursor"), 10, 64)
-	limit, _ := strconv.ParseInt(c.Query("limit"), 10, 64)
-	if limit <= 0 || limit > 100 {
-		limit = 50
-	}
-	keys, nextCursor, err := h.redis.Scan(ctx, cursor, pattern, limit).Result()
-	if err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+	if len(pattern) > 128 {
+		response.Error(c, 400, response.CodeBadRequest, "pattern 过长")
 		return
 	}
-	items := make([]gin.H, 0, len(keys))
-	for _, key := range keys {
-		ttl, _ := h.redis.TTL(ctx, key).Result()
-		item := gin.H{"key": key, "ttl_seconds": int64(ttl.Seconds())}
-		if ttl < 0 {
-			item["ttl_seconds"] = nil
+	if strings.ContainsAny(pattern, "\n\r\x00") {
+		response.Error(c, 400, response.CodeBadRequest, "pattern 非法")
+		return
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	items := make([]gin.H, 0, limit)
+	nextCursor := cursor
+	for int64(len(items)) < limit {
+		keys, scannedCursor, err := h.redis.Scan(ctx, nextCursor, pattern, 200).Result()
+		if err != nil {
+			response.Error(c, 503, response.CodeBadRequest, truncateString(err.Error(), 120))
+			return
 		}
-		items = append(items, item)
+		nextCursor = scannedCursor
+		for _, key := range keys {
+			if int64(len(items)) >= limit {
+				break
+			}
+			ttl, err := h.redis.TTL(ctx, key).Result()
+			if err != nil {
+				response.Error(c, 503, response.CodeBadRequest, truncateString(err.Error(), 120))
+				return
+			}
+			items = append(items, gin.H{"key": key, "ttl": int(ttl.Seconds())})
+		}
+		if nextCursor == 0 {
+			break
+		}
 	}
 	response.OK(c, gin.H{"items": items, "cursor": nextCursor})
 }
@@ -6221,6 +6242,13 @@ func firstStrings(values []string, limit int) []string {
 		return values
 	}
 	return values[:limit]
+}
+
+func truncateString(value string, limit int) string {
+	if limit <= 0 || len(value) <= limit {
+		return value
+	}
+	return value[:limit]
 }
 
 func (h *IdentityHandler) exportOrgCSV(c *gin.Context, filename, nodeType string, headers []string) {
