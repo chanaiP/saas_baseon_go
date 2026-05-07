@@ -47,3 +47,13 @@ func TestCSVAndFileSafetyHelpers(t *testing.T) {
 	require.Equal(t, ".bin", safeFileExt("demo.sh;rm"))
 	require.Equal(t, ".bin", safeFileExt("demo.veryveryverylongext"))
 }
+
+func TestFeatureQuotaMappingMatchesPlanCatalogPolicy(t *testing.T) {
+	require.ElementsMatch(t, []string{"max_users"}, quotaCodesForFeatureCode("user_manage"))
+	require.ElementsMatch(t, []string{"max_companies", "max_stores", "max_departments"}, quotaCodesForFeatureCode("org_manage"))
+	require.ElementsMatch(t, []string{"daily_import_times"}, quotaCodesForFeatureCode("import_data"))
+	require.ElementsMatch(t, []string{"daily_export_times"}, quotaCodesForFeatureCode("export_data"))
+	require.ElementsMatch(t, []string{"max_api_keys", "daily_api_calls"}, quotaCodesForFeatureCode("api_key"))
+	require.ElementsMatch(t, []string{"max_webhooks"}, quotaCodesForFeatureCode("webhook"))
+	require.Empty(t, quotaCodesForFeatureCode("brand_config"))
+}
