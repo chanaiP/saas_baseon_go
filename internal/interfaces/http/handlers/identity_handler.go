@@ -399,6 +399,12 @@ func (h *IdentityHandler) clearPasswordChangeGuard(userID uint64) {
 	}
 }
 
+func (h *IdentityHandler) platformAdminCountExcept(userID uint64) int64 {
+	var count int64
+	_ = h.db.Model(&models.AppUser{}).Where("is_platform_admin = ? AND id <> ? AND deleted_at IS NULL", true, userID).Count(&count).Error
+	return count
+}
+
 func (h *IdentityHandler) Profile(c *gin.Context) {
 	var user models.AppUser
 	var tenant models.Tenant
@@ -861,27 +867,60 @@ func (h *IdentityHandler) DeleteTenant(c *gin.Context) {
 
 func (h *IdentityHandler) Users(c *gin.Context) {
 	tenantID := h.requestTenantID(c)
+	skip, limit := paginationParams(c)
+	query := h.db.Where("tenant_id = ? AND deleted_at IS NULL", tenantID)
+	if raw := strings.TrimSpace(c.Query("status")); raw != "" {
+		status, err := strconv.Atoi(raw)
+		if err != nil {
+			response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+			return
+		}
+		query = query.Where("status = ?", status)
+	}
+	if id := parseOptionalUintQuery(c, "company_id"); id != nil {
+		query = query.Where("company_id = ?", *id)
+	}
+	if id := parseOptionalUintQuery(c, "department_id"); id != nil {
+		var userIDs []uint64
+		_ = h.db.Model(&models.AppUserDepartment{}).Where("department_id = ?", *id).Distinct().Pluck("user_id", &userIDs).Error
+		if len(userIDs) > 0 {
+			query = query.Where("(department_id = ? OR id IN ?)", *id, userIDs)
+		} else {
+			query = query.Where("department_id = ?", *id)
+		}
+	}
+	keyword := strings.TrimSpace(c.Query("keyword"))
+	if keyword == "" {
+		keyword = strings.TrimSpace(c.Query("kw"))
+	}
+	if keyword != "" {
+		like := "%" + keyword + "%"
+		query = query.Where("(name LIKE ? OR employee_no LIKE ? OR phone LIKE ?)", like, like, like)
+	}
+	var total int64
+	_ = query.Model(&models.AppUser{}).Count(&total).Error
 	var rows []models.AppUser
-	_ = h.db.Where("tenant_id = ?", tenantID).Order("id desc").Find(&rows).Error
+	_ = query.Order("id desc").Offset(skip).Limit(limit).Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, h.userToJSON(row))
 	}
-	response.OK(c, paginated(items))
+	response.OK(c, paginatedWithTotal(items, total, skip, limit))
 }
 
 func (h *IdentityHandler) CreateUser(c *gin.Context) {
 	var body struct {
-		EmployeeNo   string   `json:"employee_no"`
-		Password     string   `json:"password"`
-		Name         string   `json:"name"`
-		Phone        *string  `json:"phone"`
-		Email        *string  `json:"email"`
-		CompanyID    *uint64  `json:"company_id"`
-		DepartmentID *uint64  `json:"department_id"`
-		PositionIDs  []uint64 `json:"position_ids"`
-		RoleIDs      []uint64 `json:"role_ids"`
-		Status       int      `json:"status"`
+		EmployeeNo    string   `json:"employee_no"`
+		Password      string   `json:"password"`
+		Name          string   `json:"name"`
+		Phone         *string  `json:"phone"`
+		Email         *string  `json:"email"`
+		CompanyID     *uint64  `json:"company_id"`
+		DepartmentID  *uint64  `json:"department_id"`
+		DepartmentIDs []uint64 `json:"department_ids"`
+		PositionIDs   []uint64 `json:"position_ids"`
+		RoleIDs       []uint64 `json:"role_ids"`
+		Status        int      `json:"status"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
@@ -890,12 +929,45 @@ func (h *IdentityHandler) CreateUser(c *gin.Context) {
 	if body.Status == 0 {
 		body.Status = 1
 	}
-	user := models.AppUser{TenantID: h.requestTenantID(c), EmployeeNo: body.EmployeeNo, Account: body.EmployeeNo, PasswordHash: devPasswordHash(body.Password), Name: body.Name, Phone: body.Phone, Email: body.Email, CompanyID: body.CompanyID, DepartmentID: body.DepartmentID, Status: body.Status}
+	tenantID := h.requestTenantID(c)
+	phone, msg := normalizeOptionalPhone(body.Phone)
+	if msg != "" {
+		response.Error(c, 400, response.CodeBadRequest, msg)
+		return
+	}
+	departmentIDs := normalizedUserDepartmentIDs(body.DepartmentID, body.DepartmentIDs)
+	companyID := body.CompanyID
+	departmentID := (*uint64)(nil)
+	if len(departmentIDs) > 0 {
+		departmentID = &departmentIDs[0]
+		if err := h.assertDepartmentsInTenant(tenantID, departmentIDs); err != nil {
+			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			return
+		}
+		if companyID == nil {
+			if found := h.companyIDForDepartment(tenantID, departmentIDs[0]); found != nil {
+				companyID = found
+			}
+		}
+	}
+	if err := h.assertPositionsInTenant(tenantID, uniqueUint64s(body.PositionIDs)); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	if err := h.assertRolesInTenant(tenantID, uniqueUint64s(body.RoleIDs)); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	if err := h.assertUserUniqueFields(tenantID, 0, body.EmployeeNo, phone); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	user := models.AppUser{TenantID: tenantID, EmployeeNo: body.EmployeeNo, Account: body.EmployeeNo, PasswordHash: devPasswordHash(body.Password), Name: body.Name, Phone: phone, Email: body.Email, CompanyID: companyID, DepartmentID: departmentID, Status: body.Status}
 	if err := h.db.Create(&user).Error; err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
-	h.replaceUserRelations(user.ID, body.RoleIDs, body.PositionIDs, nil)
+	h.replaceUserRelations(user.ID, uniqueUint64s(body.RoleIDs), uniqueUint64s(body.PositionIDs), departmentIDs)
 	h.auditCurrentUser(c, "user", "create", "创建用户 "+user.Name, gin.H{"user_id": user.ID, "tenant_id": user.TenantID, "employee_no": user.EmployeeNo})
 	response.OK(c, h.userToJSON(user))
 }
@@ -928,7 +1000,16 @@ func (h *IdentityHandler) UpdateUser(c *gin.Context) {
 		updates["name"] = *body.Name
 	}
 	if body.Phone != nil {
-		updates["phone"] = *body.Phone
+		phone, msg := normalizeOptionalPhone(body.Phone)
+		if msg != "" {
+			response.Error(c, 400, response.CodeBadRequest, msg)
+			return
+		}
+		if err := h.assertUserUniqueFields(tenantID, user.ID, "", phone); err != nil {
+			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			return
+		}
+		updates["phone"] = phone
 	}
 	if body.Email != nil {
 		updates["email"] = *body.Email
@@ -943,7 +1024,56 @@ func (h *IdentityHandler) UpdateUser(c *gin.Context) {
 		updates["status"] = *body.Status
 	}
 	if body.IsPlatformAdmin != nil {
+		viewer, ok := h.currentUser(c)
+		if !ok || !viewer.IsPlatformAdmin {
+			response.Error(c, 403, response.CodeForbidden, "无权限设置系统管理员")
+			return
+		}
+		if user.IsPlatformAdmin && !*body.IsPlatformAdmin && h.platformAdminCountExcept(user.ID) < 1 {
+			response.Error(c, 400, response.CodeBadRequest, "至少保留一名系统管理员")
+			return
+		}
 		updates["is_platform_admin"] = *body.IsPlatformAdmin
+	}
+	departmentIDs := body.DepartmentIDs
+	if departmentIDs != nil {
+		departmentIDs = uniqueUint64s(departmentIDs)
+		if err := h.assertDepartmentsInTenant(tenantID, departmentIDs); err != nil {
+			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			return
+		}
+		if len(departmentIDs) > 0 {
+			updates["department_id"] = departmentIDs[0]
+			if body.CompanyID == nil {
+				if companyID := h.companyIDForDepartment(tenantID, departmentIDs[0]); companyID != nil {
+					updates["company_id"] = *companyID
+				}
+			}
+		} else {
+			updates["department_id"] = nil
+		}
+	} else if body.DepartmentID != nil {
+		if err := h.assertDepartmentsInTenant(tenantID, []uint64{*body.DepartmentID}); err != nil {
+			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			return
+		}
+		departmentIDs = []uint64{*body.DepartmentID}
+	}
+	positionIDs := body.PositionIDs
+	if positionIDs != nil {
+		positionIDs = uniqueUint64s(positionIDs)
+		if err := h.assertPositionsInTenant(tenantID, positionIDs); err != nil {
+			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			return
+		}
+	}
+	roleIDs := body.RoleIDs
+	if roleIDs != nil {
+		roleIDs = uniqueUint64s(roleIDs)
+		if err := h.assertRolesInTenant(tenantID, roleIDs); err != nil {
+			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			return
+		}
 	}
 	if len(updates) > 0 {
 		if err := h.db.Model(&user).Updates(updates).First(&user, user.ID).Error; err != nil {
@@ -951,7 +1081,7 @@ func (h *IdentityHandler) UpdateUser(c *gin.Context) {
 			return
 		}
 	}
-	h.replaceUserRelations(user.ID, body.RoleIDs, body.PositionIDs, body.DepartmentIDs)
+	h.replaceUserRelations(user.ID, roleIDs, positionIDs, departmentIDs)
 	h.auditCurrentUser(c, "user", "update", "更新用户 "+user.Name, gin.H{"user_id": user.ID, "tenant_id": user.TenantID, "changes": updates})
 	response.OK(c, h.userToJSON(user))
 }
@@ -973,9 +1103,28 @@ func (h *IdentityHandler) ResetUserPassword(c *gin.Context) {
 
 func (h *IdentityHandler) DeleteUser(c *gin.Context) {
 	id := parseUintParam(c, "id")
-	if h.deleteTenantScopedByID(c, &models.AppUser{}) {
-		h.auditCurrentUser(c, "user", "delete", "删除用户", gin.H{"user_id": id})
+	viewer, ok := h.currentUser(c)
+	if ok && viewer.ID == id {
+		response.Error(c, 400, response.CodeBadRequest, "不能删除当前登录用户")
+		return
 	}
+	tenantID := h.requestTenantID(c)
+	var user models.AppUser
+	if err := h.db.Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", id, tenantID).First(&user).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "用户不存在")
+		return
+	}
+	now := time.Now()
+	updates := map[string]interface{}{"deleted_at": now, "status": 0, "employee_no": tombstoneUniqueValue(user.EmployeeNo, user.ID, 64), "account": tombstoneUniqueValue(user.Account, user.ID, 64)}
+	if user.Phone != nil {
+		updates["phone"] = tombstoneUniqueValue(*user.Phone, user.ID, 32)
+	}
+	if err := h.db.Model(&user).Updates(updates).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	h.auditCurrentUser(c, "user", "delete", "删除用户 "+user.Name, gin.H{"user_id": id})
+	response.OK(c, gin.H{"deleted": id})
 }
 
 func (h *IdentityHandler) AssignableRoles(c *gin.Context) {
@@ -2524,6 +2673,18 @@ func paginationParams(c *gin.Context) (int, int) {
 	return skip, limit
 }
 
+func parseOptionalUintQuery(c *gin.Context, key string) *uint64 {
+	raw := strings.TrimSpace(c.Query(key))
+	if raw == "" {
+		return nil
+	}
+	id, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		return nil
+	}
+	return &id
+}
+
 func tenantToJSON(db *gorm.DB, row models.Tenant) gin.H {
 	planName, planCode := (*string)(nil), (*string)(nil)
 	var sub models.TenantSubscription
@@ -2972,6 +3133,78 @@ func nullableFromString(value string) *string {
 	return &trimmed
 }
 
+func normalizeOptionalPhone(value *string) (*string, string) {
+	if value == nil {
+		return nil, ""
+	}
+	raw := strings.TrimSpace(*value)
+	if raw == "" {
+		return nil, ""
+	}
+	var digits strings.Builder
+	for _, ch := range raw {
+		switch {
+		case ch >= '0' && ch <= '9':
+			digits.WriteRune(ch)
+		case ch == ' ' || ch == '-' || ch == '(' || ch == ')':
+		default:
+			return nil, "手机号只能包含数字、空格、短横线或括号"
+		}
+	}
+	normalized := digits.String()
+	if len(normalized) < 10 || len(normalized) > 15 {
+		return nil, "手机号需为 10-15 位数字"
+	}
+	return &normalized, ""
+}
+
+func uniqueUint64s(values []uint64) []uint64 {
+	if values == nil {
+		return nil
+	}
+	seen := map[uint64]struct{}{}
+	out := make([]uint64, 0, len(values))
+	for _, value := range values {
+		if value == 0 {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func normalizedUserDepartmentIDs(departmentID *uint64, departmentIDs []uint64) []uint64 {
+	ids := uniqueUint64s(departmentIDs)
+	if departmentID == nil || *departmentID == 0 {
+		return ids
+	}
+	for _, id := range ids {
+		if id == *departmentID {
+			return ids
+		}
+	}
+	return append([]uint64{*departmentID}, ids...)
+}
+
+func tombstoneUniqueValue(value string, id uint64, maxLen int) string {
+	suffix := fmt.Sprintf("__deleted_%d_%d", id, time.Now().Unix())
+	base := value
+	if len(base)+len(suffix) > maxLen {
+		keep := maxLen - len(suffix)
+		if keep < 0 {
+			keep = 0
+		}
+		if len(base) > keep {
+			base = base[:keep]
+		}
+	}
+	return base + suffix
+}
+
 func derefString(value *string) string {
 	if value == nil {
 		return ""
@@ -3179,6 +3412,97 @@ func (h *IdentityHandler) replaceUserRelations(userID uint64, roleIDs []uint64, 
 			_ = h.db.Create(&models.AppUserDepartment{UserID: userID, DepartmentID: id}).Error
 		}
 	}
+}
+
+func (h *IdentityHandler) assertDepartmentsInTenant(tenantID uint64, departmentIDs []uint64) error {
+	ids := uniqueUint64s(departmentIDs)
+	if len(ids) == 0 {
+		return nil
+	}
+	var count int64
+	if err := h.db.Model(&models.OrgNode{}).
+		Where("tenant_id = ? AND id IN ? AND deleted_at IS NULL AND node_type IN ?", tenantID, ids, []string{"department", "store", "warehouse", "project_team", "group"}).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count != int64(len(ids)) {
+		return fmt.Errorf("组织节点不存在、类型不可用于人员归属或不属于当前主体")
+	}
+	return nil
+}
+
+func (h *IdentityHandler) companyIDForDepartment(tenantID uint64, departmentID uint64) *uint64 {
+	var row models.OrgNode
+	if err := h.db.Where("tenant_id = ? AND id = ? AND deleted_at IS NULL", tenantID, departmentID).First(&row).Error; err != nil {
+		return nil
+	}
+	if row.CompanyID != nil {
+		return row.CompanyID
+	}
+	if row.NodeType == "company" {
+		return &row.ID
+	}
+	return nil
+}
+
+func (h *IdentityHandler) assertPositionsInTenant(tenantID uint64, positionIDs []uint64) error {
+	ids := uniqueUint64s(positionIDs)
+	if len(ids) == 0 {
+		return nil
+	}
+	var count int64
+	if err := h.db.Model(&models.Position{}).Where("tenant_id = ? AND id IN ? AND deleted_at IS NULL", tenantID, ids).Count(&count).Error; err != nil {
+		return err
+	}
+	if count != int64(len(ids)) {
+		return fmt.Errorf("岗位不存在或不属于当前主体")
+	}
+	return nil
+}
+
+func (h *IdentityHandler) assertRolesInTenant(tenantID uint64, roleIDs []uint64) error {
+	ids := uniqueUint64s(roleIDs)
+	if len(ids) == 0 {
+		return nil
+	}
+	var count int64
+	if err := h.db.Model(&models.Role{}).Where("tenant_id = ? AND id IN ? AND deleted_at IS NULL", tenantID, ids).Count(&count).Error; err != nil {
+		return err
+	}
+	if count != int64(len(ids)) {
+		return fmt.Errorf("角色不存在或不属于当前主体")
+	}
+	return nil
+}
+
+func (h *IdentityHandler) assertUserUniqueFields(tenantID uint64, exceptUserID uint64, employeeNo string, phone *string) error {
+	if strings.TrimSpace(employeeNo) != "" {
+		query := h.db.Model(&models.AppUser{}).Where("tenant_id = ? AND employee_no = ? AND deleted_at IS NULL", tenantID, strings.TrimSpace(employeeNo))
+		if exceptUserID > 0 {
+			query = query.Where("id <> ?", exceptUserID)
+		}
+		var count int64
+		if err := query.Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			return fmt.Errorf("工号已存在")
+		}
+	}
+	if phone != nil && strings.TrimSpace(*phone) != "" {
+		query := h.db.Model(&models.AppUser{}).Where("tenant_id = ? AND phone = ? AND deleted_at IS NULL", tenantID, strings.TrimSpace(*phone))
+		if exceptUserID > 0 {
+			query = query.Where("id <> ?", exceptUserID)
+		}
+		var count int64
+		if err := query.Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			return fmt.Errorf("手机号已存在")
+		}
+	}
+	return nil
 }
 
 func (h *IdentityHandler) createTenantWithAdmin(code, name string, status int, adminName, adminEmployeeNo string, adminPhone *string, adminPassword string) (models.Tenant, error) {
