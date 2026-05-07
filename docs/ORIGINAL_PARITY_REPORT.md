@@ -312,6 +312,9 @@ Go 版额外路由：
 - 文件仍按 `uploads/{tenant_id}/YYYY/MM/DD` 保存，下载和删除只在当前主体目录查找，并跳过 `.trash`。
 - 非法 `file_id` 返回 400，跨主体或不存在文件返回 404。
 - 文件删除改为移动到 `uploads/{tenant_id}/.trash/YYYY/MM/DD/HHMMSS_filename`，审计中记录回收路径。
+- 用户 CSV 导出接入 `export_data` 套餐功能开关，并消耗 `daily_export_times` 日配额。
+- 用户 CSV 导出按 `/users` 数据权限过滤，支持 `ALL/SELF/ORG/ORG_SUB/CUSTOM` 对公司、部门、用户范围的限制。
+- 用户 CSV 导出只导出未软删除用户和未软删除组织名称，字段保持 `employee_no,name,phone,email,company_name,department_name,status`，并保留 CSV 公式注入防护。
 
 验证：
 
@@ -319,4 +322,4 @@ Go 版额外路由：
 
 状态：
 
-- L1-L2 文件上传、下载、删除已完成。
+- L1-L3 文件上传、下载、删除、用户 CSV 导出已完成。

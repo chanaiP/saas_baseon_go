@@ -3,6 +3,7 @@ package handlers
 import (
 	"time"
 
+	"gorm.io/gorm"
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 )
 
@@ -115,6 +116,36 @@ func (h *IdentityHandler) requireQuotaAvailable(tenantID uint64, quotaCode strin
 		return &quotaExceededError{QuotaName: quota.QuotaName, Limit: limit, Used: used}
 	}
 	return nil
+}
+
+func (h *IdentityHandler) consumeQuota(tenantID uint64, quotaCode string, increment int) error {
+	if increment <= 0 {
+		increment = 1
+	}
+	var quota models.SaasQuota
+	if err := h.db.Where("quota_code = ? AND status = ?", quotaCode, 1).First(&quota).Error; err != nil {
+		return nil
+	}
+	if err := h.requireQuotaAvailable(tenantID, quotaCode, increment); err != nil {
+		return err
+	}
+	periodKey := "TOTAL"
+	if quota.PeriodType != nil && *quota.PeriodType == "DAY" {
+		periodKey = time.Now().Format("20060102")
+	}
+	periodType := quota.PeriodType
+	limit := h.currentQuotaLimit(tenantID, quota.ID)
+	now := time.Now()
+	var usage models.TenantQuotaUsage
+	err := h.db.Where("tenant_id = ? AND quota_code = ? AND period_key = ?", tenantID, quotaCode, periodKey).First(&usage).Error
+	if err == nil {
+		return h.db.Model(&usage).Updates(map[string]interface{}{"used_value": usage.UsedValue + increment, "limit_value": limit, "last_refresh_time": now, "updated_at": now}).Error
+	}
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return err
+	}
+	usage = models.TenantQuotaUsage{TenantID: tenantID, QuotaCode: quotaCode, UsedValue: increment, LimitValue: limit, PeriodType: periodType, PeriodKey: periodKey, LastRefreshTime: &now, CreatedAt: now, UpdatedAt: now}
+	return h.db.Create(&usage).Error
 }
 
 type quotaExceededError struct {
