@@ -18,6 +18,8 @@ func TestRequiredDeletionGuards(t *testing.T) {
 		"plan:tenant_subscription",
 		"org_node:app_user",
 		"org_node:business_unit_org_map",
+		"position_type:position",
+		"position:app_user_position",
 		"business_unit:business_unit_org_map",
 		"dict_type:dict_item",
 	} {
