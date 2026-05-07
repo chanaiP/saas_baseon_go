@@ -74,6 +74,9 @@ Current implementation contains:
 - PostgreSQL schema migration through GORM AutoMigrate for the rebuilt modules
 - seed data for platform tenant, demo users, role, menu/button permissions, SaaS plans, dictionaries, params and logs
 - login with password verification and signed bearer token
+- captcha generation, login failure tracking, protected API authentication and permission-code gate checks
 - system management APIs for tenant, plan, organization, position, business unit, user, role, menu, dictionary, parameter, operation log and login log pages
 - monitor APIs for health, server info, service overview, scheduled jobs, Redis stats and Redis key scan
+- file upload/download/delete and CSV batch import/export APIs
+- explicit API route coverage with strict 404 for unknown API paths
 - frontend build and Playwright E2E coverage for the current visible pages
