@@ -16,15 +16,14 @@ func (h *IdentityHandler) routeAllowed(user models.AppUser, method, fullPath str
 }
 
 func (h *IdentityHandler) userPermissionCodeSet(userID uint64) map[string]struct{} {
-	var permissions []models.Permission
-	_ = h.db.
-		Joins("JOIN role_permission rp ON rp.permission_id = permission.id").
-		Joins("JOIN user_role ur ON ur.role_id = rp.role_id").
-		Where("ur.user_id = ? AND permission.enabled = ?", userID, true).
-		Find(&permissions).Error
+	var user models.AppUser
+	if err := h.db.Where("id = ? AND deleted_at IS NULL", userID).First(&user).Error; err != nil {
+		return map[string]struct{}{}
+	}
 	codes := map[string]struct{}{}
-	for _, permission := range permissions {
-		codes[permission.Path] = struct{}{}
+	filterSubscription := !user.IsPlatformAdmin && !h.viewerHasPlatformScope(user)
+	for _, code := range h.permissionCodesForUser(user, filterSubscription) {
+		codes[code] = struct{}{}
 	}
 	return codes
 }

@@ -498,6 +498,44 @@ func (h *IdentityHandler) filterPermissionCodesForSubscription(codes []string, f
 	return out
 }
 
+func (h *IdentityHandler) permissionCodesForUser(user models.AppUser, filterSubscription bool) []string {
+	var permissions []models.Permission
+	_ = h.db.
+		Joins("JOIN role_permission rp ON rp.permission_id = permission.id").
+		Joins("JOIN user_role ur ON ur.role_id = rp.role_id").
+		Joins("JOIN role r ON r.id = ur.role_id").
+		Where("ur.user_id = ? AND permission.tenant_id = ? AND permission.enabled = ? AND permission.deleted_at IS NULL AND r.deleted_at IS NULL", user.ID, user.TenantID, true).
+		Where("permission.perm_type IN ?", []int{2, 3}).
+		Order("permission.id asc").
+		Find(&permissions).Error
+	codes := make([]string, 0, len(permissions)+2)
+	seen := map[string]struct{}{}
+	for _, permission := range permissions {
+		if permission.Path == "" || permission.Path == "__operations_root__" || permission.Path == "__menu_root__" {
+			continue
+		}
+		if !user.IsPlatformAdmin && !h.viewerHasPlatformScope(user) && permission.IsPlatformOnly {
+			continue
+		}
+		if filterSubscription && !h.permissionAllowedForTenantSubscription(user.TenantID, permission) {
+			continue
+		}
+		if _, ok := seen[permission.Path]; ok {
+			continue
+		}
+		seen[permission.Path] = struct{}{}
+		codes = append(codes, permission.Path)
+	}
+	for _, fixed := range []string{"/home", "home:view"} {
+		if _, ok := seen[fixed]; ok {
+			continue
+		}
+		seen[fixed] = struct{}{}
+		codes = append(codes, fixed)
+	}
+	return codes
+}
+
 func (h *IdentityHandler) userShortcutIDs(userID uint64) []string {
 	var pref models.UserPreference
 	if err := h.db.Where("user_id = ? AND pref_key = ?", userID, "shortcut_ids").First(&pref).Error; err != nil || pref.PrefValue == nil {
@@ -589,7 +627,6 @@ func (h *IdentityHandler) Profile(c *gin.Context) {
 	var user models.AppUser
 	var tenant models.Tenant
 	var roles []models.Role
-	var permissions []models.Permission
 	if loaded, ok := h.currentUser(c); ok {
 		user = loaded
 	} else {
@@ -601,11 +638,6 @@ func (h *IdentityHandler) Profile(c *gin.Context) {
 			Joins("JOIN user_role ur ON ur.role_id = role.id").
 			Where("ur.user_id = ?", user.ID).
 			Find(&roles).Error
-		_ = h.db.
-			Joins("JOIN role_permission rp ON rp.permission_id = permission.id").
-			Joins("JOIN user_role ur ON ur.role_id = rp.role_id").
-			Where("ur.user_id = ? AND permission.enabled = ?", user.ID, true).
-			Find(&permissions).Error
 	}
 	roleIDs := make([]uint64, 0, len(roles))
 	roleCodes := make([]string, 0, len(roles))
@@ -613,20 +645,9 @@ func (h *IdentityHandler) Profile(c *gin.Context) {
 		roleIDs = append(roleIDs, role.ID)
 		roleCodes = append(roleCodes, role.Code)
 	}
-	permissionCodes := make([]string, 0, len(permissions))
-	for _, permission := range permissions {
-		if permission.PermType == 2 {
-			permissionCodes = append(permissionCodes, permission.Path)
-		}
-	}
-	if len(permissionCodes) == 0 {
-		permissionCodes = allDevPermissionCodes()
-	}
 	capability := h.tenantCapabilityContext(user.TenantID)
 	tenantIsPlatform := tenant.IsPlatform
-	if !user.IsPlatformAdmin && !tenantIsPlatform {
-		permissionCodes = h.filterPermissionCodesForSubscription(permissionCodes, capability.Features)
-	}
+	permissionCodes := h.permissionCodesForUser(user, !user.IsPlatformAdmin && !tenantIsPlatform)
 
 	response.OK(c, gin.H{
 		"id":                 user.ID,
