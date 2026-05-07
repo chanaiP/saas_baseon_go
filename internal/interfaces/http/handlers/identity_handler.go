@@ -24,7 +24,6 @@ import (
 	"gorm.io/gorm"
 
 	apppermission "saas_baseon_go/internal/application/permission"
-	domainpermission "saas_baseon_go/internal/domain/permission"
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/repositories"
 	"saas_baseon_go/internal/interfaces/http/response"
@@ -1811,87 +1810,148 @@ func (h *IdentityHandler) AssignableRoles(c *gin.Context) {
 }
 
 func (h *IdentityHandler) Roles(c *gin.Context) {
-	skip, limit := paginationParams(c)
-	roles, total, err := h.roleService().List(c.Request.Context(), apppermission.RoleListQuery{TenantID: h.requestTenantID(c), Skip: skip, Limit: limit, Keyword: c.Query("kw")})
-	if err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
 		return
 	}
+	skip, limit := paginationParams(c)
+	query := h.db.Where("tenant_id = ? AND deleted_at IS NULL", user.TenantID)
+	if kw := strings.TrimSpace(c.Query("kw")); kw != "" {
+		like := "%" + strings.ToLower(kw) + "%"
+		query = query.Where("lower(code) LIKE ? OR lower(name) LIKE ?", like, like)
+	}
+	var total int64
+	_ = query.Model(&models.Role{}).Count(&total).Error
+	var roles []models.Role
+	_ = query.Order("id asc").Offset(skip).Limit(limit).Find(&roles).Error
+	filterForSubscription := !h.viewerHasPlatformScope(user)
 	items := make([]gin.H, 0, len(roles))
 	for _, role := range roles {
-		items = append(items, roleToJSON(role))
+		items = append(items, h.roleToJSON(role, filterForSubscription))
 	}
 	response.OK(c, paginatedWithTotal(items, total, skip, limit))
 }
 
 func (h *IdentityHandler) Role(c *gin.Context) {
-	role, err := h.roleService().Get(c.Request.Context(), parseUintParam(c, "id"))
-	if err != nil || role.TenantID != h.requestTenantID(c) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	var role models.Role
+	if err := h.db.Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", parseUintParam(c, "id"), user.TenantID).First(&role).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "角色不存在")
 		return
 	}
-	response.OK(c, roleToJSON(role))
+	response.OK(c, h.roleToJSON(role, false))
 }
 
 func (h *IdentityHandler) CreateRole(c *gin.Context) {
-	var body struct {
-		Code          string   `json:"code"`
-		Name          string   `json:"name"`
-		Description   *string  `json:"description"`
-		PermissionIDs []uint64 `json:"permission_ids"`
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
 	}
+	var body rolePayload
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	tenantID := h.requestTenantID(c)
-	if err := h.requireQuotaAvailable(tenantID, "max_roles", 1); err != nil {
+	if err := h.requireFeatureAccess(user.TenantID, "role_manage"); err != nil {
+		response.Error(c, 403, response.CodeForbidden, err.Error())
+		return
+	}
+	if err := h.requireQuotaAvailable(user.TenantID, "max_roles", 1); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
-	role, err := h.roleService().Create(c.Request.Context(), apppermission.RoleCreateCommand{TenantID: tenantID, Code: body.Code, Name: body.Name, Description: body.Description, PermissionIDs: body.PermissionIDs})
-	if err != nil {
+	code := strings.TrimSpace(body.Code)
+	name := strings.TrimSpace(derefString(body.Name))
+	if code == "" || name == "" {
+		response.Error(c, 400, response.CodeBadRequest, "角色编码和名称不能为空")
+		return
+	}
+	role := models.Role{TenantID: user.TenantID, Code: code, Name: name, Description: nullableTrimmed(body.Description), Status: 1}
+	if err := h.db.Create(&role).Error; err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
-	h.auditCurrentUser(c, "role", "create", "创建角色 "+role.Name, gin.H{"role_id": role.ID, "tenant_id": role.TenantID, "code": role.Code})
-	response.OK(c, roleToJSON(role))
+	h.audit(c, user.TenantID, user.ID, "role", "create", "创建角色 "+role.Name, gin.H{"id": role.ID, "code": role.Code})
+	response.OK(c, h.roleToJSON(role, false))
 }
 
 func (h *IdentityHandler) UpdateRole(c *gin.Context) {
-	var body struct {
-		Name          *string  `json:"name"`
-		Description   *string  `json:"description"`
-		PermissionIDs []uint64 `json:"permission_ids"`
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
 	}
+	var body rolePayload
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	role, err := h.roleService().Update(c.Request.Context(), apppermission.RoleUpdateCommand{ID: parseUintParam(c, "id"), TenantID: h.requestTenantID(c), Name: body.Name, Description: body.Description, PermissionIDs: body.PermissionIDs, UpdatePerms: body.PermissionIDs != nil})
-	if err != nil {
-		if err == domainpermission.ErrRoleNotFound {
-			response.Error(c, 404, response.CodeNotFound, "角色不存在")
-			return
-		}
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
-		return
-	}
-	h.auditCurrentUser(c, "role", "update", "更新角色 "+role.Name, gin.H{"role_id": role.ID, "tenant_id": role.TenantID, "permission_ids": role.PermissionIDs})
-	response.OK(c, roleToJSON(role))
-}
-
-func (h *IdentityHandler) DeleteRole(c *gin.Context) {
-	role, err := h.roleService().Get(c.Request.Context(), parseUintParam(c, "id"))
-	if err != nil || role.TenantID != h.requestTenantID(c) {
+	var role models.Role
+	if err := h.db.Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", parseUintParam(c, "id"), user.TenantID).First(&role).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "角色不存在")
 		return
 	}
-	if err := h.roleService().Delete(c.Request.Context(), parseUintParam(c, "id")); err != nil {
+	if body.PermissionIDs != nil {
+		if err := h.validateRolePermissionIDs(user, body.PermissionIDs); err != nil {
+			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			return
+		}
+		if err := h.validateRoleDataOverrides(user.TenantID, body.DataOverrides); err != nil {
+			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			return
+		}
+	}
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		updates := map[string]interface{}{}
+		if body.Name != nil {
+			updates["name"] = strings.TrimSpace(*body.Name)
+		}
+		if body.Description != nil {
+			updates["description"] = nullableTrimmed(body.Description)
+		}
+		if len(updates) > 0 {
+			if err := tx.Model(&role).Updates(updates).Error; err != nil {
+				return err
+			}
+		}
+		if body.PermissionIDs != nil {
+			if err := replaceRolePermissionsWithOverrides(tx, role.ID, body.PermissionIDs, body.DataOverrides); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
-	h.auditCurrentUser(c, "role", "delete", "删除角色 "+role.Name, gin.H{"role_id": role.ID, "tenant_id": role.TenantID})
+	_ = h.db.First(&role, role.ID).Error
+	h.audit(c, user.TenantID, user.ID, "role", "update", "编辑角色 "+role.Name, gin.H{"id": role.ID, "code": role.Code, "permission_ids": body.PermissionIDs, "data_overrides": body.DataOverrides})
+	response.OK(c, h.roleToJSON(role, false))
+}
+
+func (h *IdentityHandler) DeleteRole(c *gin.Context) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	var role models.Role
+	if err := h.db.Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", parseUintParam(c, "id"), user.TenantID).First(&role).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "角色不存在")
+		return
+	}
+	now := time.Now()
+	if err := h.db.Model(&role).Updates(map[string]interface{}{"deleted_at": now, "code": tombstoneUniqueValue(role.Code, role.ID, 64)}).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	h.audit(c, user.TenantID, user.ID, "role", "delete", "删除角色 "+role.Name, gin.H{"id": role.ID})
 	response.OK(c, gin.H{"deleted": parseUintParam(c, "id")})
 }
 
@@ -2376,6 +2436,13 @@ func (h *IdentityHandler) permissionAllowedForTenantSubscription(tenantID uint64
 		return true
 	}
 	return h.tenantFeatureAllowed(tenantID, code)
+}
+
+func (h *IdentityHandler) requireFeatureAccess(tenantID uint64, featureCode string) error {
+	if h.tenantFeatureAllowed(tenantID, featureCode) {
+		return nil
+	}
+	return fmt.Errorf("当前套餐不支持功能：%s", featureCode)
 }
 
 func (h *IdentityHandler) disablePackageFeatureForPermission(permission models.Permission) {
@@ -3835,8 +3902,220 @@ func (h *IdentityHandler) userToJSON(row models.AppUser) gin.H {
 	return gin.H{"id": row.ID, "tenant_id": row.TenantID, "employee_no": row.EmployeeNo, "phone": row.Phone, "name": row.Name, "email": row.Email, "avatar_url": row.AvatarURL, "status": row.Status, "company_id": row.CompanyID, "department_id": row.DepartmentID, "department_ids": departmentIDs, "position_ids": positionIDs, "role_ids": roleIDs, "is_platform_admin": row.IsPlatformAdmin, "created_at": row.CreatedAt}
 }
 
-func roleToJSON(row domainpermission.Role) gin.H {
-	return gin.H{"id": row.ID, "code": row.Code, "name": row.Name, "description": row.Description, "permission_ids": row.PermissionIDs, "data_overrides": []gin.H{}}
+type rolePayload struct {
+	Code          string                    `json:"code"`
+	Name          *string                   `json:"name"`
+	Description   *string                   `json:"description"`
+	PermissionIDs []uint64                  `json:"permission_ids"`
+	DataOverrides []roleDataOverridePayload `json:"data_overrides"`
+}
+
+type roleDataOverridePayload struct {
+	PermissionID          uint64   `json:"permission_id"`
+	DataScope             string   `json:"data_scope"`
+	CustomCompanyIDs      []uint64 `json:"custom_company_ids"`
+	CustomDepartmentIDs   []uint64 `json:"custom_department_ids"`
+	CustomUserIDs         []uint64 `json:"custom_user_ids"`
+	CustomBusinessUnitIDs []uint64 `json:"custom_business_unit_ids"`
+	BUDataAccessMode      *string  `json:"bu_data_access_mode"`
+}
+
+func (h *IdentityHandler) roleToJSON(row models.Role, filterForSubscription bool) gin.H {
+	permissionIDs := h.rolePermissionIDs(row.ID)
+	if filterForSubscription {
+		permissionIDs = h.filterPermissionIDsForTenantSubscription(row.TenantID, permissionIDs)
+	}
+	return gin.H{"id": row.ID, "code": row.Code, "name": row.Name, "description": row.Description, "permission_ids": permissionIDs, "data_overrides": h.roleDataOverrides(row.ID)}
+}
+
+func (h *IdentityHandler) rolePermissionIDs(roleID uint64) []uint64 {
+	var ids []uint64
+	_ = h.db.Model(&models.RolePermission{}).Where("role_id = ?", roleID).Order("id asc").Pluck("permission_id", &ids).Error
+	return ids
+}
+
+func (h *IdentityHandler) roleDataOverrides(roleID uint64) []gin.H {
+	var links []models.RolePermission
+	_ = h.db.
+		Joins("JOIN permission p ON p.id = role_permission.permission_id").
+		Where("role_permission.role_id = ? AND p.perm_type = ? AND p.deleted_at IS NULL", roleID, 4).
+		Order("role_permission.id asc").
+		Find(&links).Error
+	items := make([]gin.H, 0, len(links))
+	for _, link := range links {
+		scope := derefString(link.DataScopeOverride)
+		companyIDs := uint64IDsFromJSON(link.CustomCompanyIDsJSON)
+		departmentIDs := uint64IDsFromJSON(link.CustomDepartmentIDsJSON)
+		userIDs := uint64IDsFromJSON(link.CustomUserIDsJSON)
+		businessUnitIDs := uint64IDsFromJSON(link.CustomBusinessUnitIDsJSON)
+		if scope == "ALL" && len(companyIDs) == 0 && len(departmentIDs) == 0 && len(userIDs) == 0 && (len(businessUnitIDs) > 0 || link.BUDataAccessMode != nil) {
+			scope = ""
+		}
+		items = append(items, gin.H{"permission_id": link.PermissionID, "data_scope": scope, "custom_company_ids": companyIDs, "custom_department_ids": departmentIDs, "custom_user_ids": userIDs, "custom_business_unit_ids": businessUnitIDs, "bu_data_access_mode": link.BUDataAccessMode})
+	}
+	return items
+}
+
+func uint64IDsFromJSON(raw *string) []uint64 {
+	if raw == nil || strings.TrimSpace(*raw) == "" {
+		return []uint64{}
+	}
+	var values []uint64
+	if err := json.Unmarshal([]byte(*raw), &values); err == nil {
+		return uniqueUint64s(values)
+	}
+	var stringsValues []string
+	if err := json.Unmarshal([]byte(*raw), &stringsValues); err != nil {
+		return []uint64{}
+	}
+	values = make([]uint64, 0, len(stringsValues))
+	for _, value := range stringsValues {
+		id, err := strconv.ParseUint(value, 10, 64)
+		if err == nil {
+			values = append(values, id)
+		}
+	}
+	return uniqueUint64s(values)
+}
+
+func (h *IdentityHandler) filterPermissionIDsForTenantSubscription(tenantID uint64, ids []uint64) []uint64 {
+	if len(ids) == 0 {
+		return []uint64{}
+	}
+	var rows []models.Permission
+	_ = h.db.Where("tenant_id = ? AND id IN ? AND deleted_at IS NULL", tenantID, ids).Find(&rows).Error
+	allowed := map[uint64]struct{}{}
+	for _, row := range rows {
+		if h.permissionAllowedForTenantSubscription(tenantID, row) {
+			allowed[row.ID] = struct{}{}
+		}
+	}
+	out := make([]uint64, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := allowed[id]; ok {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+func (h *IdentityHandler) validateRolePermissionIDs(user models.AppUser, ids []uint64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	uniqueIDs := uniqueUint64s(ids)
+	var rows []models.Permission
+	if err := h.db.Where("tenant_id = ? AND id IN ? AND deleted_at IS NULL", user.TenantID, uniqueIDs).Find(&rows).Error; err != nil {
+		return err
+	}
+	byID := map[uint64]models.Permission{}
+	for _, row := range rows {
+		byID[row.ID] = row
+	}
+	for _, id := range uniqueIDs {
+		permission, ok := byID[id]
+		if !ok {
+			return errors.New("权限不存在或不属于当前主体")
+		}
+		if !h.viewerHasPlatformScope(user) && !h.permissionAllowedForTenantSubscription(user.TenantID, permission) {
+			return fmt.Errorf("当前套餐不支持分配权限：%s", coalesceString(permission.Path, permission.Name))
+		}
+	}
+	return nil
+}
+
+func (h *IdentityHandler) validateRoleDataOverrides(tenantID uint64, overrides []roleDataOverridePayload) error {
+	if overrides == nil {
+		return nil
+	}
+	ids := make([]uint64, 0, len(overrides))
+	for _, override := range overrides {
+		ids = append(ids, override.PermissionID)
+	}
+	var rows []models.Permission
+	_ = h.db.Where("tenant_id = ? AND id IN ? AND deleted_at IS NULL", tenantID, uniqueUint64s(ids)).Find(&rows).Error
+	modeByID := map[uint64]string{}
+	for _, row := range rows {
+		modeByID[row.ID] = coalesceString(row.DataPermMode, "ORG")
+	}
+	for _, override := range overrides {
+		if !allowedString(override.DataScope, "ALL", "ORG", "ORG_SUB", "SELF", "CUSTOM") {
+			return fmt.Errorf("无效的数据范围: %s", override.DataScope)
+		}
+		mode := modeByID[override.PermissionID]
+		if mode == "" {
+			mode = "ORG"
+		}
+		hasOrgFields := len(override.CustomCompanyIDs) > 0 || len(override.CustomDepartmentIDs) > 0 || len(override.CustomUserIDs) > 0
+		hasBUIDs := len(override.CustomBusinessUnitIDs) > 0
+		buMode := strings.TrimSpace(derefString(override.BUDataAccessMode))
+		hasBUMode := buMode == "CURRENT_ORG_BU" || buMode == "SPECIFIED_BU"
+		switch mode {
+		case "NONE":
+			if hasOrgFields || hasBUIDs || hasBUMode {
+				return errors.New("该菜单不支持配置组织或业务单元数据权限")
+			}
+			if override.DataScope != "ALL" {
+				return errors.New("该菜单不支持组织架构权限，数据范围必须为全部")
+			}
+		case "ORG":
+			if hasBUIDs || hasBUMode {
+				return errors.New("该菜单仅支持组织架构权限，不支持业务单元权限")
+			}
+		case "BU":
+			if hasOrgFields {
+				return errors.New("该菜单仅支持业务单元权限，不支持组织架构权限")
+			}
+			if override.DataScope != "ALL" {
+				return errors.New("该菜单不支持组织架构权限，数据范围必须为全部")
+			}
+			if override.DataScope == "CUSTOM" && !hasBUIDs && !hasBUMode {
+				return errors.New("业务单元自定义范围需至少指定业务单元或业务单元访问模式")
+			}
+		}
+		if override.DataScope == "CUSTOM" && !hasOrgFields && !hasBUIDs && !hasBUMode {
+			return errors.New("自定义范围需至少指定组织维度，或业务单元维度（指定 BU / CURRENT_ORG_BU）")
+		}
+	}
+	return nil
+}
+
+func replaceRolePermissionsWithOverrides(tx *gorm.DB, roleID uint64, permissionIDs []uint64, overrides []roleDataOverridePayload) error {
+	if err := tx.Where("role_id = ?", roleID).Delete(&models.RolePermission{}).Error; err != nil {
+		return err
+	}
+	overrideByID := map[uint64]roleDataOverridePayload{}
+	for _, override := range overrides {
+		overrideByID[override.PermissionID] = override
+	}
+	for _, id := range uniqueUint64s(permissionIDs) {
+		link := models.RolePermission{RoleID: roleID, PermissionID: id}
+		override, ok := overrideByID[id]
+		if ok {
+			link.DataScopeOverride = nullableFromString(override.DataScope)
+			hasBU := len(override.CustomBusinessUnitIDs) > 0 || override.BUDataAccessMode != nil
+			if override.DataScope == "CUSTOM" || hasBU {
+				link.CustomCompanyIDsJSON = jsonStringPtr(uniqueUint64s(override.CustomCompanyIDs))
+				link.CustomDepartmentIDsJSON = jsonStringPtr(uniqueUint64s(override.CustomDepartmentIDs))
+				link.CustomUserIDsJSON = jsonStringPtr(uniqueUint64s(override.CustomUserIDs))
+				link.CustomBusinessUnitIDsJSON = jsonStringPtr(uniqueUint64s(override.CustomBusinessUnitIDs))
+				link.BUDataAccessMode = nullableTrimmed(override.BUDataAccessMode)
+			}
+		}
+		if err := tx.Create(&link).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func jsonStringPtr(value interface{}) *string {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	out := string(raw)
+	return &out
 }
 
 func businessUnitToJSON(row models.BusinessUnit) gin.H {
