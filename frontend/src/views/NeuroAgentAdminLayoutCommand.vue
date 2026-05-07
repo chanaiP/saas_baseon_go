@@ -1099,13 +1099,20 @@ const toggleShortcut = async () => {
   }
   if (!menuId) return
 
+  const rollbackIds = [...shortcut.shortcutIds]
   const idx = shortcut.shortcutIds.indexOf(menuId)
   if (idx >= 0) {
     shortcut.shortcutIds.splice(idx, 1)
   } else {
     shortcut.shortcutIds.push(menuId)
   }
-  await shortcut.persist()
+  try {
+    await shortcut.persist()
+  } catch (error) {
+    shortcut.shortcutIds = rollbackIds
+    ElMessage.error('快捷入口保存失败，请稍后重试')
+    console.error('快捷入口保存失败:', error)
+  }
 }
 
 

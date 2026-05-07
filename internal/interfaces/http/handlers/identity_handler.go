@@ -561,13 +561,14 @@ func (h *IdentityHandler) saveUserShortcutIDs(userID uint64, ids []string) error
 	}
 	value := string(raw)
 	now := time.Now()
-	var pref models.UserPreference
-	err = h.db.Where("user_id = ? AND pref_key = ?", userID, "shortcut_ids").First(&pref).Error
-	if err == nil {
-		return h.db.Model(&pref).Updates(map[string]interface{}{"pref_value": value, "updated_at": now}).Error
+	result := h.db.Model(&models.UserPreference{}).
+		Where("user_id = ? AND pref_key = ?", userID, "shortcut_ids").
+		Updates(map[string]interface{}{"pref_value": value, "updated_at": now})
+	if result.Error != nil {
+		return result.Error
 	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return err
+	if result.RowsAffected > 0 {
+		return nil
 	}
 	return h.db.Create(&models.UserPreference{UserID: userID, PrefKey: "shortcut_ids", PrefValue: &value, UpdatedAt: now}).Error
 }
