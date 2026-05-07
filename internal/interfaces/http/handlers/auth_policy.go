@@ -2,7 +2,7 @@ package handlers
 
 import "saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 
-func (h *MockIdentityHandler) routeAllowed(user models.AppUser, method, fullPath string) bool {
+func (h *IdentityHandler) routeAllowed(user models.AppUser, method, fullPath string) bool {
 	if user.IsPlatformAdmin || fullPath == "" {
 		return true
 	}
@@ -15,7 +15,7 @@ func (h *MockIdentityHandler) routeAllowed(user models.AppUser, method, fullPath
 	return ok
 }
 
-func (h *MockIdentityHandler) userPermissionCodeSet(userID uint64) map[string]struct{} {
+func (h *IdentityHandler) userPermissionCodeSet(userID uint64) map[string]struct{} {
 	var permissions []models.Permission
 	_ = h.db.
 		Joins("JOIN role_permission rp ON rp.permission_id = permission.id").

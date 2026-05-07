@@ -6,7 +6,7 @@ import (
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 )
 
-func (h *MockIdentityHandler) currentQuotaUsage(tenantID uint64, quotaCode string) int {
+func (h *IdentityHandler) currentQuotaUsage(tenantID uint64, quotaCode string) int {
 	var count int64
 	switch quotaCode {
 	case "max_users":
@@ -30,7 +30,7 @@ func (h *MockIdentityHandler) currentQuotaUsage(tenantID uint64, quotaCode strin
 	return int(count)
 }
 
-func (h *MockIdentityHandler) currentQuotaLimit(tenantID uint64, quotaID uint64) int {
+func (h *IdentityHandler) currentQuotaLimit(tenantID uint64, quotaID uint64) int {
 	now := time.Now()
 	var override models.TenantQuotaOverride
 	if err := h.db.Where("tenant_id = ? AND quota_id = ? AND (start_time IS NULL OR start_time <= ?) AND (end_time IS NULL OR end_time >= ?)", tenantID, quotaID, now, now).Order("id desc").First(&override).Error; err == nil {
@@ -46,7 +46,7 @@ func (h *MockIdentityHandler) currentQuotaLimit(tenantID uint64, quotaID uint64)
 	return 0
 }
 
-func (h *MockIdentityHandler) tenantFeatureAllowed(tenantID uint64, featureCode string) bool {
+func (h *IdentityHandler) tenantFeatureAllowed(tenantID uint64, featureCode string) bool {
 	var feature models.SaasFeature
 	if err := h.db.Where("feature_code = ? AND status = ?", featureCode, 1).First(&feature).Error; err != nil {
 		return false

@@ -26,7 +26,7 @@ import (
 	"saas_baseon_go/internal/interfaces/http/response"
 )
 
-type MockIdentityHandler struct {
+type IdentityHandler struct {
 	db         *gorm.DB
 	redis      *redis.Client
 	authSecret string
@@ -35,14 +35,14 @@ type MockIdentityHandler struct {
 
 var safeFileIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
-func NewMockIdentityHandler(db *gorm.DB, redisClient *redis.Client, authSecret string, tokenTTLHours int) *MockIdentityHandler {
+func NewIdentityHandler(db *gorm.DB, redisClient *redis.Client, authSecret string, tokenTTLHours int) *IdentityHandler {
 	if tokenTTLHours <= 0 {
 		tokenTTLHours = 24
 	}
-	return &MockIdentityHandler{db: db, redis: redisClient, authSecret: authSecret, tokenTTL: time.Duration(tokenTTLHours) * time.Hour}
+	return &IdentityHandler{db: db, redis: redisClient, authSecret: authSecret, tokenTTL: time.Duration(tokenTTLHours) * time.Hour}
 }
 
-func (h *MockIdentityHandler) AuthRequired() gin.HandlerFunc {
+func (h *IdentityHandler) AuthRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, ok := h.currentUser(c)
 		if !ok {
@@ -59,7 +59,7 @@ func (h *MockIdentityHandler) AuthRequired() gin.HandlerFunc {
 	}
 }
 
-func (h *MockIdentityHandler) Login(c *gin.Context) {
+func (h *IdentityHandler) Login(c *gin.Context) {
 	var body struct {
 		Account     string  `json:"account"`
 		Password    string  `json:"password"`
@@ -124,11 +124,11 @@ func (h *MockIdentityHandler) Login(c *gin.Context) {
 	})
 }
 
-func (h *MockIdentityHandler) Logout(c *gin.Context) {
+func (h *IdentityHandler) Logout(c *gin.Context) {
 	response.OK(c, gin.H{})
 }
 
-func (h *MockIdentityHandler) Captcha(c *gin.Context) {
+func (h *IdentityHandler) Captcha(c *gin.Context) {
 	code := randomCode(4)
 	id := randomHex(8)
 	if h.redis != nil {
@@ -141,7 +141,7 @@ func (h *MockIdentityHandler) Captcha(c *gin.Context) {
 	})
 }
 
-func (h *MockIdentityHandler) PhoneLoginTenants(c *gin.Context) {
+func (h *IdentityHandler) PhoneLoginTenants(c *gin.Context) {
 	account := strings.TrimSpace(c.Query("account"))
 	var rows []models.AppUser
 	if account != "" {
@@ -157,7 +157,7 @@ func (h *MockIdentityHandler) PhoneLoginTenants(c *gin.Context) {
 	response.OK(c, items)
 }
 
-func (h *MockIdentityHandler) SwitchableTenants(c *gin.Context) {
+func (h *IdentityHandler) SwitchableTenants(c *gin.Context) {
 	user, ok := h.currentUser(c)
 	if !ok {
 		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
@@ -179,7 +179,7 @@ func (h *MockIdentityHandler) SwitchableTenants(c *gin.Context) {
 	response.OK(c, items)
 }
 
-func (h *MockIdentityHandler) SwitchTenant(c *gin.Context) {
+func (h *IdentityHandler) SwitchTenant(c *gin.Context) {
 	user, ok := h.currentUser(c)
 	if !ok {
 		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
@@ -201,7 +201,7 @@ func (h *MockIdentityHandler) SwitchTenant(c *gin.Context) {
 	response.OK(c, gin.H{"token": token, "token_type": "bearer", "captcha_required": false})
 }
 
-func (h *MockIdentityHandler) Profile(c *gin.Context) {
+func (h *IdentityHandler) Profile(c *gin.Context) {
 	var user models.AppUser
 	var tenant models.Tenant
 	var roles []models.Role
@@ -262,7 +262,7 @@ func (h *MockIdentityHandler) Profile(c *gin.Context) {
 	})
 }
 
-func (h *MockIdentityHandler) UpdateProfile(c *gin.Context) {
+func (h *IdentityHandler) UpdateProfile(c *gin.Context) {
 	user, ok := h.currentUser(c)
 	if !ok {
 		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
@@ -301,7 +301,7 @@ func (h *MockIdentityHandler) UpdateProfile(c *gin.Context) {
 	h.Profile(c)
 }
 
-func (h *MockIdentityHandler) UpdatePassword(c *gin.Context) {
+func (h *IdentityHandler) UpdatePassword(c *gin.Context) {
 	user, ok := h.currentUser(c)
 	if !ok {
 		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
@@ -336,11 +336,11 @@ func (h *MockIdentityHandler) UpdatePassword(c *gin.Context) {
 	response.OK(c, gin.H{})
 }
 
-func (h *MockIdentityHandler) Preferences(c *gin.Context) {
+func (h *IdentityHandler) Preferences(c *gin.Context) {
 	response.OK(c, gin.H{"shortcut_ids": []string{}})
 }
 
-func (h *MockIdentityHandler) SavePreferences(c *gin.Context) {
+func (h *IdentityHandler) SavePreferences(c *gin.Context) {
 	var body struct {
 		ShortcutIDs []string `json:"shortcut_ids"`
 	}
@@ -351,7 +351,7 @@ func (h *MockIdentityHandler) SavePreferences(c *gin.Context) {
 	response.OK(c, gin.H{"shortcut_ids": body.ShortcutIDs})
 }
 
-func (h *MockIdentityHandler) TenantBranding(c *gin.Context) {
+func (h *IdentityHandler) TenantBranding(c *gin.Context) {
 	var tenant models.Tenant
 	_ = h.db.Where("code = ?", "platform").First(&tenant).Error
 	response.OK(c, gin.H{
@@ -365,7 +365,7 @@ func (h *MockIdentityHandler) TenantBranding(c *gin.Context) {
 	})
 }
 
-func (h *MockIdentityHandler) SaveTenantBranding(c *gin.Context) {
+func (h *IdentityHandler) SaveTenantBranding(c *gin.Context) {
 	user, ok := h.currentUser(c)
 	if !ok {
 		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
@@ -406,13 +406,13 @@ func (h *MockIdentityHandler) SaveTenantBranding(c *gin.Context) {
 	h.TenantBranding(c)
 }
 
-func (h *MockIdentityHandler) PublicTenantFooter(c *gin.Context) {
+func (h *IdentityHandler) PublicTenantFooter(c *gin.Context) {
 	var tenant models.Tenant
 	_ = h.db.Where("code = ?", "platform").First(&tenant).Error
 	response.OK(c, gin.H{"footer_text": tenant.FooterText})
 }
 
-func (h *MockIdentityHandler) MenuBundles(c *gin.Context) {
+func (h *IdentityHandler) MenuBundles(c *gin.Context) {
 	var permissions []models.Permission
 	_ = h.db.Where("perm_type = ? AND enabled = ? AND visible = ?", 3, true, true).Order("sort_order asc, id asc").Find(&permissions).Error
 	bundles := make([]gin.H, 0, len(permissions))
@@ -436,11 +436,11 @@ func (h *MockIdentityHandler) MenuBundles(c *gin.Context) {
 	response.OK(c, bundles)
 }
 
-func (h *MockIdentityHandler) MenuOverrides(c *gin.Context) {
+func (h *IdentityHandler) MenuOverrides(c *gin.Context) {
 	response.OK(c, gin.H{"tenant_id": 1, "overrides": []gin.H{}})
 }
 
-func (h *MockIdentityHandler) Permissions(c *gin.Context) {
+func (h *IdentityHandler) Permissions(c *gin.Context) {
 	var rows []models.Permission
 	_ = h.db.Order("sort_order asc, id asc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
@@ -450,7 +450,7 @@ func (h *MockIdentityHandler) Permissions(c *gin.Context) {
 	response.OK(c, paginated(items))
 }
 
-func (h *MockIdentityHandler) PermissionTree(c *gin.Context) {
+func (h *IdentityHandler) PermissionTree(c *gin.Context) {
 	var rows []models.Permission
 	_ = h.db.Order("sort_order asc, id asc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
@@ -460,7 +460,7 @@ func (h *MockIdentityHandler) PermissionTree(c *gin.Context) {
 	response.OK(c, items)
 }
 
-func (h *MockIdentityHandler) Permission(c *gin.Context) {
+func (h *IdentityHandler) Permission(c *gin.Context) {
 	var row models.Permission
 	if err := h.db.First(&row, c.Param("id")).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "权限不存在")
@@ -469,7 +469,7 @@ func (h *MockIdentityHandler) Permission(c *gin.Context) {
 	response.OK(c, permissionToJSON(row))
 }
 
-func (h *MockIdentityHandler) CreatePermission(c *gin.Context) {
+func (h *IdentityHandler) CreatePermission(c *gin.Context) {
 	var row models.Permission
 	if err := c.ShouldBindJSON(&row); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
@@ -488,7 +488,7 @@ func (h *MockIdentityHandler) CreatePermission(c *gin.Context) {
 	response.OK(c, permissionToJSON(row))
 }
 
-func (h *MockIdentityHandler) UpdatePermission(c *gin.Context) {
+func (h *IdentityHandler) UpdatePermission(c *gin.Context) {
 	var row models.Permission
 	if err := h.db.First(&row, c.Param("id")).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "权限不存在")
@@ -506,7 +506,7 @@ func (h *MockIdentityHandler) UpdatePermission(c *gin.Context) {
 	response.OK(c, permissionToJSON(row))
 }
 
-func (h *MockIdentityHandler) DeletePermission(c *gin.Context) {
+func (h *IdentityHandler) DeletePermission(c *gin.Context) {
 	h.deleteByID(c, &models.Permission{})
 }
 
@@ -524,11 +524,11 @@ func coalesceStringPtr(value *string, fallback string) string {
 	return *value
 }
 
-func (h *MockIdentityHandler) SaveMenuOverrides(c *gin.Context) {
+func (h *IdentityHandler) SaveMenuOverrides(c *gin.Context) {
 	h.MenuOverrides(c)
 }
 
-func (h *MockIdentityHandler) Tenants(c *gin.Context) {
+func (h *IdentityHandler) Tenants(c *gin.Context) {
 	var rows []models.Tenant
 	_ = h.db.Order("id desc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
@@ -538,7 +538,7 @@ func (h *MockIdentityHandler) Tenants(c *gin.Context) {
 	response.OK(c, paginated(items))
 }
 
-func (h *MockIdentityHandler) Tenant(c *gin.Context) {
+func (h *IdentityHandler) Tenant(c *gin.Context) {
 	var row models.Tenant
 	if err := h.db.First(&row, c.Param("id")).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "主体不存在")
@@ -547,7 +547,7 @@ func (h *MockIdentityHandler) Tenant(c *gin.Context) {
 	response.OK(c, tenantToJSON(h.db, row))
 }
 
-func (h *MockIdentityHandler) CreateTenant(c *gin.Context) {
+func (h *IdentityHandler) CreateTenant(c *gin.Context) {
 	var body struct {
 		Code            string  `json:"code"`
 		Name            string  `json:"name"`
@@ -569,7 +569,7 @@ func (h *MockIdentityHandler) CreateTenant(c *gin.Context) {
 	response.OK(c, tenantToJSON(h.db, tenant))
 }
 
-func (h *MockIdentityHandler) CreateTenantWithPackage(c *gin.Context) {
+func (h *IdentityHandler) CreateTenantWithPackage(c *gin.Context) {
 	var body struct {
 		Tenant struct {
 			Code            string  `json:"code"`
@@ -598,7 +598,7 @@ func (h *MockIdentityHandler) CreateTenantWithPackage(c *gin.Context) {
 	response.OK(c, tenantToJSON(h.db, tenant))
 }
 
-func (h *MockIdentityHandler) UpdateTenant(c *gin.Context) {
+func (h *IdentityHandler) UpdateTenant(c *gin.Context) {
 	var tenant models.Tenant
 	if err := h.db.First(&tenant, c.Param("id")).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "主体不存在")
@@ -616,7 +616,7 @@ func (h *MockIdentityHandler) UpdateTenant(c *gin.Context) {
 	response.OK(c, tenantToJSON(h.db, tenant))
 }
 
-func (h *MockIdentityHandler) UpdateTenantStatus(c *gin.Context) {
+func (h *IdentityHandler) UpdateTenantStatus(c *gin.Context) {
 	var body struct {
 		Status int `json:"status"`
 	}
@@ -630,11 +630,11 @@ func (h *MockIdentityHandler) UpdateTenantStatus(c *gin.Context) {
 	response.OK(c, tenantToJSON(h.db, tenant))
 }
 
-func (h *MockIdentityHandler) DeleteTenant(c *gin.Context) {
+func (h *IdentityHandler) DeleteTenant(c *gin.Context) {
 	h.deleteByID(c, &models.Tenant{})
 }
 
-func (h *MockIdentityHandler) Users(c *gin.Context) {
+func (h *IdentityHandler) Users(c *gin.Context) {
 	var rows []models.AppUser
 	_ = h.db.Order("id desc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
@@ -644,7 +644,7 @@ func (h *MockIdentityHandler) Users(c *gin.Context) {
 	response.OK(c, paginated(items))
 }
 
-func (h *MockIdentityHandler) CreateUser(c *gin.Context) {
+func (h *IdentityHandler) CreateUser(c *gin.Context) {
 	var body struct {
 		EmployeeNo   string   `json:"employee_no"`
 		Password     string   `json:"password"`
@@ -673,7 +673,7 @@ func (h *MockIdentityHandler) CreateUser(c *gin.Context) {
 	response.OK(c, h.userToJSON(user))
 }
 
-func (h *MockIdentityHandler) UpdateUser(c *gin.Context) {
+func (h *IdentityHandler) UpdateUser(c *gin.Context) {
 	var user models.AppUser
 	if err := h.db.First(&user, c.Param("id")).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "用户不存在")
@@ -727,7 +727,7 @@ func (h *MockIdentityHandler) UpdateUser(c *gin.Context) {
 	response.OK(c, h.userToJSON(user))
 }
 
-func (h *MockIdentityHandler) ResetUserPassword(c *gin.Context) {
+func (h *IdentityHandler) ResetUserPassword(c *gin.Context) {
 	newPassword := fmt.Sprintf("Pwd%06d", time.Now().UnixNano()%1000000)
 	if err := h.db.Model(&models.AppUser{}).Where("id = ?", c.Param("id")).Update("password_hash", devPasswordHash(newPassword)).Error; err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
@@ -736,11 +736,11 @@ func (h *MockIdentityHandler) ResetUserPassword(c *gin.Context) {
 	response.OK(c, gin.H{"new_password": newPassword})
 }
 
-func (h *MockIdentityHandler) DeleteUser(c *gin.Context) {
+func (h *IdentityHandler) DeleteUser(c *gin.Context) {
 	h.deleteByID(c, &models.AppUser{})
 }
 
-func (h *MockIdentityHandler) AssignableRoles(c *gin.Context) {
+func (h *IdentityHandler) AssignableRoles(c *gin.Context) {
 	var rows []models.Role
 	_ = h.db.Order("id asc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
@@ -750,7 +750,7 @@ func (h *MockIdentityHandler) AssignableRoles(c *gin.Context) {
 	response.OK(c, paginated(items))
 }
 
-func (h *MockIdentityHandler) Roles(c *gin.Context) {
+func (h *IdentityHandler) Roles(c *gin.Context) {
 	var rows []models.Role
 	_ = h.db.Order("id desc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
@@ -760,7 +760,7 @@ func (h *MockIdentityHandler) Roles(c *gin.Context) {
 	response.OK(c, paginated(items))
 }
 
-func (h *MockIdentityHandler) Role(c *gin.Context) {
+func (h *IdentityHandler) Role(c *gin.Context) {
 	var row models.Role
 	if err := h.db.First(&row, c.Param("id")).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "角色不存在")
@@ -769,7 +769,7 @@ func (h *MockIdentityHandler) Role(c *gin.Context) {
 	response.OK(c, h.roleToJSON(row))
 }
 
-func (h *MockIdentityHandler) CreateRole(c *gin.Context) {
+func (h *IdentityHandler) CreateRole(c *gin.Context) {
 	var body struct {
 		Code          string   `json:"code"`
 		Name          string   `json:"name"`
@@ -789,7 +789,7 @@ func (h *MockIdentityHandler) CreateRole(c *gin.Context) {
 	response.OK(c, h.roleToJSON(role))
 }
 
-func (h *MockIdentityHandler) UpdateRole(c *gin.Context) {
+func (h *IdentityHandler) UpdateRole(c *gin.Context) {
 	var role models.Role
 	if err := h.db.First(&role, c.Param("id")).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "角色不存在")
@@ -823,11 +823,11 @@ func (h *MockIdentityHandler) UpdateRole(c *gin.Context) {
 	response.OK(c, h.roleToJSON(role))
 }
 
-func (h *MockIdentityHandler) DeleteRole(c *gin.Context) {
+func (h *IdentityHandler) DeleteRole(c *gin.Context) {
 	h.deleteByID(c, &models.Role{})
 }
 
-func (h *MockIdentityHandler) UpdatePermissionDataPermMode(c *gin.Context) {
+func (h *IdentityHandler) UpdatePermissionDataPermMode(c *gin.Context) {
 	if c.Param("id") == "" {
 		response.OK(c, gin.H{})
 		return
@@ -849,7 +849,7 @@ func (h *MockIdentityHandler) UpdatePermissionDataPermMode(c *gin.Context) {
 	response.OK(c, gin.H{"id": parseUintParam(c, "id"), "data_perm_mode": body.DataPermMode})
 }
 
-func (h *MockIdentityHandler) Plans(c *gin.Context) {
+func (h *IdentityHandler) Plans(c *gin.Context) {
 	var rows []models.SaasPlan
 	_ = h.db.Order("sort_order asc, id asc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
@@ -872,7 +872,7 @@ func (h *MockIdentityHandler) Plans(c *gin.Context) {
 	response.OK(c, paginated(items))
 }
 
-func (h *MockIdentityHandler) CreatePlan(c *gin.Context) {
+func (h *IdentityHandler) CreatePlan(c *gin.Context) {
 	var body struct {
 		PlanCode     string  `json:"plan_code"`
 		PlanName     string  `json:"plan_name"`
@@ -896,7 +896,7 @@ func (h *MockIdentityHandler) CreatePlan(c *gin.Context) {
 	response.OK(c, planToJSON(row))
 }
 
-func (h *MockIdentityHandler) UpdatePlan(c *gin.Context) {
+func (h *IdentityHandler) UpdatePlan(c *gin.Context) {
 	var row models.SaasPlan
 	if err := h.db.First(&row, c.Param("id")).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "套餐不存在")
@@ -914,7 +914,7 @@ func (h *MockIdentityHandler) UpdatePlan(c *gin.Context) {
 	response.OK(c, planToJSON(row))
 }
 
-func (h *MockIdentityHandler) CopyPlan(c *gin.Context) {
+func (h *IdentityHandler) CopyPlan(c *gin.Context) {
 	var src models.SaasPlan
 	if err := h.db.First(&src, c.Param("id")).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "套餐不存在")
@@ -942,11 +942,11 @@ func (h *MockIdentityHandler) CopyPlan(c *gin.Context) {
 	response.OK(c, planToJSON(dst))
 }
 
-func (h *MockIdentityHandler) DeletePlan(c *gin.Context) {
+func (h *IdentityHandler) DeletePlan(c *gin.Context) {
 	h.deleteByID(c, &models.SaasPlan{})
 }
 
-func (h *MockIdentityHandler) PlanMatrix(c *gin.Context) {
+func (h *IdentityHandler) PlanMatrix(c *gin.Context) {
 	var plans []models.SaasPlan
 	var features []models.SaasFeature
 	var links []models.SaasPlanFeature
@@ -999,7 +999,7 @@ func (h *MockIdentityHandler) PlanMatrix(c *gin.Context) {
 	response.OK(c, gin.H{"plans": planItems, "nodes": nodes})
 }
 
-func (h *MockIdentityHandler) Features(c *gin.Context) {
+func (h *IdentityHandler) Features(c *gin.Context) {
 	var rows []models.SaasFeature
 	_ = h.db.Order("id asc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
@@ -1021,7 +1021,7 @@ func (h *MockIdentityHandler) Features(c *gin.Context) {
 	response.OK(c, paginated(items))
 }
 
-func (h *MockIdentityHandler) CreateFeature(c *gin.Context) {
+func (h *IdentityHandler) CreateFeature(c *gin.Context) {
 	var body models.SaasFeature
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
@@ -1034,7 +1034,7 @@ func (h *MockIdentityHandler) CreateFeature(c *gin.Context) {
 	response.OK(c, featureToJSON(body))
 }
 
-func (h *MockIdentityHandler) UpdateFeature(c *gin.Context) {
+func (h *IdentityHandler) UpdateFeature(c *gin.Context) {
 	var row models.SaasFeature
 	if err := h.db.First(&row, c.Param("id")).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "功能不存在")
@@ -1052,7 +1052,7 @@ func (h *MockIdentityHandler) UpdateFeature(c *gin.Context) {
 	response.OK(c, featureToJSON(row))
 }
 
-func (h *MockIdentityHandler) PlanFeatures(c *gin.Context) {
+func (h *IdentityHandler) PlanFeatures(c *gin.Context) {
 	planID := parseUintParam(c, "id")
 	var links []models.SaasPlanFeature
 	_ = h.db.Where("plan_id = ? AND enabled = ?", planID, true).Find(&links).Error
@@ -1063,7 +1063,7 @@ func (h *MockIdentityHandler) PlanFeatures(c *gin.Context) {
 	response.OK(c, gin.H{"plan_id": planID, "feature_ids": ids})
 }
 
-func (h *MockIdentityHandler) SavePlanFeatures(c *gin.Context) {
+func (h *IdentityHandler) SavePlanFeatures(c *gin.Context) {
 	planID := parseUintParam(c, "id")
 	var body struct {
 		FeatureIDs []uint64 `json:"feature_ids"`
@@ -1079,7 +1079,7 @@ func (h *MockIdentityHandler) SavePlanFeatures(c *gin.Context) {
 	response.OK(c, gin.H{"plan_id": planID, "feature_ids": body.FeatureIDs})
 }
 
-func (h *MockIdentityHandler) SavePlanCapabilities(c *gin.Context) {
+func (h *IdentityHandler) SavePlanCapabilities(c *gin.Context) {
 	var body struct {
 		FeatureIDs []uint64 `json:"feature_ids"`
 		Quotas     []struct {
@@ -1105,7 +1105,7 @@ func (h *MockIdentityHandler) SavePlanCapabilities(c *gin.Context) {
 	response.OK(c, gin.H{"plan_id": planID, "feature_ids": body.FeatureIDs, "quotas": quotaItems})
 }
 
-func (h *MockIdentityHandler) SavePlanFeaturesWithIDs(c *gin.Context, featureIDs []uint64) {
+func (h *IdentityHandler) SavePlanFeaturesWithIDs(c *gin.Context, featureIDs []uint64) {
 	planID := parseUintParam(c, "id")
 	_ = h.db.Where("plan_id = ?", planID).Delete(&models.SaasPlanFeature{}).Error
 	for _, featureID := range featureIDs {
@@ -1116,7 +1116,7 @@ func (h *MockIdentityHandler) SavePlanFeaturesWithIDs(c *gin.Context, featureIDs
 	}
 }
 
-func (h *MockIdentityHandler) Quotas(c *gin.Context) {
+func (h *IdentityHandler) Quotas(c *gin.Context) {
 	var rows []models.SaasQuota
 	_ = h.db.Order("id asc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
@@ -1135,7 +1135,7 @@ func (h *MockIdentityHandler) Quotas(c *gin.Context) {
 	response.OK(c, paginated(items))
 }
 
-func (h *MockIdentityHandler) CreateQuota(c *gin.Context) {
+func (h *IdentityHandler) CreateQuota(c *gin.Context) {
 	var row models.SaasQuota
 	if err := c.ShouldBindJSON(&row); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
@@ -1148,7 +1148,7 @@ func (h *MockIdentityHandler) CreateQuota(c *gin.Context) {
 	response.OK(c, quotaToJSON(row))
 }
 
-func (h *MockIdentityHandler) UpdateQuota(c *gin.Context) {
+func (h *IdentityHandler) UpdateQuota(c *gin.Context) {
 	var row models.SaasQuota
 	if err := h.db.First(&row, c.Param("id")).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "配额不存在")
@@ -1166,7 +1166,7 @@ func (h *MockIdentityHandler) UpdateQuota(c *gin.Context) {
 	response.OK(c, quotaToJSON(row))
 }
 
-func (h *MockIdentityHandler) PlanQuotas(c *gin.Context) {
+func (h *IdentityHandler) PlanQuotas(c *gin.Context) {
 	planID := parseUintParam(c, "id")
 	var rows []struct {
 		QuotaID    uint64
@@ -1188,7 +1188,7 @@ func (h *MockIdentityHandler) PlanQuotas(c *gin.Context) {
 	response.OK(c, gin.H{"plan_id": planID, "quotas": items})
 }
 
-func (h *MockIdentityHandler) SavePlanQuotas(c *gin.Context) {
+func (h *IdentityHandler) SavePlanQuotas(c *gin.Context) {
 	planID := parseUintParam(c, "id")
 	var body struct {
 		Quotas []struct {
@@ -1207,7 +1207,7 @@ func (h *MockIdentityHandler) SavePlanQuotas(c *gin.Context) {
 	h.PlanQuotas(c)
 }
 
-func (h *MockIdentityHandler) TenantQuotaRecords(c *gin.Context) {
+func (h *IdentityHandler) TenantQuotaRecords(c *gin.Context) {
 	tenantID := parseUintParam(c, "id")
 	var orgs []models.OrgNode
 	var bus []models.BusinessUnit
@@ -1230,7 +1230,7 @@ func (h *MockIdentityHandler) TenantQuotaRecords(c *gin.Context) {
 	response.OK(c, gin.H{"tenant_id": tenantID, "companies": companies, "stores": stores, "business_units": businessUnits})
 }
 
-func (h *MockIdentityHandler) TenantCompanies(c *gin.Context) {
+func (h *IdentityHandler) TenantCompanies(c *gin.Context) {
 	tenantID := parseUintParam(c, "id")
 	var rows []models.OrgNode
 	_ = h.db.Where("tenant_id = ? AND node_type = ?", tenantID, "company").Order("id asc").Find(&rows).Error
@@ -1245,7 +1245,7 @@ func (h *MockIdentityHandler) TenantCompanies(c *gin.Context) {
 	})
 }
 
-func (h *MockIdentityHandler) TenantPrimaryAdmin(c *gin.Context) {
+func (h *IdentityHandler) TenantPrimaryAdmin(c *gin.Context) {
 	user, ok := h.primaryAdmin(parseUintParam(c, "id"))
 	if !ok {
 		response.Error(c, 404, response.CodeNotFound, "主管理员不存在")
@@ -1254,7 +1254,7 @@ func (h *MockIdentityHandler) TenantPrimaryAdmin(c *gin.Context) {
 	response.OK(c, gin.H{"employee_no": user.EmployeeNo, "phone": user.Phone, "name": user.Name})
 }
 
-func (h *MockIdentityHandler) ResetTenantPrimaryAdminPassword(c *gin.Context) {
+func (h *IdentityHandler) ResetTenantPrimaryAdminPassword(c *gin.Context) {
 	user, ok := h.primaryAdmin(parseUintParam(c, "id"))
 	if !ok {
 		response.Error(c, 404, response.CodeNotFound, "主管理员不存在")
@@ -1265,7 +1265,7 @@ func (h *MockIdentityHandler) ResetTenantPrimaryAdminPassword(c *gin.Context) {
 	response.OK(c, gin.H{"employee_no": user.EmployeeNo, "phone": user.Phone, "name": user.Name, "new_password": newPassword})
 }
 
-func (h *MockIdentityHandler) TenantSubscription(c *gin.Context) {
+func (h *IdentityHandler) TenantSubscription(c *gin.Context) {
 	sub, ok := h.findTenantSubscription(parseUintParam(c, "id"))
 	if !ok {
 		response.OK(c, nil)
@@ -1274,7 +1274,7 @@ func (h *MockIdentityHandler) TenantSubscription(c *gin.Context) {
 	response.OK(c, tenantSubscriptionToJSON(sub))
 }
 
-func (h *MockIdentityHandler) SaveTenantSubscription(c *gin.Context) {
+func (h *IdentityHandler) SaveTenantSubscription(c *gin.Context) {
 	var body tenantPackagePayload
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
@@ -1287,7 +1287,7 @@ func (h *MockIdentityHandler) SaveTenantSubscription(c *gin.Context) {
 	h.TenantSubscription(c)
 }
 
-func (h *MockIdentityHandler) SaveTenantPackageConfig(c *gin.Context) {
+func (h *IdentityHandler) SaveTenantPackageConfig(c *gin.Context) {
 	var body tenantPackagePayload
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
@@ -1302,11 +1302,11 @@ func (h *MockIdentityHandler) SaveTenantPackageConfig(c *gin.Context) {
 	response.OK(c, gin.H{"tenant_id": tenantID, "subscription": tenantSubscriptionToJSON(sub), "quotas": h.tenantQuotaOverridesPayload(tenantID)})
 }
 
-func (h *MockIdentityHandler) TenantFeatureOverrides(c *gin.Context) {
+func (h *IdentityHandler) TenantFeatureOverrides(c *gin.Context) {
 	response.OK(c, h.tenantFeatureOverridesPayload(parseUintParam(c, "id")))
 }
 
-func (h *MockIdentityHandler) SaveTenantFeatureOverrides(c *gin.Context) {
+func (h *IdentityHandler) SaveTenantFeatureOverrides(c *gin.Context) {
 	tenantID := parseUintParam(c, "id")
 	var body struct {
 		Overrides []struct {
@@ -1326,11 +1326,11 @@ func (h *MockIdentityHandler) SaveTenantFeatureOverrides(c *gin.Context) {
 	response.OK(c, h.tenantFeatureOverridesPayload(tenantID))
 }
 
-func (h *MockIdentityHandler) TenantQuotaOverrides(c *gin.Context) {
+func (h *IdentityHandler) TenantQuotaOverrides(c *gin.Context) {
 	response.OK(c, h.tenantQuotaOverridesPayload(parseUintParam(c, "id")))
 }
 
-func (h *MockIdentityHandler) SaveTenantQuotaOverrides(c *gin.Context) {
+func (h *IdentityHandler) SaveTenantQuotaOverrides(c *gin.Context) {
 	tenantID := parseUintParam(c, "id")
 	var body struct {
 		Overrides []struct {
@@ -1357,7 +1357,7 @@ func (h *MockIdentityHandler) SaveTenantQuotaOverrides(c *gin.Context) {
 	response.OK(c, h.tenantQuotaOverridesPayload(tenantID))
 }
 
-func (h *MockIdentityHandler) TenantQuotaUsage(c *gin.Context) {
+func (h *IdentityHandler) TenantQuotaUsage(c *gin.Context) {
 	tenantID := parseUintParam(c, "id")
 	var quotas []models.SaasQuota
 	_ = h.db.Find(&quotas).Error
@@ -1374,13 +1374,13 @@ func (h *MockIdentityHandler) TenantQuotaUsage(c *gin.Context) {
 	response.OK(c, gin.H{"tenant_id": tenantID, "usages": usages})
 }
 
-func (h *MockIdentityHandler) TenantFeatureAccess(c *gin.Context) {
+func (h *IdentityHandler) TenantFeatureAccess(c *gin.Context) {
 	tenantID := parseUintParam(c, "id")
 	featureCode := c.Param("feature_code")
 	response.OK(c, gin.H{"tenant_id": tenantID, "feature_code": featureCode, "allowed": h.tenantFeatureAllowed(tenantID, featureCode)})
 }
 
-func (h *MockIdentityHandler) TenantQuotaCheck(c *gin.Context) {
+func (h *IdentityHandler) TenantQuotaCheck(c *gin.Context) {
 	tenantID := parseUintParam(c, "id")
 	quotaCode := c.Param("quota_code")
 	var quota models.SaasQuota
@@ -1393,7 +1393,7 @@ func (h *MockIdentityHandler) TenantQuotaCheck(c *gin.Context) {
 	response.OK(c, gin.H{"tenant_id": tenantID, "quota_code": quotaCode, "used_value": used, "limit_value": limit, "remaining_value": limit - used, "allowed": limit < 0 || used < limit})
 }
 
-func (h *MockIdentityHandler) OrganizationTree(c *gin.Context) {
+func (h *IdentityHandler) OrganizationTree(c *gin.Context) {
 	var rows []models.OrgNode
 	_ = h.db.Order("id asc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
@@ -1403,7 +1403,7 @@ func (h *MockIdentityHandler) OrganizationTree(c *gin.Context) {
 	response.OK(c, items)
 }
 
-func (h *MockIdentityHandler) OrganizationDetail(c *gin.Context) {
+func (h *IdentityHandler) OrganizationDetail(c *gin.Context) {
 	tenantID := parseTenantID(c)
 	var rows []models.OrgNode
 	_ = h.db.Where("tenant_id = ?", tenantID).Order("id asc").Find(&rows).Error
@@ -1422,55 +1422,55 @@ func (h *MockIdentityHandler) OrganizationDetail(c *gin.Context) {
 	response.OK(c, gin.H{"tenant_id": tenantID, "companies": companies, "departments": departments, "stores": stores})
 }
 
-func (h *MockIdentityHandler) CreateOrgNode(c *gin.Context) {
+func (h *IdentityHandler) CreateOrgNode(c *gin.Context) {
 	h.createOrgNode(c, "")
 }
 
-func (h *MockIdentityHandler) CreateCompany(c *gin.Context) {
+func (h *IdentityHandler) CreateCompany(c *gin.Context) {
 	h.createOrgNode(c, "company")
 }
 
-func (h *MockIdentityHandler) CreateDepartment(c *gin.Context) {
+func (h *IdentityHandler) CreateDepartment(c *gin.Context) {
 	h.createOrgNode(c, "department")
 }
 
-func (h *MockIdentityHandler) CreateStore(c *gin.Context) {
+func (h *IdentityHandler) CreateStore(c *gin.Context) {
 	h.createOrgNode(c, "store")
 }
 
-func (h *MockIdentityHandler) UpdateOrgNode(c *gin.Context) {
+func (h *IdentityHandler) UpdateOrgNode(c *gin.Context) {
 	h.updateOrgNode(c)
 }
 
-func (h *MockIdentityHandler) UpdateCompany(c *gin.Context) {
+func (h *IdentityHandler) UpdateCompany(c *gin.Context) {
 	h.updateOrgNode(c)
 }
 
-func (h *MockIdentityHandler) UpdateDepartment(c *gin.Context) {
+func (h *IdentityHandler) UpdateDepartment(c *gin.Context) {
 	h.updateOrgNode(c)
 }
 
-func (h *MockIdentityHandler) UpdateStore(c *gin.Context) {
+func (h *IdentityHandler) UpdateStore(c *gin.Context) {
 	h.updateOrgNode(c)
 }
 
-func (h *MockIdentityHandler) DeleteOrgNode(c *gin.Context) {
+func (h *IdentityHandler) DeleteOrgNode(c *gin.Context) {
 	h.deleteByID(c, &models.OrgNode{})
 }
 
-func (h *MockIdentityHandler) DeleteCompany(c *gin.Context) {
+func (h *IdentityHandler) DeleteCompany(c *gin.Context) {
 	h.deleteByID(c, &models.OrgNode{})
 }
 
-func (h *MockIdentityHandler) DeleteDepartment(c *gin.Context) {
+func (h *IdentityHandler) DeleteDepartment(c *gin.Context) {
 	h.deleteByID(c, &models.OrgNode{})
 }
 
-func (h *MockIdentityHandler) DeleteStore(c *gin.Context) {
+func (h *IdentityHandler) DeleteStore(c *gin.Context) {
 	h.deleteByID(c, &models.OrgNode{})
 }
 
-func (h *MockIdentityHandler) PositionTypes(c *gin.Context) {
+func (h *IdentityHandler) PositionTypes(c *gin.Context) {
 	var rows []models.PositionType
 	_ = h.db.Order("id asc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
@@ -1482,7 +1482,7 @@ func (h *MockIdentityHandler) PositionTypes(c *gin.Context) {
 	response.OK(c, paginated(items))
 }
 
-func (h *MockIdentityHandler) CreatePositionType(c *gin.Context) {
+func (h *IdentityHandler) CreatePositionType(c *gin.Context) {
 	var body struct {
 		Name string `json:"name"`
 		Code string `json:"code"`
@@ -1499,7 +1499,7 @@ func (h *MockIdentityHandler) CreatePositionType(c *gin.Context) {
 	response.OK(c, gin.H{"id": row.ID})
 }
 
-func (h *MockIdentityHandler) UpdatePositionType(c *gin.Context) {
+func (h *IdentityHandler) UpdatePositionType(c *gin.Context) {
 	var body map[string]interface{}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
@@ -1512,11 +1512,11 @@ func (h *MockIdentityHandler) UpdatePositionType(c *gin.Context) {
 	response.OK(c, gin.H{"id": parseUintParam(c, "id")})
 }
 
-func (h *MockIdentityHandler) DeletePositionType(c *gin.Context) {
+func (h *IdentityHandler) DeletePositionType(c *gin.Context) {
 	h.deleteByID(c, &models.PositionType{})
 }
 
-func (h *MockIdentityHandler) Positions(c *gin.Context) {
+func (h *IdentityHandler) Positions(c *gin.Context) {
 	var rows []models.Position
 	query := h.db.Order("id asc")
 	if positionTypeID := c.Query("position_type_id"); positionTypeID != "" {
@@ -1530,7 +1530,7 @@ func (h *MockIdentityHandler) Positions(c *gin.Context) {
 	response.OK(c, paginated(items))
 }
 
-func (h *MockIdentityHandler) CreatePosition(c *gin.Context) {
+func (h *IdentityHandler) CreatePosition(c *gin.Context) {
 	var body struct {
 		PositionTypeID uint64 `json:"position_type_id"`
 		Name           string `json:"name"`
@@ -1548,7 +1548,7 @@ func (h *MockIdentityHandler) CreatePosition(c *gin.Context) {
 	response.OK(c, gin.H{"id": row.ID})
 }
 
-func (h *MockIdentityHandler) UpdatePosition(c *gin.Context) {
+func (h *IdentityHandler) UpdatePosition(c *gin.Context) {
 	var body map[string]interface{}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
@@ -1561,11 +1561,11 @@ func (h *MockIdentityHandler) UpdatePosition(c *gin.Context) {
 	response.OK(c, gin.H{"id": parseUintParam(c, "id")})
 }
 
-func (h *MockIdentityHandler) DeletePosition(c *gin.Context) {
+func (h *IdentityHandler) DeletePosition(c *gin.Context) {
 	h.deleteByID(c, &models.Position{})
 }
 
-func (h *MockIdentityHandler) BusinessUnits(c *gin.Context) {
+func (h *IdentityHandler) BusinessUnits(c *gin.Context) {
 	var rows []models.BusinessUnit
 	_ = h.db.Order("id asc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
@@ -1575,7 +1575,7 @@ func (h *MockIdentityHandler) BusinessUnits(c *gin.Context) {
 	response.OK(c, paginated(items))
 }
 
-func (h *MockIdentityHandler) BusinessUnitTree(c *gin.Context) {
+func (h *IdentityHandler) BusinessUnitTree(c *gin.Context) {
 	var rows []models.BusinessUnit
 	_ = h.db.Order("id asc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
@@ -1585,7 +1585,7 @@ func (h *MockIdentityHandler) BusinessUnitTree(c *gin.Context) {
 	response.OK(c, items)
 }
 
-func (h *MockIdentityHandler) CreateBusinessUnit(c *gin.Context) {
+func (h *IdentityHandler) CreateBusinessUnit(c *gin.Context) {
 	var body struct {
 		Name       string   `json:"name"`
 		Code       string   `json:"code"`
@@ -1610,7 +1610,7 @@ func (h *MockIdentityHandler) CreateBusinessUnit(c *gin.Context) {
 	response.OK(c, gin.H{"id": row.ID})
 }
 
-func (h *MockIdentityHandler) UpdateBusinessUnit(c *gin.Context) {
+func (h *IdentityHandler) UpdateBusinessUnit(c *gin.Context) {
 	var body struct {
 		Name       *string  `json:"name"`
 		Code       *string  `json:"code"`
@@ -1651,11 +1651,11 @@ func (h *MockIdentityHandler) UpdateBusinessUnit(c *gin.Context) {
 	response.OK(c, gin.H{"id": parseUintParam(c, "id")})
 }
 
-func (h *MockIdentityHandler) DeleteBusinessUnit(c *gin.Context) {
+func (h *IdentityHandler) DeleteBusinessUnit(c *gin.Context) {
 	h.deleteByID(c, &models.BusinessUnit{})
 }
 
-func (h *MockIdentityHandler) BusinessUnitOrgMappings(c *gin.Context) {
+func (h *IdentityHandler) BusinessUnitOrgMappings(c *gin.Context) {
 	var rows []models.BusinessUnitOrgMap
 	_ = h.db.Where("business_unit_id = ?", c.Param("id")).Order("id asc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
@@ -1665,7 +1665,7 @@ func (h *MockIdentityHandler) BusinessUnitOrgMappings(c *gin.Context) {
 	response.OK(c, items)
 }
 
-func (h *MockIdentityHandler) CreateBusinessUnitOrgMapping(c *gin.Context) {
+func (h *IdentityHandler) CreateBusinessUnitOrgMapping(c *gin.Context) {
 	var body struct {
 		OrgID uint64 `json:"org_id"`
 	}
@@ -1681,11 +1681,11 @@ func (h *MockIdentityHandler) CreateBusinessUnitOrgMapping(c *gin.Context) {
 	response.OK(c, gin.H{"id": row.ID})
 }
 
-func (h *MockIdentityHandler) DeleteBusinessUnitOrgMapping(c *gin.Context) {
+func (h *IdentityHandler) DeleteBusinessUnitOrgMapping(c *gin.Context) {
 	h.deleteByID(c, &models.BusinessUnitOrgMap{})
 }
 
-func (h *MockIdentityHandler) DictTypes(c *gin.Context) {
+func (h *IdentityHandler) DictTypes(c *gin.Context) {
 	var rows []models.DictType
 	_ = h.db.Order("id asc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
@@ -1706,7 +1706,7 @@ func (h *MockIdentityHandler) DictTypes(c *gin.Context) {
 	response.OK(c, paginated(items))
 }
 
-func (h *MockIdentityHandler) CreateDictType(c *gin.Context) {
+func (h *IdentityHandler) CreateDictType(c *gin.Context) {
 	var body struct {
 		Code           string  `json:"code"`
 		Name           string  `json:"name"`
@@ -1730,7 +1730,7 @@ func (h *MockIdentityHandler) CreateDictType(c *gin.Context) {
 	response.OK(c, gin.H{"id": row.ID})
 }
 
-func (h *MockIdentityHandler) UpdateDictType(c *gin.Context) {
+func (h *IdentityHandler) UpdateDictType(c *gin.Context) {
 	var body map[string]interface{}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
@@ -1745,11 +1745,11 @@ func (h *MockIdentityHandler) UpdateDictType(c *gin.Context) {
 	response.OK(c, gin.H{"id": row.ID, "code": row.Code, "name": row.Name, "remark": row.Remark, "scope": row.Scope, "tenant_editable": row.TenantEditable, "is_platform_only": row.IsPlatformOnly})
 }
 
-func (h *MockIdentityHandler) DeleteDictType(c *gin.Context) {
+func (h *IdentityHandler) DeleteDictType(c *gin.Context) {
 	h.deleteByID(c, &models.DictType{})
 }
 
-func (h *MockIdentityHandler) DictItemsByCode(c *gin.Context) {
+func (h *IdentityHandler) DictItemsByCode(c *gin.Context) {
 	code := c.Param("code")
 	var dictType models.DictType
 	if err := h.db.Where("code = ?", code).First(&dictType).Error; err != nil {
@@ -1762,7 +1762,7 @@ func (h *MockIdentityHandler) DictItemsByCode(c *gin.Context) {
 	response.OK(c, gin.H{"code": code, "items": items})
 }
 
-func (h *MockIdentityHandler) DictItems(c *gin.Context) {
+func (h *IdentityHandler) DictItems(c *gin.Context) {
 	var rows []models.DictItem
 	query := h.db.Order("sort_order asc, id asc")
 	if dictTypeID := c.Query("dict_type_id"); dictTypeID != "" {
@@ -1772,7 +1772,7 @@ func (h *MockIdentityHandler) DictItems(c *gin.Context) {
 	response.OK(c, paginated(dictItemsToJSON(rows)))
 }
 
-func (h *MockIdentityHandler) CreateDictItem(c *gin.Context) {
+func (h *IdentityHandler) CreateDictItem(c *gin.Context) {
 	var body struct {
 		DictTypeID uint64 `json:"dict_type_id"`
 		Label      string `json:"label"`
@@ -1796,7 +1796,7 @@ func (h *MockIdentityHandler) CreateDictItem(c *gin.Context) {
 	response.OK(c, gin.H{"id": row.ID})
 }
 
-func (h *MockIdentityHandler) UpdateDictItem(c *gin.Context) {
+func (h *IdentityHandler) UpdateDictItem(c *gin.Context) {
 	var body map[string]interface{}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
@@ -1811,11 +1811,11 @@ func (h *MockIdentityHandler) UpdateDictItem(c *gin.Context) {
 	response.OK(c, dictItemsToJSON([]models.DictItem{row})[0])
 }
 
-func (h *MockIdentityHandler) DeleteDictItem(c *gin.Context) {
+func (h *IdentityHandler) DeleteDictItem(c *gin.Context) {
 	h.deleteByID(c, &models.DictItem{})
 }
 
-func (h *MockIdentityHandler) RestoreDictItem(c *gin.Context) {
+func (h *IdentityHandler) RestoreDictItem(c *gin.Context) {
 	var row models.DictItem
 	if err := h.db.First(&row, c.Param("id")).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "字典项不存在")
@@ -1824,7 +1824,7 @@ func (h *MockIdentityHandler) RestoreDictItem(c *gin.Context) {
 	response.OK(c, dictItemsToJSON([]models.DictItem{row})[0])
 }
 
-func (h *MockIdentityHandler) SysParams(c *gin.Context) {
+func (h *IdentityHandler) SysParams(c *gin.Context) {
 	var rows []models.SystemParam
 	_ = h.db.Order("id desc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
@@ -1844,7 +1844,7 @@ func (h *MockIdentityHandler) SysParams(c *gin.Context) {
 	response.OK(c, paginated(items))
 }
 
-func (h *MockIdentityHandler) CreateSysParam(c *gin.Context) {
+func (h *IdentityHandler) CreateSysParam(c *gin.Context) {
 	var body struct {
 		Key            string `json:"param_key"`
 		Value          string `json:"param_value"`
@@ -1873,7 +1873,7 @@ func (h *MockIdentityHandler) CreateSysParam(c *gin.Context) {
 	response.OK(c, gin.H{"id": row.ID})
 }
 
-func (h *MockIdentityHandler) UpdateSysParam(c *gin.Context) {
+func (h *IdentityHandler) UpdateSysParam(c *gin.Context) {
 	var body map[string]interface{}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
@@ -1892,11 +1892,11 @@ func (h *MockIdentityHandler) UpdateSysParam(c *gin.Context) {
 	response.OK(c, gin.H{"id": row.ID, "param_key": row.Key, "default_value": row.Value, "param_value": row.Value, "remark": row.Remark, "value_type": row.ValueType, "tenant_editable": row.TenantEditable, "is_platform_only": row.IsPlatformOnly, "is_override": false})
 }
 
-func (h *MockIdentityHandler) DeleteSysParam(c *gin.Context) {
+func (h *IdentityHandler) DeleteSysParam(c *gin.Context) {
 	h.deleteByID(c, &models.SystemParam{})
 }
 
-func (h *MockIdentityHandler) RestoreSysParam(c *gin.Context) {
+func (h *IdentityHandler) RestoreSysParam(c *gin.Context) {
 	var row models.SystemParam
 	if err := h.db.First(&row, c.Param("id")).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "参数不存在")
@@ -1905,7 +1905,7 @@ func (h *MockIdentityHandler) RestoreSysParam(c *gin.Context) {
 	response.OK(c, gin.H{"id": row.ID, "param_key": row.Key, "default_value": row.Value, "param_value": row.Value, "remark": row.Remark, "value_type": row.ValueType, "tenant_editable": row.TenantEditable, "is_platform_only": row.IsPlatformOnly, "is_override": false})
 }
 
-func (h *MockIdentityHandler) SysParamBatch(c *gin.Context) {
+func (h *IdentityHandler) SysParamBatch(c *gin.Context) {
 	values := gin.H{}
 	var rows []models.SystemParam
 	_ = h.db.Find(&rows).Error
@@ -1915,7 +1915,7 @@ func (h *MockIdentityHandler) SysParamBatch(c *gin.Context) {
 	response.OK(c, gin.H{"values": values})
 }
 
-func (h *MockIdentityHandler) LoginLogs(c *gin.Context) {
+func (h *IdentityHandler) LoginLogs(c *gin.Context) {
 	var rows []models.LoginLog
 	_ = h.db.Order("id desc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
@@ -1925,7 +1925,7 @@ func (h *MockIdentityHandler) LoginLogs(c *gin.Context) {
 	response.OK(c, paginated(items))
 }
 
-func (h *MockIdentityHandler) AuditLogs(c *gin.Context) {
+func (h *IdentityHandler) AuditLogs(c *gin.Context) {
 	var rows []models.AuditLog
 	_ = h.db.Order("id desc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
@@ -1935,7 +1935,7 @@ func (h *MockIdentityHandler) AuditLogs(c *gin.Context) {
 	response.OK(c, paginated(items))
 }
 
-func (h *MockIdentityHandler) MonitorHealthDetail(c *gin.Context) {
+func (h *IdentityHandler) MonitorHealthDetail(c *gin.Context) {
 	redisOK := false
 	if h.redis != nil {
 		redisOK = h.redis.Ping(context.Background()).Err() == nil
@@ -1943,17 +1943,17 @@ func (h *MockIdentityHandler) MonitorHealthDetail(c *gin.Context) {
 	response.OK(c, gin.H{"mysql": true, "postgres": true, "redis": redisOK})
 }
 
-func (h *MockIdentityHandler) MonitorServerInfo(c *gin.Context) {
+func (h *IdentityHandler) MonitorServerInfo(c *gin.Context) {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 	response.OK(c, gin.H{"python_version": "go " + runtime.Version(), "go_version": runtime.Version(), "pid": os.Getpid(), "cpu_percent": nil, "memory_mb": float64(m.Alloc) / 1024 / 1024, "note": "Go 重构版本运行中"})
 }
 
-func (h *MockIdentityHandler) MonitorScheduledJobs(c *gin.Context) {
+func (h *IdentityHandler) MonitorScheduledJobs(c *gin.Context) {
 	response.OK(c, gin.H{"items": []gin.H{}, "note": "当前 Go 版本暂未启用后台定时任务"})
 }
 
-func (h *MockIdentityHandler) MonitorServicesOverview(c *gin.Context) {
+func (h *IdentityHandler) MonitorServicesOverview(c *gin.Context) {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 	redisOK := false
@@ -1963,7 +1963,7 @@ func (h *MockIdentityHandler) MonitorServicesOverview(c *gin.Context) {
 	response.OK(c, gin.H{"mysql": true, "postgres": true, "redis": redisOK, "python_version": "go " + runtime.Version(), "go_version": runtime.Version(), "pid": os.Getpid(), "cpu_percent": nil, "memory_mb": float64(m.Alloc) / 1024 / 1024, "note": "Go 重构版本服务概览"})
 }
 
-func (h *MockIdentityHandler) MonitorCacheStats(c *gin.Context) {
+func (h *IdentityHandler) MonitorCacheStats(c *gin.Context) {
 	if h.redis == nil {
 		response.OK(c, gin.H{"ok": false, "used_memory_human": nil, "keys": 0, "connected_clients": 0, "message": "Redis 未配置"})
 		return
@@ -1982,7 +1982,7 @@ func (h *MockIdentityHandler) MonitorCacheStats(c *gin.Context) {
 	response.OK(c, gin.H{"ok": true, "used_memory_human": info["used_memory_human"], "keys": keys, "connected_clients": clients, "message": "Redis 已连接"})
 }
 
-func (h *MockIdentityHandler) MonitorCacheKeys(c *gin.Context) {
+func (h *IdentityHandler) MonitorCacheKeys(c *gin.Context) {
 	if h.redis == nil {
 		response.OK(c, gin.H{"items": []gin.H{}, "cursor": 0})
 		return
@@ -2014,7 +2014,7 @@ func (h *MockIdentityHandler) MonitorCacheKeys(c *gin.Context) {
 	response.OK(c, gin.H{"items": items, "cursor": nextCursor})
 }
 
-func (h *MockIdentityHandler) UploadFile(c *gin.Context) {
+func (h *IdentityHandler) UploadFile(c *gin.Context) {
 	user, ok := h.currentUser(c)
 	if !ok {
 		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
@@ -2046,7 +2046,7 @@ func (h *MockIdentityHandler) UploadFile(c *gin.Context) {
 	response.OK(c, gin.H{"file_id": fileID, "file_name": originalName, "size": file.Size, "url": "/api/files/download/" + fileID})
 }
 
-func (h *MockIdentityHandler) DownloadFile(c *gin.Context) {
+func (h *IdentityHandler) DownloadFile(c *gin.Context) {
 	user, ok := h.currentUser(c)
 	if !ok {
 		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
@@ -2060,7 +2060,7 @@ func (h *MockIdentityHandler) DownloadFile(c *gin.Context) {
 	c.FileAttachment(path, filepath.Base(path))
 }
 
-func (h *MockIdentityHandler) DeleteFile(c *gin.Context) {
+func (h *IdentityHandler) DeleteFile(c *gin.Context) {
 	user, ok := h.currentUser(c)
 	if !ok {
 		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
@@ -2082,7 +2082,7 @@ func (h *MockIdentityHandler) DeleteFile(c *gin.Context) {
 	response.OK(c, gin.H{"message": "已删除"})
 }
 
-func (h *MockIdentityHandler) ExportUsersCSV(c *gin.Context) {
+func (h *IdentityHandler) ExportUsersCSV(c *gin.Context) {
 	user, ok := h.currentUser(c)
 	if !ok {
 		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
@@ -2103,7 +2103,7 @@ func (h *MockIdentityHandler) ExportUsersCSV(c *gin.Context) {
 	h.sendCSV(c, "users_export.csv", rows)
 }
 
-func (h *MockIdentityHandler) ImportUsersCSV(c *gin.Context) {
+func (h *IdentityHandler) ImportUsersCSV(c *gin.Context) {
 	user, ok := h.currentUser(c)
 	if !ok {
 		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
@@ -2163,11 +2163,11 @@ func (h *MockIdentityHandler) ImportUsersCSV(c *gin.Context) {
 	response.OK(c, gin.H{"created": created, "skipped": skipped, "errors": errors})
 }
 
-func (h *MockIdentityHandler) ExportCompaniesCSV(c *gin.Context) {
+func (h *IdentityHandler) ExportCompaniesCSV(c *gin.Context) {
 	h.exportOrgCSV(c, "companies_export.csv", "company", []string{"name", "code", "company_type", "parent_name", "status"})
 }
 
-func (h *MockIdentityHandler) ExportDepartmentsCSV(c *gin.Context) {
+func (h *IdentityHandler) ExportDepartmentsCSV(c *gin.Context) {
 	h.exportOrgCSV(c, "departments_export.csv", "department", []string{"name", "code", "company_name", "parent_name", "status"})
 }
 
@@ -2228,7 +2228,7 @@ func tenantToJSON(db *gorm.DB, row models.Tenant) gin.H {
 	return gin.H{"id": row.ID, "code": row.Code, "name": row.Name, "status": row.Status, "start_date": row.StartDate, "expire_date": row.ExpireDate, "max_companies": row.MaxCompanies, "max_users": row.MaxUsers, "used_companies": companyCount, "used_users": userCount, "used_business_units": buCount, "plan_name": planName, "plan_code": planCode, "contact_name": row.ContactName, "contact_phone": row.ContactPhone, "company_count": companyCount, "brand_display_name": row.BrandName, "brand_logo_data": row.LogoData, "created_at": row.CreatedAt}
 }
 
-func (h *MockIdentityHandler) userToJSON(row models.AppUser) gin.H {
+func (h *IdentityHandler) userToJSON(row models.AppUser) gin.H {
 	var roles []models.UserRole
 	var positions []models.AppUserPosition
 	var departments []models.AppUserDepartment
@@ -2250,7 +2250,7 @@ func (h *MockIdentityHandler) userToJSON(row models.AppUser) gin.H {
 	return gin.H{"id": row.ID, "tenant_id": row.TenantID, "employee_no": row.EmployeeNo, "phone": row.Phone, "name": row.Name, "email": row.Email, "avatar_url": row.AvatarURL, "status": row.Status, "company_id": row.CompanyID, "department_id": row.DepartmentID, "department_ids": departmentIDs, "position_ids": positionIDs, "role_ids": roleIDs, "is_platform_admin": row.IsPlatformAdmin, "created_at": row.CreatedAt}
 }
 
-func (h *MockIdentityHandler) roleToJSON(row models.Role) gin.H {
+func (h *IdentityHandler) roleToJSON(row models.Role) gin.H {
 	var links []models.RolePermission
 	_ = h.db.Where("role_id = ?", row.ID).Find(&links).Error
 	permissionIDs := make([]uint64, 0, len(links))
@@ -2397,7 +2397,7 @@ func parseTenantID(c *gin.Context) uint64 {
 	return 1
 }
 
-func (h *MockIdentityHandler) currentUser(c *gin.Context) (models.AppUser, bool) {
+func (h *IdentityHandler) currentUser(c *gin.Context) (models.AppUser, bool) {
 	token := bearerToken(c.GetHeader("Authorization"))
 	if token == "" {
 		return models.AppUser{}, false
@@ -2413,7 +2413,7 @@ func (h *MockIdentityHandler) currentUser(c *gin.Context) (models.AppUser, bool)
 	return user, true
 }
 
-func (h *MockIdentityHandler) loginFailCount(c *gin.Context, account string) int {
+func (h *IdentityHandler) loginFailCount(c *gin.Context, account string) int {
 	if h.redis == nil || account == "" {
 		return 0
 	}
@@ -2421,7 +2421,7 @@ func (h *MockIdentityHandler) loginFailCount(c *gin.Context, account string) int
 	return count
 }
 
-func (h *MockIdentityHandler) incrLoginFail(c *gin.Context, account string) {
+func (h *IdentityHandler) incrLoginFail(c *gin.Context, account string) {
 	if h.redis == nil || account == "" {
 		return
 	}
@@ -2431,13 +2431,13 @@ func (h *MockIdentityHandler) incrLoginFail(c *gin.Context, account string) {
 	_ = h.redis.Expire(ctx, key, 15*time.Minute).Err()
 }
 
-func (h *MockIdentityHandler) resetLoginFail(c *gin.Context, account string) {
+func (h *IdentityHandler) resetLoginFail(c *gin.Context, account string) {
 	if h.redis != nil && account != "" {
 		_ = h.redis.Del(context.Background(), "login_fail:"+strings.ToLower(account)).Err()
 	}
 }
 
-func (h *MockIdentityHandler) verifyCaptcha(c *gin.Context, id, code string) bool {
+func (h *IdentityHandler) verifyCaptcha(c *gin.Context, id, code string) bool {
 	if h.redis == nil {
 		return true
 	}
@@ -2451,7 +2451,7 @@ func (h *MockIdentityHandler) verifyCaptcha(c *gin.Context, id, code string) boo
 	return strings.EqualFold(strings.TrimSpace(stored), strings.TrimSpace(code))
 }
 
-func (h *MockIdentityHandler) subscriptionAllowsLogin(tenantID uint64) bool {
+func (h *IdentityHandler) subscriptionAllowsLogin(tenantID uint64) bool {
 	var sub models.TenantSubscription
 	if err := h.db.Where("tenant_id = ?", tenantID).Order("id desc").First(&sub).Error; err != nil {
 		return true
@@ -2466,7 +2466,7 @@ func (h *MockIdentityHandler) subscriptionAllowsLogin(tenantID uint64) bool {
 	return sub.EndTime == nil || sub.EndTime.After(time.Now())
 }
 
-func (h *MockIdentityHandler) recordLogin(c *gin.Context, account string, userID *uint64, tenantID *uint64, success bool, message string) {
+func (h *IdentityHandler) recordLogin(c *gin.Context, account string, userID *uint64, tenantID *uint64, success bool, message string) {
 	ip := c.ClientIP()
 	userAgent := c.Request.UserAgent()
 	_ = h.db.Create(&models.LoginLog{
@@ -2480,7 +2480,7 @@ func (h *MockIdentityHandler) recordLogin(c *gin.Context, account string, userID
 	}).Error
 }
 
-func (h *MockIdentityHandler) audit(c *gin.Context, tenantID uint64, userID uint64, module, action, summary string, detail interface{}) {
+func (h *IdentityHandler) audit(c *gin.Context, tenantID uint64, userID uint64, module, action, summary string, detail interface{}) {
 	detailJSON := ""
 	if detail != nil {
 		if raw, err := json.Marshal(detail); err == nil {
@@ -2499,7 +2499,7 @@ func (h *MockIdentityHandler) audit(c *gin.Context, tenantID uint64, userID uint
 	}).Error
 }
 
-func (h *MockIdentityHandler) deleteByID(c *gin.Context, model interface{}) {
+func (h *IdentityHandler) deleteByID(c *gin.Context, model interface{}) {
 	id := parseUintParam(c, "id")
 	if err := h.db.Delete(model, id).Error; err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
@@ -2587,7 +2587,7 @@ func safeFileExt(name string) string {
 	return ext
 }
 
-func (h *MockIdentityHandler) findTenantFile(tenantID uint64, fileID string) (string, error) {
+func (h *IdentityHandler) findTenantFile(tenantID uint64, fileID string) (string, error) {
 	if !safeFileIDPattern.MatchString(fileID) {
 		return "", fmt.Errorf("invalid file_id")
 	}
@@ -2638,7 +2638,7 @@ func csvSafe(value string) string {
 	return value
 }
 
-func (h *MockIdentityHandler) sendCSV(c *gin.Context, filename string, rows [][]string) {
+func (h *IdentityHandler) sendCSV(c *gin.Context, filename string, rows [][]string) {
 	var buf bytes.Buffer
 	buf.Write([]byte{0xEF, 0xBB, 0xBF})
 	writer := csv.NewWriter(&buf)
@@ -2654,7 +2654,7 @@ func (h *MockIdentityHandler) sendCSV(c *gin.Context, filename string, rows [][]
 	c.Data(200, "text/csv; charset=utf-8", buf.Bytes())
 }
 
-func (h *MockIdentityHandler) orgNameMaps(tenantID uint64) (map[uint64]string, map[uint64]string) {
+func (h *IdentityHandler) orgNameMaps(tenantID uint64) (map[uint64]string, map[uint64]string) {
 	var rows []models.OrgNode
 	_ = h.db.Where("tenant_id = ?", tenantID).Find(&rows).Error
 	companies := map[uint64]string{}
@@ -2670,7 +2670,7 @@ func (h *MockIdentityHandler) orgNameMaps(tenantID uint64) (map[uint64]string, m
 	return companies, depts
 }
 
-func (h *MockIdentityHandler) exportOrgCSV(c *gin.Context, filename, nodeType string, headers []string) {
+func (h *IdentityHandler) exportOrgCSV(c *gin.Context, filename, nodeType string, headers []string) {
 	user, ok := h.currentUser(c)
 	if !ok {
 		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
@@ -2711,7 +2711,7 @@ func devPasswordHash(password string) string {
 	return mustHashPassword(password)
 }
 
-func (h *MockIdentityHandler) replaceUserRelations(userID uint64, roleIDs []uint64, positionIDs []uint64, departmentIDs []uint64) {
+func (h *IdentityHandler) replaceUserRelations(userID uint64, roleIDs []uint64, positionIDs []uint64, departmentIDs []uint64) {
 	if roleIDs != nil {
 		_ = h.db.Where("user_id = ?", userID).Delete(&models.UserRole{}).Error
 		for _, id := range roleIDs {
@@ -2732,14 +2732,14 @@ func (h *MockIdentityHandler) replaceUserRelations(userID uint64, roleIDs []uint
 	}
 }
 
-func (h *MockIdentityHandler) replaceRolePermissions(roleID uint64, permissionIDs []uint64) {
+func (h *IdentityHandler) replaceRolePermissions(roleID uint64, permissionIDs []uint64) {
 	_ = h.db.Where("role_id = ?", roleID).Delete(&models.RolePermission{}).Error
 	for _, id := range permissionIDs {
 		_ = h.db.Create(&models.RolePermission{RoleID: roleID, PermissionID: id}).Error
 	}
 }
 
-func (h *MockIdentityHandler) createTenantWithAdmin(code, name string, status int, adminName, adminEmployeeNo string, adminPhone *string, adminPassword string) (models.Tenant, error) {
+func (h *IdentityHandler) createTenantWithAdmin(code, name string, status int, adminName, adminEmployeeNo string, adminPhone *string, adminPassword string) (models.Tenant, error) {
 	if status == 0 {
 		status = 1
 	}
@@ -2770,7 +2770,7 @@ func parseTimePtr(value *string) *time.Time {
 	return nil
 }
 
-func (h *MockIdentityHandler) saveTenantPackage(tenantID uint64, body tenantPackagePayload) error {
+func (h *IdentityHandler) saveTenantPackage(tenantID uint64, body tenantPackagePayload) error {
 	start := time.Now()
 	if body.StartTime != "" {
 		if parsed := parseTimePtr(&body.StartTime); parsed != nil {
@@ -2796,7 +2796,7 @@ func (h *MockIdentityHandler) saveTenantPackage(tenantID uint64, body tenantPack
 	return nil
 }
 
-func (h *MockIdentityHandler) findTenantSubscription(tenantID uint64) (models.TenantSubscription, bool) {
+func (h *IdentityHandler) findTenantSubscription(tenantID uint64) (models.TenantSubscription, bool) {
 	var sub models.TenantSubscription
 	if err := h.db.Where("tenant_id = ?", tenantID).Order("id desc").First(&sub).Error; err != nil {
 		return sub, false
@@ -2808,13 +2808,13 @@ func tenantSubscriptionToJSON(row models.TenantSubscription) gin.H {
 	return gin.H{"id": row.ID, "tenant_id": row.TenantID, "plan_id": row.PlanID, "subscription_status": row.SubscriptionStatus, "start_time": row.StartTime, "end_time": row.EndTime, "trial_end_time": row.TrialEndTime, "auto_renew": row.AutoRenew, "frozen_reason": row.FrozenReason, "created_at": row.CreatedAt, "updated_at": row.UpdatedAt}
 }
 
-func (h *MockIdentityHandler) primaryAdmin(tenantID uint64) (models.AppUser, bool) {
+func (h *IdentityHandler) primaryAdmin(tenantID uint64) (models.AppUser, bool) {
 	var user models.AppUser
 	err := h.db.Where("tenant_id = ?", tenantID).Order("is_platform_admin desc, id asc").First(&user).Error
 	return user, err == nil
 }
 
-func (h *MockIdentityHandler) tenantFeatureOverridesPayload(tenantID uint64) gin.H {
+func (h *IdentityHandler) tenantFeatureOverridesPayload(tenantID uint64) gin.H {
 	var rows []models.TenantFeatureOverride
 	_ = h.db.Where("tenant_id = ?", tenantID).Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
@@ -2826,7 +2826,7 @@ func (h *MockIdentityHandler) tenantFeatureOverridesPayload(tenantID uint64) gin
 	return gin.H{"tenant_id": tenantID, "overrides": items}
 }
 
-func (h *MockIdentityHandler) tenantQuotaOverridesPayload(tenantID uint64) gin.H {
+func (h *IdentityHandler) tenantQuotaOverridesPayload(tenantID uint64) gin.H {
 	var rows []models.TenantQuotaOverride
 	_ = h.db.Where("tenant_id = ?", tenantID).Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
@@ -2838,7 +2838,7 @@ func (h *MockIdentityHandler) tenantQuotaOverridesPayload(tenantID uint64) gin.H
 	return gin.H{"tenant_id": tenantID, "overrides": items}
 }
 
-func (h *MockIdentityHandler) createOrgNode(c *gin.Context, forcedType string) {
+func (h *IdentityHandler) createOrgNode(c *gin.Context, forcedType string) {
 	var body struct {
 		NodeType    string  `json:"node_type"`
 		Name        string  `json:"name"`
@@ -2869,7 +2869,7 @@ func (h *MockIdentityHandler) createOrgNode(c *gin.Context, forcedType string) {
 	response.OK(c, gin.H{"id": row.ID})
 }
 
-func (h *MockIdentityHandler) updateOrgNode(c *gin.Context) {
+func (h *IdentityHandler) updateOrgNode(c *gin.Context) {
 	var body map[string]interface{}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
@@ -2882,14 +2882,14 @@ func (h *MockIdentityHandler) updateOrgNode(c *gin.Context) {
 	response.OK(c, gin.H{"id": parseUintParam(c, "id")})
 }
 
-func (h *MockIdentityHandler) replaceBusinessUnitMappings(buID uint64, orgIDs []uint64) {
+func (h *IdentityHandler) replaceBusinessUnitMappings(buID uint64, orgIDs []uint64) {
 	_ = h.db.Where("business_unit_id = ?", buID).Delete(&models.BusinessUnitOrgMap{}).Error
 	for _, orgID := range orgIDs {
 		_ = h.db.Create(&models.BusinessUnitOrgMap{TenantID: 1, BusinessUnitID: buID, OrgID: orgID, OrgType: "org", ScopeType: "include", Status: 1}).Error
 	}
 }
 
-func (h *MockIdentityHandler) tenantName(tenantID *uint64) *string {
+func (h *IdentityHandler) tenantName(tenantID *uint64) *string {
 	if tenantID == nil {
 		return nil
 	}

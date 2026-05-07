@@ -21,7 +21,7 @@ func NewRouter(cfg Config, db *gorm.DB, redisClient *redis.Client) *gin.Engine {
 	router.NoRoute(handlers.NewFallbackHandler().NoRoute)
 
 	healthHandler := handlers.NewHealthHandler(db, redisClient)
-	identityHandler := handlers.NewMockIdentityHandler(db, redisClient, cfg.AuthSecret, cfg.TokenTTLHours)
+	identityHandler := handlers.NewIdentityHandler(db, redisClient, cfg.AuthSecret, cfg.TokenTTLHours)
 
 	paramRepo := repositories.NewSystemParamRepository(db)
 	paramService := system.NewParamService(paramRepo)
