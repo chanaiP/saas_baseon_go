@@ -1561,26 +1561,17 @@ func (h *IdentityHandler) UpdatePermissionDataPermMode(c *gin.Context) {
 }
 
 func (h *IdentityHandler) Plans(c *gin.Context) {
+	skip, limit := paginationParams(c)
+	query := h.db.Where("deleted_at IS NULL")
+	var total int64
+	_ = query.Model(&models.SaasPlan{}).Count(&total).Error
 	var rows []models.SaasPlan
-	_ = h.db.Order("sort_order asc, id asc").Find(&rows).Error
+	_ = query.Order("sort_order asc, id asc").Offset(skip).Limit(limit).Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, gin.H{
-			"id":            row.ID,
-			"plan_code":     row.PlanCode,
-			"plan_name":     row.PlanName,
-			"plan_type":     row.PlanType,
-			"billing_cycle": row.BillingCycle,
-			"price":         row.Price,
-			"status":        row.Status,
-			"is_default":    row.IsDefault,
-			"sort_order":    row.SortOrder,
-			"description":   row.Description,
-			"created_at":    row.CreatedAt,
-			"updated_at":    row.UpdatedAt,
-		})
+		items = append(items, planToJSON(row))
 	}
-	response.OK(c, paginated(items))
+	response.OK(c, paginatedWithTotal(items, total, skip, limit))
 }
 
 func (h *IdentityHandler) CreatePlan(c *gin.Context) {
@@ -1599,7 +1590,10 @@ func (h *IdentityHandler) CreatePlan(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	row := models.SaasPlan{PlanCode: body.PlanCode, PlanName: body.PlanName, PlanType: body.PlanType, BillingCycle: body.BillingCycle, Price: body.Price, Status: body.Status, IsDefault: body.IsDefault, SortOrder: body.SortOrder, Description: body.Description}
+	if body.Status == 0 {
+		body.Status = 1
+	}
+	row := models.SaasPlan{PlanCode: strings.TrimSpace(body.PlanCode), PlanName: strings.TrimSpace(body.PlanName), PlanType: body.PlanType, BillingCycle: body.BillingCycle, Price: body.Price, Status: body.Status, IsDefault: body.IsDefault, SortOrder: body.SortOrder, Description: body.Description}
 	if err := h.db.Create(&row).Error; err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
@@ -1609,7 +1603,7 @@ func (h *IdentityHandler) CreatePlan(c *gin.Context) {
 
 func (h *IdentityHandler) UpdatePlan(c *gin.Context) {
 	var row models.SaasPlan
-	if err := h.db.First(&row, c.Param("id")).Error; err != nil {
+	if err := h.db.Where("deleted_at IS NULL").First(&row, c.Param("id")).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "套餐不存在")
 		return
 	}
@@ -1627,7 +1621,7 @@ func (h *IdentityHandler) UpdatePlan(c *gin.Context) {
 
 func (h *IdentityHandler) CopyPlan(c *gin.Context) {
 	var src models.SaasPlan
-	if err := h.db.First(&src, c.Param("id")).Error; err != nil {
+	if err := h.db.Where("deleted_at IS NULL").First(&src, c.Param("id")).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "套餐不存在")
 		return
 	}
@@ -1640,13 +1634,36 @@ func (h *IdentityHandler) CopyPlan(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	dst := src
-	dst.ID = 0
-	dst.PlanCode = body.PlanCode
-	dst.PlanName = body.PlanName
-	dst.Description = body.Description
-	dst.IsDefault = false
-	if err := h.db.Create(&dst).Error; err != nil {
+	var dst models.SaasPlan
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		dst = src
+		dst.ID = 0
+		dst.PlanCode = strings.TrimSpace(body.PlanCode)
+		dst.PlanName = strings.TrimSpace(body.PlanName)
+		dst.Description = body.Description
+		dst.IsDefault = false
+		dst.CreatedAt = time.Time{}
+		dst.UpdatedAt = time.Time{}
+		if err := tx.Create(&dst).Error; err != nil {
+			return err
+		}
+		var features []models.SaasPlanFeature
+		_ = tx.Where("plan_id = ?", src.ID).Find(&features).Error
+		for _, feature := range features {
+			if err := tx.Create(&models.SaasPlanFeature{PlanID: dst.ID, FeatureID: feature.FeatureID, Enabled: feature.Enabled}).Error; err != nil {
+				return err
+			}
+		}
+		var quotas []models.SaasPlanQuota
+		_ = tx.Where("plan_id = ?", src.ID).Find(&quotas).Error
+		for _, quota := range quotas {
+			if err := tx.Create(&models.SaasPlanQuota{PlanID: dst.ID, QuotaID: quota.QuotaID, QuotaValue: quota.QuotaValue}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
@@ -1658,7 +1675,17 @@ func (h *IdentityHandler) DeletePlan(c *gin.Context) {
 	if h.blockDeleteIfReferenced(c, "套餐", ref(&models.TenantSubscription{}, "主体订阅", "plan_id = ?", id)) {
 		return
 	}
-	h.deleteByID(c, &models.SaasPlan{})
+	now := time.Now()
+	var plan models.SaasPlan
+	if err := h.db.Where("id = ? AND deleted_at IS NULL", id).First(&plan).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "套餐不存在")
+		return
+	}
+	if err := h.db.Model(&plan).Updates(map[string]interface{}{"deleted_at": now, "status": 0, "plan_code": tombstoneUniqueValue(plan.PlanCode, plan.ID, 64)}).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, gin.H{"deleted": id})
 }
 
 func (h *IdentityHandler) PlanMatrix(c *gin.Context) {
@@ -1787,9 +1814,9 @@ func (h *IdentityHandler) SavePlanFeatures(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	_ = h.db.Where("plan_id = ?", planID).Delete(&models.SaasPlanFeature{}).Error
-	for _, featureID := range body.FeatureIDs {
-		_ = h.db.Create(&models.SaasPlanFeature{PlanID: planID, FeatureID: featureID, Enabled: true}).Error
+	if err := h.savePlanFeaturesWithIDs(planID, body.FeatureIDs); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
 	}
 	response.OK(c, gin.H{"plan_id": planID, "feature_ids": body.FeatureIDs})
 }
@@ -1806,11 +1833,11 @@ func (h *IdentityHandler) SavePlanCapabilities(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	h.SavePlanFeaturesWithIDs(c, body.FeatureIDs)
-	if c.Writer.Written() {
+	planID := parseUintParam(c, "id")
+	if err := h.savePlanFeaturesWithIDs(planID, body.FeatureIDs); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
-	planID := parseUintParam(c, "id")
 	_ = h.db.Where("plan_id = ?", planID).Delete(&models.SaasPlanQuota{}).Error
 	quotaItems := make([]gin.H, 0, len(body.Quotas))
 	for _, quota := range body.Quotas {
@@ -1822,13 +1849,29 @@ func (h *IdentityHandler) SavePlanCapabilities(c *gin.Context) {
 
 func (h *IdentityHandler) SavePlanFeaturesWithIDs(c *gin.Context, featureIDs []uint64) {
 	planID := parseUintParam(c, "id")
-	_ = h.db.Where("plan_id = ?", planID).Delete(&models.SaasPlanFeature{}).Error
-	for _, featureID := range featureIDs {
-		if err := h.db.Create(&models.SaasPlanFeature{PlanID: planID, FeatureID: featureID, Enabled: true}).Error; err != nil {
-			response.Error(c, 400, response.CodeBadRequest, err.Error())
-			return
-		}
+	if err := h.savePlanFeaturesWithIDs(planID, featureIDs); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
 	}
+}
+
+func (h *IdentityHandler) savePlanFeaturesWithIDs(planID uint64, featureIDs []uint64) error {
+	ids := uniqueUint64s(featureIDs)
+	return h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("plan_id = ?", planID).Delete(&models.SaasPlanFeature{}).Error; err != nil {
+			return err
+		}
+		for _, featureID := range ids {
+			var feature models.SaasFeature
+			if err := tx.Where("id = ? AND status = ?", featureID, 1).First(&feature).Error; err != nil {
+				return fmt.Errorf("功能不存在或已停用")
+			}
+			if err := tx.Create(&models.SaasPlanFeature{PlanID: planID, FeatureID: featureID, Enabled: true}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (h *IdentityHandler) Quotas(c *gin.Context) {
@@ -2098,6 +2141,12 @@ func (h *IdentityHandler) TenantFeatureAccess(c *gin.Context) {
 func (h *IdentityHandler) TenantQuotaCheck(c *gin.Context) {
 	tenantID := parseUintParam(c, "id")
 	quotaCode := c.Param("quota_code")
+	increment := 1
+	if raw := strings.TrimSpace(c.Query("increment")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			increment = parsed
+		}
+	}
 	var quota models.SaasQuota
 	if err := h.db.Where("quota_code = ?", quotaCode).First(&quota).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "配额不存在")
@@ -2105,7 +2154,11 @@ func (h *IdentityHandler) TenantQuotaCheck(c *gin.Context) {
 	}
 	used := h.currentQuotaUsage(tenantID, quotaCode)
 	limit := h.currentQuotaLimit(tenantID, quota.ID)
-	response.OK(c, gin.H{"tenant_id": tenantID, "quota_code": quotaCode, "used_value": used, "limit_value": limit, "remaining_value": limit - used, "allowed": limit < 0 || used < limit})
+	remaining := limit - used
+	if limit < 0 {
+		remaining = -1
+	}
+	response.OK(c, gin.H{"tenant_id": tenantID, "quota_code": quotaCode, "used_value": used, "limit_value": limit, "remaining_value": remaining, "allowed": limit < 0 || used+increment <= limit, "reason": quotaCheckReason(limit, used, increment)})
 }
 
 func (h *IdentityHandler) OrganizationTree(c *gin.Context) {
@@ -3054,6 +3107,13 @@ func tenantQuotaValue(db *gorm.DB, tenantID uint64, quotaCode string, fallback i
 		return planQuota.QuotaValue
 	}
 	return fallback
+}
+
+func quotaCheckReason(limit int, used int, increment int) string {
+	if limit < 0 || used+increment <= limit {
+		return "允许使用"
+	}
+	return "已超出套餐配额"
 }
 
 func tenantContact(db *gorm.DB, tenant models.Tenant) (*string, *string) {

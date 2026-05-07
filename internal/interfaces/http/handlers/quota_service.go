@@ -10,11 +10,17 @@ func (h *IdentityHandler) currentQuotaUsage(tenantID uint64, quotaCode string) i
 	var count int64
 	switch quotaCode {
 	case "max_users":
-		h.db.Model(&models.AppUser{}).Where("tenant_id = ? AND status = ?", tenantID, 1).Count(&count)
+		h.db.Model(&models.AppUser{}).Where("tenant_id = ? AND status = ? AND deleted_at IS NULL", tenantID, 1).Count(&count)
 	case "max_companies":
-		h.db.Model(&models.OrgNode{}).Where("tenant_id = ? AND node_type = ? AND status = ?", tenantID, "company", 1).Count(&count)
+		h.db.Model(&models.OrgNode{}).Where("tenant_id = ? AND node_type = ? AND status = ? AND deleted_at IS NULL", tenantID, "company", 1).Count(&count)
+	case "max_stores":
+		h.db.Model(&models.OrgNode{}).Where("tenant_id = ? AND node_type = ? AND status = ? AND deleted_at IS NULL", tenantID, "store", 1).Count(&count)
+	case "max_departments":
+		h.db.Model(&models.OrgNode{}).Where("tenant_id = ? AND node_type IN ? AND status = ? AND deleted_at IS NULL", tenantID, []string{"department", "warehouse", "project_team"}, 1).Count(&count)
+	case "max_roles":
+		h.db.Model(&models.Role{}).Where("tenant_id = ? AND status = ? AND deleted_at IS NULL", tenantID, 1).Count(&count)
 	case "max_business_units":
-		h.db.Model(&models.BusinessUnit{}).Where("tenant_id = ? AND status = ?", tenantID, 1).Count(&count)
+		h.db.Model(&models.BusinessUnit{}).Where("tenant_id = ? AND status = ? AND deleted_at IS NULL", tenantID, 1).Count(&count)
 	case "daily_import_times", "daily_export_times":
 		period := time.Now().Format("20060102")
 		var usage models.TenantQuotaUsage
@@ -31,6 +37,9 @@ func (h *IdentityHandler) currentQuotaUsage(tenantID uint64, quotaCode string) i
 }
 
 func (h *IdentityHandler) currentQuotaLimit(tenantID uint64, quotaID uint64) int {
+	if !h.subscriptionAllowsLogin(tenantID) {
+		return 0
+	}
 	now := time.Now()
 	var override models.TenantQuotaOverride
 	if err := h.db.Where("tenant_id = ? AND quota_id = ? AND (start_time IS NULL OR start_time <= ?) AND (end_time IS NULL OR end_time >= ?)", tenantID, quotaID, now, now).Order("id desc").First(&override).Error; err == nil {
@@ -47,6 +56,9 @@ func (h *IdentityHandler) currentQuotaLimit(tenantID uint64, quotaID uint64) int
 }
 
 func (h *IdentityHandler) tenantFeatureAllowed(tenantID uint64, featureCode string) bool {
+	if !h.subscriptionAllowsLogin(tenantID) {
+		return false
+	}
 	var feature models.SaasFeature
 	if err := h.db.Where("feature_code = ? AND status = ?", featureCode, 1).First(&feature).Error; err != nil {
 		return false
