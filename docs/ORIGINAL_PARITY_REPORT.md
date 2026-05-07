@@ -230,3 +230,24 @@ Go 版额外路由：
 状态：
 
 - H 组岗位管理已完成。
+
+## 业务单元对比
+
+已对齐项：
+
+- 业务单元列表改为当前主体作用域，排除软删除，支持 `skip/limit/keyword/status` 并按 ID 倒序返回。
+- 业务单元树/平铺接口排除软删除数据。
+- 创建业务单元接入 `business_unit_manage` 功能门禁，启用状态下校验 `max_business_units` 配额。
+- 创建/更新业务单元会校验业务单元类型非空，维护 `billing_enabled` 与 `statistic_enabled` 系统标志。
+- 创建/更新业务单元支持批量 PRIMARY 组织映射，并校验组织节点存在和同一组织不能重复挂到其他启用业务单元。
+- 业务单元组织映射列表只返回启用映射。
+- 新增组织映射支持 `scope_type`、`priority`、组织类型自动识别和租户隔离；删除映射改为停用。
+- 业务单元删除改为软删除、停用、tombstone 编码，并保留数据权限范围引用保护和审计。
+
+验证：
+
+- `docker run --rm -e GOPROXY=https://goproxy.cn,direct -v "$PWD":/src -w /src golang:1.23-alpine sh -c 'gofmt -w ./cmd ./internal && go test ./...'` 通过。
+
+状态：
+
+- I1、I2、I3 已完成；I4 中数据权限范围过滤继续对齐。

@@ -3197,20 +3197,45 @@ func (h *IdentityHandler) DeletePosition(c *gin.Context) {
 }
 
 func (h *IdentityHandler) BusinessUnits(c *gin.Context) {
-	tenantID := h.requestTenantID(c)
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	if err := h.requireFeatureAccess(user.TenantID, "business_unit_manage"); err != nil {
+		response.Error(c, 403, response.CodeForbidden, err.Error())
+		return
+	}
+	skip, limit := paginationParams(c)
+	tenantID := user.TenantID
 	var rows []models.BusinessUnit
-	_ = h.db.Where("tenant_id = ?", tenantID).Order("id asc").Find(&rows).Error
+	query := h.db.Where("tenant_id = ? AND deleted_at IS NULL", tenantID)
+	if keyword := strings.TrimSpace(c.Query("keyword")); keyword != "" {
+		like := "%" + keyword + "%"
+		query = query.Where("name LIKE ? OR code LIKE ?", like, like)
+	}
+	if status := strings.TrimSpace(c.Query("status")); status != "" {
+		query = query.Where("status = ?", status)
+	}
+	var total int64
+	_ = query.Model(&models.BusinessUnit{}).Count(&total).Error
+	_ = query.Order("id desc").Offset(skip).Limit(limit).Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, businessUnitToJSON(row))
 	}
-	response.OK(c, paginated(items))
+	response.OK(c, paginatedWithTotal(items, total, skip, limit))
 }
 
 func (h *IdentityHandler) BusinessUnitTree(c *gin.Context) {
-	tenantID := h.requestTenantID(c)
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	tenantID := user.TenantID
 	var rows []models.BusinessUnit
-	_ = h.db.Where("tenant_id = ?", tenantID).Order("id asc").Find(&rows).Error
+	_ = h.db.Where("tenant_id = ? AND deleted_at IS NULL", tenantID).Order("id asc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, businessUnitToJSON(row))
@@ -3219,6 +3244,11 @@ func (h *IdentityHandler) BusinessUnitTree(c *gin.Context) {
 }
 
 func (h *IdentityHandler) CreateBusinessUnit(c *gin.Context) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
 	var body struct {
 		Name       string   `json:"name"`
 		Code       string   `json:"code"`
@@ -3234,24 +3264,48 @@ func (h *IdentityHandler) CreateBusinessUnit(c *gin.Context) {
 	if body.Status == 0 {
 		body.Status = 1
 	}
-	tenantID := h.requestTenantID(c)
-	if err := h.requireQuotaAvailable(tenantID, "max_business_units", 1); err != nil {
+	tenantID := user.TenantID
+	if err := h.requireFeatureAccess(tenantID, "business_unit_manage"); err != nil {
+		response.Error(c, 403, response.CodeForbidden, err.Error())
+		return
+	}
+	if body.Status == 1 {
+		if err := h.requireQuotaAvailable(tenantID, "max_business_units", 1); err != nil {
+			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			return
+		}
+	}
+	if strings.TrimSpace(derefString(body.BUType)) == "" {
+		response.Error(c, 400, response.CodeBadRequest, "请选择业务单元类型")
+		return
+	}
+	if err := h.validateBusinessUnitOrgMaps(tenantID, 0, body.OrgNodeIDs); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
-	row := models.BusinessUnit{TenantID: tenantID, Name: body.Name, Code: body.Code, BUType: body.BUType, Status: body.Status, BillingEnabled: true, StatisticEnabled: true, Remark: body.Remark}
-	if err := h.db.Create(&row).Error; err != nil {
+	row := models.BusinessUnit{TenantID: tenantID, Name: strings.TrimSpace(body.Name), Code: strings.TrimSpace(body.Code), BUType: nullableTrimmed(body.BUType), Status: body.Status, BillingEnabled: body.Status == 1, StatisticEnabled: true, Remark: nullableTrimmed(body.Remark)}
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&row).Error; err != nil {
+			return err
+		}
+		return h.replaceBusinessUnitMappingsTx(tx, tenantID, row.ID, body.OrgNodeIDs)
+	}); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
-	h.replaceBusinessUnitMappings(tenantID, row.ID, body.OrgNodeIDs)
-	h.auditCurrentUser(c, "business_unit", "create", "创建业务单元 "+row.Name, gin.H{"business_unit_id": row.ID, "tenant_id": row.TenantID, "code": row.Code})
+	h.audit(c, user.TenantID, user.ID, "business_unit", "create", "创建业务单元 "+row.Name, gin.H{"business_unit_id": row.ID, "tenant_id": row.TenantID, "code": row.Code})
 	response.OK(c, gin.H{"id": row.ID})
 }
 
 func (h *IdentityHandler) UpdateBusinessUnit(c *gin.Context) {
-	tenantID := h.requestTenantID(c)
-	if err := h.db.Where("tenant_id = ?", tenantID).First(&models.BusinessUnit{}, c.Param("id")).Error; err != nil {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	tenantID := user.TenantID
+	var existing models.BusinessUnit
+	if err := h.db.Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", c.Param("id"), tenantID).First(&existing).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "业务单元不存在")
 		return
 	}
@@ -3267,49 +3321,95 @@ func (h *IdentityHandler) UpdateBusinessUnit(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	updates := map[string]interface{}{}
-	if body.Name != nil {
-		updates["name"] = *body.Name
+	if err := h.requireFeatureAccess(tenantID, "business_unit_manage"); err != nil {
+		response.Error(c, 403, response.CodeForbidden, err.Error())
+		return
 	}
-	if body.Code != nil {
-		updates["code"] = *body.Code
-	}
-	if body.BUType != nil {
-		updates["bu_type"] = *body.BUType
-	}
-	if body.Status != nil {
-		updates["status"] = *body.Status
-	}
-	if body.Remark != nil {
-		updates["remark"] = *body.Remark
-	}
-	if len(updates) > 0 {
-		if err := h.db.Model(&models.BusinessUnit{}).Where("id = ? AND tenant_id = ?", c.Param("id"), tenantID).Updates(updates).Error; err != nil {
+	if body.Status != nil && *body.Status == 1 && existing.Status != 1 {
+		if err := h.requireQuotaAvailable(tenantID, "max_business_units", 1); err != nil {
 			response.Error(c, 400, response.CodeBadRequest, err.Error())
 			return
 		}
 	}
 	if body.OrgNodeIDs != nil {
-		h.replaceBusinessUnitMappings(tenantID, parseUintParam(c, "id"), body.OrgNodeIDs)
+		if err := h.validateBusinessUnitOrgMaps(tenantID, existing.ID, body.OrgNodeIDs); err != nil {
+			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			return
+		}
 	}
-	h.auditCurrentUser(c, "business_unit", "update", "更新业务单元", gin.H{"business_unit_id": parseUintParam(c, "id"), "tenant_id": tenantID, "changes": updates, "org_node_ids": body.OrgNodeIDs})
+	updates := map[string]interface{}{}
+	if body.Name != nil {
+		updates["name"] = strings.TrimSpace(*body.Name)
+	}
+	if body.Code != nil {
+		updates["code"] = strings.TrimSpace(*body.Code)
+	}
+	if body.BUType != nil {
+		if strings.TrimSpace(*body.BUType) == "" {
+			response.Error(c, 400, response.CodeBadRequest, "请选择业务单元类型")
+			return
+		}
+		updates["bu_type"] = strings.TrimSpace(*body.BUType)
+	}
+	if body.Status != nil {
+		updates["status"] = *body.Status
+		updates["billing_enabled"] = *body.Status == 1
+		updates["statistic_enabled"] = true
+	}
+	if body.Remark != nil {
+		updates["remark"] = nullableTrimmed(body.Remark)
+	}
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if len(updates) > 0 {
+			if err := tx.Model(&existing).Updates(updates).Error; err != nil {
+				return err
+			}
+		}
+		if body.OrgNodeIDs != nil {
+			return h.replaceBusinessUnitMappingsTx(tx, tenantID, parseUintParam(c, "id"), body.OrgNodeIDs)
+		}
+		return nil
+	}); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	h.audit(c, user.TenantID, user.ID, "business_unit", "update", "更新业务单元", gin.H{"business_unit_id": parseUintParam(c, "id"), "tenant_id": tenantID, "changes": updates, "org_node_ids": body.OrgNodeIDs})
 	response.OK(c, gin.H{"id": parseUintParam(c, "id")})
 }
 
 func (h *IdentityHandler) DeleteBusinessUnit(c *gin.Context) {
-	id := parseUintParam(c, "id")
-	if h.blockDeleteIfReferenced(c, "业务单元", ref(&models.BusinessUnitOrgMap{}, "组织映射", "business_unit_id = ?", id), ref(&models.BusinessUnitScope{}, "数据权限范围", "business_unit_id = ?", id)) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
 		return
 	}
-	if h.deleteTenantScopedByID(c, &models.BusinessUnit{}) {
-		h.auditCurrentUser(c, "business_unit", "delete", "删除业务单元", gin.H{"business_unit_id": id})
+	id := parseUintParam(c, "id")
+	if h.blockDeleteIfReferenced(c, "业务单元", ref(&models.BusinessUnitScope{}, "数据权限范围", "business_unit_id = ?", id)) {
+		return
 	}
+	var row models.BusinessUnit
+	if err := h.db.Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", id, user.TenantID).First(&row).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "业务单元不存在")
+		return
+	}
+	now := time.Now()
+	if err := h.db.Model(&row).Updates(map[string]interface{}{"deleted_at": now, "status": 0, "billing_enabled": false, "statistic_enabled": true, "code": tombstoneUniqueValue(row.Code, row.ID, 64)}).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	h.audit(c, user.TenantID, user.ID, "business_unit", "delete", "删除业务单元 "+row.Name, gin.H{"business_unit_id": id})
+	response.OK(c, gin.H{"deleted": id})
 }
 
 func (h *IdentityHandler) BusinessUnitOrgMappings(c *gin.Context) {
-	tenantID := h.requestTenantID(c)
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	tenantID := user.TenantID
 	var rows []models.BusinessUnitOrgMap
-	_ = h.db.Where("tenant_id = ? AND business_unit_id = ?", tenantID, c.Param("id")).Order("id asc").Find(&rows).Error
+	_ = h.db.Where("tenant_id = ? AND business_unit_id = ? AND status = ?", tenantID, c.Param("id"), 1).Order("id asc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, businessUnitOrgMapToJSON(row))
@@ -3318,32 +3418,73 @@ func (h *IdentityHandler) BusinessUnitOrgMappings(c *gin.Context) {
 }
 
 func (h *IdentityHandler) CreateBusinessUnitOrgMapping(c *gin.Context) {
-	tenantID := h.requestTenantID(c)
-	if err := h.db.Where("tenant_id = ?", tenantID).First(&models.BusinessUnit{}, c.Param("id")).Error; err != nil {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	tenantID := user.TenantID
+	if err := h.db.Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", c.Param("id"), tenantID).First(&models.BusinessUnit{}).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "业务单元不存在")
 		return
 	}
 	var body struct {
-		OrgID uint64 `json:"org_id"`
+		OrgID     uint64 `json:"org_id"`
+		ScopeType string `json:"scope_type"`
+		Priority  int    `json:"priority"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	row := models.BusinessUnitOrgMap{TenantID: tenantID, BusinessUnitID: parseUintParam(c, "id"), OrgID: body.OrgID, OrgType: "org", ScopeType: "include", Status: 1}
+	scopeType := strings.TrimSpace(body.ScopeType)
+	if scopeType == "" {
+		scopeType = "PRIMARY"
+	}
+	if scopeType == "PRIMARY" {
+		if err := h.validateBusinessUnitOrgMaps(tenantID, parseUintParam(c, "id"), []uint64{body.OrgID}); err != nil {
+			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			return
+		}
+	}
+	node, err := h.orgNodeByID(tenantID, body.OrgID)
+	if err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "组织节点不存在")
+		return
+	}
+	var exists int64
+	_ = h.db.Model(&models.BusinessUnitOrgMap{}).Where("tenant_id = ? AND business_unit_id = ? AND org_id = ? AND scope_type = ? AND status = ?", tenantID, parseUintParam(c, "id"), body.OrgID, scopeType, 1).Count(&exists).Error
+	if exists > 0 {
+		response.Error(c, 400, response.CodeBadRequest, "该组织节点已映射到此业务单元")
+		return
+	}
+	row := models.BusinessUnitOrgMap{TenantID: tenantID, BusinessUnitID: parseUintParam(c, "id"), OrgID: body.OrgID, OrgType: orgTypeForBusinessUnitMap(node), ScopeType: scopeType, Priority: body.Priority, Status: 1}
 	if err := h.db.Create(&row).Error; err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
-	h.auditCurrentUser(c, "business_unit", "org_mapping_create", "绑定业务单元组织", gin.H{"mapping_id": row.ID, "business_unit_id": row.BusinessUnitID, "org_id": row.OrgID, "tenant_id": row.TenantID})
+	h.audit(c, user.TenantID, user.ID, "business_unit_org_map", "create", "业务单元组织映射", gin.H{"mapping_id": row.ID, "business_unit_id": row.BusinessUnitID, "org_id": row.OrgID, "tenant_id": row.TenantID})
 	response.OK(c, gin.H{"id": row.ID})
 }
 
 func (h *IdentityHandler) DeleteBusinessUnitOrgMapping(c *gin.Context) {
-	id := parseUintParam(c, "id")
-	if h.deleteTenantScopedByID(c, &models.BusinessUnitOrgMap{}) {
-		h.auditCurrentUser(c, "business_unit", "org_mapping_delete", "删除业务单元组织映射", gin.H{"mapping_id": id})
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
 	}
+	id := parseUintParam(c, "id")
+	result := h.db.Model(&models.BusinessUnitOrgMap{}).Where("id = ? AND tenant_id = ?", id, user.TenantID).Update("status", 0)
+	if result.Error != nil {
+		response.Error(c, 400, response.CodeBadRequest, result.Error.Error())
+		return
+	}
+	if result.RowsAffected == 0 {
+		response.Error(c, 404, response.CodeNotFound, "映射不存在")
+		return
+	}
+	h.audit(c, user.TenantID, user.ID, "business_unit_org_map", "delete", "删除业务单元组织映射", gin.H{"mapping_id": id})
+	response.OK(c, gin.H{"deleted": id})
 }
 
 func (h *IdentityHandler) DictTypes(c *gin.Context) {
@@ -5870,10 +6011,59 @@ func (h *IdentityHandler) deleteOrgNodeWithAudit(c *gin.Context, summary string)
 	response.OK(c, gin.H{"deleted": id})
 }
 
-func (h *IdentityHandler) replaceBusinessUnitMappings(tenantID, buID uint64, orgIDs []uint64) {
-	_ = h.db.Where("tenant_id = ? AND business_unit_id = ?", tenantID, buID).Delete(&models.BusinessUnitOrgMap{}).Error
-	for _, orgID := range orgIDs {
-		_ = h.db.Create(&models.BusinessUnitOrgMap{TenantID: tenantID, BusinessUnitID: buID, OrgID: orgID, OrgType: "org", ScopeType: "include", Status: 1}).Error
+func (h *IdentityHandler) replaceBusinessUnitMappingsTx(tx *gorm.DB, tenantID, buID uint64, orgIDs []uint64) error {
+	ids := uniqueUint64s(orgIDs)
+	if len(ids) == 0 {
+		return errors.New("请至少选择一个关联组织节点")
+	}
+	if err := tx.Model(&models.BusinessUnitOrgMap{}).Where("tenant_id = ? AND business_unit_id = ? AND scope_type = ?", tenantID, buID, "PRIMARY").Update("status", 0).Error; err != nil {
+		return err
+	}
+	for _, orgID := range ids {
+		node, err := h.orgNodeByID(tenantID, orgID)
+		if err != nil {
+			return errors.New("组织节点不存在")
+		}
+		if err := tx.Create(&models.BusinessUnitOrgMap{TenantID: tenantID, BusinessUnitID: buID, OrgID: orgID, OrgType: orgTypeForBusinessUnitMap(node), ScopeType: "PRIMARY", Priority: 0, Status: 1}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (h *IdentityHandler) validateBusinessUnitOrgMaps(tenantID, excludeBUID uint64, orgIDs []uint64) error {
+	ids := uniqueUint64s(orgIDs)
+	if len(ids) == 0 {
+		return errors.New("请至少选择一个关联组织节点")
+	}
+	for _, orgID := range ids {
+		if _, err := h.orgNodeByID(tenantID, orgID); err != nil {
+			return errors.New("组织节点不存在")
+		}
+		var row models.BusinessUnit
+		query := h.db.Model(&models.BusinessUnit{}).
+			Joins("JOIN business_unit_org_map m ON m.business_unit_id = business_unit.id").
+			Where("business_unit.tenant_id = ? AND business_unit.deleted_at IS NULL AND business_unit.status = ? AND m.tenant_id = ? AND m.org_id = ? AND m.scope_type = ? AND m.status = ?", tenantID, 1, tenantID, orgID, "PRIMARY", 1)
+		if excludeBUID > 0 {
+			query = query.Where("business_unit.id <> ?", excludeBUID)
+		}
+		if err := query.First(&row).Error; err == nil {
+			return fmt.Errorf("组织节点已关联到业务单元「%s」，不能重复关联", row.Name)
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+	}
+	return nil
+}
+
+func orgTypeForBusinessUnitMap(node models.OrgNode) string {
+	switch strings.ToLower(strings.TrimSpace(node.NodeType)) {
+	case "company":
+		return "company"
+	case "store":
+		return "store"
+	default:
+		return "department"
 	}
 }
 
