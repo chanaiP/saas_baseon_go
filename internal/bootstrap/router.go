@@ -192,7 +192,7 @@ func openAPISpec() gin.H {
 			"responses": gin.H{"200": gin.H{"description": "OK"}},
 		}
 	}
-	return gin.H{
+	return withOpenAPISchemas(gin.H{
 		"openapi": "3.0.0",
 		"info":    gin.H{"title": "SaaS Baseon Go API", "version": "0.1.0"},
 		"tags": []gin.H{
@@ -313,5 +313,163 @@ func openAPISpec() gin.H {
 			"/api/users/{id}":                                 gin.H{"put": api("users", "更新用户"), "delete": api("users", "删除用户")},
 			"/api/users/{id}/password":                        gin.H{"put": api("users", "重置用户密码")},
 		},
+	})
+}
+
+func withOpenAPISchemas(spec gin.H) gin.H {
+	spec["components"] = openAPIComponents()
+	paths, ok := spec["paths"].(gin.H)
+	if !ok {
+		return spec
 	}
+	for _, rawPath := range paths {
+		methods, ok := rawPath.(gin.H)
+		if !ok {
+			continue
+		}
+		for method, rawOperation := range methods {
+			operation, ok := rawOperation.(gin.H)
+			if !ok {
+				continue
+			}
+			if _, ok := operation["responses"]; !ok {
+				operation["responses"] = openAPIStandardResponses("#/components/schemas/ObjectData")
+			} else {
+				operation["responses"] = openAPIStandardResponses("#/components/schemas/ObjectData")
+			}
+			if method == "delete" {
+				operation["responses"] = openAPIStandardResponses("#/components/schemas/DeleteResult")
+			}
+		}
+	}
+	setOpenAPIOperation(paths, "/api/auth/login", "post", "#/components/schemas/LoginRequest", "#/components/schemas/LoginResponse")
+	setOpenAPIOperation(paths, "/api/users", "get", "", "#/components/schemas/UserPage")
+	setOpenAPIOperation(paths, "/api/users", "post", "#/components/schemas/UserCreateRequest", "#/components/schemas/User")
+	setOpenAPIOperation(paths, "/api/users/{id}", "put", "#/components/schemas/UserUpdateRequest", "#/components/schemas/User")
+	setOpenAPIOperation(paths, "/api/roles", "get", "", "#/components/schemas/RolePage")
+	setOpenAPIOperation(paths, "/api/roles", "post", "#/components/schemas/RoleCreateRequest", "#/components/schemas/Role")
+	setOpenAPIOperation(paths, "/api/roles/{id}", "get", "", "#/components/schemas/Role")
+	setOpenAPIOperation(paths, "/api/roles/{id}", "put", "#/components/schemas/RoleUpdateRequest", "#/components/schemas/Role")
+	setOpenAPIOperation(paths, "/api/tenants", "get", "", "#/components/schemas/TenantPage")
+	setOpenAPIOperation(paths, "/api/tenants", "post", "#/components/schemas/TenantCreateRequest", "#/components/schemas/Tenant")
+	setOpenAPIOperation(paths, "/api/tenants/{id}", "get", "", "#/components/schemas/Tenant")
+	setOpenAPIOperation(paths, "/api/tenants/{id}", "put", "#/components/schemas/TenantUpdateRequest", "#/components/schemas/Tenant")
+	setOpenAPIOperation(paths, "/api/organizations/tree", "get", "", "#/components/schemas/OrgNodeList")
+	setOpenAPIOperation(paths, "/api/org-nodes", "post", "#/components/schemas/OrgNodeRequest", "#/components/schemas/IDResult")
+	setOpenAPIOperation(paths, "/api/org-nodes/{id}", "put", "#/components/schemas/OrgNodeRequest", "#/components/schemas/IDResult")
+	setOpenAPIOperation(paths, "/api/business-units", "get", "", "#/components/schemas/BusinessUnitPage")
+	setOpenAPIOperation(paths, "/api/business-units", "post", "#/components/schemas/BusinessUnitRequest", "#/components/schemas/IDResult")
+	setOpenAPIOperation(paths, "/api/business-units/{id}", "put", "#/components/schemas/BusinessUnitRequest", "#/components/schemas/IDResult")
+	setOpenAPIOperation(paths, "/api/logs/audit", "get", "", "#/components/schemas/AuditLogPage")
+	return spec
+}
+
+func setOpenAPIOperation(paths gin.H, path, method, requestSchema, responseSchema string) {
+	methods, ok := paths[path].(gin.H)
+	if !ok {
+		return
+	}
+	operation, ok := methods[method].(gin.H)
+	if !ok {
+		return
+	}
+	if requestSchema != "" {
+		operation["requestBody"] = gin.H{
+			"required": true,
+			"content":  gin.H{"application/json": gin.H{"schema": refSchema(requestSchema)}},
+		}
+	}
+	if responseSchema != "" {
+		operation["responses"] = openAPIStandardResponses(responseSchema)
+	}
+}
+
+func openAPIStandardResponses(dataSchema string) gin.H {
+	return gin.H{
+		"200": gin.H{"description": "OK", "content": gin.H{"application/json": gin.H{"schema": apiEnvelope(dataSchema)}}},
+		"400": gin.H{"description": "Bad Request", "content": gin.H{"application/json": gin.H{"schema": refSchema("#/components/schemas/ErrorResponse")}}},
+		"401": gin.H{"description": "Unauthorized", "content": gin.H{"application/json": gin.H{"schema": refSchema("#/components/schemas/ErrorResponse")}}},
+		"403": gin.H{"description": "Forbidden", "content": gin.H{"application/json": gin.H{"schema": refSchema("#/components/schemas/ErrorResponse")}}},
+		"404": gin.H{"description": "Not Found", "content": gin.H{"application/json": gin.H{"schema": refSchema("#/components/schemas/ErrorResponse")}}},
+	}
+}
+
+func apiEnvelope(dataSchema string) gin.H {
+	return gin.H{
+		"type": "object",
+		"properties": gin.H{
+			"code":    gin.H{"type": "integer", "example": 0},
+			"message": gin.H{"type": "string", "example": "ok"},
+			"data":    refSchema(dataSchema),
+		},
+		"required": []string{"code", "message", "data"},
+	}
+}
+
+func refSchema(ref string) gin.H {
+	return gin.H{"$ref": ref}
+}
+
+func openAPIComponents() gin.H {
+	return gin.H{"schemas": gin.H{
+		"ErrorResponse":       objectSchema(gin.H{"code": integerSchema(), "message": stringSchema()}, "code", "message"),
+		"ObjectData":          objectSchema(gin.H{}),
+		"IDResult":            objectSchema(gin.H{"id": integerSchema()}),
+		"DeleteResult":        objectSchema(gin.H{"deleted": integerSchema(), "id": integerSchema()}),
+		"LoginRequest":        objectSchema(gin.H{"account": stringSchema(), "password": stringSchema(), "captcha_key": stringSchema(), "captcha": stringSchema()}, "account", "password"),
+		"LoginResponse":       objectSchema(gin.H{"access_token": stringSchema(), "token_type": stringSchema(), "expires_in": integerSchema(), "user": refSchema("#/components/schemas/User")}),
+		"TenantCreateRequest": objectSchema(gin.H{"code": stringSchema(), "name": stringSchema(), "status": integerSchema(), "admin_name": stringSchema(), "admin_employee_no": stringSchema(), "admin_phone": stringSchema(), "admin_password": stringSchema()}, "code", "name", "admin_name", "admin_employee_no", "admin_password"),
+		"TenantUpdateRequest": objectSchema(gin.H{"name": stringSchema(), "status": integerSchema(), "contact_name": stringSchema(), "contact_phone": stringSchema()}),
+		"Tenant":              objectSchema(gin.H{"id": integerSchema(), "code": stringSchema(), "name": stringSchema(), "status": integerSchema(), "plan_name": nullableStringSchema(), "used_users": integerSchema(), "used_companies": integerSchema()}),
+		"TenantPage":          pageSchema("#/components/schemas/Tenant"),
+		"UserCreateRequest":   objectSchema(gin.H{"employee_no": stringSchema(), "password": stringSchema(), "name": stringSchema(), "phone": stringSchema(), "email": stringSchema(), "company_id": integerSchema(), "department_id": integerSchema(), "position_ids": integerArraySchema(), "role_ids": integerArraySchema(), "status": integerSchema()}, "employee_no", "password", "name"),
+		"UserUpdateRequest":   objectSchema(gin.H{"name": stringSchema(), "phone": stringSchema(), "email": stringSchema(), "company_id": integerSchema(), "department_id": integerSchema(), "department_ids": integerArraySchema(), "position_ids": integerArraySchema(), "role_ids": integerArraySchema(), "status": integerSchema(), "is_platform_admin": gin.H{"type": "boolean"}}),
+		"User":                objectSchema(gin.H{"id": integerSchema(), "tenant_id": integerSchema(), "employee_no": stringSchema(), "account": stringSchema(), "name": stringSchema(), "phone": nullableStringSchema(), "email": nullableStringSchema(), "status": integerSchema(), "role_ids": integerArraySchema(), "position_ids": integerArraySchema()}),
+		"UserPage":            pageSchema("#/components/schemas/User"),
+		"RoleCreateRequest":   objectSchema(gin.H{"code": stringSchema(), "name": stringSchema(), "description": stringSchema(), "permission_ids": integerArraySchema()}, "code", "name"),
+		"RoleUpdateRequest":   objectSchema(gin.H{"name": stringSchema(), "description": stringSchema(), "permission_ids": integerArraySchema()}),
+		"Role":                objectSchema(gin.H{"id": integerSchema(), "tenant_id": integerSchema(), "code": stringSchema(), "name": stringSchema(), "description": nullableStringSchema(), "permission_ids": integerArraySchema()}),
+		"RolePage":            pageSchema("#/components/schemas/Role"),
+		"OrgNodeRequest":      objectSchema(gin.H{"node_type": stringSchema(), "name": stringSchema(), "code": stringSchema(), "company_type": stringSchema(), "company_id": integerSchema(), "parent_id": integerSchema(), "status": integerSchema()}, "name"),
+		"OrgNode":             objectSchema(gin.H{"id": integerSchema(), "node_type": stringSchema(), "name": stringSchema(), "code": nullableStringSchema(), "parent_id": integerSchema(), "status": integerSchema(), "children": gin.H{"type": "array", "items": gin.H{"type": "object"}}}),
+		"OrgNodeList":         gin.H{"type": "array", "items": refSchema("#/components/schemas/OrgNode")},
+		"BusinessUnitRequest": objectSchema(gin.H{"name": stringSchema(), "code": stringSchema(), "bu_type": stringSchema(), "org_node_ids": integerArraySchema(), "status": integerSchema(), "remark": stringSchema()}, "name", "code"),
+		"BusinessUnit":        objectSchema(gin.H{"id": integerSchema(), "tenant_id": integerSchema(), "name": stringSchema(), "code": stringSchema(), "bu_type": nullableStringSchema(), "status": integerSchema(), "org_node_ids": integerArraySchema()}),
+		"BusinessUnitPage":    pageSchema("#/components/schemas/BusinessUnit"),
+		"AuditLog":            objectSchema(gin.H{"id": integerSchema(), "tenant_id": integerSchema(), "user_id": integerSchema(), "module": stringSchema(), "action": stringSchema(), "summary": stringSchema(), "ip": nullableStringSchema(), "created_at": stringSchema()}),
+		"AuditLogPage":        pageSchema("#/components/schemas/AuditLog"),
+	}}
+}
+
+func pageSchema(itemRef string) gin.H {
+	return objectSchema(gin.H{
+		"items": gin.H{"type": "array", "items": refSchema(itemRef)},
+		"total": integerSchema(),
+		"skip":  integerSchema(),
+		"limit": integerSchema(),
+	}, "items", "total", "skip", "limit")
+}
+
+func objectSchema(properties gin.H, required ...string) gin.H {
+	schema := gin.H{"type": "object", "properties": properties}
+	if len(required) > 0 {
+		schema["required"] = required
+	}
+	return schema
+}
+
+func stringSchema() gin.H {
+	return gin.H{"type": "string"}
+}
+
+func nullableStringSchema() gin.H {
+	return gin.H{"type": "string", "nullable": true}
+}
+
+func integerSchema() gin.H {
+	return gin.H{"type": "integer", "format": "int64"}
+}
+
+func integerArraySchema() gin.H {
+	return gin.H{"type": "array", "items": integerSchema()}
 }
