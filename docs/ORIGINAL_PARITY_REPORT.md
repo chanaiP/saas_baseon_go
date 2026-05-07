@@ -45,3 +45,23 @@ Go 版额外路由：
 
 - 文件集合已一致，下一阶段转向行为级对比：接口参数、返回结构、校验、权限、数据范围和测试覆盖。
 
+## 认证与会话对比
+
+已对齐项：
+
+- 登录账号匹配范围保持原项目逻辑：账号、工号、手机号，并支持 `tenant_id` / `tenant_code` 限定主体。
+- 手机号匹配多个可登录主体时返回 `code=2`、`message=请选择主体` 和主体列表，前端可继续使用原选择主体流程。
+- 登录失败 3 次后要求验证码；验证码 Redis 命名空间使用 `auth:captcha:`，兼容历史 `captcha:` key。
+- IP 登录失败 15 次后按原项目返回 `请求过于频繁，请 {ttl} 秒后重试`。
+- 登录失败同时累计账号失败次数和 IP 失败次数；登录成功清理两类计数。
+- token 优先使用 Redis opaque session，key 为 `auth:session:{token}`；JWT 仅作为 Redis 不可用时的兼容降级。
+- 退出登录删除 Redis session；切换主体删除旧 session，并按同一手机号在目标主体下的账号重新签发 session。
+- 禁用账号、禁用主体、过期或冻结订阅均禁止登录，且写入登录日志。
+
+验证：
+
+- `docker run --rm -e GOPROXY=https://goproxy.cn,direct -v "$PWD":/src -w /src golang:1.23-alpine sh -c 'gofmt -w ./cmd ./internal && go test ./...'` 通过。
+
+仍在后续清单中：
+
+- 修改密码失败保护、密码哈希、重置密码格式继续在 B4 中处理。
