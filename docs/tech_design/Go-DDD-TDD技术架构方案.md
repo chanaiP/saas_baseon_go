@@ -122,13 +122,21 @@ docs                            需求、技术、数据库、测试文档
 
 当前新项目已完成：
 
-- Gin API 启动入口
-- PostgreSQL + Redis Docker Compose
-- 统一响应
-- Request ID 中间件
-- 健康检查
-- 参数管理 POC 模块
-- 参数模块 application 单元测试
+- Gin API 启动入口、配置加载、Request ID 中间件、统一响应
+- PostgreSQL + Redis + API + Web 的 Docker Compose 本地运行环境
+- GORM AutoMigrate 开发期建表，当前覆盖主体、套餐、组织、岗位、业务单元、用户、角色、权限、字典、参数、日志、订阅、配额等核心表
+- 初始化数据：平台主体、演示账号、管理员角色、菜单/按钮权限、套餐、功能、配额、字典、参数、登录日志、操作日志
+- 登录认证：账号/工号/手机号登录、密码校验、Bearer token 签发、个人密码修改
+- 前端可见系统管理页面的后端 API 覆盖：主体管理、套餐中心、组织架构、岗位管理、业务单元、用户管理、角色权限、菜单管理、数据字典、参数管理、操作日志、登录日志
+- 监控页面 API 覆盖：健康检查、服务器信息、定时任务、服务监控、Redis 缓存统计、Redis key 扫描
+- OpenAPI 基础文档输出，支持开发者中心接口卡片展示
 - 前端项目复制与 Web 容器接入
 - 原项目 `docs` 文档复制并更新为 Go/PostgreSQL 技术栈方向
+- 验证结果：`go test ./...` 通过，`npm run build` 通过，Playwright E2E `41 passed`
 
+当前仍建议在下一阶段继续增强：
+
+- 将 handler 中仍偏通用 CRUD 的实现继续下沉到 application service 和 repository，收敛 DDD 边界
+- 为登录、权限、租户隔离、套餐限制、审计写入补充更完整的 handler/repository/integration 测试
+- 将 OpenAPI 从手写摘要升级为完整 schema
+- 将开发期 `AutoMigrate` 固化为生产可审计 migration

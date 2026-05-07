@@ -14,6 +14,8 @@ type Config struct {
 	RedisAddr     string
 	RedisPassword string
 	RedisDB       int
+	AuthSecret    string
+	TokenTTLHours int
 }
 
 func LoadConfig() Config {
@@ -26,6 +28,8 @@ func LoadConfig() Config {
 		RedisAddr:     env("REDIS_ADDR", "127.0.0.1:6380"),
 		RedisPassword: env("REDIS_PASSWORD", ""),
 		RedisDB:       envInt("REDIS_DB", 0),
+		AuthSecret:    env("AUTH_SECRET", "saas-baseon-go-development-secret"),
+		TokenTTLHours: envInt("TOKEN_TTL_HOURS", 24),
 	}
 }
 

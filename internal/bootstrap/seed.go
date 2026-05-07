@@ -33,17 +33,17 @@ func seedCoreData(db *gorm.DB) error {
 	user := models.AppUser{
 		TenantID:        tenant.ID,
 		CompanyID:       &company.ID,
-		EmployeeNo:      "admin",
-		Account:         "admin",
-		PasswordHash:    "dev-password-placeholder",
+		EmployeeNo:      "E10001",
+		Account:         "E10001",
+		PasswordHash:    "dev:112233",
 		Name:            "平台管理员",
 		Status:          1,
 		IsPlatformAdmin: true,
 	}
-	if err := db.Where("tenant_id = ? AND account = ?", tenant.ID, user.Account).FirstOrCreate(&user).Error; err != nil {
+	if err := db.Where("tenant_id = ? AND account IN ?", tenant.ID, []string{"E10001", "admin"}).FirstOrCreate(&user).Error; err != nil {
 		return err
 	}
-	_ = db.Model(&user).Updates(map[string]interface{}{"company_id": company.ID}).Error
+	_ = db.Model(&user).Updates(map[string]interface{}{"company_id": company.ID, "employee_no": "E10001", "account": "E10001", "password_hash": "dev:112233", "is_platform_admin": true, "status": 1}).Error
 
 	role := models.Role{
 		TenantID: tenant.ID,
@@ -59,6 +59,24 @@ func seedCoreData(db *gorm.DB) error {
 		return err
 	}
 	if err := db.Where("user_id = ? AND position_id = ?", user.ID, position.ID).FirstOrCreate(&models.AppUserPosition{UserID: user.ID, PositionID: position.ID}).Error; err != nil {
+		return err
+	}
+	demoPhone := "13900000000"
+	demoUser := models.AppUser{
+		TenantID:     tenant.ID,
+		CompanyID:    &company.ID,
+		EmployeeNo:   "E10100",
+		Account:      "E10100",
+		PasswordHash: "dev:112233",
+		Name:         "演示用户",
+		Phone:        &demoPhone,
+		Status:       1,
+	}
+	if err := db.Where("tenant_id = ? AND account = ?", tenant.ID, demoUser.Account).FirstOrCreate(&demoUser).Error; err != nil {
+		return err
+	}
+	_ = db.Model(&demoUser).Updates(map[string]interface{}{"company_id": company.ID, "employee_no": "E10100", "password_hash": "dev:112233", "status": 1}).Error
+	if err := db.Where("user_id = ? AND role_id = ?", demoUser.ID, role.ID).FirstOrCreate(&models.UserRole{UserID: demoUser.ID, RoleID: role.ID}).Error; err != nil {
 		return err
 	}
 	_ = positionType
@@ -326,7 +344,7 @@ func seedSystemParams(db *gorm.DB, tenantID uint64) error {
 
 func seedAuditSamples(db *gorm.DB, tenantID uint64, userID uint64) error {
 	message := "初始化平台管理员登录记录"
-	login := models.LoginLog{TenantID: &tenantID, UserID: &userID, Account: "admin", Success: true, Message: &message}
+	login := models.LoginLog{TenantID: &tenantID, UserID: &userID, Account: "E10001", Success: true, Message: &message}
 	if err := db.Where("account = ? AND message = ?", login.Account, message).FirstOrCreate(&login).Error; err != nil {
 		return err
 	}

@@ -1,6 +1,6 @@
 # SaaS Baseon Go
 
-SaaS Baseon rebuilt project skeleton using Go + Gin + GORM + PostgreSQL. Product requirements and business rules are kept from the original project; this repository changes the technical stack and project architecture only.
+SaaS Baseon rebuilt with Go + Gin + GORM + PostgreSQL. Product requirements, menu structure, permission codes, documents and frontend behavior are kept from the original project; this repository changes the technical stack and project architecture only.
 
 ## Stack
 
@@ -58,18 +58,22 @@ Keep API response compatible with the current frontend:
 }
 ```
 
+## Demo Accounts
+
+```text
+E10001 / 112233
+E10100 / 112233
+```
+
 ## Current Build Status
 
-The initial Go backend contains:
+Current implementation contains:
 
-- application entrypoint
-- config loading
-- Gin router
-- unified response envelope
-- request id middleware
-- PostgreSQL connection through GORM
-- Redis connection
-- `/health`
-- parameter-management POC module as the DDD/TDD template
-
-Business modules should be ported one by one without changing product logic.
+- Docker Compose runtime for API, Web, PostgreSQL and Redis
+- Gin router with frontend-compatible API response envelope
+- PostgreSQL schema migration through GORM AutoMigrate for the rebuilt modules
+- seed data for platform tenant, demo users, role, menu/button permissions, SaaS plans, dictionaries, params and logs
+- login with password verification and signed bearer token
+- system management APIs for tenant, plan, organization, position, business unit, user, role, menu, dictionary, parameter, operation log and login log pages
+- monitor APIs for health, server info, service overview, scheduled jobs, Redis stats and Redis key scan
+- frontend build and Playwright E2E coverage for the current visible pages

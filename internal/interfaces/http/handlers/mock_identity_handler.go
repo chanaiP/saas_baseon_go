@@ -1,13 +1,16 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
@@ -15,16 +18,53 @@ import (
 )
 
 type MockIdentityHandler struct {
-	db *gorm.DB
+	db         *gorm.DB
+	redis      *redis.Client
+	authSecret string
+	tokenTTL   time.Duration
 }
 
-func NewMockIdentityHandler(db *gorm.DB) *MockIdentityHandler {
-	return &MockIdentityHandler{db: db}
+func NewMockIdentityHandler(db *gorm.DB, redisClient *redis.Client, authSecret string, tokenTTLHours int) *MockIdentityHandler {
+	if tokenTTLHours <= 0 {
+		tokenTTLHours = 24
+	}
+	return &MockIdentityHandler{db: db, redis: redisClient, authSecret: authSecret, tokenTTL: time.Duration(tokenTTLHours) * time.Hour}
 }
 
 func (h *MockIdentityHandler) Login(c *gin.Context) {
+	var body struct {
+		Account  string  `json:"account"`
+		Password string  `json:"password"`
+		TenantID *uint64 `json:"tenant_id"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	body.Account = strings.TrimSpace(body.Account)
+	var user models.AppUser
+	query := h.db.Where("(account = ? OR employee_no = ? OR phone = ?) AND status = ?", body.Account, body.Account, body.Account, 1)
+	if body.TenantID != nil {
+		query = query.Where("tenant_id = ?", *body.TenantID)
+	}
+	if err := query.Order("is_platform_admin desc, id asc").First(&user).Error; err != nil {
+		h.recordLogin(c, body.Account, nil, nil, false, "账号或密码错误")
+		response.Error(c, 401, response.CodeUnauthorized, "账号或密码错误")
+		return
+	}
+	if !verifyPassword(body.Password, user.PasswordHash) {
+		h.recordLogin(c, body.Account, &user.ID, &user.TenantID, false, "账号或密码错误")
+		response.Error(c, 401, response.CodeUnauthorized, "账号或密码错误")
+		return
+	}
+	token, err := issueToken(user.ID, user.TenantID, h.authSecret, h.tokenTTL)
+	if err != nil {
+		response.Error(c, 500, response.CodeInternal, "令牌生成失败")
+		return
+	}
+	h.recordLogin(c, body.Account, &user.ID, &user.TenantID, true, "登录成功")
 	response.OK(c, gin.H{
-		"token":            "dev-token",
+		"token":            token,
 		"token_type":       "bearer",
 		"captcha_required": false,
 	})
@@ -50,7 +90,25 @@ func (h *MockIdentityHandler) SwitchableTenants(c *gin.Context) {
 }
 
 func (h *MockIdentityHandler) SwitchTenant(c *gin.Context) {
-	h.Login(c)
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	var body struct {
+		TenantID uint64 `json:"tenant_id"`
+	}
+	_ = c.ShouldBindJSON(&body)
+	tenantID := user.TenantID
+	if body.TenantID > 0 {
+		tenantID = body.TenantID
+	}
+	token, err := issueToken(user.ID, tenantID, h.authSecret, h.tokenTTL)
+	if err != nil {
+		response.Error(c, 500, response.CodeInternal, "令牌生成失败")
+		return
+	}
+	response.OK(c, gin.H{"token": token, "token_type": "bearer", "captcha_required": false})
 }
 
 func (h *MockIdentityHandler) Profile(c *gin.Context) {
@@ -58,7 +116,12 @@ func (h *MockIdentityHandler) Profile(c *gin.Context) {
 	var tenant models.Tenant
 	var roles []models.Role
 	var permissions []models.Permission
-	if err := h.db.Where("account = ?", "admin").First(&user).Error; err == nil {
+	if loaded, ok := h.currentUser(c); ok {
+		user = loaded
+	} else {
+		_ = h.db.Where("account IN ?", []string{"E10001", "admin"}).Order("account = 'E10001' desc, id asc").First(&user).Error
+	}
+	if user.ID != 0 {
 		_ = h.db.First(&tenant, user.TenantID).Error
 		_ = h.db.
 			Joins("JOIN user_role ur ON ur.role_id = role.id").
@@ -114,6 +177,37 @@ func (h *MockIdentityHandler) UpdateProfile(c *gin.Context) {
 }
 
 func (h *MockIdentityHandler) UpdatePassword(c *gin.Context) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	var body struct {
+		OldPassword        string `json:"old_password"`
+		NewPassword        string `json:"new_password"`
+		NewPasswordConfirm string `json:"new_password_confirm"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	if body.NewPassword == "" || body.NewPassword != body.NewPasswordConfirm {
+		response.Error(c, 400, response.CodeBadRequest, "两次输入的新密码不一致")
+		return
+	}
+	if !verifyPassword(body.OldPassword, user.PasswordHash) {
+		response.Error(c, 400, response.CodeBadRequest, "当前密码错误")
+		return
+	}
+	hashed, err := hashPassword(body.NewPassword)
+	if err != nil {
+		response.Error(c, 500, response.CodeInternal, "密码加密失败")
+		return
+	}
+	if err := h.db.Model(&user).Update("password_hash", hashed).Error; err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
 	response.OK(c, gin.H{})
 }
 
@@ -1566,13 +1660,17 @@ func (h *MockIdentityHandler) AuditLogs(c *gin.Context) {
 }
 
 func (h *MockIdentityHandler) MonitorHealthDetail(c *gin.Context) {
-	response.OK(c, gin.H{"mysql": true, "postgres": true, "redis": true})
+	redisOK := false
+	if h.redis != nil {
+		redisOK = h.redis.Ping(context.Background()).Err() == nil
+	}
+	response.OK(c, gin.H{"mysql": true, "postgres": true, "redis": redisOK})
 }
 
 func (h *MockIdentityHandler) MonitorServerInfo(c *gin.Context) {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
-	response.OK(c, gin.H{"python_version": "go " + runtime.Version(), "go_version": runtime.Version(), "pid": 1, "cpu_percent": nil, "memory_mb": float64(m.Alloc) / 1024 / 1024, "note": "Go 重构版本运行中"})
+	response.OK(c, gin.H{"python_version": "go " + runtime.Version(), "go_version": runtime.Version(), "pid": os.Getpid(), "cpu_percent": nil, "memory_mb": float64(m.Alloc) / 1024 / 1024, "note": "Go 重构版本运行中"})
 }
 
 func (h *MockIdentityHandler) MonitorScheduledJobs(c *gin.Context) {
@@ -1582,15 +1680,77 @@ func (h *MockIdentityHandler) MonitorScheduledJobs(c *gin.Context) {
 func (h *MockIdentityHandler) MonitorServicesOverview(c *gin.Context) {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
-	response.OK(c, gin.H{"mysql": true, "postgres": true, "redis": true, "python_version": "go " + runtime.Version(), "go_version": runtime.Version(), "pid": 1, "cpu_percent": nil, "memory_mb": float64(m.Alloc) / 1024 / 1024, "note": "Go 重构版本服务概览"})
+	redisOK := false
+	if h.redis != nil {
+		redisOK = h.redis.Ping(context.Background()).Err() == nil
+	}
+	response.OK(c, gin.H{"mysql": true, "postgres": true, "redis": redisOK, "python_version": "go " + runtime.Version(), "go_version": runtime.Version(), "pid": os.Getpid(), "cpu_percent": nil, "memory_mb": float64(m.Alloc) / 1024 / 1024, "note": "Go 重构版本服务概览"})
 }
 
 func (h *MockIdentityHandler) MonitorCacheStats(c *gin.Context) {
-	response.OK(c, gin.H{"ok": true, "used_memory_human": nil, "keys": 0, "connected_clients": 1, "message": "Redis 已连接，详细 INFO 待接入"})
+	if h.redis == nil {
+		response.OK(c, gin.H{"ok": false, "used_memory_human": nil, "keys": 0, "connected_clients": 0, "message": "Redis 未配置"})
+		return
+	}
+	ctx := context.Background()
+	if err := h.redis.Ping(ctx).Err(); err != nil {
+		response.OK(c, gin.H{"ok": false, "used_memory_human": nil, "keys": 0, "connected_clients": 0, "message": err.Error()})
+		return
+	}
+	info := redisInfoMap(h.redis.Info(ctx, "memory", "clients").Val())
+	keys, _ := h.redis.DBSize(ctx).Result()
+	clients := 0
+	if raw := info["connected_clients"]; raw != "" {
+		clients, _ = strconv.Atoi(raw)
+	}
+	response.OK(c, gin.H{"ok": true, "used_memory_human": info["used_memory_human"], "keys": keys, "connected_clients": clients, "message": "Redis 已连接"})
 }
 
 func (h *MockIdentityHandler) MonitorCacheKeys(c *gin.Context) {
-	response.OK(c, gin.H{"items": []gin.H{}, "cursor": 0})
+	if h.redis == nil {
+		response.OK(c, gin.H{"items": []gin.H{}, "cursor": 0})
+		return
+	}
+	ctx := context.Background()
+	pattern := strings.TrimSpace(c.Query("pattern"))
+	if pattern == "" {
+		pattern = "*"
+	}
+	cursor, _ := strconv.ParseUint(c.Query("cursor"), 10, 64)
+	limit, _ := strconv.ParseInt(c.Query("limit"), 10, 64)
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	keys, nextCursor, err := h.redis.Scan(ctx, cursor, pattern, limit).Result()
+	if err != nil {
+		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		return
+	}
+	items := make([]gin.H, 0, len(keys))
+	for _, key := range keys {
+		ttl, _ := h.redis.TTL(ctx, key).Result()
+		item := gin.H{"key": key, "ttl_seconds": int64(ttl.Seconds())}
+		if ttl < 0 {
+			item["ttl_seconds"] = nil
+		}
+		items = append(items, item)
+	}
+	response.OK(c, gin.H{"items": items, "cursor": nextCursor})
+}
+
+func redisInfoMap(raw string) map[string]string {
+	values := map[string]string{}
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, ":")
+		if ok {
+			values[key] = value
+		}
+	}
+	return values
 }
 
 type tenantPackagePayload struct {
@@ -1780,6 +1940,36 @@ func parseTenantID(c *gin.Context) uint64 {
 	return 1
 }
 
+func (h *MockIdentityHandler) currentUser(c *gin.Context) (models.AppUser, bool) {
+	token := bearerToken(c.GetHeader("Authorization"))
+	if token == "" {
+		return models.AppUser{}, false
+	}
+	claims, err := parseToken(token, h.authSecret)
+	if err != nil || claims.UserID == 0 {
+		return models.AppUser{}, false
+	}
+	var user models.AppUser
+	if err := h.db.First(&user, claims.UserID).Error; err != nil {
+		return models.AppUser{}, false
+	}
+	return user, true
+}
+
+func (h *MockIdentityHandler) recordLogin(c *gin.Context, account string, userID *uint64, tenantID *uint64, success bool, message string) {
+	ip := c.ClientIP()
+	userAgent := c.Request.UserAgent()
+	_ = h.db.Create(&models.LoginLog{
+		TenantID:  tenantID,
+		UserID:    userID,
+		Account:   account,
+		Success:   success,
+		Message:   &message,
+		IP:        &ip,
+		UserAgent: &userAgent,
+	}).Error
+}
+
 func (h *MockIdentityHandler) deleteByID(c *gin.Context, model interface{}) {
 	id := parseUintParam(c, "id")
 	if err := h.db.Delete(model, id).Error; err != nil {
@@ -1790,10 +1980,7 @@ func (h *MockIdentityHandler) deleteByID(c *gin.Context, model interface{}) {
 }
 
 func devPasswordHash(password string) string {
-	if password == "" {
-		password = "112233"
-	}
-	return "dev:" + password
+	return mustHashPassword(password)
 }
 
 func (h *MockIdentityHandler) replaceUserRelations(userID uint64, roleIDs []uint64, positionIDs []uint64, departmentIDs []uint64) {
