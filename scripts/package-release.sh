@@ -12,7 +12,7 @@ mkdir -p "$(dirname "$artifact")"
 manifest="$(mktemp)"
 trap 'rm -f "$manifest"' EXIT
 
-git -c core.quotePath=false ls-files | grep -Ev '(^|/)\.DS_Store$|(^|/)__MACOSX(/|$)|^frontend/node_modules(/|$)|^frontend/dist(/|$)|^dist/release(/|$)|(^|/)(tmp|cache|\.cache)(/|$)|(^|/)[^/]+\.log$' >"$manifest"
+git -c core.quotePath=false ls-files | grep -Ev '(^|/)\.DS_Store$|(^|/)__MACOSX(/|$)|^frontend/node_modules(/|$)|^frontend/dist(/|$)|^dist/release(/|$)|(^|/)(tmp|cache|\.cache)(/|$)|(^|/)[^/]+\.log$|(^|/)\._[^/]*$' >"$manifest"
 
-tar -czf "$artifact" -T "$manifest"
+COPYFILE_DISABLE=1 tar --exclude='._*' --exclude='.DS_Store' -czf "$artifact" -T "$manifest"
 echo "release package created: $artifact"
