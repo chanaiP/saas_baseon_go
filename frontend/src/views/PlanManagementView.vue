@@ -73,6 +73,7 @@ import {
   type PlanFeatureSelection,
   type PlanQuotaValues,
 } from '@/composables/usePlanCapabilityMatrix'
+import { compareQuotaDisplayOrder, sortQuotasByDisplayOrder } from '@/utils/quotaDisplayOrder'
 import PlanCapabilityDrawer from '@/views/components/PlanCapabilityDrawer.vue'
 import PlanCapabilityMatrix from '@/views/components/PlanCapabilityMatrix.vue'
 
@@ -250,7 +251,7 @@ const quotaRows = computed(() => {
     for (const child of node.children || []) walk(child)
   }
   for (const node of planMatrix.value.nodes) walk(node)
-  return [...byQuota.values()]
+  return [...byQuota.values()].sort(compareQuotaDisplayOrder)
 })
 
 const quotaMatrixRows = computed<QuotaMatrixRow[]>(() => {
@@ -285,7 +286,7 @@ const quotaMatrixRows = computed<QuotaMatrixRow[]>(() => {
     for (const child of node.children || []) walk(child)
   }
   for (const node of visibleMatrix.value.nodes) walk(node)
-  return [...rows.values()]
+  return [...rows.values()].sort(compareQuotaDisplayOrder)
 })
 
 function typeLabel(value: string) {
@@ -338,7 +339,7 @@ async function loadAll() {
       : matrixRes.plans
     totalPlans.value = matrixRes.plans.length
     features.value = featureRes.items
-    quotas.value = quotaRes.items
+    quotas.value = sortQuotasByDisplayOrder(quotaRes.items)
     tenants.value = tenantRes.items
     if (!selectedPlanId.value || !plans.value.some((item) => item.id === selectedPlanId.value)) {
       selectedPlanId.value = plans.value[0]?.id ?? null
@@ -715,7 +716,7 @@ async function openQuotaOverrides(row: Tenant) {
     for (const child of node.children || []) walkMatrix(child)
   }
   for (const node of planMatrix.value?.nodes || []) walkMatrix(node)
-  quotaOverrideRows.value = quotas.value.filter((quota) => quotaIds.has(quota.id))
+  quotaOverrideRows.value = sortQuotasByDisplayOrder(quotas.value.filter((quota) => quotaIds.has(quota.id)))
 
   const data = overrideData
   const byQuota = new Map<number, TenantQuotaOverride>(data.overrides.map((item) => [item.quota_id, item]))

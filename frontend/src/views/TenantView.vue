@@ -29,6 +29,7 @@ import type { TenantPrimaryAdminPasswordResetResult } from '@/api/tenant'
 import type { Tenant, TenantBusinessUnitQuotaRecord, TenantCreatePayload, TenantOrgQuotaRecord } from '@/api/tenant'
 import { usePermissionStore } from '@/stores/permission'
 import { useTenantBrandingStore } from '@/stores/tenantBranding'
+import { sortQuotasByDisplayOrder } from '@/utils/quotaDisplayOrder'
 import { isValidOptionalPhone, normalizePhoneInput, sanitizePhoneInput } from '@/utils/phone'
 import type { TableColumn } from '@/views/components/NeuroAgentListPage.vue'
 import NeuroAgentDialog from '@/views/components/NeuroAgentDialog.vue'
@@ -281,7 +282,7 @@ async function loadSelectedPlanQuotas() {
     return
   }
   const data = await fetchPlanQuotas(selectedPlanId.value)
-  planQuotas.value = data.quotas
+  planQuotas.value = sortQuotasByDisplayOrder(data.quotas)
   quotaValues.value = Object.fromEntries(data.quotas.map((item) => [item.quota_id, item.quota_value]))
 }
 
@@ -303,7 +304,7 @@ async function openPlanDetail() {
   ])
   const featureIds = new Set(featureData.feature_ids)
   planDetailFeatures.value = features.value.filter((item) => featureIds.has(item.id))
-  planDetailQuotas.value = quotaData.quotas
+  planDetailQuotas.value = sortQuotasByDisplayOrder(quotaData.quotas)
   planDetailDlg.value = true
 }
 
@@ -446,7 +447,7 @@ async function openQuotaOverrideDialog(row: Tenant) {
       fetchTenantQuotaOverrides(row.id),
     ])
     const overrideByQuota = new Map(overrideData.overrides.map((item) => [item.quota_id, item]))
-    quotaOverrideRows.value = planQuotasData.quotas.map((q) => ({
+    quotaOverrideRows.value = sortQuotasByDisplayOrder(planQuotasData.quotas).map((q) => ({
       id: q.quota_id,
       quota_code: q.quota_code,
       quota_name: q.quota_name,
