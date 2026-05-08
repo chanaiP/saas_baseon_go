@@ -17,9 +17,11 @@ import (
 )
 
 type tokenClaims struct {
-	UserID   uint64 `json:"uid"`
-	TenantID uint64 `json:"tid"`
-	Exp      int64  `json:"exp"`
+	UserID         uint64 `json:"uid"`
+	TenantID       uint64 `json:"tid"`
+	SessionVersion int    `json:"sv"`
+	IssuedAt       int64  `json:"iat"`
+	Exp            int64  `json:"exp"`
 }
 
 func hashPassword(password string) (string, error) {
@@ -89,11 +91,12 @@ func generateRandomPassword(length int) string {
 	}
 }
 
-func issueToken(userID, tenantID uint64, secret string, ttl time.Duration) (string, error) {
+func issueToken(userID, tenantID uint64, sessionVersion int, secret string, ttl time.Duration) (string, error) {
 	if secret == "" {
 		return "", errors.New("token secret is empty")
 	}
-	claims := tokenClaims{UserID: userID, TenantID: tenantID, Exp: time.Now().Add(ttl).Unix()}
+	now := time.Now()
+	claims := tokenClaims{UserID: userID, TenantID: tenantID, SessionVersion: sessionVersion, IssuedAt: now.UnixNano(), Exp: now.Add(ttl).Unix()}
 	headerBytes, _ := json.Marshal(map[string]string{"alg": "HS256", "typ": "JWT"})
 	claimBytes, _ := json.Marshal(claims)
 	encodedHeader := base64.RawURLEncoding.EncodeToString(headerBytes)

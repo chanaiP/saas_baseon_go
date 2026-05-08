@@ -41,18 +41,20 @@ func TestGenerateRandomPasswordEnforcesMinimumLength(t *testing.T) {
 }
 
 func TestIssueAndParseToken(t *testing.T) {
-	token, err := issueToken(7, 11, "secret", time.Hour)
+	token, err := issueToken(7, 11, 3, "secret", time.Hour)
 
 	require.NoError(t, err)
 	claims, err := parseToken(token, "secret")
 	require.NoError(t, err)
 	require.Equal(t, uint64(7), claims.UserID)
 	require.Equal(t, uint64(11), claims.TenantID)
+	require.Equal(t, 3, claims.SessionVersion)
+	require.Greater(t, claims.IssuedAt, int64(0))
 	require.Greater(t, claims.Exp, time.Now().Unix())
 }
 
 func TestParseTokenRejectsTampering(t *testing.T) {
-	token, err := issueToken(7, 11, "secret", time.Hour)
+	token, err := issueToken(7, 11, 1, "secret", time.Hour)
 	require.NoError(t, err)
 
 	parts := strings.Split(token, ".")
@@ -64,7 +66,7 @@ func TestParseTokenRejectsTampering(t *testing.T) {
 }
 
 func TestParseTokenRejectsExpiredToken(t *testing.T) {
-	token, err := issueToken(7, 11, "secret", -time.Hour)
+	token, err := issueToken(7, 11, 1, "secret", -time.Hour)
 	require.NoError(t, err)
 
 	_, err = parseToken(token, "secret")

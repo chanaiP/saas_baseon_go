@@ -36,12 +36,55 @@ CREATE TABLE public.app_user (
     avatar_url text,
     status bigint DEFAULT 1 NOT NULL,
     is_platform_admin boolean DEFAULT false NOT NULL,
+    session_version bigint DEFAULT 1 NOT NULL,
+    password_changed_at timestamp with time zone,
     created_at timestamp with time zone NOT NULL,
     updated_at timestamp with time zone NOT NULL,
     deleted_at timestamp with time zone,
     company_id bigint,
     department_id bigint
 );
+
+
+--
+-- Name: file_object; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.file_object (
+    id bigint NOT NULL,
+    tenant_id bigint NOT NULL,
+    file_id character varying(64) NOT NULL,
+    created_by bigint NOT NULL,
+    original_name character varying(255) NOT NULL,
+    stored_name character varying(255) NOT NULL,
+    storage_path text NOT NULL,
+    mime_type character varying(128) NOT NULL,
+    file_size bigint NOT NULL,
+    status bigint DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone NOT NULL,
+    deleted_at timestamp with time zone,
+    CONSTRAINT file_object_file_size_nonnegative CHECK ((file_size >= 0))
+);
+
+
+--
+-- Name: file_object_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.file_object_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: file_object_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.file_object_id_seq OWNED BY public.file_object.id;
 
 
 --
@@ -138,6 +181,9 @@ CREATE TABLE public.audit_log (
     summary character varying(500) NOT NULL,
     detail text,
     ip character varying(64),
+    user_agent character varying(500),
+    request_id character varying(64),
+    result character varying(32) DEFAULT 'success'::character varying NOT NULL,
     created_at timestamp with time zone NOT NULL
 );
 
@@ -893,39 +939,6 @@ ALTER SEQUENCE public.sys_param_id_seq OWNED BY public.sys_param.id;
 
 
 --
--- Name: system_param; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.system_param (
-    id bigint NOT NULL,
-    param_key character varying(128) NOT NULL,
-    param_value text NOT NULL,
-    remark text DEFAULT ''::text NOT NULL,
-    created_at timestamp with time zone NOT NULL,
-    updated_at timestamp with time zone NOT NULL
-);
-
-
---
--- Name: system_param_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.system_param_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: system_param_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.system_param_id_seq OWNED BY public.system_param.id;
-
-
---
 -- Name: tenant; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1296,6 +1309,13 @@ ALTER TABLE ONLY public.app_user ALTER COLUMN id SET DEFAULT nextval('public.app
 
 
 --
+-- Name: file_object id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.file_object ALTER COLUMN id SET DEFAULT nextval('public.file_object_id_seq'::regclass);
+
+
+--
 -- Name: app_user_department id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -1457,13 +1477,6 @@ ALTER TABLE ONLY public.sys_param ALTER COLUMN id SET DEFAULT nextval('public.sy
 
 
 --
--- Name: system_param id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.system_param ALTER COLUMN id SET DEFAULT nextval('public.system_param_id_seq'::regclass);
-
-
---
 -- Name: tenant id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -1547,6 +1560,14 @@ ALTER TABLE ONLY public.app_user_department
 
 ALTER TABLE ONLY public.app_user
     ADD CONSTRAINT app_user_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: file_object file_object_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.file_object
+    ADD CONSTRAINT file_object_pkey PRIMARY KEY (id);
 
 
 --
@@ -1726,14 +1747,6 @@ ALTER TABLE ONLY public.sys_param
 
 
 --
--- Name: system_param system_param_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.system_param
-    ADD CONSTRAINT system_param_pkey PRIMARY KEY (id);
-
-
---
 -- Name: tenant_dict_item_override tenant_dict_item_override_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1868,6 +1881,38 @@ CREATE INDEX idx_app_user_position_user_id ON public.app_user_position USING btr
 
 CREATE INDEX idx_app_user_tenant_id ON public.app_user USING btree (tenant_id);
 
+CREATE INDEX idx_app_user_tenant_status_deleted ON public.app_user USING btree (tenant_id, status, deleted_at);
+
+CREATE INDEX idx_app_user_tenant_account_deleted ON public.app_user USING btree (tenant_id, account, deleted_at);
+
+
+--
+-- Name: idx_file_object_created_by; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_file_object_created_by ON public.file_object USING btree (created_by);
+
+
+--
+-- Name: idx_file_object_deleted_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_file_object_deleted_at ON public.file_object USING btree (deleted_at);
+
+
+--
+-- Name: idx_file_object_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_file_object_status ON public.file_object USING btree (status);
+
+
+--
+-- Name: idx_file_object_tenant_file_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_file_object_tenant_file_id ON public.file_object USING btree (tenant_id, file_id);
+
 
 --
 -- Name: idx_audit_log_tenant_id; Type: INDEX; Schema: public; Owner: -
@@ -1877,10 +1922,19 @@ CREATE INDEX idx_audit_log_tenant_id ON public.audit_log USING btree (tenant_id)
 
 
 --
+-- Name: idx_audit_log_request_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_audit_log_request_id ON public.audit_log USING btree (request_id);
+
+
+--
 -- Name: idx_audit_log_user_id; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_audit_log_user_id ON public.audit_log USING btree (user_id);
+
+CREATE INDEX idx_audit_log_tenant_created ON public.audit_log USING btree (tenant_id, created_at DESC);
 
 
 --
@@ -1938,6 +1992,8 @@ CREATE INDEX idx_business_unit_scope_role_permission_id ON public.business_unit_
 
 CREATE UNIQUE INDEX idx_business_unit_tenant_code ON public.business_unit USING btree (tenant_id, code);
 
+CREATE INDEX idx_business_unit_tenant_status_deleted ON public.business_unit USING btree (tenant_id, status, deleted_at);
+
 
 --
 -- Name: idx_dict_item_dict_type_id; Type: INDEX; Schema: public; Owner: -
@@ -1952,12 +2008,16 @@ CREATE INDEX idx_dict_item_dict_type_id ON public.dict_item USING btree (dict_ty
 
 CREATE INDEX idx_dict_item_tenant_id ON public.dict_item USING btree (tenant_id);
 
+CREATE INDEX idx_dict_item_tenant_type_deleted ON public.dict_item USING btree (tenant_id, dict_type_id, deleted_at);
+
 
 --
 -- Name: idx_dict_type_tenant_code; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE UNIQUE INDEX idx_dict_type_tenant_code ON public.dict_type USING btree (tenant_id, code);
+
+CREATE INDEX idx_dict_type_tenant_scope_deleted ON public.dict_type USING btree (tenant_id, scope, deleted_at);
 
 
 --
@@ -1972,6 +2032,8 @@ CREATE INDEX idx_login_log_tenant_id ON public.login_log USING btree (tenant_id)
 --
 
 CREATE INDEX idx_login_log_user_id ON public.login_log USING btree (user_id);
+
+CREATE INDEX idx_login_log_tenant_created ON public.login_log USING btree (tenant_id, created_at DESC);
 
 
 --
@@ -2022,6 +2084,8 @@ CREATE INDEX idx_org_node_parent_id ON public.org_node USING btree (parent_id);
 
 CREATE INDEX idx_org_node_tenant_id ON public.org_node USING btree (tenant_id);
 
+CREATE INDEX idx_org_node_tenant_type_status_deleted ON public.org_node USING btree (tenant_id, node_type, status, deleted_at);
+
 
 --
 -- Name: idx_permission_custom_department_department_id; Type: INDEX; Schema: public; Owner: -
@@ -2063,6 +2127,10 @@ CREATE INDEX idx_permission_path ON public.permission USING btree (path);
 --
 
 CREATE INDEX idx_permission_tenant_id ON public.permission USING btree (tenant_id);
+
+CREATE INDEX idx_permission_tenant_path_type_deleted ON public.permission USING btree (tenant_id, path, perm_type, deleted_at);
+
+CREATE INDEX idx_permission_tenant_feature_deleted ON public.permission USING btree (tenant_id, feature_code, deleted_at);
 
 
 --
@@ -2127,6 +2195,8 @@ CREATE UNIQUE INDEX idx_role_permission_role_permission ON public.role_permissio
 
 CREATE INDEX idx_role_tenant_id ON public.role USING btree (tenant_id);
 
+CREATE INDEX idx_role_tenant_status_deleted ON public.role USING btree (tenant_id, status, deleted_at);
+
 
 --
 -- Name: idx_role_tenant_code; Type: INDEX; Schema: public; Owner: -
@@ -2162,12 +2232,7 @@ CREATE UNIQUE INDEX idx_saas_quota_quota_code ON public.saas_quota USING btree (
 
 CREATE UNIQUE INDEX idx_sys_param_tenant_key ON public.sys_param USING btree (tenant_id, param_key);
 
-
---
--- Name: idx_system_param_key; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX idx_system_param_key ON public.system_param USING btree (param_key);
+CREATE INDEX idx_sys_param_tenant_key_deleted ON public.sys_param USING btree (tenant_id, param_key, deleted_at);
 
 
 --

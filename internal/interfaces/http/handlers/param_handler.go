@@ -7,6 +7,7 @@ import (
 
 	app "saas_baseon_go/internal/application/system"
 	domain "saas_baseon_go/internal/domain/system"
+	"saas_baseon_go/internal/interfaces/http/dto"
 	"saas_baseon_go/internal/interfaces/http/response"
 )
 
@@ -24,7 +25,7 @@ func (h *ParamHandler) List(c *gin.Context) {
 		response.Error(c, 500, response.CodeInternal, "参数查询失败")
 		return
 	}
-	response.OK(c, gin.H{"items": items, "total": len(items)})
+	response.OK(c, dto.ListResponse[domain.Param]{Items: items, Total: len(items)})
 }
 
 func (h *ParamHandler) GetByKey(c *gin.Context) {

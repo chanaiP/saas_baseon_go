@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -21,13 +22,48 @@ func NewHealthHandler(db *gorm.DB, redisClient *redis.Client) *HealthHandler {
 }
 
 func (h *HealthHandler) Check(c *gin.Context) {
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+	postgresOK, redisOK := h.dependencyStatus(c.Request.Context())
+	response.OK(c, gin.H{
+		"postgres": postgresOK,
+		"redis":    redisOK,
+	})
+}
+
+func (h *HealthHandler) DependencyStatus() (bool, bool) {
+	return h.dependencyStatus(context.Background())
+}
+
+func (h *HealthHandler) Live(c *gin.Context) {
+	response.OK(c, gin.H{"live": true})
+}
+
+func (h *HealthHandler) Ready(c *gin.Context) {
+	postgresOK, redisOK := h.dependencyStatus(c.Request.Context())
+	status := http.StatusOK
+	if !postgresOK || !redisOK {
+		status = http.StatusServiceUnavailable
+	}
+	c.JSON(status, response.Body{
+		Code:    0,
+		Message: "ok",
+		Data: gin.H{
+			"postgres": postgresOK,
+			"redis":    redisOK,
+			"ready":    postgresOK && redisOK,
+		},
+	})
+}
+
+func (h *HealthHandler) dependencyStatus(parent context.Context) (bool, bool) {
+	ctx, cancel := context.WithTimeout(parent, 2*time.Second)
 	defer cancel()
 
 	postgresOK := false
-	sqlDB, err := h.db.DB()
-	if err == nil && sqlDB.PingContext(ctx) == nil {
-		postgresOK = true
+	if h.db != nil {
+		sqlDB, err := h.db.DB()
+		if err == nil && sqlDB.PingContext(ctx) == nil {
+			postgresOK = true
+		}
 	}
 
 	redisOK := false
@@ -35,8 +71,5 @@ func (h *HealthHandler) Check(c *gin.Context) {
 		redisOK = true
 	}
 
-	response.OK(c, gin.H{
-		"postgres": postgresOK,
-		"redis":    redisOK,
-	})
+	return postgresOK, redisOK
 }

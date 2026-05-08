@@ -42,6 +42,24 @@ func TestAuditLogJSONMapsRowAndTenantName(t *testing.T) {
 	require.Equal(t, "user", item["module"])
 	require.Equal(t, "create", item["action"])
 	require.Equal(t, "创建用户", item["summary"])
+	require.Contains(t, item, "request_id")
+	require.Contains(t, item, "user_agent")
+	require.Contains(t, item, "result")
+}
+
+func TestMaskAuditDetailRedactsSensitiveFields(t *testing.T) {
+	masked := maskAuditDetail(map[string]interface{}{
+		"phone": "13800138000",
+		"nested": map[string]interface{}{
+			"email": "user@example.com",
+			"name":  "Alice",
+		},
+	}).(map[string]interface{})
+
+	require.Equal(t, "***", masked["phone"])
+	nested := masked["nested"].(map[string]interface{})
+	require.Equal(t, "***", nested["email"])
+	require.Equal(t, "Alice", nested["name"])
 }
 
 func TestParseDateOnlyForLogFilters(t *testing.T) {

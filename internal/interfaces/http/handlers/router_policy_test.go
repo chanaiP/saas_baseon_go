@@ -7,12 +7,16 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+
+	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 )
 
 func TestRequiredPermissionForOperationRoutes(t *testing.T) {
 	require.Equal(t, "user:create", requiredPermission("POST", "/api/users"))
 	require.Equal(t, "user:edit", requiredPermission("PUT", "/api/users/:id"))
 	require.Equal(t, "tenant:quota_config", requiredPermission("PUT", "/api/tenants/:id/quota-overrides"))
+	require.Equal(t, "plan:delete", requiredPermission("DELETE", "/api/plans/:id"))
+	require.Equal(t, "param:create", requiredPermission("POST", "/api/params"))
 	require.Equal(t, "brand:edit", requiredPermission("PUT", "/api/tenant/branding"))
 }
 
@@ -20,7 +24,26 @@ func TestRequiredPermissionForMenuRoutes(t *testing.T) {
 	require.Equal(t, "/users", requiredPermission("GET", "/api/users"))
 	require.Equal(t, "/organization", requiredPermission("GET", "/api/organizations/detail"))
 	require.Equal(t, "/monitor/cache-keys", requiredPermission("GET", "/api/monitor/cache-keys"))
+	require.Equal(t, "/tenants", requiredPermission("GET", "/api/tenants/:id/quota-usage"))
+	require.Equal(t, "/business-units", requiredPermission("GET", "/api/business-units/:id/org-mappings"))
+	require.Equal(t, "/dict", requiredPermission("GET", "/api/dict-types/by-code/:code/items"))
+	require.Equal(t, "/params", requiredPermission("GET", "/api/sys-params/batch"))
+	require.Equal(t, "/params", requiredPermission("GET", "/api/params/:key"))
+	require.Equal(t, "/roles", requiredPermission("GET", "/api/roles/permission-menu-bundles"))
+	require.Equal(t, "/menus", requiredPermission("GET", "/api/permissions/tree"))
 	require.Empty(t, requiredPermission("GET", "/api/users/me"))
+}
+
+func TestRouteAllowedFailsClosedForUnclassifiedRoutes(t *testing.T) {
+	handler := &IdentityHandler{}
+
+	require.False(t, handler.routeAllowed(testPlatformAdminUser(), "GET", "/api/unclassified"))
+	require.True(t, handler.routeAllowed(testPlatformAdminUser(), "GET", "/api/users/me"))
+	require.False(t, handler.routeAllowed(testPlatformAdminUser(), "GET", "/api/users"))
+}
+
+func testPlatformAdminUser() models.AppUser {
+	return models.AppUser{ID: 1, TenantID: 1, IsPlatformAdmin: true, Status: 1}
 }
 
 func TestFallbackHandlerReturnsStrict404(t *testing.T) {

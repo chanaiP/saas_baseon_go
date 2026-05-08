@@ -1,6 +1,9 @@
 package bootstrap
 
 import (
+	"net/http"
+	"strings"
+
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
@@ -17,17 +20,23 @@ func NewRouter(cfg Config, db *gorm.DB, redisClient *redis.Client) *gin.Engine {
 	}
 
 	router := gin.New()
-	router.Use(gin.Recovery(), middleware.RequestID())
+	metricsCollector := middleware.NewMetricsCollector()
+	router.Use(gin.Recovery(), middleware.RequestID(), metricsCollector.Middleware(), middleware.AccessLog())
+	router.Use(securityHeadersMiddleware(cfg.AppEnv))
+	router.Use(corsMiddleware(cfg.CORSOrigins))
 	router.NoRoute(handlers.NewFallbackHandler().NoRoute)
 
 	healthHandler := handlers.NewHealthHandler(db, redisClient)
-	identityHandler := handlers.NewIdentityHandler(db, redisClient, cfg.AuthSecret, cfg.TokenTTLHours)
+	identityHandler := handlers.NewIdentityHandler(db, redisClient, cfg.AuthSecret, cfg.TokenTTLHours, cfg.JWTFallback)
 
 	paramRepo := repositories.NewSystemParamRepository(db)
 	paramService := system.NewParamService(paramRepo)
 	paramHandler := handlers.NewParamHandler(paramService)
 
 	router.GET("/health", healthHandler.Check)
+	router.GET("/health/live", healthHandler.Live)
+	router.GET("/health/ready", healthHandler.Ready)
+	router.GET("/metrics", metricsCollector.Handler(healthHandler.DependencyStatus))
 	router.GET("/openapi.json", func(c *gin.Context) {
 		c.JSON(200, openAPISpec())
 	})
@@ -36,156 +45,61 @@ func NewRouter(cfg Config, db *gorm.DB, redisClient *redis.Client) *gin.Engine {
 		c.String(200, swaggerUIHTML())
 	})
 
-	api := router.Group("/api")
-	{
-		api.GET("/auth/captcha", identityHandler.Captcha)
-		api.GET("/auth/phone-login-tenants", identityHandler.PhoneLoginTenants)
-		api.POST("/auth/login", identityHandler.Login)
-		api.GET("/public/tenant-footer", identityHandler.PublicTenantFooter)
-		api.GET("/public", identityHandler.PublicTenantFooter)
+	registerAPIRoutes(router, identityHandler, paramHandler)
 
-		api.Use(identityHandler.AuthRequired())
-		api.POST("/auth/logout", identityHandler.Logout)
-		api.GET("/auth/switchable-tenants", identityHandler.SwitchableTenants)
-		api.POST("/auth/switch-tenant", identityHandler.SwitchTenant)
-		api.GET("/users/me", identityHandler.Profile)
-		api.GET("/users", identityHandler.Users)
-		api.GET("/users/assignable-roles", identityHandler.AssignableRoles)
-		api.PUT("/users/me", identityHandler.UpdateProfile)
-		api.PUT("/users/me/password", identityHandler.UpdatePassword)
-		api.GET("/users/me/preferences", identityHandler.Preferences)
-		api.PUT("/users/me/preferences", identityHandler.SavePreferences)
-		api.POST("/users", identityHandler.CreateUser)
-		api.PUT("/users/:id", identityHandler.UpdateUser)
-		api.PUT("/users/:id/password", identityHandler.ResetUserPassword)
-		api.DELETE("/users/:id", identityHandler.DeleteUser)
-		api.GET("/tenant/branding", identityHandler.TenantBranding)
-		api.PUT("/tenant/branding", identityHandler.SaveTenantBranding)
-		api.GET("/roles/permission-menu-bundles", identityHandler.MenuBundles)
-		api.GET("/permission-menu-bundles", identityHandler.MenuBundles)
-		api.GET("/permissions", identityHandler.Permissions)
-		api.POST("/permissions", identityHandler.CreatePermission)
-		api.GET("/permissions/tree", identityHandler.PermissionTree)
-		api.GET("/permissions/menu-bundles", identityHandler.MenuBundles)
-		api.GET("/permissions/menu-overrides", identityHandler.MenuOverrides)
-		api.PUT("/permissions/menu-overrides", identityHandler.SaveMenuOverrides)
-		api.GET("/permissions/:id", identityHandler.Permission)
-		api.PUT("/permissions/:id", identityHandler.UpdatePermission)
-		api.DELETE("/permissions/:id", identityHandler.DeletePermission)
-		api.GET("/tenants", identityHandler.Tenants)
-		api.POST("/tenants", identityHandler.CreateTenant)
-		api.POST("/tenants/with-package", identityHandler.CreateTenantWithPackage)
-		api.PUT("/tenants/:id", identityHandler.UpdateTenant)
-		api.PATCH("/tenants/:id/status", identityHandler.UpdateTenantStatus)
-		api.PUT("/tenants/:id/package-config", identityHandler.SaveTenantPackageConfig)
-		api.DELETE("/tenants/:id", identityHandler.DeleteTenant)
-		api.GET("/tenants/:id/companies", identityHandler.TenantCompanies)
-		api.GET("/tenants/:id/quota-records", identityHandler.TenantQuotaRecords)
-		api.GET("/tenants/:id/primary-admin", identityHandler.TenantPrimaryAdmin)
-		api.PUT("/tenants/:id/primary-admin/password", identityHandler.ResetTenantPrimaryAdminPassword)
-		api.GET("/tenants/:id/subscription", identityHandler.TenantSubscription)
-		api.PUT("/tenants/:id/subscription", identityHandler.SaveTenantSubscription)
-		api.GET("/tenants/:id/feature-overrides", identityHandler.TenantFeatureOverrides)
-		api.PUT("/tenants/:id/feature-overrides", identityHandler.SaveTenantFeatureOverrides)
-		api.GET("/tenants/:id/quota-overrides", identityHandler.TenantQuotaOverrides)
-		api.PUT("/tenants/:id/quota-overrides", identityHandler.SaveTenantQuotaOverrides)
-		api.GET("/tenants/:id/quota-usage", identityHandler.TenantQuotaUsage)
-		api.GET("/tenants/:id/feature-access/:feature_code", identityHandler.TenantFeatureAccess)
-		api.GET("/tenants/:id/quota-check/:quota_code", identityHandler.TenantQuotaCheck)
-		api.GET("/tenants/:id", identityHandler.Tenant)
-		api.GET("/roles", identityHandler.Roles)
-		api.POST("/roles", identityHandler.CreateRole)
-		api.PUT("/roles/:id", identityHandler.UpdateRole)
-		api.DELETE("/roles/:id", identityHandler.DeleteRole)
-		api.GET("/roles/:id", identityHandler.Role)
-		api.PUT("/permissions/menu-data-perm-mode/:id", identityHandler.UpdatePermissionDataPermMode)
-		api.PUT("/permissions/menu-data-perm-mode", identityHandler.UpdatePermissionDataPermMode)
-		api.GET("/plans", identityHandler.Plans)
-		api.POST("/plans", identityHandler.CreatePlan)
-		api.PUT("/plans/:id", identityHandler.UpdatePlan)
-		api.POST("/plans/:id/copy", identityHandler.CopyPlan)
-		api.DELETE("/plans/:id", identityHandler.DeletePlan)
-		api.GET("/plans/matrix", identityHandler.PlanMatrix)
-		api.GET("/plans/features", identityHandler.Features)
-		api.POST("/plans/features", identityHandler.CreateFeature)
-		api.PUT("/plans/features/:id", identityHandler.UpdateFeature)
-		api.GET("/plans/:id/features", identityHandler.PlanFeatures)
-		api.PUT("/plans/:id/features", identityHandler.SavePlanFeatures)
-		api.PUT("/plans/:id/capabilities", identityHandler.SavePlanCapabilities)
-		api.GET("/plans/quotas", identityHandler.Quotas)
-		api.POST("/plans/quotas", identityHandler.CreateQuota)
-		api.PUT("/plans/quotas/:id", identityHandler.UpdateQuota)
-		api.GET("/plans/:id/quotas", identityHandler.PlanQuotas)
-		api.PUT("/plans/:id/quotas", identityHandler.SavePlanQuotas)
-		api.GET("/organizations/tree", identityHandler.OrganizationTree)
-		api.GET("/organizations/detail", identityHandler.OrganizationDetail)
-		api.POST("/org-nodes", identityHandler.CreateOrgNode)
-		api.PUT("/org-nodes/:id", identityHandler.UpdateOrgNode)
-		api.DELETE("/org-nodes/:id", identityHandler.DeleteOrgNode)
-		api.POST("/companies", identityHandler.CreateCompany)
-		api.PUT("/companies/:id", identityHandler.UpdateCompany)
-		api.DELETE("/companies/:id", identityHandler.DeleteCompany)
-		api.POST("/departments", identityHandler.CreateDepartment)
-		api.PUT("/departments/:id", identityHandler.UpdateDepartment)
-		api.DELETE("/departments/:id", identityHandler.DeleteDepartment)
-		api.POST("/stores", identityHandler.CreateStore)
-		api.PUT("/stores/:id", identityHandler.UpdateStore)
-		api.DELETE("/stores/:id", identityHandler.DeleteStore)
-		api.GET("/position-types", identityHandler.PositionTypes)
-		api.POST("/position-types", identityHandler.CreatePositionType)
-		api.PUT("/position-types/:id", identityHandler.UpdatePositionType)
-		api.DELETE("/position-types/:id", identityHandler.DeletePositionType)
-		api.GET("/positions", identityHandler.Positions)
-		api.POST("/positions", identityHandler.CreatePosition)
-		api.PUT("/positions/:id", identityHandler.UpdatePosition)
-		api.DELETE("/positions/:id", identityHandler.DeletePosition)
-		api.GET("/business-units", identityHandler.BusinessUnits)
-		api.GET("/business-units/tree", identityHandler.BusinessUnitTree)
-		api.POST("/business-units", identityHandler.CreateBusinessUnit)
-		api.PUT("/business-units/:id", identityHandler.UpdateBusinessUnit)
-		api.DELETE("/business-units/:id", identityHandler.DeleteBusinessUnit)
-		api.GET("/business-units/:id/org-mappings", identityHandler.BusinessUnitOrgMappings)
-		api.GET("/business-units/org-mappings", identityHandler.BusinessUnitOrgMappings)
-		api.POST("/business-units/:id/org-mappings", identityHandler.CreateBusinessUnitOrgMapping)
-		api.DELETE("/business-units/org-mappings/:id", identityHandler.DeleteBusinessUnitOrgMapping)
-		api.GET("/logs/login", identityHandler.LoginLogs)
-		api.GET("/logs/audit", identityHandler.AuditLogs)
-		api.GET("/monitor/health-detail", identityHandler.MonitorHealthDetail)
-		api.GET("/monitor/server-info", identityHandler.MonitorServerInfo)
-		api.GET("/monitor/scheduled-jobs", identityHandler.MonitorScheduledJobs)
-		api.GET("/monitor/services-overview", identityHandler.MonitorServicesOverview)
-		api.GET("/monitor/cache-stats", identityHandler.MonitorCacheStats)
-		api.GET("/monitor/cache-keys", identityHandler.MonitorCacheKeys)
-		api.POST("/files/upload", identityHandler.UploadFile)
-		api.GET("/files/download/:file_id", identityHandler.DownloadFile)
-		api.DELETE("/files/:file_id", identityHandler.DeleteFile)
-		api.GET("/batch/users/export", identityHandler.ExportUsersCSV)
-		api.POST("/batch/users/import", identityHandler.ImportUsersCSV)
-		api.GET("/batch/companies/export", identityHandler.ExportCompaniesCSV)
-		api.GET("/batch/departments/export", identityHandler.ExportDepartmentsCSV)
-		api.GET("/dict-types", identityHandler.DictTypes)
-		api.POST("/dict-types", identityHandler.CreateDictType)
-		api.PUT("/dict-types/:id", identityHandler.UpdateDictType)
-		api.DELETE("/dict-types/:id", identityHandler.DeleteDictType)
-		api.GET("/dict-types/by-code/:code/items", identityHandler.DictItemsByCode)
-		api.GET("/dict-types/by-code", identityHandler.DictItemsByCode)
-		api.GET("/dict-items", identityHandler.DictItems)
-		api.POST("/dict-items", identityHandler.CreateDictItem)
-		api.PUT("/dict-items/:id", identityHandler.UpdateDictItem)
-		api.DELETE("/dict-items/:id", identityHandler.DeleteDictItem)
-		api.DELETE("/dict-items/:id/override", identityHandler.RestoreDictItem)
-		api.GET("/sys-params", identityHandler.SysParams)
-		api.POST("/sys-params", identityHandler.CreateSysParam)
-		api.PUT("/sys-params/:id", identityHandler.UpdateSysParam)
-		api.DELETE("/sys-params/:id", identityHandler.DeleteSysParam)
-		api.DELETE("/sys-params/:id/override", identityHandler.RestoreSysParam)
-		api.GET("/sys-params/batch", identityHandler.SysParamBatch)
-		api.GET("/params", paramHandler.List)
-		api.POST("/params", paramHandler.Create)
-		api.GET("/params/:key", paramHandler.GetByKey)
+	if missing := handlers.UnclassifiedAPIRoutes(router.Routes()); len(missing) > 0 {
+		panic("unclassified API routes: " + strings.Join(missing, ", "))
+	}
+	return router
+}
+
+func securityHeadersMiddleware(appEnv string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("X-Frame-Options", "DENY")
+		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
+		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self' https://unpkg.com 'unsafe-inline'; style-src 'self' https://unpkg.com 'unsafe-inline'; img-src 'self' data:; connect-src 'self'")
+		if strings.EqualFold(appEnv, "production") {
+			c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
+		c.Next()
+	}
+}
+
+func corsMiddleware(origins string) gin.HandlerFunc {
+	allowed := map[string]bool{}
+	allowAll := false
+	for _, raw := range strings.Split(origins, ",") {
+		origin := strings.TrimSpace(raw)
+		if origin == "" {
+			continue
+		}
+		if origin == "*" {
+			allowAll = true
+			continue
+		}
+		allowed[origin] = true
 	}
 
-	return router
+	return func(c *gin.Context) {
+		origin := c.GetHeader("Origin")
+		if allowAll {
+			c.Header("Access-Control-Allow-Origin", "*")
+		} else if origin != "" && allowed[origin] {
+			c.Header("Access-Control-Allow-Origin", origin)
+			c.Header("Vary", "Origin")
+			c.Header("Access-Control-Allow-Credentials", "true")
+		}
+		if c.GetHeader("Access-Control-Allow-Origin") != "" {
+			c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Requested-With")
+			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		}
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+		c.Next()
+	}
 }
 
 func openAPISpec() gin.H {

@@ -1,0 +1,12 @@
+CREATE INDEX IF NOT EXISTS idx_app_user_tenant_status_deleted ON app_user (tenant_id, status, deleted_at);
+CREATE INDEX IF NOT EXISTS idx_app_user_tenant_account_deleted ON app_user (tenant_id, account, deleted_at);
+CREATE INDEX IF NOT EXISTS idx_role_tenant_status_deleted ON role (tenant_id, status, deleted_at);
+CREATE INDEX IF NOT EXISTS idx_permission_tenant_path_type_deleted ON permission (tenant_id, path, perm_type, deleted_at);
+CREATE INDEX IF NOT EXISTS idx_permission_tenant_feature_deleted ON permission (tenant_id, feature_code, deleted_at);
+CREATE INDEX IF NOT EXISTS idx_audit_log_tenant_created ON audit_log (tenant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_login_log_tenant_created ON login_log (tenant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_business_unit_tenant_status_deleted ON business_unit (tenant_id, status, deleted_at);
+CREATE INDEX IF NOT EXISTS idx_org_node_tenant_type_status_deleted ON org_node (tenant_id, node_type, status, deleted_at);
+CREATE INDEX IF NOT EXISTS idx_sys_param_tenant_key_deleted ON sys_param (tenant_id, param_key, deleted_at);
+CREATE INDEX IF NOT EXISTS idx_dict_type_tenant_scope_deleted ON dict_type (tenant_id, scope, deleted_at);
+CREATE INDEX IF NOT EXISTS idx_dict_item_tenant_type_deleted ON dict_item (tenant_id, dict_type_id, deleted_at);

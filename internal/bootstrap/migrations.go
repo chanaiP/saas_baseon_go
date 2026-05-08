@@ -22,6 +22,13 @@ type migrationFile struct {
 	Checksum string
 }
 
+type MigrationStatus struct {
+	TotalVersioned int
+	Applied        int
+	Pending        int
+	Mismatched     int
+}
+
 func RunMigrations(dsn, repoRoot string) error {
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
@@ -40,8 +47,13 @@ func RunMigrations(dsn, repoRoot string) error {
 	if err != nil {
 		return err
 	}
+	if strictMigrationChecksum() {
+		if err := validateMigrationChecksums(files, applied); err != nil {
+			return err
+		}
+	}
 
-	if !applied[baselineMigrationVersion] {
+	if _, ok := applied[baselineMigrationVersion]; !ok {
 		empty, err := publicSchemaEmpty(db)
 		if err != nil {
 			return err
@@ -58,12 +70,12 @@ func RunMigrations(dsn, repoRoot string) error {
 			if err := markMigrationApplied(db, file.Version, file.Checksum); err != nil {
 				return err
 			}
-			applied[file.Version] = true
+			applied[file.Version] = file.Checksum
 		}
 	}
 
 	for _, file := range files {
-		if applied[file.Version] {
+		if _, ok := applied[file.Version]; ok {
 			continue
 		}
 		if err := execSQLFile(db, file.Path); err != nil {
@@ -74,6 +86,37 @@ func RunMigrations(dsn, repoRoot string) error {
 		}
 	}
 	return nil
+}
+
+func MigrationStatusFor(dsn, repoRoot string) (MigrationStatus, error) {
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		return MigrationStatus{}, err
+	}
+	if err := ensureSchemaMigrations(db); err != nil {
+		return MigrationStatus{}, err
+	}
+	files, err := loadMigrationFiles(filepath.Join(repoRoot, "internal", "infrastructure", "persistence", "postgres", "migrations"))
+	if err != nil {
+		return MigrationStatus{}, err
+	}
+	applied, err := appliedMigrations(db)
+	if err != nil {
+		return MigrationStatus{}, err
+	}
+	status := MigrationStatus{TotalVersioned: len(files)}
+	for _, file := range files {
+		checksum, ok := applied[file.Version]
+		if !ok {
+			status.Pending++
+			continue
+		}
+		status.Applied++
+		if strictMigrationChecksum() && checksum != "" && checksum != file.Checksum {
+			status.Mismatched++
+		}
+	}
+	return status, nil
 }
 
 func ensureSchemaMigrations(db *gorm.DB) error {
@@ -96,16 +139,17 @@ WHERE table_schema = 'public'
 	return count == 0, err
 }
 
-func appliedMigrations(db *gorm.DB) (map[string]bool, error) {
+func appliedMigrations(db *gorm.DB) (map[string]string, error) {
 	rows := []struct {
-		Version string
+		Version  string
+		Checksum string
 	}{}
-	if err := db.Raw("SELECT version FROM public.schema_migrations").Scan(&rows).Error; err != nil {
+	if err := db.Raw("SELECT version, checksum FROM public.schema_migrations").Scan(&rows).Error; err != nil {
 		return nil, err
 	}
-	applied := map[string]bool{}
+	applied := map[string]string{}
 	for _, row := range rows {
-		applied[row.Version] = true
+		applied[row.Version] = row.Checksum
 	}
 	return applied, nil
 }
@@ -142,6 +186,24 @@ func loadMigrationFiles(dir string) ([]migrationFile, error) {
 		files = append(files, migrationFile{Version: version, Path: path, Checksum: checksumFile(path)})
 	}
 	return files, nil
+}
+
+func validateMigrationChecksums(files []migrationFile, applied map[string]string) error {
+	for _, file := range files {
+		checksum, ok := applied[file.Version]
+		if !ok || checksum == "" {
+			continue
+		}
+		if checksum != file.Checksum {
+			return fmt.Errorf("migration checksum mismatch for %s: applied=%s local=%s", file.Version, checksum, file.Checksum)
+		}
+	}
+	return nil
+}
+
+func strictMigrationChecksum() bool {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv("MIGRATION_STRICT_CHECKSUM")))
+	return value == "1" || value == "true" || value == "yes" || value == "on"
 }
 
 func migrationVersionFromFile(path string) string {

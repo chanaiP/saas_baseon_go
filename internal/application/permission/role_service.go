@@ -57,8 +57,11 @@ func (s *RoleService) List(ctx context.Context, query RoleListQuery) ([]domain.R
 	})
 }
 
-func (s *RoleService) Get(ctx context.Context, id uint64) (domain.Role, error) {
-	return s.repo.FindByID(ctx, id)
+func (s *RoleService) Get(ctx context.Context, tenantID uint64, id uint64) (domain.Role, error) {
+	if tenantID == 0 {
+		return domain.Role{}, domain.ErrRoleNotFound
+	}
+	return s.repo.FindByID(ctx, tenantID, id)
 }
 
 func (s *RoleService) Create(ctx context.Context, cmd RoleCreateCommand) (domain.Role, error) {
@@ -70,12 +73,12 @@ func (s *RoleService) Create(ctx context.Context, cmd RoleCreateCommand) (domain
 }
 
 func (s *RoleService) Update(ctx context.Context, cmd RoleUpdateCommand) (domain.Role, error) {
-	role, err := s.repo.FindByID(ctx, cmd.ID)
+	if cmd.TenantID == 0 {
+		return domain.Role{}, domain.ErrRoleNotFound
+	}
+	role, err := s.repo.FindByID(ctx, cmd.TenantID, cmd.ID)
 	if err != nil {
 		return domain.Role{}, err
-	}
-	if cmd.TenantID > 0 && role.TenantID != cmd.TenantID {
-		return domain.Role{}, domain.ErrRoleNotFound
 	}
 	if cmd.Name != nil {
 		role.Name = strings.TrimSpace(*cmd.Name)
@@ -92,6 +95,9 @@ func (s *RoleService) Update(ctx context.Context, cmd RoleUpdateCommand) (domain
 	return s.repo.Update(ctx, role, cmd.UpdatePerms)
 }
 
-func (s *RoleService) Delete(ctx context.Context, id uint64) error {
-	return s.repo.Delete(ctx, id)
+func (s *RoleService) Delete(ctx context.Context, tenantID uint64, id uint64) error {
+	if tenantID == 0 {
+		return domain.ErrRoleNotFound
+	}
+	return s.repo.Delete(ctx, tenantID, id)
 }

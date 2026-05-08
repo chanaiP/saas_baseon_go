@@ -22,6 +22,7 @@ func NewPostgresWithOptions(dsn string, autoMigrate bool) (*gorm.DB, error) {
 			&models.Tenant{},
 			&models.OrgNode{},
 			&models.AppUser{},
+			&models.FileObject{},
 			&models.Role{},
 			&models.Permission{},
 			&models.UserRole{},

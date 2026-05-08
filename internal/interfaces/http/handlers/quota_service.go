@@ -3,8 +3,9 @@ package handlers
 import (
 	"time"
 
-	"gorm.io/gorm"
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
+
+	"gorm.io/gorm"
 )
 
 func (h *IdentityHandler) currentQuotaUsage(tenantID uint64, quotaCode string) int {
@@ -97,6 +98,53 @@ func (h *IdentityHandler) tenantFeatureAllowed(tenantID uint64, featureCode stri
 		}
 	}
 	return false
+}
+
+func (h *IdentityHandler) tenantAllowedFeatureCodeSet(tenantID uint64) map[string]bool {
+	allowed := map[string]bool{}
+	if !h.subscriptionAllowsLogin(tenantID) {
+		return allowed
+	}
+	var sub models.TenantSubscription
+	if err := h.db.Where("tenant_id = ?", tenantID).Order("id desc").First(&sub).Error; err != nil {
+		return allowed
+	}
+	var features []models.SaasFeature
+	_ = h.db.Where("status = ?", 1).Find(&features).Error
+	byID := make(map[uint64]models.SaasFeature, len(features))
+	for _, feature := range features {
+		byID[feature.ID] = feature
+	}
+	var links []models.SaasPlanFeature
+	_ = h.db.Where("plan_id = ? AND enabled = ?", sub.PlanID, true).Find(&links).Error
+	explicit := map[uint64]struct{}{}
+	for _, link := range links {
+		explicit[link.FeatureID] = struct{}{}
+		if feature, ok := byID[link.FeatureID]; ok {
+			allowed[feature.FeatureCode] = true
+		}
+	}
+	for _, feature := range features {
+		if feature.FeatureType != "BUTTON" || feature.ParentID == 0 {
+			continue
+		}
+		if _, ok := explicit[feature.ID]; ok {
+			continue
+		}
+		parent, ok := byID[feature.ParentID]
+		if ok && allowed[parent.FeatureCode] {
+			allowed[feature.FeatureCode] = true
+		}
+	}
+	now := time.Now()
+	var overrides []models.TenantFeatureOverride
+	_ = h.db.Where("tenant_id = ? AND (start_time IS NULL OR start_time <= ?) AND (end_time IS NULL OR end_time >= ?)", tenantID, now, now).Order("id asc").Find(&overrides).Error
+	for _, override := range overrides {
+		if feature, ok := byID[override.FeatureID]; ok {
+			allowed[feature.FeatureCode] = override.Enabled
+		}
+	}
+	return allowed
 }
 
 func (h *IdentityHandler) requireQuotaAvailable(tenantID uint64, quotaCode string, increment int) error {

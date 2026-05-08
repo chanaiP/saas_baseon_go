@@ -38,6 +38,12 @@ Before running with `DB_AUTO_MIGRATE=false`, apply the audited SQL baseline/migr
 go run ./cmd/migrate
 ```
 
+Verify required bootstrap data after migration or deployment:
+
+```bash
+go run ./cmd/verify-bootstrap
+```
+
 The current PostgreSQL schema baseline is stored at `internal/infrastructure/persistence/postgres/schema/current_schema.sql`; future SQL changes belong in `internal/infrastructure/persistence/postgres/migrations/*.up.sql`.
 
 Frontend:
@@ -78,6 +84,8 @@ Keep API response compatible with the current frontend:
 E10001 / 112233
 E10100 / 112233
 ```
+
+These demo passwords are development defaults only. In production, set a non-default `BOOTSTRAP_ADMIN_PASSWORD` before bootstrap; startup rejects `APP_ENV=production` when the bootstrap password is missing or still `112233`.
 
 ## Current Build Status
 

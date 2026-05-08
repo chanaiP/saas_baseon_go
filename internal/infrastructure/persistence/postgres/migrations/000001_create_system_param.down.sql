@@ -1,2 +1,1 @@
-DROP TABLE IF EXISTS system_param;
-
+DROP TABLE IF EXISTS sys_param;

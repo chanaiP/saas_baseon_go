@@ -27,26 +27,48 @@ func (Tenant) TableName() string {
 }
 
 type AppUser struct {
-	ID              uint64     `gorm:"primaryKey;autoIncrement;column:id"`
-	TenantID        uint64     `gorm:"column:tenant_id;not null;index;index:idx_app_user_tenant_employee,unique;index:idx_app_user_tenant_phone,unique"`
-	CompanyID       *uint64    `gorm:"column:company_id;index"`
-	DepartmentID    *uint64    `gorm:"column:department_id;index"`
-	EmployeeNo      string     `gorm:"column:employee_no;type:varchar(64);not null;index:idx_app_user_tenant_employee,unique"`
-	Account         string     `gorm:"column:account;type:varchar(64);index"`
-	PasswordHash    string     `gorm:"column:password_hash;type:varchar(200);not null"`
-	Name            string     `gorm:"column:name;type:varchar(100);not null"`
-	Phone           *string    `gorm:"column:phone;type:varchar(32);index:idx_app_user_tenant_phone,unique"`
-	Email           *string    `gorm:"column:email;type:varchar(200)"`
-	AvatarURL       *string    `gorm:"column:avatar_url;type:text"`
-	Status          int        `gorm:"column:status;not null;default:1"`
-	IsPlatformAdmin bool       `gorm:"column:is_platform_admin;not null;default:false"`
-	CreatedAt       time.Time  `gorm:"column:created_at;not null"`
-	UpdatedAt       time.Time  `gorm:"column:updated_at;not null"`
-	DeletedAt       *time.Time `gorm:"column:deleted_at"`
+	ID                uint64     `gorm:"primaryKey;autoIncrement;column:id"`
+	TenantID          uint64     `gorm:"column:tenant_id;not null;index;index:idx_app_user_tenant_employee,unique;index:idx_app_user_tenant_phone,unique"`
+	CompanyID         *uint64    `gorm:"column:company_id;index"`
+	DepartmentID      *uint64    `gorm:"column:department_id;index"`
+	EmployeeNo        string     `gorm:"column:employee_no;type:varchar(64);not null;index:idx_app_user_tenant_employee,unique"`
+	Account           string     `gorm:"column:account;type:varchar(64);index"`
+	PasswordHash      string     `gorm:"column:password_hash;type:varchar(200);not null"`
+	Name              string     `gorm:"column:name;type:varchar(100);not null"`
+	Phone             *string    `gorm:"column:phone;type:varchar(32);index:idx_app_user_tenant_phone,unique"`
+	Email             *string    `gorm:"column:email;type:varchar(200)"`
+	AvatarURL         *string    `gorm:"column:avatar_url;type:text"`
+	Status            int        `gorm:"column:status;not null;default:1"`
+	IsPlatformAdmin   bool       `gorm:"column:is_platform_admin;not null;default:false"`
+	SessionVersion    int        `gorm:"column:session_version;not null;default:1"`
+	PasswordChangedAt *time.Time `gorm:"column:password_changed_at"`
+	CreatedAt         time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt         time.Time  `gorm:"column:updated_at;not null"`
+	DeletedAt         *time.Time `gorm:"column:deleted_at"`
 }
 
 func (AppUser) TableName() string {
 	return "app_user"
+}
+
+type FileObject struct {
+	ID           uint64     `gorm:"primaryKey;autoIncrement;column:id"`
+	TenantID     uint64     `gorm:"column:tenant_id;not null;index;index:idx_file_object_tenant_file_id,unique"`
+	FileID       string     `gorm:"column:file_id;type:varchar(64);not null;index:idx_file_object_tenant_file_id,unique"`
+	CreatedBy    uint64     `gorm:"column:created_by;not null;index"`
+	OriginalName string     `gorm:"column:original_name;type:varchar(255);not null"`
+	StoredName   string     `gorm:"column:stored_name;type:varchar(255);not null"`
+	StoragePath  string     `gorm:"column:storage_path;type:text;not null"`
+	MimeType     string     `gorm:"column:mime_type;type:varchar(128);not null"`
+	FileSize     int64      `gorm:"column:file_size;not null"`
+	Status       int        `gorm:"column:status;not null;default:1;index"`
+	CreatedAt    time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt    time.Time  `gorm:"column:updated_at;not null"`
+	DeletedAt    *time.Time `gorm:"column:deleted_at;index"`
+}
+
+func (FileObject) TableName() string {
+	return "file_object"
 }
 
 type Role struct {

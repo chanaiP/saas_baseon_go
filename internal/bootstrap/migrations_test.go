@@ -6,7 +6,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestMigrationVersionFromFile(t *testing.T) {
-	require.Equal(t, "000001_create_system_param", migrationVersionFromFile("/repo/migrations/000001_create_system_param.up.sql"))
-	require.Empty(t, migrationVersionFromFile("/repo/migrations/000001_create_system_param.down.sql"))
+func TestValidateMigrationChecksumsDetectsMismatch(t *testing.T) {
+	files := []migrationFile{{Version: "000001", Checksum: "local"}}
+	applied := map[string]string{"000001": "applied"}
+
+	err := validateMigrationChecksums(files, applied)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "checksum mismatch")
+}
+
+func TestValidateMigrationChecksumsAllowsPendingMigration(t *testing.T) {
+	files := []migrationFile{{Version: "000002", Checksum: "local"}}
+	applied := map[string]string{}
+
+	require.NoError(t, validateMigrationChecksums(files, applied))
 }

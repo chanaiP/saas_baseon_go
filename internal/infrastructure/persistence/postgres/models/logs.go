@@ -25,6 +25,9 @@ type AuditLog struct {
 	Summary   string    `gorm:"column:summary;type:varchar(500);not null"`
 	Detail    *string   `gorm:"column:detail;type:text"`
 	IP        *string   `gorm:"column:ip;type:varchar(64)"`
+	UserAgent *string   `gorm:"column:user_agent;type:varchar(500)"`
+	RequestID *string   `gorm:"column:request_id;type:varchar(64);index"`
+	Result    string    `gorm:"column:result;type:varchar(32);not null;default:'success'"`
 	CreatedAt time.Time `gorm:"column:created_at;not null"`
 }
 

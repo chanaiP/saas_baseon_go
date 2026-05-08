@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"os"
 	"strings"
 	"time"
 
@@ -18,10 +19,6 @@ import (
 func seedCoreData(db *gorm.DB) error {
 	footer := "© 2026 SaaS - AI协作开发系统"
 	brand := "Ai DevOS"
-	defaultPasswordHash, err := seedPasswordHash("112233")
-	if err != nil {
-		return err
-	}
 	tenant := models.Tenant{
 		Code:       "platform",
 		Name:       "平台主体",
@@ -33,12 +30,29 @@ func seedCoreData(db *gorm.DB) error {
 	if err := db.Where("code = ?", tenant.Code).FirstOrCreate(&tenant).Error; err != nil {
 		return err
 	}
+	if err := db.Model(&tenant).Updates(map[string]interface{}{
+		"name":               "平台主体",
+		"status":             1,
+		"is_platform_tenant": true,
+		"brand_display_name": brand,
+		"brand_footer_text":  footer,
+	}).Error; err != nil {
+		return err
+	}
 
 	company, positionType, position, err := seedPlatformStructure(db, tenant.ID)
 	if err != nil {
 		return err
 	}
 
+	initialPassword, err := seedInitialAdminPassword()
+	if err != nil {
+		return err
+	}
+	defaultPasswordHash, err := seedPasswordHash(initialPassword)
+	if err != nil {
+		return err
+	}
 	user := models.AppUser{
 		TenantID:        tenant.ID,
 		CompanyID:       &company.ID,
@@ -52,7 +66,9 @@ func seedCoreData(db *gorm.DB) error {
 	if err := db.Where("tenant_id = ? AND account IN ?", tenant.ID, []string{"E10001", "admin"}).FirstOrCreate(&user).Error; err != nil {
 		return err
 	}
-	_ = db.Model(&user).Updates(map[string]interface{}{"company_id": company.ID, "employee_no": "E10001", "account": "E10001", "password_hash": defaultPasswordHash, "is_platform_admin": true, "status": 1}).Error
+	if err := db.Model(&user).Updates(map[string]interface{}{"company_id": company.ID, "employee_no": "E10001", "account": "E10001", "is_platform_admin": true, "status": 1}).Error; err != nil {
+		return err
+	}
 
 	role := models.Role{
 		TenantID: tenant.ID,
@@ -84,7 +100,9 @@ func seedCoreData(db *gorm.DB) error {
 	if err := db.Where("tenant_id = ? AND account = ?", tenant.ID, demoUser.Account).FirstOrCreate(&demoUser).Error; err != nil {
 		return err
 	}
-	_ = db.Model(&demoUser).Updates(map[string]interface{}{"company_id": company.ID, "employee_no": "E10100", "password_hash": defaultPasswordHash, "status": 1}).Error
+	if err := db.Model(&demoUser).Updates(map[string]interface{}{"company_id": company.ID, "employee_no": "E10100", "status": 1}).Error; err != nil {
+		return err
+	}
 	if err := db.Where("user_id = ? AND role_id = ?", demoUser.ID, role.ID).FirstOrCreate(&models.UserRole{UserID: demoUser.ID, RoleID: role.ID}).Error; err != nil {
 		return err
 	}
@@ -123,6 +141,46 @@ func seedPasswordHash(password string) (string, error) {
 	return "pbkdf2_sha256$" + salt + "$" + hex.EncodeToString(digest), nil
 }
 
+func seedInitialAdminPassword() (string, error) {
+	password := strings.TrimSpace(os.Getenv("BOOTSTRAP_ADMIN_PASSWORD"))
+	if strings.EqualFold(os.Getenv("APP_ENV"), "production") {
+		if password == "" || password == "112233" {
+			return "", errors.New("production requires explicit non-default BOOTSTRAP_ADMIN_PASSWORD for bootstrap users")
+		}
+		if err := validateBootstrapPassword(password); err != nil {
+			return "", err
+		}
+		return password, nil
+	}
+	if password != "" {
+		if err := validateBootstrapPassword(password); err != nil {
+			return "", err
+		}
+		return password, nil
+	}
+	return "112233", nil
+}
+
+func validateBootstrapPassword(password string) error {
+	if len(password) < 12 || len(password) > 128 {
+		return errors.New("BOOTSTRAP_ADMIN_PASSWORD must be 12-128 characters")
+	}
+	hasLetter := false
+	hasDigit := false
+	for _, ch := range password {
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') {
+			hasLetter = true
+		}
+		if ch >= '0' && ch <= '9' {
+			hasDigit = true
+		}
+	}
+	if !hasLetter || !hasDigit {
+		return errors.New("BOOTSTRAP_ADMIN_PASSWORD must contain letters and digits")
+	}
+	return nil
+}
+
 func seedPlatformStructure(db *gorm.DB, tenantID uint64) (models.OrgNode, models.PositionType, models.Position, error) {
 	companyCode := "PLATFORM"
 	companyType := "GROUP"
@@ -156,6 +214,7 @@ type seedPermission struct {
 	Path            string
 	Type            int
 	SortOrder       int
+	Hidden          bool
 	PlatformOnly    bool
 	PackageFeature  bool
 	TenantEditable  bool
@@ -167,6 +226,9 @@ type seedPermission struct {
 
 func seedPermissions(db *gorm.DB, tenantID uint64) ([]models.Permission, error) {
 	items := []seedPermission{
+		{Name: "菜单根节点", Path: "__menu_root__", Type: 1, SortOrder: 0, Hidden: true, PackageFeature: false, FeatureType: "SYSTEM", DataPermMode: "NONE"},
+		{Name: "操作根节点", Path: "__operations_root__", Type: 1, SortOrder: 0, Hidden: true, PackageFeature: false, FeatureType: "SYSTEM", DataPermMode: "NONE"},
+		{Name: "首页", Path: "/home", Type: 3, SortOrder: 0, Hidden: true, PackageFeature: false, FeatureCode: "home", FeatureType: "MENU", DataPermMode: "NONE"},
 		{Name: "主体管理", Path: "/tenants", Type: 3, SortOrder: 1, PlatformOnly: true, PackageFeature: false, FeatureCode: "tenant_manage", FeatureType: "MENU", DataPermMode: "NONE"},
 		{Name: "套餐中心", Path: "/plans", Type: 3, SortOrder: 2, PlatformOnly: true, PackageFeature: false, FeatureCode: "plan_manage", FeatureType: "MENU", DataPermMode: "NONE"},
 		{Name: "组织架构", Path: "/organization", Type: 3, SortOrder: 3, FeatureCode: "org_manage", FeatureType: "MENU", DataPermMode: "ORG"},
@@ -174,7 +236,8 @@ func seedPermissions(db *gorm.DB, tenantID uint64) ([]models.Permission, error) 
 		{Name: "业务单元", Path: "/business-units", Type: 3, SortOrder: 5, FeatureCode: "business_unit_manage", FeatureType: "MENU", DataPermMode: "BU"},
 		{Name: "用户管理", Path: "/users", Type: 3, SortOrder: 6, FeatureCode: "user_manage", FeatureType: "MENU", DataPermMode: "ORG"},
 		{Name: "角色权限", Path: "/roles", Type: 3, SortOrder: 7, FeatureCode: "role_manage", FeatureType: "MENU", DataPermMode: "ORG"},
-		{Name: "菜单管理", Path: "/menus", Type: 3, SortOrder: 8, FeatureCode: "menu_manage", FeatureType: "MENU", DataPermMode: "NONE"},
+		{Name: "菜单管理", Path: "/menus", Type: 3, SortOrder: 8, FeatureCode: "role_manage", FeatureType: "MENU", DataPermMode: "NONE"},
+		{Name: "权限管理兼容入口", Path: "/permissions", Type: 3, SortOrder: 8, Hidden: true, FeatureCode: "role_manage", FeatureType: "MENU", DataPermMode: "ORG"},
 		{Name: "数据字典", Path: "/dict", Type: 3, SortOrder: 9, FeatureCode: "dict_manage", FeatureType: "MENU", DataPermMode: "ORG"},
 		{Name: "参数管理", Path: "/params", Type: 3, SortOrder: 10, FeatureCode: "param_manage", FeatureType: "MENU", DataPermMode: "ORG"},
 		{Name: "操作日志", Path: "/audit-logs", Type: 3, SortOrder: 11, FeatureCode: "audit_log", FeatureType: "MENU", DataPermMode: "ORG"},
@@ -196,6 +259,7 @@ func seedPermissions(db *gorm.DB, tenantID uint64) ([]models.Permission, error) 
 		{Name: "套餐-配置", Path: "plan:config", Type: 2, PlatformOnly: true, PackageFeature: false, FeatureType: "OPERATION", DataPermMode: "NONE"},
 	}
 	for _, path := range []string{
+		"home:view",
 		"org:create", "org:edit", "org:delete",
 		"pos:create", "pos:edit", "pos:delete",
 		"business_unit:create", "business_unit:edit", "business_unit:delete",
@@ -215,6 +279,10 @@ func seedPermissions(db *gorm.DB, tenantID uint64) ([]models.Permission, error) 
 		platformOnly := strings.HasPrefix(path, "/monitor/") || path == "/tenants" || path == "/plans"
 		items = append(items, seedPermission{Name: path + "-数据范围", Path: "data:" + prefix, Type: 4, PlatformOnly: platformOnly, PackageFeature: false, FeatureType: "DATA", DataPermMode: "ORG"})
 	}
+	items = append(items,
+		seedPermission{Name: "首页-数据范围", Path: "data:home", Type: 4, Hidden: true, PackageFeature: false, FeatureType: "DATA", DataPermMode: "NONE"},
+		seedPermission{Name: "权限管理-数据范围", Path: "data:perm", Type: 4, Hidden: true, PackageFeature: false, FeatureType: "DATA", DataPermMode: "ORG"},
+	)
 
 	out := make([]models.Permission, 0, len(items))
 	for _, item := range items {
@@ -225,7 +293,7 @@ func seedPermissions(db *gorm.DB, tenantID uint64) ([]models.Permission, error) 
 			PermType:         item.Type,
 			SortOrder:        item.SortOrder,
 			Enabled:          true,
-			Visible:          true,
+			Visible:          !item.Hidden,
 			IsPlatformOnly:   item.PlatformOnly,
 			IsPackageFeature: item.PackageFeature || item.FeatureCode != "",
 			TenantEditable:   item.TenantEditable,
@@ -244,6 +312,38 @@ func seedPermissions(db *gorm.DB, tenantID uint64) ([]models.Permission, error) 
 			permission.FeatureType = &item.FeatureType
 		}
 		if err := db.Where("tenant_id = ? AND path = ?", tenantID, item.Path).FirstOrCreate(&permission).Error; err != nil {
+			return nil, err
+		}
+		var featureCode interface{}
+		if item.FeatureCode != "" {
+			featureCode = item.FeatureCode
+		}
+		var featureType interface{}
+		if item.FeatureType != "" {
+			featureType = item.FeatureType
+		}
+		var tenantEditScope interface{}
+		if item.TenantEditScope != "" {
+			tenantEditScope = item.TenantEditScope
+		}
+		dataPermMode := item.DataPermMode
+		if dataPermMode == "" {
+			dataPermMode = "ORG"
+		}
+		if err := db.Model(&permission).Updates(map[string]interface{}{
+			"name":               item.Name,
+			"perm_type":          item.Type,
+			"sort_order":         item.SortOrder,
+			"enabled":            true,
+			"visible":            !item.Hidden,
+			"is_platform_only":   item.PlatformOnly,
+			"is_package_feature": item.PackageFeature || item.FeatureCode != "",
+			"tenant_editable":    item.TenantEditable,
+			"tenant_edit_scope":  tenantEditScope,
+			"data_perm_mode":     dataPermMode,
+			"feature_code":       featureCode,
+			"feature_type":       featureType,
+		}).Error; err != nil {
 			return nil, err
 		}
 		out = append(out, permission)
