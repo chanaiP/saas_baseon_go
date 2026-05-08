@@ -28,7 +28,7 @@ func (h *IdentityHandler) ResetUserPassword(c *gin.Context) {
 		"password_changed_at": time.Now(),
 	})
 	if result.Error != nil {
-		response.Error(c, 400, response.CodeBadRequest, result.Error.Error())
+		respondBadRequest(c, result.Error)
 		return
 	}
 	if result.RowsAffected == 0 {

@@ -21,6 +21,17 @@ type deletionBlockedError struct {
 
 func (e *deletionBlockedError) Error() string { return e.Message }
 
+type deletionReference struct {
+	Model interface{}
+	Name  string
+	Query string
+	Args  []interface{}
+}
+
+func ref(model interface{}, name, query string, args ...interface{}) deletionReference {
+	return deletionReference{Model: model, Name: name, Query: query, Args: args}
+}
+
 func (h *IdentityHandler) blockDeleteIfReferenced(c *gin.Context, resource string, refs ...deletionReference) bool {
 	if err := checkDeletionReferences(h.db, resource, refs...); err != nil {
 		h.respondDeletionError(c, err)
@@ -71,7 +82,7 @@ func requiredDeletionGuards() []string {
 func (h *IdentityHandler) deleteByID(c *gin.Context, model interface{}) bool {
 	id := parseUintParam(c, "id")
 	if err := h.db.Delete(model, id).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return false
 	}
 	response.OK(c, gin.H{"deleted": 1, "id": id})
@@ -82,7 +93,7 @@ func (h *IdentityHandler) deleteTenantScopedByID(c *gin.Context, model interface
 	id := parseUintParam(c, "id")
 	result := h.db.Where("tenant_id = ?", h.requestTenantID(c)).Delete(model, id)
 	if result.Error != nil {
-		response.Error(c, 400, response.CodeBadRequest, result.Error.Error())
+		respondBadRequest(c, result.Error)
 		return false
 	}
 	if result.RowsAffected == 0 {

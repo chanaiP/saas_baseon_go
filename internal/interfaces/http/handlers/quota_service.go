@@ -175,6 +175,10 @@ func (h *IdentityHandler) RequireAvailable(_ context.Context, tenantID uint64, q
 	return h.requireQuotaAvailable(tenantID, quotaCode, increment)
 }
 
+func (h *IdentityHandler) Consume(ctx context.Context, tenantID uint64, quotaCode string, increment int) error {
+	return h.quotaService().Consume(ctx, tenantID, quotaCode, increment)
+}
+
 func (h *IdentityHandler) consumeQuota(tenantID uint64, quotaCode string, increment int) error {
 	return h.quotaService().Consume(context.Background(), tenantID, quotaCode, increment)
 }

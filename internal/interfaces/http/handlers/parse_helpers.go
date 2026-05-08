@@ -1,10 +1,14 @@
 package handlers
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 )
 
 func splitCSVParam(raw string) []string {
@@ -76,5 +80,40 @@ func (h *IdentityHandler) requestTenantID(c *gin.Context) uint64 {
 	if !ok {
 		return parseTenantID(c)
 	}
-	return effectiveTenantID(c.Query("tenant_id"), user.TenantID, user.IsPlatformAdmin)
+	tenantContext := h.tenantContextForUser(user, c.Query("tenant_id"))
+	c.Set("tenant_context", tenantContext)
+	h.auditCrossTenantAccess(c, user, tenantContext)
+	return tenantContext.TargetTenantID
+}
+
+func (h *IdentityHandler) auditCrossTenantAccess(c *gin.Context, user models.AppUser, tenantContext TenantContext) {
+	if h.db == nil || !tenantContext.CrossTenantOperator || c.GetBool("cross_tenant_audit_recorded") {
+		return
+	}
+	c.Set("cross_tenant_audit_recorded", true)
+	requestID, _ := c.Get("request_id")
+	method := ""
+	if c.Request != nil {
+		method = c.Request.Method
+	}
+	detail, _ := json.Marshal(gin.H{
+		"actor_tenant_id":  tenantContext.ActorTenantID,
+		"target_tenant_id": tenantContext.TargetTenantID,
+		"actor_kind":       tenantContext.ActorKind,
+		"method":           method,
+		"path":             c.FullPath(),
+		"request_id":       requestID,
+	})
+	text := string(detail)
+	now := time.Now()
+	_ = h.db.Create(&models.AuditLog{
+		TenantID:  &tenantContext.ActorTenantID,
+		UserID:    &user.ID,
+		Module:    "tenant",
+		Action:    "cross_tenant_access",
+		Summary:   "跨租户访问",
+		Detail:    &text,
+		Result:    "success",
+		CreatedAt: now,
+	}).Error
 }

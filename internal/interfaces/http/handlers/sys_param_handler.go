@@ -126,7 +126,7 @@ func (h *IdentityHandler) UpdateSysParam(c *gin.Context) {
 		updates["is_platform_only"] = *body.IsPlatformOnly
 	}
 	if err := h.db.Model(&row).Updates(updates).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	_ = h.db.First(&row, row.ID).Error
@@ -148,7 +148,7 @@ func (h *IdentityHandler) DeleteSysParam(c *gin.Context) {
 	}
 	now := time.Now()
 	if err := h.db.Model(&row).Updates(map[string]interface{}{"deleted_at": now, "param_key": tombstoneUniqueValue(row.Key, row.ID, 128)}).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.audit(c, user.TenantID, user.ID, "sys_param", "delete", "删除系统参数 "+row.Key, gin.H{"id": id})

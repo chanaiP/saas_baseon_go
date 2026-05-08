@@ -54,7 +54,7 @@ func (h *IdentityHandler) CreatePermission(c *gin.Context) {
 		}
 		return replacePermissionCustomScopes(tx, row.ID, body.CustomDepartmentIDs, body.CustomUserIDs, false, false)
 	}); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.syncPackageFeaturesFromPermissions()
@@ -90,7 +90,7 @@ func (h *IdentityHandler) UpdatePermission(c *gin.Context) {
 		}
 		return replacePermissionCustomScopes(tx, row.ID, body.CustomDepartmentIDs, body.CustomUserIDs, body.CustomDepartmentIDs != nil, body.CustomUserIDs != nil)
 	}); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.syncPackageFeaturesFromPermissions()
@@ -116,7 +116,7 @@ func (h *IdentityHandler) DeletePermission(c *gin.Context) {
 	}
 	now := time.Now()
 	if err := h.db.Model(&row).Updates(map[string]interface{}{"deleted_at": now, "enabled": false}).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.disablePackageFeatureForPermission(row)

@@ -16,7 +16,7 @@ import (
 func (h *IdentityHandler) AssignableRoles(c *gin.Context) {
 	roles, _, err := h.roleService().List(c.Request.Context(), apppermission.RoleListQuery{TenantID: h.requestTenantID(c), Limit: 200})
 	if err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	items := make([]gin.H, 0, len(roles))
@@ -76,11 +76,11 @@ func (h *IdentityHandler) CreateRole(c *gin.Context) {
 		return
 	}
 	if err := h.requireFeatureAccess(user.TenantID, "role_manage"); err != nil {
-		response.Error(c, 403, response.CodeForbidden, err.Error())
+		respondForbidden(c, err)
 		return
 	}
 	if err := h.requireQuotaAvailable(user.TenantID, "max_roles", 1); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	code := strings.TrimSpace(body.Code)
@@ -91,7 +91,7 @@ func (h *IdentityHandler) CreateRole(c *gin.Context) {
 	}
 	role := models.Role{TenantID: user.TenantID, Code: code, Name: name, Description: nullableTrimmed(body.Description), Status: 1}
 	if err := h.db.Create(&role).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.audit(c, user.TenantID, user.ID, "role", "create", "创建角色 "+role.Name, gin.H{"id": role.ID, "code": role.Code})
@@ -116,11 +116,11 @@ func (h *IdentityHandler) UpdateRole(c *gin.Context) {
 	}
 	if body.PermissionIDs != nil {
 		if err := h.validateRolePermissionIDs(user, body.PermissionIDs); err != nil {
-			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			respondBadRequest(c, err)
 			return
 		}
 		if err := h.validateRoleDataOverrides(user.TenantID, body.DataOverrides); err != nil {
-			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			respondBadRequest(c, err)
 			return
 		}
 	}
@@ -144,7 +144,7 @@ func (h *IdentityHandler) UpdateRole(c *gin.Context) {
 		}
 		return nil
 	}); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	_ = h.db.First(&role, role.ID).Error
@@ -166,7 +166,7 @@ func (h *IdentityHandler) DeleteRole(c *gin.Context) {
 	}
 	now := time.Now()
 	if err := h.db.Model(&role).Updates(map[string]interface{}{"deleted_at": now, "code": tombstoneUniqueValue(role.Code, role.ID, 64)}).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.invalidateRoleAuthorizationCache(role.ID)

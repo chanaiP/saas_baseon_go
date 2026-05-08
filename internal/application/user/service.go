@@ -13,6 +13,7 @@ import (
 
 type QuotaChecker interface {
 	RequireAvailable(ctx context.Context, tenantID uint64, quotaCode string, increment int) error
+	Consume(ctx context.Context, tenantID uint64, quotaCode string, increment int) error
 }
 
 type Service struct {
@@ -107,6 +108,11 @@ func (s *Service) ImportUsers(ctx context.Context, rows []models.AppUser) (Impor
 		}
 		return nil
 	})
+	if err == nil && result.Created > 0 && s.quotaChecker != nil {
+		if consumeErr := s.quotaChecker.Consume(ctx, rows[0].TenantID, "daily_import_times", 1); consumeErr != nil {
+			return result, consumeErr
+		}
+	}
 	return result, err
 }
 

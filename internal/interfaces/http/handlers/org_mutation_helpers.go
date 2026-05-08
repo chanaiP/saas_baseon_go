@@ -33,18 +33,18 @@ func (h *IdentityHandler) createOrgNode(c *gin.Context, forcedType string) {
 	}
 	tenantID := user.TenantID
 	if err := h.requireFeatureAccess(tenantID, "org_manage"); err != nil {
-		response.Error(c, 403, response.CodeForbidden, err.Error())
+		respondForbidden(c, err)
 		return
 	}
 	parentID, companyID, err := h.resolveOrgNodeCreatePlacement(tenantID, body)
 	if err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	quotaCode := quotaCodeForOrgNodeType(body.NodeType)
 	if quotaCode != "" {
 		if err := h.requireQuotaAvailable(tenantID, quotaCode, 1); err != nil {
-			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			respondBadRequest(c, err)
 			return
 		}
 	}
@@ -54,7 +54,7 @@ func (h *IdentityHandler) createOrgNode(c *gin.Context, forcedType string) {
 		return
 	}
 	if err := h.db.Create(&row).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.audit(c, user.TenantID, user.ID, "organization", "create", "创建组织 "+row.Name, gin.H{"org_id": row.ID, "tenant_id": row.TenantID, "node_type": row.NodeType, "code": row.Code})
@@ -99,7 +99,7 @@ func (h *IdentityHandler) updateOrgNode(c *gin.Context) {
 	}
 	if body.ParentIDSet {
 		if err := h.validateOrgParentChange(tenantID, row.ID, body.ParentID); err != nil {
-			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			respondBadRequest(c, err)
 			return
 		}
 		updates["parent_id"] = body.ParentID
@@ -131,7 +131,7 @@ func (h *IdentityHandler) updateOrgNode(c *gin.Context) {
 		}
 		return nil
 	}); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.audit(c, user.TenantID, user.ID, "organization", "update", "更新组织", gin.H{"org_id": id, "changes": updates})
@@ -160,7 +160,7 @@ func (h *IdentityHandler) deleteOrgNodeWithAudit(c *gin.Context, summary string)
 	}
 	now := time.Now()
 	if err := h.db.Model(&row).Updates(map[string]interface{}{"deleted_at": now, "status": 0}).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.audit(c, user.TenantID, user.ID, "organization", "delete", summary, gin.H{"org_id": id})

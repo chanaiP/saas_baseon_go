@@ -6,6 +6,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 cd "$repo_root"
 ./scripts/check-delivery-clean.sh
+./scripts/check-source-clean.sh
 
 mkdir -p "$(dirname "$artifact")"
 manifest="$(mktemp)"

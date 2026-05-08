@@ -76,7 +76,7 @@ func TestPlanCapabilityRollbackDoesNotHalfUpdate(t *testing.T) {
 	require.Equal(t, 3, planQuota.QuotaValue)
 }
 
-func TestDeleteReferenceGuardKeepsReferencedPlan(t *testing.T) {
+func TestDeleteReferenceCheckKeepsReferencedPlan(t *testing.T) {
 	db := newTransactionTestDB(t, &models.SaasPlan{}, &models.TenantSubscription{})
 	now := time.Now()
 	plan := models.SaasPlan{PlanCode: "basic", PlanName: "Basic", PlanType: "STANDARD", BillingCycle: "MONTH", Status: 1, CreatedAt: now, UpdatedAt: now}

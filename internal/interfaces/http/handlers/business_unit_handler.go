@@ -18,7 +18,7 @@ func (h *IdentityHandler) BusinessUnits(c *gin.Context) {
 		return
 	}
 	if err := h.requireFeatureAccess(user.TenantID, "business_unit_manage"); err != nil {
-		response.Error(c, 403, response.CodeForbidden, err.Error())
+		respondForbidden(c, err)
 		return
 	}
 	skip, limit := paginationParams(c)
@@ -96,12 +96,12 @@ func (h *IdentityHandler) CreateBusinessUnit(c *gin.Context) {
 	}
 	tenantID := user.TenantID
 	if err := h.requireFeatureAccess(tenantID, "business_unit_manage"); err != nil {
-		response.Error(c, 403, response.CodeForbidden, err.Error())
+		respondForbidden(c, err)
 		return
 	}
 	if body.Status == 1 {
 		if err := h.requireQuotaAvailable(tenantID, "max_business_units", 1); err != nil {
-			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			respondBadRequest(c, err)
 			return
 		}
 	}
@@ -110,7 +110,7 @@ func (h *IdentityHandler) CreateBusinessUnit(c *gin.Context) {
 		return
 	}
 	if err := h.validateBusinessUnitOrgMaps(tenantID, 0, body.OrgNodeIDs); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	row := models.BusinessUnit{TenantID: tenantID, Name: strings.TrimSpace(body.Name), Code: strings.TrimSpace(body.Code), BUType: nullableTrimmed(body.BUType), Status: body.Status, BillingEnabled: body.Status == 1, StatisticEnabled: true, Remark: nullableTrimmed(body.Remark)}
@@ -120,7 +120,7 @@ func (h *IdentityHandler) CreateBusinessUnit(c *gin.Context) {
 		}
 		return h.replaceBusinessUnitMappingsTx(tx, tenantID, row.ID, body.OrgNodeIDs)
 	}); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.audit(c, user.TenantID, user.ID, "business_unit", "create", "创建业务单元 "+row.Name, gin.H{"business_unit_id": row.ID, "tenant_id": row.TenantID, "code": row.Code})
@@ -152,18 +152,18 @@ func (h *IdentityHandler) UpdateBusinessUnit(c *gin.Context) {
 		return
 	}
 	if err := h.requireFeatureAccess(tenantID, "business_unit_manage"); err != nil {
-		response.Error(c, 403, response.CodeForbidden, err.Error())
+		respondForbidden(c, err)
 		return
 	}
 	if body.Status != nil && *body.Status == 1 && existing.Status != 1 {
 		if err := h.requireQuotaAvailable(tenantID, "max_business_units", 1); err != nil {
-			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			respondBadRequest(c, err)
 			return
 		}
 	}
 	if body.OrgNodeIDs != nil {
 		if err := h.validateBusinessUnitOrgMaps(tenantID, existing.ID, body.OrgNodeIDs); err != nil {
-			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			respondBadRequest(c, err)
 			return
 		}
 	}
@@ -200,7 +200,7 @@ func (h *IdentityHandler) UpdateBusinessUnit(c *gin.Context) {
 		}
 		return nil
 	}); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.audit(c, user.TenantID, user.ID, "business_unit", "update", "更新业务单元", gin.H{"business_unit_id": parseUintParam(c, "id"), "tenant_id": tenantID, "changes": updates, "org_node_ids": body.OrgNodeIDs})
@@ -224,7 +224,7 @@ func (h *IdentityHandler) DeleteBusinessUnit(c *gin.Context) {
 	}
 	now := time.Now()
 	if err := h.db.Model(&row).Updates(map[string]interface{}{"deleted_at": now, "status": 0, "billing_enabled": false, "statistic_enabled": true, "code": tombstoneUniqueValue(row.Code, row.ID, 64)}).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.audit(c, user.TenantID, user.ID, "business_unit", "delete", "删除业务单元 "+row.Name, gin.H{"business_unit_id": id})

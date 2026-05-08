@@ -102,7 +102,7 @@ func (h *IdentityHandler) SaveTenantSubscription(c *gin.Context) {
 		return
 	}
 	if err := h.saveTenantPackage(parseUintParam(c, "id"), body); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.invalidateTenantAuthorizationCache(parseUintParam(c, "id"))
@@ -121,7 +121,7 @@ func (h *IdentityHandler) SaveTenantPackageConfig(c *gin.Context) {
 	}
 	tenantID := parseUintParam(c, "id")
 	if err := h.saveTenantPackage(tenantID, body); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.invalidateTenantAuthorizationCache(tenantID)
@@ -164,7 +164,7 @@ func (h *IdentityHandler) SaveTenantFeatureOverrides(c *gin.Context) {
 		}
 		return nil
 	}); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.invalidateTenantAuthorizationCache(tenantID)
@@ -215,7 +215,7 @@ func (h *IdentityHandler) SaveTenantQuotaOverrides(c *gin.Context) {
 		}
 		return nil
 	}); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.invalidateTenantAuthorizationCache(tenantID)

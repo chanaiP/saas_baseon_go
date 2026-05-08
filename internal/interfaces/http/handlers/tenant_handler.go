@@ -50,7 +50,7 @@ func (h *IdentityHandler) CreateTenant(c *gin.Context) {
 	}
 	tenant, err := h.createTenantWithAdmin(body.Code, body.Name, body.Status, body.AdminName, body.AdminEmployeeNo, body.AdminPhone, body.AdminPassword)
 	if err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.auditCurrentUser(c, "tenant", "create", "创建主体 "+tenant.Name, gin.H{"tenant_id": tenant.ID, "code": tenant.Code, "name": tenant.Name})
@@ -84,7 +84,7 @@ func (h *IdentityHandler) CreateTenantWithPackage(c *gin.Context) {
 		return h.saveTenantPackageOnDB(tx, tenant.ID, body.Package)
 	})
 	if err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.auditCurrentUser(c, "tenant", "create_with_package", "创建主体并配置套餐 "+tenant.Name, gin.H{"tenant_id": tenant.ID, "code": tenant.Code, "name": tenant.Name})
@@ -140,7 +140,7 @@ func (h *IdentityHandler) UpdateTenant(c *gin.Context) {
 	}
 	if len(updates) > 0 {
 		if err := h.db.Model(&tenant).Updates(updates).First(&tenant, tenant.ID).Error; err != nil {
-			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			respondBadRequest(c, err)
 			return
 		}
 	}
@@ -157,7 +157,7 @@ func (h *IdentityHandler) UpdateTenantStatus(c *gin.Context) {
 	}
 	_ = c.ShouldBindJSON(&body)
 	if err := h.db.Model(&models.Tenant{}).Where("id = ? AND deleted_at IS NULL", c.Param("id")).Update("status", body.Status).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	if body.Status == 0 {
@@ -185,7 +185,7 @@ func (h *IdentityHandler) DeleteTenant(c *gin.Context) {
 	h.invalidateSessionsForTenant(id)
 	now := time.Now()
 	if err := h.db.Model(&tenant).Updates(map[string]interface{}{"deleted_at": now, "status": 0, "code": tombstoneUniqueValue(tenant.Code, tenant.ID, 64)}).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, "删除失败："+err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.auditCurrentUser(c, "tenant", "delete", "删除主体「"+tenant.Name+"」", gin.H{"tenant_id": id})

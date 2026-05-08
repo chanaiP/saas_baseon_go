@@ -113,7 +113,7 @@ func (h *IdentityHandler) UpdatePermissionDataPermMode(c *gin.Context) {
 		body.DataPermMode = "ORG"
 	}
 	if err := h.db.Model(&models.Permission{}).Where("id = ?", c.Param("id")).Update("data_perm_mode", body.DataPermMode).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.invalidateAllAuthorizationCache()

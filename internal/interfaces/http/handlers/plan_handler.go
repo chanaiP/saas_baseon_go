@@ -48,7 +48,7 @@ func (h *IdentityHandler) CreatePlan(c *gin.Context) {
 	}
 	row := models.SaasPlan{PlanCode: strings.TrimSpace(body.PlanCode), PlanName: strings.TrimSpace(body.PlanName), PlanType: body.PlanType, BillingCycle: body.BillingCycle, Price: body.Price, Status: body.Status, IsDefault: body.IsDefault, SortOrder: body.SortOrder, Description: body.Description}
 	if err := h.db.Create(&row).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	response.OK(c, planToResponse(row))
@@ -66,7 +66,7 @@ func (h *IdentityHandler) UpdatePlan(c *gin.Context) {
 		return
 	}
 	if err := h.db.Model(&row).Updates(body.Updates()).First(&row, row.ID).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	response.OK(c, planToResponse(row))
@@ -117,7 +117,7 @@ func (h *IdentityHandler) CopyPlan(c *gin.Context) {
 		return nil
 	})
 	if err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	response.OK(c, planToResponse(dst))

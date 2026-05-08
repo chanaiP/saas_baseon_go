@@ -29,7 +29,7 @@ func (h *IdentityHandler) CreateFeature(c *gin.Context) {
 		return
 	}
 	if err := h.db.Create(&body).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	response.OK(c, featureToResponse(body))
@@ -47,7 +47,7 @@ func (h *IdentityHandler) UpdateFeature(c *gin.Context) {
 		return
 	}
 	if err := h.db.Model(&row).Updates(body.Updates()).First(&row, row.ID).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	response.OK(c, featureToResponse(row))
@@ -75,7 +75,7 @@ func (h *IdentityHandler) SavePlanFeatures(c *gin.Context) {
 		return
 	}
 	if err := h.savePlanFeaturesWithIDs(planID, body.FeatureIDs); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.invalidateAllAuthorizationCache()
@@ -97,7 +97,7 @@ func (h *IdentityHandler) SavePlanCapabilities(c *gin.Context) {
 	}
 	planID := parseUintParam(c, "id")
 	if err := h.quotaService().SaveCapabilities(c.Request.Context(), planID, body.FeatureIDs, toAppPlanQuotaInputs(body.Quotas)); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.invalidateAllAuthorizationCache()
@@ -114,7 +114,7 @@ func (h *IdentityHandler) SavePlanCapabilities(c *gin.Context) {
 func (h *IdentityHandler) SavePlanFeaturesWithIDs(c *gin.Context, featureIDs []uint64) {
 	planID := parseUintParam(c, "id")
 	if err := h.savePlanFeaturesWithIDs(planID, featureIDs); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.invalidateAllAuthorizationCache()

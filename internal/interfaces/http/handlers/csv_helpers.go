@@ -115,11 +115,11 @@ func (h *IdentityHandler) exportOrgCSV(c *gin.Context, filename, nodeType string
 		return
 	}
 	if err := h.requireFeatureAccess(user.TenantID, "export_data"); err != nil {
-		response.Error(c, 403, response.CodeForbidden, err.Error())
+		respondForbidden(c, err)
 		return
 	}
 	if err := h.consumeQuota(user.TenantID, "daily_export_times", 1); err != nil {
-		response.Error(c, 429, response.CodeBadRequest, err.Error())
+		respondRateLimited(c, err)
 		return
 	}
 	var rows []models.OrgNode

@@ -91,7 +91,7 @@ func (h *IdentityHandler) UpdateProfile(c *gin.Context) {
 	}
 	if len(updates) > 0 {
 		if err := h.db.Model(&user).Updates(updates).Error; err != nil {
-			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			respondBadRequest(c, err)
 			return
 		}
 		h.audit(c, user.TenantID, user.ID, "profile", "update", "更新个人资料", updates)
@@ -143,7 +143,7 @@ func (h *IdentityHandler) UpdatePassword(c *gin.Context) {
 		"session_version":     gorm.Expr("session_version + 1"),
 		"password_changed_at": time.Now(),
 	}).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.clearPasswordChangeGuard(user.ID)
@@ -175,7 +175,7 @@ func (h *IdentityHandler) SavePreferences(c *gin.Context) {
 		return
 	}
 	if err := h.saveUserShortcutIDs(user.ID, body.ShortcutIDs); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.audit(c, user.TenantID, user.ID, "user", "update_shortcuts", "更新快捷入口 "+user.Name, nil)
@@ -280,7 +280,7 @@ func (h *IdentityHandler) SaveTenantBranding(c *gin.Context) {
 	}
 	if len(updates) > 0 {
 		if err := h.db.Model(&models.Tenant{}).Where("id = ?", user.TenantID).Updates(updates).Error; err != nil {
-			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			respondBadRequest(c, err)
 			return
 		}
 		h.audit(c, user.TenantID, user.ID, "tenant_branding", "update", "更新主体品牌", updates)

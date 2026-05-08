@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"mime/multipart"
 	"net/textproto"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -57,6 +59,56 @@ func TestSoftDeleteMarksFileDeleted(t *testing.T) {
 	var auditCount int64
 	require.NoError(t, db.Model(&models.AuditLog{}).Where("tenant_id = ? AND module = ? AND action = ?", 1, "file", "delete").Count(&auditCount).Error)
 	require.Equal(t, int64(1), auditCount)
+}
+
+func TestDeleteMovesFileAndMarksMetadataDeleted(t *testing.T) {
+	db := newFileServiceTestDB(t)
+	service := NewService(db)
+	dir := t.TempDir()
+	originalPath := filepath.Join(dir, "live.txt")
+	trashPath := filepath.Join(dir, ".trash", "live.txt")
+	require.NoError(t, os.WriteFile(originalPath, []byte("live"), 0o640))
+	row, err := service.CreateMetadata(context.Background(), CreateMetadataCommand{
+		TenantID: 1, FileID: "cccccccccccccccccccccccccccccccc", CreatedBy: 7,
+		OriginalName: "live.txt", StoredName: "live.txt",
+		StoragePath: originalPath, MimeType: "text/plain", FileSize: 4,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, service.Delete(context.Background(), &row, trashPath, 7, time.Now()))
+
+	require.NoFileExists(t, originalPath)
+	require.FileExists(t, trashPath)
+	var stored models.FileObject
+	require.NoError(t, db.First(&stored, row.ID).Error)
+	require.Equal(t, 0, stored.Status)
+	require.Equal(t, trashPath, stored.StoragePath)
+}
+
+func TestDeleteRestoresFileWhenMetadataUpdateFails(t *testing.T) {
+	db := newFileServiceTestDB(t)
+	service := NewService(db)
+	dir := t.TempDir()
+	originalPath := filepath.Join(dir, "live.txt")
+	trashPath := filepath.Join(dir, ".trash", "live.txt")
+	require.NoError(t, os.WriteFile(originalPath, []byte("live"), 0o640))
+	row, err := service.CreateMetadata(context.Background(), CreateMetadataCommand{
+		TenantID: 1, FileID: "dddddddddddddddddddddddddddddddd", CreatedBy: 7,
+		OriginalName: "live.txt", StoredName: "live.txt",
+		StoragePath: originalPath, MimeType: "text/plain", FileSize: 4,
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.Exec(`CREATE TRIGGER fail_file_delete BEFORE UPDATE ON file_object BEGIN SELECT RAISE(FAIL, 'forced metadata failure'); END;`).Error)
+
+	err = service.Delete(context.Background(), &row, trashPath, 7, time.Now())
+
+	require.Error(t, err)
+	require.FileExists(t, originalPath)
+	require.NoFileExists(t, trashPath)
+	var stored models.FileObject
+	require.NoError(t, db.First(&stored, row.ID).Error)
+	require.Equal(t, 1, stored.Status)
+	require.Equal(t, originalPath, stored.StoragePath)
 }
 
 func TestValidateUploadRejectsForgedContentType(t *testing.T) {

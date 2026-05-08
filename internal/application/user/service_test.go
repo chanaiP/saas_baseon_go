@@ -19,6 +19,23 @@ func (denyQuotaChecker) RequireAvailable(context.Context, uint64, string, int) e
 	return fmt.Errorf("配额不足")
 }
 
+func (denyQuotaChecker) Consume(context.Context, uint64, string, int) error {
+	return nil
+}
+
+type countingQuotaChecker struct {
+	consumeCount int
+}
+
+func (c *countingQuotaChecker) RequireAvailable(context.Context, uint64, string, int) error {
+	return nil
+}
+
+func (c *countingQuotaChecker) Consume(context.Context, uint64, string, int) error {
+	c.consumeCount++
+	return nil
+}
+
 func TestCreateWithRelationsRollsBackUserWhenRelationFails(t *testing.T) {
 	db := newUserServiceTestDB(t)
 	service := NewService(db)
@@ -50,7 +67,8 @@ func TestCreateWithRelationsChecksQuotaInsideService(t *testing.T) {
 
 func TestImportUsersRollsBackBatchWhenOneRowFails(t *testing.T) {
 	db := newUserServiceTestDB(t)
-	service := NewService(db)
+	quota := &countingQuotaChecker{}
+	service := NewService(db, quota)
 	now := time.Now()
 	rows := []models.AppUser{
 		{TenantID: 1, EmployeeNo: "E70002", Account: "E70002", PasswordHash: "hash", Name: "One", Status: 1, CreatedAt: now, UpdatedAt: now},
@@ -63,6 +81,23 @@ func TestImportUsersRollsBackBatchWhenOneRowFails(t *testing.T) {
 	var count int64
 	require.NoError(t, db.Model(&models.AppUser{}).Where("employee_no = ?", "E70002").Count(&count).Error)
 	require.Equal(t, int64(0), count)
+	require.Equal(t, 0, quota.consumeCount)
+}
+
+func TestImportUsersConsumesDailyQuotaOnlyAfterSuccessfulCreate(t *testing.T) {
+	db := newUserServiceTestDB(t)
+	quota := &countingQuotaChecker{}
+	service := NewService(db, quota)
+	now := time.Now()
+	rows := []models.AppUser{
+		{TenantID: 1, EmployeeNo: "E70004", Account: "E70004", PasswordHash: "hash", Name: "One", Status: 1, CreatedAt: now, UpdatedAt: now},
+	}
+
+	result, err := service.ImportUsers(context.Background(), rows)
+
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Created)
+	require.Equal(t, 1, quota.consumeCount)
 }
 
 func newUserServiceTestDB(t *testing.T) *gorm.DB {

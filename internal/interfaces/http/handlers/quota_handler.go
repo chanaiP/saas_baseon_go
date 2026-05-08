@@ -40,7 +40,7 @@ func (h *IdentityHandler) CreateQuota(c *gin.Context) {
 	row.QuotaCode = strings.TrimSpace(row.QuotaCode)
 	row.QuotaName = strings.TrimSpace(row.QuotaName)
 	if err := h.db.Create(&row).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	response.OK(c, quotaToResponse(row))
@@ -58,7 +58,7 @@ func (h *IdentityHandler) UpdateQuota(c *gin.Context) {
 		return
 	}
 	if err := h.db.Model(&row).Updates(body.Updates()).First(&row, row.ID).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	response.OK(c, quotaToResponse(row))
@@ -97,7 +97,7 @@ func (h *IdentityHandler) SavePlanQuotas(c *gin.Context) {
 		return
 	}
 	if err := h.savePlanQuotasWithValues(planID, body.Quotas); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.invalidateAllAuthorizationCache()

@@ -150,7 +150,7 @@ func (h *IdentityHandler) MonitorCacheKeys(c *gin.Context) {
 	cursor, _ := strconv.ParseUint(c.Query("cursor"), 10, 64)
 	limit, pattern, err := monitorCacheKeyQuery(c.Query("limit"), c.Query("pattern"))
 	if err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	items := make([]gin.H, 0, limit)
@@ -158,7 +158,8 @@ func (h *IdentityHandler) MonitorCacheKeys(c *gin.Context) {
 	for int64(len(items)) < limit {
 		keys, scannedCursor, err := h.redis.Scan(ctx, nextCursor, pattern, 200).Result()
 		if err != nil {
-			response.Error(c, 503, response.CodeBadRequest, truncateString(err.Error(), 120))
+			_ = c.Error(err)
+			response.Error(c, 503, response.CodeBadRequest, "Redis 查询失败")
 			return
 		}
 		nextCursor = scannedCursor
@@ -168,7 +169,8 @@ func (h *IdentityHandler) MonitorCacheKeys(c *gin.Context) {
 			}
 			ttl, err := h.redis.TTL(ctx, key).Result()
 			if err != nil {
-				response.Error(c, 503, response.CodeBadRequest, truncateString(err.Error(), 120))
+				_ = c.Error(err)
+				response.Error(c, 503, response.CodeBadRequest, "Redis 查询失败")
 				return
 			}
 			items = append(items, gin.H{"key": key, "ttl": int(ttl.Seconds())})

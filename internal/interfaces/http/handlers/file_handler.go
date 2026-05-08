@@ -23,10 +23,6 @@ import (
 
 var safeFileIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 var errInvalidFileID = errors.New("invalid file_id")
-var allowedUploadExtensions = map[string]struct{}{
-	".csv": {}, ".doc": {}, ".docx": {}, ".gif": {}, ".jpeg": {}, ".jpg": {}, ".pdf": {}, ".png": {},
-	".ppt": {}, ".pptx": {}, ".txt": {}, ".webp": {}, ".xls": {}, ".xlsx": {}, ".zip": {},
-}
 
 func (h *IdentityHandler) UploadFile(c *gin.Context) {
 	user, ok := h.currentUser(c)
@@ -35,7 +31,7 @@ func (h *IdentityHandler) UploadFile(c *gin.Context) {
 		return
 	}
 	if err := h.requireFeatureAccess(user.TenantID, "file_manage"); err != nil {
-		response.Error(c, 403, response.CodeForbidden, err.Error())
+		respondForbidden(c, err)
 		return
 	}
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 50*1024*1024+1024)
@@ -83,7 +79,7 @@ func (h *IdentityHandler) UploadFile(c *gin.Context) {
 	fileService := h.fileService()
 	validation, err := fileService.ValidateUpload(originalName, file)
 	if err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	dir := uploadDir(user.TenantID, time.Now())
@@ -156,14 +152,12 @@ func (h *IdentityHandler) DeleteFile(c *gin.Context) {
 		return
 	}
 	trash := filepath.Join(uploadRoot(), strconv.FormatUint(user.TenantID, 10), ".trash", time.Now().Format("2006/01/02"))
-	_ = os.MkdirAll(trash, 0o750)
 	trashPath := filepath.Join(trash, time.Now().Format("150405")+"_"+filepath.Base(fileObject.StoragePath))
-	if err := os.Rename(fileObject.StoragePath, trashPath); err != nil {
+	now := time.Now()
+	if err := h.fileService().Delete(c.Request.Context(), &fileObject, trashPath, user.ID, now); err != nil {
 		response.Error(c, 500, response.CodeInternal, "删除文件失败")
 		return
 	}
-	now := time.Now()
-	_ = h.fileService().SoftDelete(c.Request.Context(), &fileObject, trashPath, user.ID, now)
 	response.OK(c, gin.H{"message": "已删除"})
 }
 
@@ -174,11 +168,11 @@ func (h *IdentityHandler) ExportUsersCSV(c *gin.Context) {
 		return
 	}
 	if err := h.requireFeatureAccess(user.TenantID, "export_data"); err != nil {
-		response.Error(c, 403, response.CodeForbidden, err.Error())
+		respondForbidden(c, err)
 		return
 	}
 	if err := h.consumeQuota(user.TenantID, "daily_export_times", 1); err != nil {
-		response.Error(c, 429, response.CodeBadRequest, err.Error())
+		respondRateLimited(c, err)
 		return
 	}
 	var users []models.AppUser
@@ -205,11 +199,7 @@ func (h *IdentityHandler) ImportUsersCSV(c *gin.Context) {
 		return
 	}
 	if err := h.requireFeatureAccess(user.TenantID, "import_data"); err != nil {
-		response.Error(c, 403, response.CodeForbidden, err.Error())
-		return
-	}
-	if err := h.consumeQuota(user.TenantID, "daily_import_times", 1); err != nil {
-		response.Error(c, 429, response.CodeBadRequest, err.Error())
+		respondForbidden(c, err)
 		return
 	}
 	file, err := c.FormFile("file")

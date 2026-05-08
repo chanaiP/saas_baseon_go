@@ -51,7 +51,7 @@ func (h *IdentityHandler) CreateBusinessUnitOrgMapping(c *gin.Context) {
 	}
 	if scopeType == "PRIMARY" {
 		if err := h.validateBusinessUnitOrgMaps(tenantID, parseUintParam(c, "id"), []uint64{body.OrgID}); err != nil {
-			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			respondBadRequest(c, err)
 			return
 		}
 	}
@@ -68,7 +68,7 @@ func (h *IdentityHandler) CreateBusinessUnitOrgMapping(c *gin.Context) {
 	}
 	row := models.BusinessUnitOrgMap{TenantID: tenantID, BusinessUnitID: parseUintParam(c, "id"), OrgID: body.OrgID, OrgType: orgTypeForBusinessUnitMap(node), ScopeType: scopeType, Priority: body.Priority, Status: 1}
 	if err := h.db.Create(&row).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.audit(c, user.TenantID, user.ID, "business_unit_org_map", "create", "业务单元组织映射", gin.H{"mapping_id": row.ID, "business_unit_id": row.BusinessUnitID, "org_id": row.OrgID, "tenant_id": row.TenantID})
@@ -84,7 +84,7 @@ func (h *IdentityHandler) DeleteBusinessUnitOrgMapping(c *gin.Context) {
 	id := parseUintParam(c, "id")
 	result := h.db.Model(&models.BusinessUnitOrgMap{}).Where("id = ? AND tenant_id = ?", id, user.TenantID).Update("status", 0)
 	if result.Error != nil {
-		response.Error(c, 400, response.CodeBadRequest, result.Error.Error())
+		respondBadRequest(c, result.Error)
 		return
 	}
 	if result.RowsAffected == 0 {

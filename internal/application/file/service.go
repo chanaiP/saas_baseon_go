@@ -148,6 +148,21 @@ func (s *Service) SoftDelete(ctx context.Context, row *models.FileObject, trashP
 	})
 }
 
+func (s *Service) Delete(ctx context.Context, row *models.FileObject, trashPath string, actorID uint64, now time.Time) error {
+	originalPath := row.StoragePath
+	if err := os.MkdirAll(filepath.Dir(trashPath), 0o750); err != nil {
+		return err
+	}
+	if err := os.Rename(originalPath, trashPath); err != nil {
+		return err
+	}
+	if err := s.SoftDelete(ctx, row, trashPath, actorID, now); err != nil {
+		_ = os.Rename(trashPath, originalPath)
+		return err
+	}
+	return nil
+}
+
 func recordAudit(db *gorm.DB, tenantID uint64, userID uint64, action string, summary string, detail map[string]interface{}, now time.Time) error {
 	raw, _ := json.Marshal(detail)
 	text := string(raw)

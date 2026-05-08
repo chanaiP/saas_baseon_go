@@ -51,7 +51,7 @@ func (h *IdentityHandler) CreatePositionType(c *gin.Context) {
 	}
 	row := models.PositionType{TenantID: user.TenantID, Name: strings.TrimSpace(body.Name), Code: strings.TrimSpace(body.Code)}
 	if err := h.db.Create(&row).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.audit(c, user.TenantID, user.ID, "position_type", "create", "创建岗位类型 "+row.Name, gin.H{"id": row.ID, "code": row.Code})
@@ -81,7 +81,7 @@ func (h *IdentityHandler) UpdatePositionType(c *gin.Context) {
 	}
 	result := h.db.Model(&models.PositionType{}).Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", c.Param("id"), user.TenantID).Updates(updates)
 	if result.Error != nil {
-		response.Error(c, 400, response.CodeBadRequest, result.Error.Error())
+		respondBadRequest(c, result.Error)
 		return
 	}
 	if result.RowsAffected == 0 {
@@ -109,7 +109,7 @@ func (h *IdentityHandler) DeletePositionType(c *gin.Context) {
 	}
 	now := time.Now()
 	if err := h.db.Model(&row).Updates(map[string]interface{}{"deleted_at": now, "code": tombstoneUniqueValue(row.Code, row.ID, 64)}).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.audit(c, user.TenantID, user.ID, "position_type", "delete", "删除岗位类型 "+row.Name, gin.H{"id": id})
@@ -158,12 +158,12 @@ func (h *IdentityHandler) CreatePosition(c *gin.Context) {
 		return
 	}
 	if err := h.assertPositionTypeInTenant(user.TenantID, body.PositionTypeID); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	row := models.Position{TenantID: user.TenantID, PositionTypeID: body.PositionTypeID, Name: strings.TrimSpace(body.Name), Code: strings.TrimSpace(body.Code)}
 	if err := h.db.Create(&row).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.audit(c, user.TenantID, user.ID, "position", "create", "创建岗位 "+row.Name, gin.H{"id": row.ID, "code": row.Code})
@@ -188,7 +188,7 @@ func (h *IdentityHandler) UpdatePosition(c *gin.Context) {
 	updates := map[string]interface{}{}
 	if body.PositionTypeID != nil {
 		if err := h.assertPositionTypeInTenant(user.TenantID, *body.PositionTypeID); err != nil {
-			response.Error(c, 400, response.CodeBadRequest, err.Error())
+			respondBadRequest(c, err)
 			return
 		}
 		updates["position_type_id"] = *body.PositionTypeID
@@ -201,7 +201,7 @@ func (h *IdentityHandler) UpdatePosition(c *gin.Context) {
 	}
 	result := h.db.Model(&models.Position{}).Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", c.Param("id"), user.TenantID).Updates(updates)
 	if result.Error != nil {
-		response.Error(c, 400, response.CodeBadRequest, result.Error.Error())
+		respondBadRequest(c, result.Error)
 		return
 	}
 	if result.RowsAffected == 0 {
@@ -229,7 +229,7 @@ func (h *IdentityHandler) DeletePosition(c *gin.Context) {
 	}
 	now := time.Now()
 	if err := h.db.Model(&row).Updates(map[string]interface{}{"deleted_at": now, "code": tombstoneUniqueValue(row.Code, row.ID, 64)}).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.audit(c, user.TenantID, user.ID, "position", "delete", "删除岗位 "+row.Name, gin.H{"id": id})

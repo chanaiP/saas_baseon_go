@@ -16,6 +16,8 @@ check_artifact() {
     echo "$dirty" >&2
     return 1
   fi
+  echo "release artifact content:"
+  tar -tzf "$artifact" | awk 'NR <= 200 { print "  " $0 }'
   echo "release artifact check passed: $artifact"
 }
 

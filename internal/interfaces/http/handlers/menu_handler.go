@@ -127,7 +127,7 @@ func (h *IdentityHandler) SaveMenuOverrides(c *gin.Context) {
 		}
 		return nil
 	}); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.invalidateTenantAuthorizationCache(user.TenantID)

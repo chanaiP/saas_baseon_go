@@ -61,7 +61,7 @@ func (h *IdentityHandler) CreateDictType(c *gin.Context) {
 	}
 	row := models.DictType{TenantID: user.TenantID, Code: strings.TrimSpace(body.Code), Name: strings.TrimSpace(body.Name), Remark: nullableTrimmed(body.Remark), Scope: body.Scope, TenantEditable: body.TenantEditable, IsPlatformOnly: body.IsPlatformOnly}
 	if err := h.db.Create(&row).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.audit(c, user.TenantID, user.ID, "dict_type", "create", "创建字典类型 "+row.Name, gin.H{"id": row.ID, "code": row.Code})
@@ -107,7 +107,7 @@ func (h *IdentityHandler) UpdateDictType(c *gin.Context) {
 		return
 	}
 	if err := h.db.Model(&row).Updates(updates).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	_ = h.db.First(&row, row.ID).Error
@@ -132,7 +132,7 @@ func (h *IdentityHandler) DeleteDictType(c *gin.Context) {
 	}
 	now := time.Now()
 	if err := h.db.Model(&row).Updates(map[string]interface{}{"deleted_at": now, "code": tombstoneUniqueValue(row.Code, row.ID, 64)}).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.audit(c, user.TenantID, user.ID, "dict_type", "delete", "删除字典类型 "+row.Name, gin.H{"id": id})
@@ -197,12 +197,12 @@ func (h *IdentityHandler) CreateDictItem(c *gin.Context) {
 		enabled = *body.Enabled
 	}
 	if err := h.assertDictTypeInTenant(user.TenantID, body.DictTypeID); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	row := models.DictItem{TenantID: user.TenantID, DictTypeID: body.DictTypeID, Label: strings.TrimSpace(body.Label), Value: strings.TrimSpace(body.Value), SortOrder: body.SortOrder, Enabled: enabled}
 	if err := h.db.Create(&row).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.audit(c, user.TenantID, user.ID, "dict_item", "create", "创建字典项 "+row.Label, gin.H{"id": row.ID, "value": row.Value})
@@ -243,7 +243,7 @@ func (h *IdentityHandler) UpdateDictItem(c *gin.Context) {
 	}
 	updates := dictItemUpdates(body.Label, body.Value, body.SortOrder, body.Enabled)
 	if err := h.db.Model(&row).Updates(updates).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	_ = h.db.First(&row, row.ID).Error
@@ -265,7 +265,7 @@ func (h *IdentityHandler) DeleteDictItem(c *gin.Context) {
 	}
 	now := time.Now()
 	if err := h.db.Model(&row).Updates(map[string]interface{}{"deleted_at": now, "enabled": false}).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+		respondBadRequest(c, err)
 		return
 	}
 	h.audit(c, user.TenantID, user.ID, "dict_item", "delete", "删除字典项 "+row.Label, gin.H{"id": id})
