@@ -111,8 +111,8 @@
 - [x] 套餐 feature/quota 更新、配额扣减、缓存失效进入 plan/quota service。
 - [x] 建立真实 file application service，不接受空 service。
 - [x] 文件上传安全校验、存储、元数据、审计进入 file service。
-- [ ] handler 只保留参数绑定、上下文提取、调用 service、返回 response。
-- [ ] repository 默认带 tenant scope。
+- [x] handler 只保留参数绑定、上下文提取、调用 service、返回 response。
+- [x] repository 默认带 tenant scope。
 - [x] 补 user service 单元测试。
 - [x] 补 plan/quota service 单元测试。
 - [x] 补 file service 单元测试。
@@ -126,8 +126,84 @@
 
 ## 交付报告要求
 
-- [ ] 输出修改文件清单。
-- [ ] 输出每个 P0/P1 项的修复说明。
-- [ ] 输出新增测试清单。
-- [ ] 输出验收命令结果。
-- [ ] 输出仍未解决风险。
+- [x] 输出修改文件清单。
+- [x] 输出每个 P0/P1 项的修复说明。
+- [x] 输出新增测试清单。
+- [x] 输出验收命令结果。
+- [x] 输出仍未解决风险。
+
+## 交付报告
+
+### 修改文件清单
+
+- `.gitignore`
+- `Makefile`
+- `go.mod`
+- `go.sum`
+- `scripts/check-delivery-clean.sh`
+- `scripts/check-release.sh`
+- `scripts/package-release.sh`
+- `internal/bootstrap/config.go`
+- `internal/bootstrap/config_test.go`
+- `internal/application/file/service.go`
+- `internal/application/file/service_test.go`
+- `internal/application/quota/service.go`
+- `internal/application/quota/service_test.go`
+- `internal/application/user/service.go`
+- `internal/application/user/service_test.go`
+- `internal/infrastructure/persistence/postgres/repositories/tenant_scoped_repository.go`
+- `internal/infrastructure/persistence/postgres/repositories/tenant_scoped_repository_test.go`
+- `internal/interfaces/http/handlers/auth_context_helpers.go`
+- `internal/interfaces/http/handlers/auth_security_test.go`
+- `internal/interfaces/http/handlers/deletion_and_value_helpers.go`
+- `internal/interfaces/http/handlers/file_batch_parity_test.go`
+- `internal/interfaces/http/handlers/file_handler.go`
+- `internal/interfaces/http/handlers/file_storage_helpers.go`
+- `internal/interfaces/http/handlers/identity_handler.go`
+- `internal/interfaces/http/handlers/parse_helpers.go`
+- `internal/interfaces/http/handlers/plan_feature_handler.go`
+- `internal/interfaces/http/handlers/plan_handler.go`
+- `internal/interfaces/http/handlers/quota_handler.go`
+- `internal/interfaces/http/handlers/quota_service.go`
+- `internal/interfaces/http/handlers/quota_service_test.go`
+- `internal/interfaces/http/handlers/transaction_integrity_test.go`
+- `internal/interfaces/http/handlers/user_handler.go`
+- `internal/interfaces/http/handlers/user_relation_helpers.go`
+- `internal/interfaces/http/handlers/user_security_handler.go`
+- `internal/interfaces/http/response/response.go`
+- `internal/interfaces/http/response/response_test.go`
+- `docs/ENTERPRISE_SAAS_BASE_REPAIR_TODO.md`
+
+### P0/P1 修复说明
+
+- P0-1：Redis session 模式下 session 缺失不再 fallback 到 JWT；只有 Redis 不可用且 `jwtFallback=true` 时允许 fallback；生产环境禁止 `AUTH_JWT_FALLBACK=true`。
+- P0-2：配额扣减改为 service 内事务 + 原子 upsert，失败不增加 usage，并记录 quota audit。
+- P0-3：文件上传增加服务端 MIME sniff、扩展名/MIME 映射、zip 数量/解压大小/路径穿越防护、生产 `UPLOAD_DIR` 校验和病毒扫描接口。
+- P0-4：新增 `make package` 和 `make check-release`，交付包排除 `.git`、`frontend/node_modules`、`frontend/dist`、`.DS_Store`、`__MACOSX`、日志缓存等内容。
+- P0-5：用户创建/更新/导入、删除引用检查、角色授权、套餐 feature/quota 更新进入事务边界，并补回滚测试。
+- P1-1：统一响应层对 SQL/GORM/Redis/文件系统路径类错误脱敏，内部错误挂到 gin context，响应只返回安全消息。
+- P1-2：完成 user、plan/quota、file 三个优先模块 service 化；新增 tenant-scoped repository，service 默认通过租户范围入口处理用户唯一性、文件、配额 usage 等租户数据。
+
+### 新增测试清单
+
+- Redis session 存在/缺失、JWT fallback 开关、生产 fallback 禁止测试。
+- 配额并发扣减不超限、超配额不增加 usage 测试。
+- 文件伪造 Content-Type、扩展名内容不匹配、zip 路径穿越、生产缺失 `UPLOAD_DIR` 测试。
+- 用户创建关系写入失败回滚、用户导入失败回滚、角色授权失败回滚、套餐配置失败回滚、删除引用对象不变测试。
+- user/quota/file service 单元测试。
+- tenant-scoped repository 租户过滤测试。
+- 统一错误响应脱敏测试。
+- check-release 自测脏交付产物阻断。
+
+### 验收命令结果
+
+- `go test ./...`：通过。
+- `npm run build`：通过。
+- `npm run security:check`：通过。
+- `make check-release`：通过。
+
+### 仍未解决风险
+
+- 本轮 service 化按返修要求只覆盖 user、plan/quota、file 三个优先模块，其他模块仍有继续 service 化和 repository 收敛空间。
+- `identity_handler.go` 仍是历史大文件，已降低优先模块风险，但全量拆分仍建议作为下一阶段工程治理任务。
+- 当前病毒扫描接口为 noop，实现真实 AV/对象存储扫描仍需接入外部安全组件。

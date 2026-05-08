@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
+	"saas_baseon_go/internal/infrastructure/persistence/postgres/repositories"
 )
 
 type QuotaChecker interface {
@@ -33,6 +34,11 @@ type Relations struct {
 	DepartmentIDs []uint64
 }
 
+type ImportResult struct {
+	Created int
+	Skipped int
+}
+
 func (s *Service) CreateWithRelations(ctx context.Context, row models.AppUser, rel Relations) (models.AppUser, error) {
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := s.validateCreate(tx, ctx, row, rel); err != nil {
@@ -52,7 +58,7 @@ func (s *Service) UpdateWithRelations(ctx context.Context, row *models.AppUser, 
 			return err
 		}
 		if phone, ok := updates["phone"].(*string); ok {
-			if err := assertUserUniqueFields(tx, row.TenantID, row.ID, "", phone); err != nil {
+			if err := assertUserUniqueFields(tx, ctx, row.TenantID, row.ID, "", phone); err != nil {
 				return err
 			}
 		}
@@ -65,8 +71,9 @@ func (s *Service) UpdateWithRelations(ctx context.Context, row *models.AppUser, 
 	})
 }
 
-func (s *Service) ImportUsers(ctx context.Context, rows []models.AppUser) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+func (s *Service) ImportUsers(ctx context.Context, rows []models.AppUser) (ImportResult, error) {
+	result := ImportResult{}
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		seenEmployeeNo := map[string]struct{}{}
 		for i := range rows {
 			employeeNo := strings.TrimSpace(rows[i].EmployeeNo)
@@ -77,7 +84,15 @@ func (s *Service) ImportUsers(ctx context.Context, rows []models.AppUser) error 
 				return fmt.Errorf("导入文件中存在重复工号")
 			}
 			seenEmployeeNo[employeeNo] = struct{}{}
-			if err := assertUserUniqueFields(tx, rows[i].TenantID, 0, employeeNo, rows[i].Phone); err != nil {
+			exists, err := userExists(tx, ctx, rows[i].TenantID, employeeNo)
+			if err != nil {
+				return err
+			}
+			if exists {
+				result.Skipped++
+				continue
+			}
+			if err := assertUserUniqueFields(tx, ctx, rows[i].TenantID, 0, employeeNo, rows[i].Phone); err != nil {
 				return err
 			}
 			if rows[i].Status == 1 && s.quotaChecker != nil {
@@ -88,9 +103,11 @@ func (s *Service) ImportUsers(ctx context.Context, rows []models.AppUser) error 
 			if err := tx.Create(&rows[i]).Error; err != nil {
 				return err
 			}
+			result.Created++
 		}
 		return nil
 	})
+	return result, err
 }
 
 func (s *Service) Delete(ctx context.Context, row *models.AppUser, updates map[string]interface{}) error {
@@ -106,7 +123,7 @@ func (s *Service) validateCreate(tx *gorm.DB, ctx context.Context, row models.Ap
 	if err := validateRelations(tx, row.TenantID, rel); err != nil {
 		return err
 	}
-	if err := assertUserUniqueFields(tx, row.TenantID, 0, row.EmployeeNo, row.Phone); err != nil {
+	if err := assertUserUniqueFields(tx, ctx, row.TenantID, 0, row.EmployeeNo, row.Phone); err != nil {
 		return err
 	}
 	if row.Status == 1 && s.quotaChecker != nil {
@@ -172,9 +189,9 @@ func assertRolesInTenant(tx *gorm.DB, tenantID uint64, roleIDs []uint64) error {
 	return nil
 }
 
-func assertUserUniqueFields(tx *gorm.DB, tenantID uint64, exceptUserID uint64, employeeNo string, phone *string) error {
+func assertUserUniqueFields(tx *gorm.DB, ctx context.Context, tenantID uint64, exceptUserID uint64, employeeNo string, phone *string) error {
 	if strings.TrimSpace(employeeNo) != "" {
-		query := tx.Model(&models.AppUser{}).Where("tenant_id = ? AND employee_no = ? AND deleted_at IS NULL", tenantID, strings.TrimSpace(employeeNo))
+		query := repositories.NewTenantScopedRepository(tx, tenantID).Users(ctx).Where("employee_no = ?", strings.TrimSpace(employeeNo))
 		if exceptUserID > 0 {
 			query = query.Where("id <> ?", exceptUserID)
 		}
@@ -187,7 +204,7 @@ func assertUserUniqueFields(tx *gorm.DB, tenantID uint64, exceptUserID uint64, e
 		}
 	}
 	if phone != nil && strings.TrimSpace(*phone) != "" {
-		query := tx.Model(&models.AppUser{}).Where("tenant_id = ? AND phone = ? AND deleted_at IS NULL", tenantID, strings.TrimSpace(*phone))
+		query := repositories.NewTenantScopedRepository(tx, tenantID).Users(ctx).Where("phone = ?", strings.TrimSpace(*phone))
 		if exceptUserID > 0 {
 			query = query.Where("id <> ?", exceptUserID)
 		}
@@ -200,6 +217,14 @@ func assertUserUniqueFields(tx *gorm.DB, tenantID uint64, exceptUserID uint64, e
 		}
 	}
 	return nil
+}
+
+func userExists(tx *gorm.DB, ctx context.Context, tenantID uint64, employeeNo string) (bool, error) {
+	var count int64
+	if err := repositories.NewTenantScopedRepository(tx, tenantID).Users(ctx).Where("employee_no = ?", strings.TrimSpace(employeeNo)).Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 func uniqueIDs(values []uint64) []uint64 {

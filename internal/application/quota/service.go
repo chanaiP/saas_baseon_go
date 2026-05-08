@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
+	"saas_baseon_go/internal/infrastructure/persistence/postgres/repositories"
 )
 
 type Service struct {
@@ -209,7 +210,7 @@ func subscriptionAllows(statusRaw string, endTime *time.Time, now time.Time) boo
 
 func currentQuotaUsage(db *gorm.DB, tenantID uint64, quotaCode string, periodKey string) int {
 	var usage models.TenantQuotaUsage
-	if err := db.Where("tenant_id = ? AND quota_code = ? AND period_key = ?", tenantID, quotaCode, periodKey).First(&usage).Error; err == nil {
+	if err := repositories.NewTenantScopedRepository(db, tenantID).QuotaUsage(context.Background()).Where("quota_code = ? AND period_key = ?", quotaCode, periodKey).First(&usage).Error; err == nil {
 		return usage.UsedValue
 	}
 	return 0

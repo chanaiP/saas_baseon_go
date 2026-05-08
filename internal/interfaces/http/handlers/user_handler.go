@@ -94,27 +94,11 @@ func (h *IdentityHandler) CreateUser(c *gin.Context) {
 	departmentID := (*uint64)(nil)
 	if len(departmentIDs) > 0 {
 		departmentID = &departmentIDs[0]
-		if err := h.assertDepartmentsInTenant(tenantID, departmentIDs); err != nil {
-			response.Error(c, 400, response.CodeBadRequest, err.Error())
-			return
-		}
 		if companyID == nil {
 			if found := h.companyIDForDepartment(tenantID, departmentIDs[0]); found != nil {
 				companyID = found
 			}
 		}
-	}
-	if err := h.assertPositionsInTenant(tenantID, uniqueUint64s(body.PositionIDs)); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
-		return
-	}
-	if err := h.assertRolesInTenant(tenantID, uniqueUint64s(body.RoleIDs)); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
-		return
-	}
-	if err := h.assertUserUniqueFields(tenantID, 0, body.EmployeeNo, phone); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
-		return
 	}
 	user := models.AppUser{TenantID: tenantID, EmployeeNo: body.EmployeeNo, Account: body.EmployeeNo, PasswordHash: devPasswordHash(body.Password), Name: body.Name, Phone: phone, Email: body.Email, CompanyID: companyID, DepartmentID: departmentID, Status: body.Status}
 	var err error
@@ -160,10 +144,6 @@ func (h *IdentityHandler) UpdateUser(c *gin.Context) {
 			response.Error(c, 400, response.CodeBadRequest, msg)
 			return
 		}
-		if err := h.assertUserUniqueFields(tenantID, user.ID, "", phone); err != nil {
-			response.Error(c, 400, response.CodeBadRequest, err.Error())
-			return
-		}
 		updates["phone"] = phone
 	}
 	if body.Email != nil {
@@ -197,10 +177,6 @@ func (h *IdentityHandler) UpdateUser(c *gin.Context) {
 	departmentIDs := body.DepartmentIDs
 	if departmentIDs != nil {
 		departmentIDs = uniqueUint64s(departmentIDs)
-		if err := h.assertDepartmentsInTenant(tenantID, departmentIDs); err != nil {
-			response.Error(c, 400, response.CodeBadRequest, err.Error())
-			return
-		}
 		if len(departmentIDs) > 0 {
 			updates["department_id"] = departmentIDs[0]
 			if body.CompanyID == nil {
@@ -212,27 +188,15 @@ func (h *IdentityHandler) UpdateUser(c *gin.Context) {
 			updates["department_id"] = nil
 		}
 	} else if body.DepartmentID != nil {
-		if err := h.assertDepartmentsInTenant(tenantID, []uint64{*body.DepartmentID}); err != nil {
-			response.Error(c, 400, response.CodeBadRequest, err.Error())
-			return
-		}
 		departmentIDs = []uint64{*body.DepartmentID}
 	}
 	positionIDs := body.PositionIDs
 	if positionIDs != nil {
 		positionIDs = uniqueUint64s(positionIDs)
-		if err := h.assertPositionsInTenant(tenantID, positionIDs); err != nil {
-			response.Error(c, 400, response.CodeBadRequest, err.Error())
-			return
-		}
 	}
 	roleIDs := body.RoleIDs
 	if roleIDs != nil {
 		roleIDs = uniqueUint64s(roleIDs)
-		if err := h.assertRolesInTenant(tenantID, roleIDs); err != nil {
-			response.Error(c, 400, response.CodeBadRequest, err.Error())
-			return
-		}
 	}
 	if err := h.userService().UpdateWithRelations(c.Request.Context(), &user, updates, appuser.Relations{RoleIDs: roleIDs, PositionIDs: positionIDs, DepartmentIDs: departmentIDs}); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, safeDBErrorMessage(err))

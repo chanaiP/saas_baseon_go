@@ -57,7 +57,7 @@ func TestImportUsersRollsBackBatchWhenOneRowFails(t *testing.T) {
 		{TenantID: 1, EmployeeNo: "E70002", Account: "E70002", PasswordHash: "hash", Name: "Duplicate", Status: 1, CreatedAt: now, UpdatedAt: now},
 	}
 
-	err := service.ImportUsers(context.Background(), rows)
+	_, err := service.ImportUsers(context.Background(), rows)
 
 	require.Error(t, err)
 	var count int64

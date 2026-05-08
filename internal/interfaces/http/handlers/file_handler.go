@@ -240,7 +240,6 @@ func (h *IdentityHandler) ImportUsersCSV(c *gin.Context) {
 		return
 	}
 	index := csvHeaderIndex(records[0])
-	created, skipped := 0, 0
 	errors := []string{}
 	newUsers := []models.AppUser{}
 	for line, record := range records[1:] {
@@ -250,16 +249,6 @@ func (h *IdentityHandler) ImportUsersCSV(c *gin.Context) {
 			errors = append(errors, fmt.Sprintf("第 %d 行：工号和姓名不能为空", line+2))
 			response.Error(c, 400, response.CodeBadRequest, "导入失败，已回滚全部新增用户")
 			return
-		}
-		var count int64
-		if err := h.db.Model(&models.AppUser{}).Where("tenant_id = ? AND employee_no = ? AND deleted_at IS NULL", user.TenantID, employeeNo).Count(&count).Error; err != nil {
-			errors = append(errors, fmt.Sprintf("第 %d 行：%s", line+2, safeDBErrorMessage(err)))
-			response.Error(c, 400, response.CodeBadRequest, "导入失败，已回滚全部新增用户")
-			return
-		}
-		if count > 0 {
-			skipped++
-			continue
 		}
 		status := 1
 		if csvCell(record, index, "status") == "停用" || csvCell(record, index, "status") == "0" {
@@ -276,13 +265,13 @@ func (h *IdentityHandler) ImportUsersCSV(c *gin.Context) {
 		password := mustHashPassword(employeeNo)
 		newUsers = append(newUsers, models.AppUser{TenantID: user.TenantID, EmployeeNo: employeeNo, Account: employeeNo, PasswordHash: password, Name: name, Phone: phone, Email: nullableFromString(csvCell(record, index, "email")), CompanyID: companyID, DepartmentID: departmentID, Status: status})
 	}
-	if err := h.userService().ImportUsers(c.Request.Context(), newUsers); err != nil {
+	result, err := h.userService().ImportUsers(c.Request.Context(), newUsers)
+	if err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "导入失败，已回滚全部新增用户")
 		return
 	}
-	created = len(newUsers)
-	h.audit(c, user.TenantID, user.ID, "user", "batch_import", fmt.Sprintf("批量导入用户：创建 %d，跳过 %d", created, skipped), gin.H{"created": created, "skipped": skipped, "errors": firstStrings(errors, 10)})
-	response.OK(c, gin.H{"created": created, "skipped": skipped, "errors": firstStrings(errors, 20)})
+	h.audit(c, user.TenantID, user.ID, "user", "batch_import", fmt.Sprintf("批量导入用户：创建 %d，跳过 %d", result.Created, result.Skipped), gin.H{"created": result.Created, "skipped": result.Skipped, "errors": firstStrings(errors, 10)})
+	response.OK(c, gin.H{"created": result.Created, "skipped": result.Skipped, "errors": firstStrings(errors, 20)})
 }
 
 func (h *IdentityHandler) ExportCompaniesCSV(c *gin.Context) {
