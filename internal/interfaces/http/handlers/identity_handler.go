@@ -55,6 +55,10 @@ func (h *IdentityHandler) AuthRequired() gin.HandlerFunc {
 	}
 }
 
+func (h *IdentityHandler) InvalidateAllAuthorizationCache() {
+	h.invalidateAllAuthorizationCache()
+}
+
 func (h *IdentityHandler) requestTenantBodyAllowed(c *gin.Context, user models.AppUser) bool {
 	if c.Request == nil || c.Request.Body == nil {
 		return true

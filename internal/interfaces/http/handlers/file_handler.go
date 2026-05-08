@@ -80,7 +80,8 @@ func (h *IdentityHandler) UploadFile(c *gin.Context) {
 	}
 	fileID := randomHex(16)
 	originalName := safeOriginalName(file.Filename)
-	validation, err := validateUploadFile(originalName, file)
+	fileService := h.fileService()
+	validation, err := fileService.ValidateUpload(originalName, file)
 	if err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
@@ -91,14 +92,14 @@ func (h *IdentityHandler) UploadFile(c *gin.Context) {
 		return
 	}
 	dst := filepath.Join(dir, fileID+validation.Ext)
-	if err := saveUploadedFile(file, dst); err != nil {
+	if err := fileService.SaveUploadedFile(file, dst); err != nil {
 		_ = os.Remove(dst)
 		response.Error(c, 500, response.CodeInternal, "保存文件失败")
 		return
 	}
 	now := time.Now()
 	storedName := fileID + validation.Ext
-	_, err = h.fileService().CreateMetadata(c.Request.Context(), appfile.CreateMetadataCommand{
+	_, err = fileService.CreateMetadata(c.Request.Context(), appfile.CreateMetadataCommand{
 		TenantID:     user.TenantID,
 		FileID:       fileID,
 		CreatedBy:    user.ID,
@@ -107,6 +108,7 @@ func (h *IdentityHandler) UploadFile(c *gin.Context) {
 		StoragePath:  dst,
 		MimeType:     validation.MimeType,
 		FileSize:     file.Size,
+		AuditUserID:  user.ID,
 		Now:          now,
 	})
 	if err != nil {
@@ -114,7 +116,6 @@ func (h *IdentityHandler) UploadFile(c *gin.Context) {
 		response.Error(c, 500, response.CodeInternal, "保存文件元数据失败")
 		return
 	}
-	h.audit(c, user.TenantID, user.ID, "file", "upload", "上传文件 "+originalName, gin.H{"file_id": fileID, "file_name": originalName, "size": file.Size})
 	response.OK(c, gin.H{"file_id": fileID, "file_name": originalName, "size": file.Size, "url": "/api/files/download/" + fileID})
 }
 
@@ -162,8 +163,7 @@ func (h *IdentityHandler) DeleteFile(c *gin.Context) {
 		return
 	}
 	now := time.Now()
-	_ = h.fileService().SoftDelete(c.Request.Context(), &fileObject, trashPath, now)
-	h.audit(c, user.TenantID, user.ID, "file", "delete", "删除文件 "+fileID, gin.H{"file_id": fileID, "trash_path": trashPath})
+	_ = h.fileService().SoftDelete(c.Request.Context(), &fileObject, trashPath, user.ID, now)
 	response.OK(c, gin.H{"message": "已删除"})
 }
 
@@ -264,13 +264,6 @@ func (h *IdentityHandler) ImportUsersCSV(c *gin.Context) {
 		status := 1
 		if csvCell(record, index, "status") == "停用" || csvCell(record, index, "status") == "0" {
 			status = 0
-		}
-		if status == 1 {
-			if err := h.requireQuotaAvailable(user.TenantID, "max_users", 1); err != nil {
-				errors = append(errors, fmt.Sprintf("第 %d 行：%s", line+2, err.Error()))
-				response.Error(c, 400, response.CodeBadRequest, "导入失败，已回滚全部新增用户")
-				return
-			}
 		}
 		companyID := h.resolveCompanyIDByName(user.TenantID, csvCell(record, index, "company_name"))
 		departmentID := h.resolveDepartmentIDByName(user.TenantID, companyID, csvCell(record, index, "department_name"))

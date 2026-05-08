@@ -2,6 +2,7 @@ package user
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -11,6 +12,12 @@ import (
 
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 )
+
+type denyQuotaChecker struct{}
+
+func (denyQuotaChecker) RequireAvailable(context.Context, uint64, string, int) error {
+	return fmt.Errorf("配额不足")
+}
 
 func TestCreateWithRelationsRollsBackUserWhenRelationFails(t *testing.T) {
 	db := newUserServiceTestDB(t)
@@ -23,6 +30,21 @@ func TestCreateWithRelationsRollsBackUserWhenRelationFails(t *testing.T) {
 	require.Error(t, err)
 	var count int64
 	require.NoError(t, db.Model(&models.AppUser{}).Where("employee_no = ?", "E70001").Count(&count).Error)
+	require.Equal(t, int64(0), count)
+}
+
+func TestCreateWithRelationsChecksQuotaInsideService(t *testing.T) {
+	db := newUserServiceTestDB(t)
+	service := NewService(db, denyQuotaChecker{})
+	now := time.Now()
+	row := models.AppUser{TenantID: 1, EmployeeNo: "E70003", Account: "E70003", PasswordHash: "hash", Name: "Quota", Status: 1, CreatedAt: now, UpdatedAt: now}
+
+	_, err := service.CreateWithRelations(context.Background(), row, Relations{})
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "配额")
+	var count int64
+	require.NoError(t, db.Model(&models.AppUser{}).Where("employee_no = ?", "E70003").Count(&count).Error)
 	require.Equal(t, int64(0), count)
 }
 

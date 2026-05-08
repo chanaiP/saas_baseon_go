@@ -106,11 +106,11 @@
 本轮只优先迁移 user、plan/quota、file，避免大面积回归。
 
 - [x] 建立真实 user application service，不接受空 service。
-- [ ] 用户创建、更新、删除、导入的事务、租户校验、配额校验进入 user service。
+- [x] 用户创建、更新、删除、导入的事务、租户校验、配额校验进入 user service。
 - [x] 建立真实 plan/quota application service，不接受空 service。
-- [ ] 套餐 feature/quota 更新、配额扣减、缓存失效进入 plan/quota service。
+- [x] 套餐 feature/quota 更新、配额扣减、缓存失效进入 plan/quota service。
 - [x] 建立真实 file application service，不接受空 service。
-- [ ] 文件上传安全校验、存储、元数据、审计进入 file service。
+- [x] 文件上传安全校验、存储、元数据、审计进入 file service。
 - [ ] handler 只保留参数绑定、上下文提取、调用 service、返回 response。
 - [ ] repository 默认带 tenant scope。
 - [x] 补 user service 单元测试。

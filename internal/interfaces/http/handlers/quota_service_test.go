@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
+	appquota "saas_baseon_go/internal/application/quota"
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 )
 
@@ -31,7 +32,7 @@ func TestConsumeQuotaConcurrentDoesNotExceedLimit(t *testing.T) {
 				atomic.AddInt32(&successes, 1)
 				return
 			}
-			var quotaErr *quotaExceededError
+			var quotaErr *appquota.ExceededError
 			require.True(t, errors.As(err, &quotaErr), "unexpected error: %v", err)
 		}()
 	}
@@ -55,7 +56,7 @@ func TestConsumeQuotaExceededDoesNotIncreaseUsage(t *testing.T) {
 	require.NoError(t, handler.consumeQuota(1002, "daily_import_times", 2))
 	err := handler.consumeQuota(1002, "daily_import_times", 1)
 
-	var quotaErr *quotaExceededError
+	var quotaErr *appquota.ExceededError
 	require.True(t, errors.As(err, &quotaErr), "unexpected error: %v", err)
 	var usage models.TenantQuotaUsage
 	require.NoError(t, db.Where("tenant_id = ? AND quota_code = ?", 1002, "daily_import_times").First(&usage).Error)

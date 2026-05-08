@@ -116,10 +116,6 @@ func (h *IdentityHandler) CreateUser(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
-	if err := h.requireQuotaAvailable(tenantID, "max_users", 1); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
-		return
-	}
 	user := models.AppUser{TenantID: tenantID, EmployeeNo: body.EmployeeNo, Account: body.EmployeeNo, PasswordHash: devPasswordHash(body.Password), Name: body.Name, Phone: phone, Email: body.Email, CompanyID: companyID, DepartmentID: departmentID, Status: body.Status}
 	var err error
 	user, err = h.userService().CreateWithRelations(c.Request.Context(), user, appuser.Relations{RoleIDs: uniqueUint64s(body.RoleIDs), PositionIDs: uniqueUint64s(body.PositionIDs), DepartmentIDs: departmentIDs})
@@ -250,5 +246,5 @@ func (h *IdentityHandler) UpdateUser(c *gin.Context) {
 }
 
 func (h *IdentityHandler) userService() *appuser.Service {
-	return appuser.NewService(h.db)
+	return appuser.NewService(h.db, h)
 }

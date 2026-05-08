@@ -112,7 +112,7 @@ func (h *IdentityHandler) savePlanQuotasWithValues(planID uint64, quotas []planQ
 }
 
 func (h *IdentityHandler) quotaService() *appquota.Service {
-	return appquota.NewService(h.db)
+	return appquota.NewService(h.db, h)
 }
 
 func toAppPlanQuotaInputs(quotas []planQuotaInput) []appquota.PlanQuotaInput {
