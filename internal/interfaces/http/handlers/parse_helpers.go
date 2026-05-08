@@ -33,7 +33,7 @@ func safeDBErrorMessage(err error) string {
 	if strings.Contains(msg, "duplicate key") || strings.Contains(msg, "unique constraint") {
 		return "数据已存在，请检查唯一字段"
 	}
-	return err.Error()
+	return "请求处理失败"
 }
 
 func boolToStatus(value bool) int {

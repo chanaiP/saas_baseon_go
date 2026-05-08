@@ -1,10 +1,13 @@
 package handlers
 
 import (
+	"archive/zip"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -15,6 +18,26 @@ import (
 
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 )
+
+const (
+	maxZipFileCount               = 1000
+	maxZipUncompressedBytes int64 = 200 * 1024 * 1024
+)
+
+type uploadValidationResult struct {
+	Ext      string
+	MimeType string
+}
+
+type UploadVirusScanner interface {
+	ScanUpload(originalName string, content []byte) error
+}
+
+type noopUploadVirusScanner struct{}
+
+func (noopUploadVirusScanner) ScanUpload(string, []byte) error { return nil }
+
+var uploadVirusScanner UploadVirusScanner = noopUploadVirusScanner{}
 
 func uploadRoot() string {
 	root := os.Getenv("UPLOAD_DIR")
@@ -56,15 +79,38 @@ func safeFileExt(name string) string {
 	return ext
 }
 
-func validateUploadFile(originalName string, file *multipart.FileHeader) (string, error) {
+func validateUploadFile(originalName string, file *multipart.FileHeader) (uploadValidationResult, error) {
 	ext := safeFileExt(originalName)
 	if _, ok := allowedUploadExtensions[ext]; !ok {
-		return "", errors.New("不支持的文件类型")
+		return uploadValidationResult{}, errors.New("不支持的文件类型")
 	}
-	if isHighRiskUploadContentType(file.Header.Get("Content-Type")) {
-		return "", errors.New("不允许上传高风险文件类型")
+	clientType := normalizeContentType(file.Header.Get("Content-Type"))
+	if isHighRiskUploadContentType(clientType) {
+		return uploadValidationResult{}, errors.New("不允许上传高风险文件类型")
 	}
-	return ext, nil
+	content, err := readUploadSample(file, 50*1024*1024)
+	if err != nil {
+		return uploadValidationResult{}, errors.New("读取文件失败")
+	}
+	detectedType := sniffUploadContentType(content)
+	if isHighRiskUploadContentType(detectedType) {
+		return uploadValidationResult{}, errors.New("不允许上传高风险文件类型")
+	}
+	if !uploadExtensionMatchesContent(ext, detectedType, content) {
+		return uploadValidationResult{}, errors.New("文件扩展名与实际内容不一致")
+	}
+	if !uploadClientTypeAllowed(ext, clientType) {
+		return uploadValidationResult{}, errors.New("文件 Content-Type 与扩展名不一致")
+	}
+	if uploadIsZipBacked(ext) {
+		if err := validateZipUpload(content); err != nil {
+			return uploadValidationResult{}, err
+		}
+	}
+	if err := uploadVirusScanner.ScanUpload(originalName, content); err != nil {
+		return uploadValidationResult{}, errors.New("文件安全扫描未通过")
+	}
+	return uploadValidationResult{Ext: ext, MimeType: detectedType}, nil
 }
 
 func saveUploadedFile(file *multipart.FileHeader, dst string) error {
@@ -91,6 +137,126 @@ func normalizeContentType(value string) string {
 		value = strings.TrimSpace(value[:i])
 	}
 	return value
+}
+
+func readUploadSample(file *multipart.FileHeader, maxBytes int64) ([]byte, error) {
+	src, err := file.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer src.Close()
+	return io.ReadAll(io.LimitReader(src, maxBytes+1))
+}
+
+func sniffUploadContentType(content []byte) string {
+	if len(content) == 0 {
+		return "application/octet-stream"
+	}
+	limit := len(content)
+	if limit > 512 {
+		limit = 512
+	}
+	return normalizeContentType(http.DetectContentType(content[:limit]))
+}
+
+func uploadClientTypeAllowed(ext string, clientType string) bool {
+	if clientType == "" || clientType == "application/octet-stream" {
+		return true
+	}
+	for _, allowed := range allowedUploadMIMETypes(ext) {
+		if clientType == allowed {
+			return true
+		}
+	}
+	return false
+}
+
+func uploadExtensionMatchesContent(ext string, detectedType string, content []byte) bool {
+	if uploadIsZipBacked(ext) {
+		return bytes.HasPrefix(content, []byte("PK\x03\x04")) || bytes.HasPrefix(content, []byte("PK\x05\x06")) || bytes.HasPrefix(content, []byte("PK\x07\x08"))
+	}
+	if uploadIsOLEDocument(ext) {
+		return bytes.HasPrefix(content, []byte{0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1})
+	}
+	for _, allowed := range allowedUploadMIMETypes(ext) {
+		if detectedType == allowed {
+			return true
+		}
+	}
+	return false
+}
+
+func allowedUploadMIMETypes(ext string) []string {
+	switch ext {
+	case ".csv":
+		return []string{"text/plain", "text/csv", "application/csv", "application/vnd.ms-excel"}
+	case ".txt":
+		return []string{"text/plain"}
+	case ".jpg", ".jpeg":
+		return []string{"image/jpeg"}
+	case ".png":
+		return []string{"image/png"}
+	case ".gif":
+		return []string{"image/gif"}
+	case ".webp":
+		return []string{"image/webp"}
+	case ".pdf":
+		return []string{"application/pdf"}
+	case ".zip":
+		return []string{"application/zip", "application/x-zip-compressed", "application/octet-stream"}
+	case ".docx":
+		return []string{"application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/zip", "application/octet-stream"}
+	case ".xlsx":
+		return []string{"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/zip", "application/octet-stream"}
+	case ".pptx":
+		return []string{"application/vnd.openxmlformats-officedocument.presentationml.presentation", "application/zip", "application/octet-stream"}
+	case ".doc":
+		return []string{"application/msword", "application/octet-stream"}
+	case ".xls":
+		return []string{"application/vnd.ms-excel", "application/octet-stream"}
+	case ".ppt":
+		return []string{"application/vnd.ms-powerpoint", "application/octet-stream"}
+	default:
+		return nil
+	}
+}
+
+func uploadIsZipBacked(ext string) bool {
+	return ext == ".zip" || ext == ".docx" || ext == ".xlsx" || ext == ".pptx"
+}
+
+func uploadIsOLEDocument(ext string) bool {
+	return ext == ".doc" || ext == ".xls" || ext == ".ppt"
+}
+
+func validateZipUpload(content []byte) error {
+	reader, err := zip.NewReader(bytes.NewReader(content), int64(len(content)))
+	if err != nil {
+		return errors.New("ZIP 文件格式错误")
+	}
+	var total uint64
+	for i, item := range reader.File {
+		if i >= maxZipFileCount {
+			return errors.New("ZIP 文件数量超限")
+		}
+		if zipPathUnsafe(item.Name) {
+			return errors.New("ZIP 文件路径非法")
+		}
+		total += item.UncompressedSize64
+		if total > uint64(maxZipUncompressedBytes) {
+			return errors.New("ZIP 解压后大小超限")
+		}
+	}
+	return nil
+}
+
+func zipPathUnsafe(name string) bool {
+	normalized := strings.ReplaceAll(name, "\\", "/")
+	if strings.HasPrefix(normalized, "/") || strings.Contains(normalized, "\x00") {
+		return true
+	}
+	cleaned := filepath.Clean(normalized)
+	return cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") || strings.Contains(cleaned, "/../")
 }
 
 func isHighRiskUploadContentType(contentType string) bool {

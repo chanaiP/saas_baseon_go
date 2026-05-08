@@ -15,38 +15,42 @@ func devPasswordHash(password string) string {
 
 func (h *IdentityHandler) replaceUserRelations(userID uint64, roleIDs []uint64, positionIDs []uint64, departmentIDs []uint64) error {
 	return h.db.Transaction(func(tx *gorm.DB) error {
-		if roleIDs != nil {
-			if err := tx.Where("user_id = ?", userID).Delete(&models.UserRole{}).Error; err != nil {
-				return err
-			}
-			for _, id := range roleIDs {
-				if err := tx.Create(&models.UserRole{UserID: userID, RoleID: id}).Error; err != nil {
-					return err
-				}
-			}
-		}
-		if positionIDs != nil {
-			if err := tx.Where("user_id = ?", userID).Delete(&models.AppUserPosition{}).Error; err != nil {
-				return err
-			}
-			for _, id := range positionIDs {
-				if err := tx.Create(&models.AppUserPosition{UserID: userID, PositionID: id}).Error; err != nil {
-					return err
-				}
-			}
-		}
-		if departmentIDs != nil {
-			if err := tx.Where("user_id = ?", userID).Delete(&models.AppUserDepartment{}).Error; err != nil {
-				return err
-			}
-			for _, id := range departmentIDs {
-				if err := tx.Create(&models.AppUserDepartment{UserID: userID, DepartmentID: id}).Error; err != nil {
-					return err
-				}
-			}
-		}
-		return nil
+		return replaceUserRelationsTx(tx, userID, roleIDs, positionIDs, departmentIDs)
 	})
+}
+
+func replaceUserRelationsTx(tx *gorm.DB, userID uint64, roleIDs []uint64, positionIDs []uint64, departmentIDs []uint64) error {
+	if roleIDs != nil {
+		if err := tx.Where("user_id = ?", userID).Delete(&models.UserRole{}).Error; err != nil {
+			return err
+		}
+		for _, id := range roleIDs {
+			if err := tx.Create(&models.UserRole{UserID: userID, RoleID: id}).Error; err != nil {
+				return err
+			}
+		}
+	}
+	if positionIDs != nil {
+		if err := tx.Where("user_id = ?", userID).Delete(&models.AppUserPosition{}).Error; err != nil {
+			return err
+		}
+		for _, id := range positionIDs {
+			if err := tx.Create(&models.AppUserPosition{UserID: userID, PositionID: id}).Error; err != nil {
+				return err
+			}
+		}
+	}
+	if departmentIDs != nil {
+		if err := tx.Where("user_id = ?", userID).Delete(&models.AppUserDepartment{}).Error; err != nil {
+			return err
+		}
+		for _, id := range departmentIDs {
+			if err := tx.Create(&models.AppUserDepartment{UserID: userID, DepartmentID: id}).Error; err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (h *IdentityHandler) assertDepartmentsInTenant(tenantID uint64, departmentIDs []uint64) error {

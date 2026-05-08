@@ -24,6 +24,7 @@ type Config struct {
 	AutoMigrate   bool
 	CORSOrigins   string
 	JWTFallback   bool
+	UploadDir     string
 }
 
 func LoadConfig() Config {
@@ -41,6 +42,7 @@ func LoadConfig() Config {
 		AutoMigrate:   envBool("DB_AUTO_MIGRATE", true),
 		CORSOrigins:   env("CORS_ORIGINS", "*"),
 		JWTFallback:   envBool("AUTH_JWT_FALLBACK", true),
+		UploadDir:     env("UPLOAD_DIR", ""),
 	}
 }
 
@@ -68,6 +70,9 @@ func (c Config) ValidateForRuntime() error {
 	if corsOriginsUnsafe(c.CORSOrigins) {
 		problems = append(problems, "CORS_ORIGINS must be explicitly configured and cannot allow all origins in production")
 	}
+	if uploadDirUnsafe(c.UploadDir) {
+		problems = append(problems, "UPLOAD_DIR must be explicitly configured for production")
+	}
 	if len(problems) > 0 {
 		return fmt.Errorf("unsafe production configuration: %w: %s", ErrUnsafeProductionConfig, strings.Join(problems, "; "))
 	}
@@ -76,16 +81,17 @@ func (c Config) ValidateForRuntime() error {
 
 func (c Config) SafeSummary() map[string]interface{} {
 	return map[string]interface{}{
-		"app_env":              c.AppEnv,
-		"http_addr":            c.HTTPAddr,
-		"database_configured":  strings.TrimSpace(c.DatabaseDSN) != "",
-		"redis_configured":     strings.TrimSpace(c.RedisAddr) != "",
-		"redis_db":             c.RedisDB,
-		"auth_secret_set":      c.AuthSecret != "" && c.AuthSecret != defaultAuthSecret,
-		"token_ttl_hours":      c.TokenTTLHours,
-		"auto_migrate":         c.AutoMigrate,
-		"cors_explicit":        !corsOriginsUnsafe(c.CORSOrigins),
-		"jwt_fallback_enabled": c.JWTFallback,
+		"app_env":               c.AppEnv,
+		"http_addr":             c.HTTPAddr,
+		"database_configured":   strings.TrimSpace(c.DatabaseDSN) != "",
+		"redis_configured":      strings.TrimSpace(c.RedisAddr) != "",
+		"redis_db":              c.RedisDB,
+		"auth_secret_set":       c.AuthSecret != "" && c.AuthSecret != defaultAuthSecret,
+		"token_ttl_hours":       c.TokenTTLHours,
+		"auto_migrate":          c.AutoMigrate,
+		"cors_explicit":         !corsOriginsUnsafe(c.CORSOrigins),
+		"jwt_fallback_enabled":  c.JWTFallback,
+		"upload_dir_configured": strings.TrimSpace(c.UploadDir) != "",
 	}
 }
 
@@ -118,6 +124,10 @@ func corsOriginsUnsafe(origins string) bool {
 func redisAddressUnsafe(addr string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(addr))
 	return normalized == "" || normalized == "127.0.0.1:6380"
+}
+
+func uploadDirUnsafe(dir string) bool {
+	return strings.TrimSpace(dir) == ""
 }
 
 func env(key, fallback string) string {

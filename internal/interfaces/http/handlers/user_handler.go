@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	appuser "saas_baseon_go/internal/application/user"
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 	"saas_baseon_go/internal/interfaces/http/response"
 )
@@ -120,12 +121,10 @@ func (h *IdentityHandler) CreateUser(c *gin.Context) {
 		return
 	}
 	user := models.AppUser{TenantID: tenantID, EmployeeNo: body.EmployeeNo, Account: body.EmployeeNo, PasswordHash: devPasswordHash(body.Password), Name: body.Name, Phone: phone, Email: body.Email, CompanyID: companyID, DepartmentID: departmentID, Status: body.Status}
-	if err := h.db.Create(&user).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
-		return
-	}
-	if err := h.replaceUserRelations(user.ID, uniqueUint64s(body.RoleIDs), uniqueUint64s(body.PositionIDs), departmentIDs); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+	var err error
+	user, err = h.userService().CreateWithRelations(c.Request.Context(), user, appuser.Relations{RoleIDs: uniqueUint64s(body.RoleIDs), PositionIDs: uniqueUint64s(body.PositionIDs), DepartmentIDs: departmentIDs})
+	if err != nil {
+		response.Error(c, 400, response.CodeBadRequest, safeDBErrorMessage(err))
 		return
 	}
 	h.auditCurrentUser(c, "user", "create", "创建用户 "+user.Name, gin.H{"user_id": user.ID, "tenant_id": user.TenantID, "employee_no": user.EmployeeNo})
@@ -239,14 +238,8 @@ func (h *IdentityHandler) UpdateUser(c *gin.Context) {
 			return
 		}
 	}
-	if len(updates) > 0 {
-		if err := h.db.Model(&user).Updates(updates).First(&user, user.ID).Error; err != nil {
-			response.Error(c, 400, response.CodeBadRequest, err.Error())
-			return
-		}
-	}
-	if err := h.replaceUserRelations(user.ID, roleIDs, positionIDs, departmentIDs); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+	if err := h.userService().UpdateWithRelations(c.Request.Context(), &user, updates, appuser.Relations{RoleIDs: roleIDs, PositionIDs: positionIDs, DepartmentIDs: departmentIDs}); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, safeDBErrorMessage(err))
 		return
 	}
 	if body.Status != nil && *body.Status != 1 {
@@ -254,4 +247,8 @@ func (h *IdentityHandler) UpdateUser(c *gin.Context) {
 	}
 	h.auditCurrentUser(c, "user", "update", "更新用户 "+user.Name, gin.H{"user_id": user.ID, "tenant_id": user.TenantID, "changes": updates})
 	response.OK(c, h.userToJSON(user))
+}
+
+func (h *IdentityHandler) userService() *appuser.Service {
+	return appuser.NewService(h.db)
 }

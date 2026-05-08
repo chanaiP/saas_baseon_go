@@ -3,29 +3,52 @@ package handlers
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"saas_baseon_go/internal/interfaces/http/response"
 )
 
+type deletionBlockedError struct {
+	Message string
+}
+
+func (e *deletionBlockedError) Error() string { return e.Message }
+
 func (h *IdentityHandler) blockDeleteIfReferenced(c *gin.Context, resource string, refs ...deletionReference) bool {
-	for _, item := range refs {
-		var count int64
-		if err := h.db.Model(item.Model).Where(item.Query, item.Args...).Count(&count).Error; err != nil {
-			response.Error(c, 400, response.CodeBadRequest, err.Error())
-			return true
-		}
-		if count > 0 {
-			response.Error(c, 400, response.CodeBadRequest, fmt.Sprintf("%s已被%s引用，不能删除", resource, item.Name))
-			return true
-		}
+	if err := checkDeletionReferences(h.db, resource, refs...); err != nil {
+		h.respondDeletionError(c, err)
+		return true
 	}
 	return false
+}
+
+func checkDeletionReferences(db *gorm.DB, resource string, refs ...deletionReference) error {
+	for _, item := range refs {
+		var count int64
+		if err := db.Model(item.Model).Where(item.Query, item.Args...).Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			return &deletionBlockedError{Message: fmt.Sprintf("%s已被%s引用，不能删除", resource, item.Name)}
+		}
+	}
+	return nil
+}
+
+func (h *IdentityHandler) respondDeletionError(c *gin.Context, err error) {
+	var blocked *deletionBlockedError
+	if errors.As(err, &blocked) {
+		response.Error(c, 400, response.CodeBadRequest, blocked.Message)
+		return
+	}
+	response.Error(c, 400, response.CodeBadRequest, safeDBErrorMessage(err))
 }
 
 func requiredDeletionGuards() []string {

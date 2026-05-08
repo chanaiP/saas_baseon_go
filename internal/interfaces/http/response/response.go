@@ -1,6 +1,7 @@
 package response
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -32,7 +33,11 @@ func Error(c *gin.Context, httpStatus int, code int, message string) {
 		code = CodeConflict
 		message = "数据已存在，请检查唯一字段"
 	}
-	c.JSON(httpStatus, Body{Code: code, Message: SafeMessage(httpStatus, message)})
+	safeMessage := SafeMessage(httpStatus, message)
+	if strings.TrimSpace(message) != "" && safeMessage != strings.TrimSpace(message) {
+		_ = c.Error(fmt.Errorf("masked response error: %s", message))
+	}
+	c.JSON(httpStatus, Body{Code: code, Message: safeMessage})
 }
 
 func IsUniqueConstraintMessage(message string) bool {
@@ -52,6 +57,8 @@ func SafeMessage(httpStatus int, message string) string {
 		"authorization", "bearer ", "database_dsn", "password=", "token", "secret",
 		"sqlstate", "duplicate key", "violates", "pq:", "pgconn", "gorm", "driver:",
 		"connection refused", "no such host", "syntax error at or near",
+		"redis:", "dial tcp", "i/o timeout", "permission denied", "no such file or directory",
+		"open /", "stat /", "mkdir /", "unlink /", "rename /",
 	}
 	for _, pattern := range sensitivePatterns {
 		if strings.Contains(lower, pattern) {

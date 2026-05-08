@@ -41,6 +41,7 @@ func TestValidateForRuntimeRejectsUnsafeProductionConfig(t *testing.T) {
 		AutoMigrate: true,
 		CORSOrigins: "*",
 		JWTFallback: true,
+		UploadDir:   "",
 	}
 
 	err := cfg.ValidateForRuntime()
@@ -53,6 +54,44 @@ func TestValidateForRuntimeRejectsUnsafeProductionConfig(t *testing.T) {
 	require.Contains(t, err.Error(), "DATABASE_DSN")
 	require.Contains(t, err.Error(), "REDIS_ADDR")
 	require.Contains(t, err.Error(), "CORS_ORIGINS")
+	require.Contains(t, err.Error(), "UPLOAD_DIR")
+}
+
+func TestValidateForRuntimeRejectsProductionJWTFallback(t *testing.T) {
+	cfg := Config{
+		AppEnv:      "production",
+		DatabaseDSN: "host=postgres user=app_prod password=strong-secret dbname=saas_baseon",
+		RedisAddr:   "redis:6379",
+		AuthSecret:  "prod-secret-with-enough-entropy",
+		AutoMigrate: false,
+		CORSOrigins: "https://admin.example.com",
+		JWTFallback: true,
+		UploadDir:   "/srv/saas/uploads",
+	}
+
+	err := cfg.ValidateForRuntime()
+
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrUnsafeProductionConfig))
+	require.Contains(t, err.Error(), "AUTH_JWT_FALLBACK")
+}
+
+func TestValidateForRuntimeRejectsProductionMissingUploadDir(t *testing.T) {
+	cfg := Config{
+		AppEnv:      "production",
+		DatabaseDSN: "host=postgres user=app_prod password=strong-secret dbname=saas_baseon",
+		RedisAddr:   "redis:6379",
+		AuthSecret:  "prod-secret-with-enough-entropy",
+		AutoMigrate: false,
+		CORSOrigins: "https://admin.example.com",
+		JWTFallback: false,
+	}
+
+	err := cfg.ValidateForRuntime()
+
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrUnsafeProductionConfig))
+	require.Contains(t, err.Error(), "UPLOAD_DIR")
 }
 
 func TestValidateForRuntimeAllowsHardenedProductionConfig(t *testing.T) {
@@ -64,6 +103,7 @@ func TestValidateForRuntimeAllowsHardenedProductionConfig(t *testing.T) {
 		AutoMigrate: false,
 		CORSOrigins: "https://admin.example.com",
 		JWTFallback: false,
+		UploadDir:   "/srv/saas/uploads",
 	}
 
 	require.NoError(t, cfg.ValidateForRuntime())

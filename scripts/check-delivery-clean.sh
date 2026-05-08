@@ -6,7 +6,8 @@ blocked=(
   "__MACOSX"
   "frontend/node_modules"
   "frontend/dist"
-  ".git"
+  "dist/release"
+  "*.log"
 )
 
 for path in "${blocked[@]}"; do

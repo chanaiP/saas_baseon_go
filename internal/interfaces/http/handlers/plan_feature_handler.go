@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/gin-gonic/gin"
@@ -95,11 +96,7 @@ func (h *IdentityHandler) SavePlanCapabilities(c *gin.Context) {
 		return
 	}
 	planID := parseUintParam(c, "id")
-	if err := h.savePlanFeaturesWithIDs(planID, body.FeatureIDs); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
-		return
-	}
-	if err := h.savePlanQuotasWithValues(planID, body.Quotas); err != nil {
+	if err := h.quotaService().SaveCapabilities(c.Request.Context(), planID, body.FeatureIDs, toAppPlanQuotaInputs(body.Quotas)); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
 	}
@@ -124,23 +121,25 @@ func (h *IdentityHandler) SavePlanFeaturesWithIDs(c *gin.Context, featureIDs []u
 }
 
 func (h *IdentityHandler) savePlanFeaturesWithIDs(planID uint64, featureIDs []uint64) error {
+	return h.quotaService().SaveFeatures(context.Background(), planID, featureIDs)
+}
+
+func savePlanFeaturesWithIDsTx(tx *gorm.DB, planID uint64, featureIDs []uint64) error {
 	ids := uniqueUint64s(featureIDs)
-	return h.db.Transaction(func(tx *gorm.DB) error {
-		if err := lockPlanForUpdate(tx, planID); err != nil {
+	if err := lockPlanForUpdate(tx, planID); err != nil {
+		return err
+	}
+	if err := tx.Where("plan_id = ?", planID).Delete(&models.SaasPlanFeature{}).Error; err != nil {
+		return err
+	}
+	for _, featureID := range ids {
+		var feature models.SaasFeature
+		if err := tx.Where("id = ? AND status = ?", featureID, 1).First(&feature).Error; err != nil {
+			return fmt.Errorf("功能不存在或已停用")
+		}
+		if err := tx.Create(&models.SaasPlanFeature{PlanID: planID, FeatureID: featureID, Enabled: true}).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("plan_id = ?", planID).Delete(&models.SaasPlanFeature{}).Error; err != nil {
-			return err
-		}
-		for _, featureID := range ids {
-			var feature models.SaasFeature
-			if err := tx.Where("id = ? AND status = ?", featureID, 1).First(&feature).Error; err != nil {
-				return fmt.Errorf("功能不存在或已停用")
-			}
-			if err := tx.Create(&models.SaasPlanFeature{PlanID: planID, FeatureID: featureID, Enabled: true}).Error; err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+	}
+	return nil
 }

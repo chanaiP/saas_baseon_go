@@ -58,8 +58,8 @@ func (h *IdentityHandler) DeleteUser(c *gin.Context) {
 	if user.Phone != nil {
 		updates["phone"] = tombstoneUniqueValue(*user.Phone, user.ID, 32)
 	}
-	if err := h.db.Model(&user).Updates(updates).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+	if err := h.userService().Delete(c.Request.Context(), &user, updates); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, safeDBErrorMessage(err))
 		return
 	}
 	h.invalidateSessionsForUser(user.ID)

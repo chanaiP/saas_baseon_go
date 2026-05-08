@@ -16,6 +16,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	appfile "saas_baseon_go/internal/application/file"
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 	"saas_baseon_go/internal/interfaces/http/response"
 )
@@ -79,7 +80,7 @@ func (h *IdentityHandler) UploadFile(c *gin.Context) {
 	}
 	fileID := randomHex(16)
 	originalName := safeOriginalName(file.Filename)
-	ext, err := validateUploadFile(originalName, file)
+	validation, err := validateUploadFile(originalName, file)
 	if err != nil {
 		response.Error(c, 400, response.CodeBadRequest, err.Error())
 		return
@@ -89,28 +90,26 @@ func (h *IdentityHandler) UploadFile(c *gin.Context) {
 		response.Error(c, 500, response.CodeInternal, "创建上传目录失败")
 		return
 	}
-	dst := filepath.Join(dir, fileID+ext)
+	dst := filepath.Join(dir, fileID+validation.Ext)
 	if err := saveUploadedFile(file, dst); err != nil {
 		_ = os.Remove(dst)
 		response.Error(c, 500, response.CodeInternal, "保存文件失败")
 		return
 	}
 	now := time.Now()
-	storedName := fileID + ext
-	meta := models.FileObject{
+	storedName := fileID + validation.Ext
+	_, err = h.fileService().CreateMetadata(c.Request.Context(), appfile.CreateMetadataCommand{
 		TenantID:     user.TenantID,
 		FileID:       fileID,
 		CreatedBy:    user.ID,
 		OriginalName: originalName,
 		StoredName:   storedName,
 		StoragePath:  dst,
-		MimeType:     normalizeContentType(file.Header.Get("Content-Type")),
+		MimeType:     validation.MimeType,
 		FileSize:     file.Size,
-		Status:       1,
-		CreatedAt:    now,
-		UpdatedAt:    now,
-	}
-	if err := h.db.Create(&meta).Error; err != nil {
+		Now:          now,
+	})
+	if err != nil {
 		_ = os.Remove(dst)
 		response.Error(c, 500, response.CodeInternal, "保存文件元数据失败")
 		return
@@ -163,7 +162,7 @@ func (h *IdentityHandler) DeleteFile(c *gin.Context) {
 		return
 	}
 	now := time.Now()
-	_ = h.db.Model(&fileObject).Updates(map[string]interface{}{"status": 0, "deleted_at": now, "updated_at": now, "storage_path": trashPath}).Error
+	_ = h.fileService().SoftDelete(c.Request.Context(), &fileObject, trashPath, now)
 	h.audit(c, user.TenantID, user.ID, "file", "delete", "删除文件 "+fileID, gin.H{"file_id": fileID, "trash_path": trashPath})
 	response.OK(c, gin.H{"message": "已删除"})
 }
@@ -243,15 +242,21 @@ func (h *IdentityHandler) ImportUsersCSV(c *gin.Context) {
 	index := csvHeaderIndex(records[0])
 	created, skipped := 0, 0
 	errors := []string{}
+	newUsers := []models.AppUser{}
 	for line, record := range records[1:] {
 		employeeNo := csvCell(record, index, "employee_no")
 		name := csvCell(record, index, "name")
 		if employeeNo == "" || name == "" {
 			errors = append(errors, fmt.Sprintf("第 %d 行：工号和姓名不能为空", line+2))
-			continue
+			response.Error(c, 400, response.CodeBadRequest, "导入失败，已回滚全部新增用户")
+			return
 		}
 		var count int64
-		h.db.Model(&models.AppUser{}).Where("tenant_id = ? AND employee_no = ? AND deleted_at IS NULL", user.TenantID, employeeNo).Count(&count)
+		if err := h.db.Model(&models.AppUser{}).Where("tenant_id = ? AND employee_no = ? AND deleted_at IS NULL", user.TenantID, employeeNo).Count(&count).Error; err != nil {
+			errors = append(errors, fmt.Sprintf("第 %d 行：%s", line+2, safeDBErrorMessage(err)))
+			response.Error(c, 400, response.CodeBadRequest, "导入失败，已回滚全部新增用户")
+			return
+		}
 		if count > 0 {
 			skipped++
 			continue
@@ -262,7 +267,8 @@ func (h *IdentityHandler) ImportUsersCSV(c *gin.Context) {
 		}
 		if status == 1 {
 			if err := h.requireQuotaAvailable(user.TenantID, "max_users", 1); err != nil {
-				response.Error(c, 429, response.CodeBadRequest, err.Error())
+				errors = append(errors, fmt.Sprintf("第 %d 行：%s", line+2, err.Error()))
+				response.Error(c, 400, response.CodeBadRequest, "导入失败，已回滚全部新增用户")
 				return
 			}
 		}
@@ -271,22 +277,27 @@ func (h *IdentityHandler) ImportUsersCSV(c *gin.Context) {
 		phone, msg := normalizeOptionalPhone(nullableFromString(csvCell(record, index, "phone")))
 		if msg != "" {
 			errors = append(errors, fmt.Sprintf("第 %d 行：%s", line+2, msg))
-			continue
+			response.Error(c, 400, response.CodeBadRequest, "导入失败，已回滚全部新增用户")
+			return
 		}
 		password := mustHashPassword(employeeNo)
-		newUser := models.AppUser{TenantID: user.TenantID, EmployeeNo: employeeNo, Account: employeeNo, PasswordHash: password, Name: name, Phone: phone, Email: nullableFromString(csvCell(record, index, "email")), CompanyID: companyID, DepartmentID: departmentID, Status: status}
-		if err := h.db.Create(&newUser).Error; err != nil {
-			errors = append(errors, fmt.Sprintf("第 %d 行：%s", line+2, err.Error()))
-			continue
-		}
-		created++
+		newUsers = append(newUsers, models.AppUser{TenantID: user.TenantID, EmployeeNo: employeeNo, Account: employeeNo, PasswordHash: password, Name: name, Phone: phone, Email: nullableFromString(csvCell(record, index, "email")), CompanyID: companyID, DepartmentID: departmentID, Status: status})
 	}
+	if err := h.userService().ImportUsers(c.Request.Context(), newUsers); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "导入失败，已回滚全部新增用户")
+		return
+	}
+	created = len(newUsers)
 	h.audit(c, user.TenantID, user.ID, "user", "batch_import", fmt.Sprintf("批量导入用户：创建 %d，跳过 %d", created, skipped), gin.H{"created": created, "skipped": skipped, "errors": firstStrings(errors, 10)})
 	response.OK(c, gin.H{"created": created, "skipped": skipped, "errors": firstStrings(errors, 20)})
 }
 
 func (h *IdentityHandler) ExportCompaniesCSV(c *gin.Context) {
 	h.exportOrgCSV(c, "companies_export.csv", "company", []string{"name", "code", "company_type", "parent_name", "status"})
+}
+
+func (h *IdentityHandler) fileService() *appfile.Service {
+	return appfile.NewService(h.db)
 }
 
 func (h *IdentityHandler) ExportDepartmentsCSV(c *gin.Context) {

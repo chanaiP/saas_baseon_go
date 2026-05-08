@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"strings"
 	"time"
 
@@ -124,17 +125,22 @@ func (h *IdentityHandler) CopyPlan(c *gin.Context) {
 
 func (h *IdentityHandler) DeletePlan(c *gin.Context) {
 	id := parseUintParam(c, "id")
-	if h.blockDeleteIfReferenced(c, "套餐", ref(&models.TenantSubscription{}, "主体订阅", "plan_id = ?", id)) {
-		return
-	}
 	now := time.Now()
-	var plan models.SaasPlan
-	if err := h.db.Where("id = ? AND deleted_at IS NULL", id).First(&plan).Error; err != nil {
-		response.Error(c, 404, response.CodeNotFound, "套餐不存在")
-		return
-	}
-	if err := h.db.Model(&plan).Updates(map[string]interface{}{"deleted_at": now, "status": 0, "plan_code": tombstoneUniqueValue(plan.PlanCode, plan.ID, 64)}).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, err.Error())
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := checkDeletionReferences(tx, "套餐", ref(&models.TenantSubscription{}, "主体订阅", "plan_id = ?", id)); err != nil {
+			return err
+		}
+		var plan models.SaasPlan
+		if err := tx.Where("id = ? AND deleted_at IS NULL", id).First(&plan).Error; err != nil {
+			return gorm.ErrRecordNotFound
+		}
+		return tx.Model(&plan).Updates(map[string]interface{}{"deleted_at": now, "status": 0, "plan_code": tombstoneUniqueValue(plan.PlanCode, plan.ID, 64)}).Error
+	}); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			response.Error(c, 404, response.CodeNotFound, "套餐不存在")
+			return
+		}
+		h.respondDeletionError(c, err)
 		return
 	}
 	response.OK(c, dto.DeletedResponse{Deleted: id})

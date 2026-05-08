@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	appquota "saas_baseon_go/internal/application/quota"
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 	"saas_baseon_go/internal/interfaces/http/dto"
 	"saas_baseon_go/internal/interfaces/http/response"
@@ -106,30 +108,44 @@ func (h *IdentityHandler) SavePlanQuotas(c *gin.Context) {
 }
 
 func (h *IdentityHandler) savePlanQuotasWithValues(planID uint64, quotas []planQuotaInput) error {
-	return h.db.Transaction(func(tx *gorm.DB) error {
-		if err := lockPlanForUpdate(tx, planID); err != nil {
+	return h.quotaService().SaveQuotas(context.Background(), planID, toAppPlanQuotaInputs(quotas))
+}
+
+func (h *IdentityHandler) quotaService() *appquota.Service {
+	return appquota.NewService(h.db)
+}
+
+func toAppPlanQuotaInputs(quotas []planQuotaInput) []appquota.PlanQuotaInput {
+	out := make([]appquota.PlanQuotaInput, 0, len(quotas))
+	for _, item := range quotas {
+		out = append(out, appquota.PlanQuotaInput{QuotaID: item.QuotaID, QuotaValue: item.QuotaValue})
+	}
+	return out
+}
+
+func savePlanQuotasWithValuesTx(tx *gorm.DB, planID uint64, quotas []planQuotaInput) error {
+	if err := lockPlanForUpdate(tx, planID); err != nil {
+		return err
+	}
+	if err := tx.Where("plan_id = ?", planID).Delete(&models.SaasPlanQuota{}).Error; err != nil {
+		return err
+	}
+	seen := map[uint64]struct{}{}
+	for _, item := range quotas {
+		if item.QuotaID == 0 {
+			continue
+		}
+		if _, ok := seen[item.QuotaID]; ok {
+			continue
+		}
+		seen[item.QuotaID] = struct{}{}
+		var quota models.SaasQuota
+		if err := tx.Where("id = ? AND status = ?", item.QuotaID, 1).First(&quota).Error; err != nil {
+			return fmt.Errorf("配额不存在或已停用")
+		}
+		if err := tx.Create(&models.SaasPlanQuota{PlanID: planID, QuotaID: item.QuotaID, QuotaValue: item.QuotaValue}).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("plan_id = ?", planID).Delete(&models.SaasPlanQuota{}).Error; err != nil {
-			return err
-		}
-		seen := map[uint64]struct{}{}
-		for _, item := range quotas {
-			if item.QuotaID == 0 {
-				continue
-			}
-			if _, ok := seen[item.QuotaID]; ok {
-				continue
-			}
-			seen[item.QuotaID] = struct{}{}
-			var quota models.SaasQuota
-			if err := tx.Where("id = ? AND status = ?", item.QuotaID, 1).First(&quota).Error; err != nil {
-				return fmt.Errorf("配额不存在或已停用")
-			}
-			if err := tx.Create(&models.SaasPlanQuota{PlanID: planID, QuotaID: item.QuotaID, QuotaValue: item.QuotaValue}).Error; err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+	}
+	return nil
 }

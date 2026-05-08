@@ -1,10 +1,13 @@
 package handlers
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
 
@@ -78,4 +81,82 @@ func TestBearerToken(t *testing.T) {
 	require.Equal(t, "abc", bearerToken("bearer abc"))
 	require.Equal(t, "raw", bearerToken("raw"))
 	require.Empty(t, bearerToken(""))
+}
+
+func TestResolveAuthIdentityUsesRedisSession(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+
+	handler := &IdentityHandler{redis: client, authSecret: "secret", jwtFallback: false}
+	raw := `{"user_id":7,"tenant_id":11,"session_version":3,"issued_at":123}`
+	require.NoError(t, client.Set(context.Background(), authSessionKey("opaque-token"), raw, time.Hour).Err())
+
+	identity, ok := handler.resolveAuthIdentity("opaque-token")
+
+	require.True(t, ok)
+	require.Equal(t, uint64(7), identity.UserID)
+	require.Equal(t, uint64(11), identity.TenantID)
+	require.Equal(t, 3, identity.SessionVersion)
+	require.Equal(t, int64(123), identity.IssuedAt)
+}
+
+func TestResolveAuthIdentityRejectsMissingRedisSessionEvenWithValidJWT(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+	token, err := issueToken(7, 11, 3, "secret", time.Hour)
+	require.NoError(t, err)
+	handler := &IdentityHandler{redis: client, authSecret: "secret", jwtFallback: true}
+
+	_, ok := handler.resolveAuthIdentity(token)
+
+	require.False(t, ok)
+}
+
+func TestResolveAuthIdentityRejectsJWTWhenFallbackDisabledAndRedisUnavailable(t *testing.T) {
+	token, err := issueToken(7, 11, 3, "secret", time.Hour)
+	require.NoError(t, err)
+	client := redis.NewClient(&redis.Options{
+		Addr:         "127.0.0.1:1",
+		DialTimeout:  10 * time.Millisecond,
+		ReadTimeout:  10 * time.Millisecond,
+		WriteTimeout: 10 * time.Millisecond,
+	})
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+	handler := &IdentityHandler{redis: client, authSecret: "secret", jwtFallback: false}
+
+	_, ok := handler.resolveAuthIdentity(token)
+
+	require.False(t, ok)
+}
+
+func TestResolveAuthIdentityAllowsJWTFallbackWhenRedisUnavailableAndEnabled(t *testing.T) {
+	token, err := issueToken(7, 11, 3, "secret", time.Hour)
+	require.NoError(t, err)
+	client := redis.NewClient(&redis.Options{
+		Addr:         "127.0.0.1:1",
+		DialTimeout:  10 * time.Millisecond,
+		ReadTimeout:  10 * time.Millisecond,
+		WriteTimeout: 10 * time.Millisecond,
+	})
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+	handler := &IdentityHandler{redis: client, authSecret: "secret", jwtFallback: true}
+
+	identity, ok := handler.resolveAuthIdentity(token)
+
+	require.True(t, ok)
+	require.Equal(t, uint64(7), identity.UserID)
+	require.Equal(t, uint64(11), identity.TenantID)
+	require.Equal(t, 3, identity.SessionVersion)
+}
+
+func TestResolveAuthIdentityRejectsJWTWhenNoRedisAndFallbackDisabled(t *testing.T) {
+	token, err := issueToken(7, 11, 3, "secret", time.Hour)
+	require.NoError(t, err)
+	handler := &IdentityHandler{authSecret: "secret", jwtFallback: false}
+
+	_, ok := handler.resolveAuthIdentity(token)
+
+	require.False(t, ok)
 }
