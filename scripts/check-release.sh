@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-blocked_regex='(^|/)\.git(/|$)|(^|/)\.DS_Store$|(^|/)__MACOSX(/|$)|^frontend/node_modules(/|$)|^frontend/dist(/|$)|(^|/)(tmp|cache|\.cache)(/|$)|(^|/)[^/]+\.log$'
+blocked_regex='(^|/)\._[^/]+$|(^|/)\.git(/|$)|(^|/)\.DS_Store$|(^|/)__MACOSX(/|$)|^frontend/node_modules(/|$)|^frontend/dist(/|$)|(^|/)(tmp|\.cache)(/|$)|(^|/)[^/]+\.log$'
 
 check_artifact() {
   local artifact="$1"
@@ -30,6 +30,12 @@ self_test() {
   tar -czf "$dir/dirty.tar.gz" -C "$dir" frontend/node_modules/bad.txt
   if check_artifact "$dir/dirty.tar.gz" >/dev/null 2>&1; then
     echo "check-release self-test failed: dirty artifact was accepted" >&2
+    return 1
+  fi
+  printf 'bad\n' >"$dir/._Makefile"
+  COPYFILE_DISABLE=1 tar -czf "$dir/appledouble.tar.gz" -C "$dir" ._Makefile
+  if check_artifact "$dir/appledouble.tar.gz" >/dev/null 2>&1; then
+    echo "check-release self-test failed: AppleDouble artifact was accepted" >&2
     return 1
   fi
   mkdir -p "$dir/clean"

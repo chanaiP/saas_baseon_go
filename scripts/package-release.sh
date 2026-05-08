@@ -12,7 +12,23 @@ mkdir -p "$(dirname "$artifact")"
 manifest="$(mktemp)"
 trap 'rm -f "$manifest"' EXIT
 
-git -c core.quotePath=false ls-files | grep -Ev '(^|/)\.DS_Store$|(^|/)__MACOSX(/|$)|^frontend/node_modules(/|$)|^frontend/dist(/|$)|^dist/release(/|$)|(^|/)(tmp|cache|\.cache)(/|$)|(^|/)[^/]+\.log$|(^|/)\._[^/]*$' >"$manifest"
+blocked_regex='(^|/)\._[^/]+$|(^|/)\.DS_Store$|(^|/)__MACOSX(/|$)|^frontend/node_modules(/|$)|^frontend/dist(/|$)|^dist/release(/|$)|(^|/)(tmp|\.cache)(/|$)|(^|/)[^/]+\.log$'
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  git -c core.quotePath=false ls-files | grep -Ev "$blocked_regex" >"$manifest"
+else
+  find . \
+    -path './.git' -prune -o \
+    -path './dist/release' -prune -o \
+    -type f -print |
+    sed 's#^\./##' |
+    grep -Ev "$blocked_regex" |
+    sort >"$manifest"
+fi
 
-COPYFILE_DISABLE=1 tar --exclude='._*' --exclude='.DS_Store' -czf "$artifact" -T "$manifest"
+tar_args=(--exclude='._*' --exclude='.DS_Store')
+if tar --help 2>&1 | grep -q -- '--no-xattrs'; then
+  tar_args+=(--no-xattrs)
+fi
+
+COPYFILE_DISABLE=1 tar "${tar_args[@]}" -czf "$artifact" -T "$manifest"
 echo "release package created: $artifact"

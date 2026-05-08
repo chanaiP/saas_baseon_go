@@ -4,10 +4,22 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-blocked_regex='(^|/)\.DS_Store$|(^|/)__MACOSX(/|$)|^frontend/node_modules(/|$)|^frontend/dist(/|$)|(^|/)\.git(/|$)|(^|/)(tmp|cache|\.cache)(/|$)|(^|/)[^/]+\.log$'
+blocked_regex='(^|/)\._[^/]+$|(^|/)\.DS_Store$|(^|/)__MACOSX(/|$)|^frontend/node_modules(/|$)|^frontend/dist(/|$)|(^|/)(tmp|\.cache)(/|$)|(^|/)[^/]+\.log$'
 
-tracked_dirty="$(git -c core.quotePath=false ls-files | grep -E "$blocked_regex" || true)"
-untracked_dirty="$(git -c core.quotePath=false ls-files --others --exclude-standard | grep -E "$blocked_regex" || true)"
+tracked_dirty=""
+untracked_dirty=""
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  tracked_dirty="$(git -c core.quotePath=false ls-files | grep -E "$blocked_regex" || true)"
+  untracked_dirty="$(git -c core.quotePath=false ls-files --others --exclude-standard | grep -E "$blocked_regex" || true)"
+fi
+
+filesystem_dirty="$(
+  find . \
+    -path './.git' -prune -o \
+    -path './dist/release' -prune -o \
+    \( -name '._*' -o -name '.DS_Store' -o -name '__MACOSX' -o -name '*.log' -o -name '.cache' -o -name 'tmp' \) \
+    -print | sed 's#^\./##' || true
+)"
 
 if [[ -d frontend/node_modules ]]; then
   untracked_dirty="${untracked_dirty}"$'\n'"frontend/node_modules"
@@ -19,7 +31,7 @@ if [[ -d __MACOSX ]]; then
   untracked_dirty="${untracked_dirty}"$'\n'"__MACOSX"
 fi
 
-dirty="$(printf '%s\n%s\n' "$tracked_dirty" "$untracked_dirty" | sed '/^[[:space:]]*$/d' | sort -u)"
+dirty="$(printf '%s\n%s\n%s\n' "$tracked_dirty" "$untracked_dirty" "$filesystem_dirty" | sed '/^[[:space:]]*$/d' | sort -u)"
 if [[ -n "$dirty" ]]; then
   echo "source tree contains non-delivery artifacts:" >&2
   echo "$dirty" >&2
