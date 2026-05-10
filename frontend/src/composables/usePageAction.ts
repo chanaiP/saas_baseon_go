@@ -18,5 +18,11 @@ export function usePageAction() {
     return buttons.some((b) => b.permissionCode === code)
   }
 
-  return { pageAction }
+  function pageMenu(): boolean {
+    const menu = sidebar.menuForRoute(route.path)
+    if (menu?.enabled === false) return false
+    return perm.canUseMenuPath(route.path)
+  }
+
+  return { pageAction, pageMenu }
 }

@@ -10,7 +10,7 @@
               <span class="title-icon">⚙️</span>
               系统设置
             </h2>
-            <p class="dialog-subtitle">配置系统Logo{{ isPlatformAdmin ? '、名称和版权信息' : '与名称' }}</p>
+            <p class="dialog-subtitle">配置系统Logo、名称{{ canMaintainFooter ? '和版权信息' : '' }}</p>
           </div>
           <button class="close-btn" @click="closeDialog">
             <span class="close-icon">×</span>
@@ -123,7 +123,7 @@
                       </div>
                       <div class="preview-name">{{ systemName || '系统名称' }}</div>
                     </div>
-                    <div class="preview-footer" v-if="isPlatformAdmin">
+                    <div class="preview-footer" v-if="canMaintainFooter">
                       <p class="preview-copyright">{{ copyrightInfo || '© 2026 版权所有' }}</p>
                     </div>
                   </div>
@@ -132,8 +132,8 @@
             </div>
           </div>
 
-          <!-- 版权信息设置（仅平台管理员可见） -->
-          <div v-if="isPlatformAdmin" class="settings-section">
+          <!-- 版权信息设置 -->
+          <div v-if="canMaintainFooter" class="settings-section">
             <div class="section-header">
               <h3 class="section-title">
                 <span class="section-icon">©️</span>
@@ -225,6 +225,7 @@ interface Props {
   currentSystemName?: string
   currentCopyright?: string
   isPlatformAdmin?: boolean
+  canEditFooter?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -232,11 +233,13 @@ const props = withDefaults(defineProps<Props>(), {
   currentLogo: '',
   currentSystemName: 'PMTools',
   currentCopyright: '© 2026 PMTools - AI协作开发系统',
-  isPlatformAdmin: false
+  isPlatformAdmin: false,
+  canEditFooter: false
 })
 
 // 检测浅色模式（从 localStorage 读取，与登录页一致）
 const isLight = computed(() => localStorage.getItem('login-theme-mode') === 'light')
+const canMaintainFooter = computed(() => props.isPlatformAdmin || props.canEditFooter)
 
 const emit = defineEmits<{
   'update:visible': [visible: boolean]
@@ -263,7 +266,7 @@ const snapshotCopyright = ref(props.currentCopyright)
 const hasChanges = computed(() => {
   const logoChanged = currentLogo.value !== snapshotLogo.value
   const nameChanged = systemName.value !== snapshotName.value
-  const copyrightChanged = props.isPlatformAdmin && copyrightInfo.value !== snapshotCopyright.value
+  const copyrightChanged = canMaintainFooter.value && copyrightInfo.value !== snapshotCopyright.value
   return logoChanged || nameChanged || copyrightChanged
 })
 
@@ -319,7 +322,7 @@ const resetLogo = () => {
 const resetAll = () => {
   currentLogo.value = ''
   systemName.value = 'PMTools'
-  if (props.isPlatformAdmin) {
+  if (canMaintainFooter.value) {
     copyrightInfo.value = '© 2026 PMTools - AI协作开发系统'
   }
 }
@@ -342,7 +345,7 @@ const saveSettings = () => {
   emit('save', {
     logo: currentLogo.value,
     systemName: systemName.value,
-    copyright: props.isPlatformAdmin ? copyrightInfo.value : props.currentCopyright
+    copyright: canMaintainFooter.value ? copyrightInfo.value : props.currentCopyright
   })
 
   // 更新快照

@@ -5,15 +5,10 @@ const QUOTA_CODE_ORDER: Record<string, number> = {
   max_stores: 40,
   max_business_units: 50,
   max_roles: 60,
-  daily_api_calls: 70,
   max_storage_gb: 80,
   max_file_size_mb: 90,
-  max_api_keys: 100,
-  max_webhooks: 110,
   daily_import_times: 120,
   daily_export_times: 130,
-  monthly_sms_count: 140,
-  monthly_email_count: 150,
 }
 
 export interface QuotaDisplayOrderItem {

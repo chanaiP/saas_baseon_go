@@ -15,7 +15,7 @@ func (h *IdentityHandler) Permissions(c *gin.Context) {
 	}
 	skip, limit := paginationParams(c)
 	var rows []models.Permission
-	query := h.tenantScope().Active(user.TenantID)
+	query := h.tenantScope().Active(user.TenantID).Where("path NOT LIKE ?", "%:view")
 	var total int64
 	_ = query.Model(&models.Permission{}).Count(&total).Error
 	_ = query.Order("id asc").Offset(skip).Limit(limit).Find(&rows).Error
@@ -33,7 +33,7 @@ func (h *IdentityHandler) PermissionTree(c *gin.Context) {
 		return
 	}
 	var rows []models.Permission
-	_ = h.tenantScope().Active(user.TenantID).Order("sort_order asc, id asc").Find(&rows).Error
+	_ = h.tenantScope().Active(user.TenantID).Where("path NOT LIKE ?", "%:view").Order("sort_order asc, id asc").Find(&rows).Error
 	byParent := map[uint64][]models.Permission{}
 	roots := make([]models.Permission, 0)
 	for _, row := range rows {

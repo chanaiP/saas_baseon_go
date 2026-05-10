@@ -103,19 +103,55 @@ func (h *IdentityHandler) UpdatePermissionDataPermMode(c *gin.Context) {
 		return
 	}
 	var body struct {
-		DataPermMode string `json:"data_perm_mode"`
+		DataPermMode   *string `json:"data_perm_mode"`
+		IsPlatformOnly *bool   `json:"is_platform_only"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	if body.DataPermMode == "" {
-		body.DataPermMode = "ORG"
+	var row models.Permission
+	if err := h.db.Where("id = ? AND deleted_at IS NULL", c.Param("id")).First(&row).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "权限不存在")
+		return
 	}
-	if err := h.db.Model(&models.Permission{}).Where("id = ?", c.Param("id")).Update("data_perm_mode", body.DataPermMode).Error; err != nil {
+	updates := map[string]interface{}{}
+	if body.DataPermMode != nil {
+		mode := strings.TrimSpace(*body.DataPermMode)
+		if mode == "" {
+			mode = "ORG"
+		}
+		if !allowedString(mode, "NONE", "ORG", "BU", "ORG_BU") {
+			response.Error(c, 400, response.CodeBadRequest, "无效的数据权限类型: "+mode)
+			return
+		}
+		if row.PermType != 3 {
+			response.Error(c, 400, response.CodeBadRequest, "仅菜单权限支持配置数据权限类型")
+			return
+		}
+		updates["data_perm_mode"] = mode
+		row.DataPermMode = mode
+	}
+	if body.IsPlatformOnly != nil {
+		updates["is_platform_only"] = *body.IsPlatformOnly
+		row.IsPlatformOnly = *body.IsPlatformOnly
+		if *body.IsPlatformOnly {
+			updates["is_package_feature"] = false
+			row.IsPackageFeature = false
+		}
+	}
+	if len(updates) == 0 {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	if err := h.db.Model(&models.Permission{}).Where("id = ?", row.ID).Updates(updates).Error; err != nil {
 		respondBadRequest(c, err)
 		return
 	}
+	if row.IsPlatformOnly || !row.IsPackageFeature {
+		h.disablePackageFeatureForPermission(row)
+	}
+	h.syncPackageFeaturesFromPermissions()
 	h.invalidateAllAuthorizationCache()
-	response.OK(c, gin.H{"id": parseUintParam(c, "id"), "data_perm_mode": body.DataPermMode})
+	response.OK(c, gin.H{"id": row.ID, "data_perm_mode": row.DataPermMode, "is_platform_only": row.IsPlatformOnly, "is_package_feature": row.IsPackageFeature})
 }

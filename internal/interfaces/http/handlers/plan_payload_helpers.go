@@ -67,6 +67,10 @@ type featureUpdatePayload struct {
 	FeatureName  *string `json:"feature_name"`
 	FeatureType  *string `json:"feature_type"`
 	ParentID     *uint64 `json:"parent_id"`
+	MenuID       *uint64 `json:"menu_id"`
+	APIMethod    *string `json:"api_method"`
+	APIPath      *string `json:"api_path"`
+	ServiceKey   *string `json:"service_key"`
 	SortOrder    *int    `json:"sort_order"`
 	Status       *int    `json:"status"`
 	Description  *string `json:"description"`
@@ -86,6 +90,18 @@ func (p featureUpdatePayload) Updates() map[string]interface{} {
 	}
 	if p.ParentID != nil {
 		updates["parent_id"] = *p.ParentID
+	}
+	if p.MenuID != nil {
+		updates["menu_id"] = *p.MenuID
+	}
+	if p.APIMethod != nil {
+		updates["api_method"] = nullableTrimmed(p.APIMethod)
+	}
+	if p.APIPath != nil {
+		updates["api_path"] = nullableTrimmed(p.APIPath)
+	}
+	if p.ServiceKey != nil {
+		updates["service_key"] = nullableTrimmed(p.ServiceKey)
 	}
 	if p.SortOrder != nil {
 		updates["sort_order"] = *p.SortOrder

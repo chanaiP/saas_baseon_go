@@ -255,28 +255,27 @@ func (h *IdentityHandler) SaveTenantBranding(c *gin.Context) {
 		}
 		updates["brand_logo_data"] = logo
 	}
-	if body.BrandFooterText != nil {
+	applyFooter := func(raw *string) bool {
+		if raw == nil {
+			return true
+		}
 		if !h.viewerHasPlatformScope(user) {
 			response.Error(c, 403, response.CodeForbidden, "仅平台运维账号可设置底部版权信息")
-			return
+			return false
 		}
-		footer := nullableTrimmed(body.BrandFooterText)
+		footer := nullableTrimmed(raw)
 		if footer != nil && len(*footer) > 256 {
 			response.Error(c, 400, response.CodeBadRequest, "版权信息过长")
-			return
+			return false
 		}
 		updates["brand_footer_text"] = footer
-	} else if body.FooterText != nil {
-		if !h.viewerHasPlatformScope(user) {
-			response.Error(c, 403, response.CodeForbidden, "仅平台运维账号可设置底部版权信息")
-			return
-		}
-		footer := nullableTrimmed(body.FooterText)
-		if footer != nil && len(*footer) > 256 {
-			response.Error(c, 400, response.CodeBadRequest, "版权信息过长")
-			return
-		}
-		updates["brand_footer_text"] = footer
+		return true
+	}
+	if !applyFooter(body.BrandFooterText) {
+		return
+	}
+	if body.BrandFooterText == nil && !applyFooter(body.FooterText) {
+		return
 	}
 	if len(updates) > 0 {
 		if err := h.db.Model(&models.Tenant{}).Where("id = ?", user.TenantID).Updates(updates).Error; err != nil {

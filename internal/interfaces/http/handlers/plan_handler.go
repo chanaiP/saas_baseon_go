@@ -19,7 +19,7 @@ func (h *IdentityHandler) Plans(c *gin.Context) {
 	var total int64
 	_ = query.Model(&models.SaasPlan{}).Count(&total).Error
 	var rows []models.SaasPlan
-	_ = query.Order("sort_order asc, id asc").Offset(skip).Limit(limit).Find(&rows).Error
+	_ = query.Order(planDisplayOrder()).Offset(skip).Limit(limit).Find(&rows).Error
 	items := make([]dto.PlanResponse, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, planToResponse(row))
@@ -46,6 +46,7 @@ func (h *IdentityHandler) CreatePlan(c *gin.Context) {
 	if body.Status == 0 {
 		body.Status = 1
 	}
+	body.SortOrder = h.nextPlanSortOrder(h.db)
 	row := models.SaasPlan{PlanCode: strings.TrimSpace(body.PlanCode), PlanName: strings.TrimSpace(body.PlanName), PlanType: body.PlanType, BillingCycle: body.BillingCycle, Price: body.Price, Status: body.Status, IsDefault: body.IsDefault, SortOrder: body.SortOrder, Description: body.Description}
 	if err := h.db.Create(&row).Error; err != nil {
 		respondBadRequest(c, err)
@@ -95,6 +96,7 @@ func (h *IdentityHandler) CopyPlan(c *gin.Context) {
 		dst.PlanName = strings.TrimSpace(body.PlanName)
 		dst.Description = body.Description
 		dst.IsDefault = false
+		dst.SortOrder = h.nextPlanSortOrder(tx)
 		dst.CreatedAt = time.Time{}
 		dst.UpdatedAt = time.Time{}
 		if err := tx.Create(&dst).Error; err != nil {
@@ -127,14 +129,11 @@ func (h *IdentityHandler) DeletePlan(c *gin.Context) {
 	id := parseUintParam(c, "id")
 	now := time.Now()
 	if err := h.db.Transaction(func(tx *gorm.DB) error {
-		if err := checkDeletionReferences(tx, "套餐", ref(&models.TenantSubscription{}, "主体订阅", "plan_id = ?", id)); err != nil {
-			return err
-		}
 		var plan models.SaasPlan
 		if err := tx.Where("id = ? AND deleted_at IS NULL", id).First(&plan).Error; err != nil {
 			return gorm.ErrRecordNotFound
 		}
-		return tx.Model(&plan).Updates(map[string]interface{}{"deleted_at": now, "status": 0, "plan_code": tombstoneUniqueValue(plan.PlanCode, plan.ID, 64)}).Error
+		return tx.Model(&plan).Updates(map[string]interface{}{"deleted_at": now, "status": 0}).Error
 	}); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			response.Error(c, 404, response.CodeNotFound, "套餐不存在")
@@ -146,12 +145,22 @@ func (h *IdentityHandler) DeletePlan(c *gin.Context) {
 	response.OK(c, dto.DeletedResponse{Deleted: id})
 }
 
+func (h *IdentityHandler) nextPlanSortOrder(db *gorm.DB) int {
+	var maxOrder int
+	_ = db.Model(&models.SaasPlan{}).Where("deleted_at IS NULL AND status = ?", 1).Select("COALESCE(MAX(sort_order), 0)").Scan(&maxOrder).Error
+	return maxOrder + 10
+}
+
+func planDisplayOrder() string {
+	return "CASE WHEN status = 1 THEN 0 ELSE 1 END ASC, sort_order ASC, id ASC"
+}
+
 func (h *IdentityHandler) PlanMatrix(c *gin.Context) {
 	h.syncPackageFeaturesFromPermissions()
 	var plans []models.SaasPlan
 	var features []models.SaasFeature
 	var links []models.SaasPlanFeature
-	_ = h.db.Where("deleted_at IS NULL").Order("sort_order asc, id asc").Find(&plans).Error
+	_ = h.db.Where("deleted_at IS NULL").Order(planDisplayOrder()).Find(&plans).Error
 	_ = h.db.Where("status = ?", 1).Order("parent_id asc, id asc").Find(&features).Error
 	_ = h.db.Find(&links).Error
 
@@ -167,33 +176,6 @@ func (h *IdentityHandler) PlanMatrix(c *gin.Context) {
 	for _, plan := range plans {
 		planItems = append(planItems, planToResponse(plan))
 	}
-	nodeByID := map[uint64]dto.PlanMatrixNode{}
-	childrenByParent := map[uint64][]uint64{}
-	for _, feature := range features {
-		cells := make([]dto.PlanMatrixCell, 0, len(plans))
-		for _, plan := range plans {
-			isEnabled := enabled[feature.ID][plan.ID]
-			state := "disabled"
-			if isEnabled {
-				state = "enabled"
-			}
-			cells = append(cells, dto.PlanMatrixCell{PlanID: plan.ID, PlanCode: plan.PlanCode, Enabled: isEnabled, State: state, FeatureIDs: []uint64{feature.ID}, QuotaValues: h.planMatrixQuotaValues(plan.ID, feature.FeatureCode)})
-		}
-		node := dto.PlanMatrixNode{ID: feature.FeatureCode, Label: feature.FeatureName, NodeType: "feature", FeatureID: feature.ID, FeatureCode: feature.FeatureCode, FeatureType: feature.FeatureType, Description: feature.Description, Children: []dto.PlanMatrixNode{}, Cells: cells}
-		nodeByID[feature.ID] = node
-		childrenByParent[feature.ParentID] = append(childrenByParent[feature.ParentID], feature.ID)
-	}
-	var buildNodes func(parentID uint64) []dto.PlanMatrixNode
-	buildNodes = func(parentID uint64) []dto.PlanMatrixNode {
-		ids := childrenByParent[parentID]
-		nodes := make([]dto.PlanMatrixNode, 0, len(ids))
-		for _, id := range ids {
-			node := nodeByID[id]
-			node.Children = buildNodes(id)
-			nodes = append(nodes, node)
-		}
-		return nodes
-	}
-	nodes := buildNodes(0)
+	nodes := h.buildPlanMatrixNodes(plans, features, enabled)
 	response.OK(c, dto.PlanMatrixResponse{Plans: planItems, Nodes: nodes})
 }

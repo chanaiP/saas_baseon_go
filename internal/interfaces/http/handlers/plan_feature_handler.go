@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -17,22 +18,30 @@ func (h *IdentityHandler) Features(c *gin.Context) {
 	_ = h.db.Order("id asc").Find(&rows).Error
 	items := make([]dto.FeatureResponse, 0, len(rows))
 	for _, row := range rows {
+		if excludedPlanMatrixFeatureRow(row) {
+			continue
+		}
 		items = append(items, featureToResponse(row))
 	}
 	response.OK(c, dto.ListResponse[dto.FeatureResponse]{Items: items, Total: len(items)})
 }
 
 func (h *IdentityHandler) CreateFeature(c *gin.Context) {
-	var body models.SaasFeature
+	var body featureUpdatePayload
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	if err := h.db.Create(&body).Error; err != nil {
+	feature, msg := manualFeatureFromPayload(body)
+	if msg != "" {
+		response.Error(c, 400, response.CodeBadRequest, msg)
+		return
+	}
+	if err := h.db.Create(&feature).Error; err != nil {
 		respondBadRequest(c, err)
 		return
 	}
-	response.OK(c, featureToResponse(body))
+	response.OK(c, featureToResponse(feature))
 }
 
 func (h *IdentityHandler) UpdateFeature(c *gin.Context) {
@@ -46,11 +55,96 @@ func (h *IdentityHandler) UpdateFeature(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
+	if row.MenuID != nil {
+		response.Error(c, 400, response.CodeBadRequest, "菜单管理生成的功能点请在菜单管理中维护")
+		return
+	}
+	if msg := validateManualFeatureUpdate(body); msg != "" {
+		response.Error(c, 400, response.CodeBadRequest, msg)
+		return
+	}
 	if err := h.db.Model(&row).Updates(body.Updates()).First(&row, row.ID).Error; err != nil {
 		respondBadRequest(c, err)
 		return
 	}
 	response.OK(c, featureToResponse(row))
+}
+
+func manualFeatureFromPayload(body featureUpdatePayload) (models.SaasFeature, string) {
+	if body.FeatureCode == nil || strings.TrimSpace(*body.FeatureCode) == "" {
+		return models.SaasFeature{}, "功能编码不能为空"
+	}
+	if body.FeatureName == nil || strings.TrimSpace(*body.FeatureName) == "" {
+		return models.SaasFeature{}, "功能名称不能为空"
+	}
+	if body.FeatureType == nil || strings.TrimSpace(*body.FeatureType) == "" {
+		return models.SaasFeature{}, "功能类型不能为空"
+	}
+	featureType := strings.ToUpper(strings.TrimSpace(*body.FeatureType))
+	if msg := validateManualFeatureType(featureType); msg != "" {
+		return models.SaasFeature{}, msg
+	}
+	feature := models.SaasFeature{
+		FeatureCode: strings.TrimSpace(*body.FeatureCode),
+		FeatureName: strings.TrimSpace(*body.FeatureName),
+		FeatureType: featureType,
+		ParentID:    0,
+		Status:      1,
+		Description: nullableTrimmed(body.Description),
+	}
+	if body.Status != nil {
+		feature.Status = *body.Status
+	}
+	if featureType == "API" {
+		feature.APIMethod = normalizedOptionalUpper(body.APIMethod)
+		feature.APIPath = nullableTrimmed(body.APIPath)
+		if feature.APIMethod == nil || feature.APIPath == nil {
+			return models.SaasFeature{}, "API 功能必须填写 API 方法和 API 路径"
+		}
+		return feature, ""
+	}
+	feature.ServiceKey = nullableTrimmed(body.ServiceKey)
+	if feature.ServiceKey == nil {
+		if featureType == "SERVICE" {
+			return models.SaasFeature{}, "服务功能必须填写服务标识"
+		}
+		return models.SaasFeature{}, "配置功能必须填写配置标识"
+	}
+	return feature, ""
+}
+
+func validateManualFeatureUpdate(body featureUpdatePayload) string {
+	if body.FeatureType != nil {
+		if msg := validateManualFeatureType(strings.ToUpper(strings.TrimSpace(*body.FeatureType))); msg != "" {
+			return msg
+		}
+	}
+	if body.MenuID != nil && *body.MenuID != 0 {
+		return "手工功能点不能绑定菜单，菜单能力请在菜单管理中维护"
+	}
+	return ""
+}
+
+func validateManualFeatureType(featureType string) string {
+	switch featureType {
+	case "API", "SERVICE", "CONFIG":
+		return ""
+	case "MENU", "BUTTON":
+		return "目录、菜单和操作能力由菜单管理自动生成，不能在套餐中心手工新增"
+	default:
+		return "功能类型只允许 API、服务或配置"
+	}
+}
+
+func normalizedOptionalUpper(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	normalized := strings.ToUpper(strings.TrimSpace(*value))
+	if normalized == "" {
+		return nil
+	}
+	return &normalized
 }
 
 func (h *IdentityHandler) PlanFeatures(c *gin.Context) {

@@ -132,6 +132,14 @@ export function collectFeatureIds(node: PlanCapabilityNode): number[] {
   return [...ids].sort((a, b) => a - b)
 }
 
+export function collectChildFeatureIds(node: PlanCapabilityNode): number[] {
+  const ids = new Set<number>()
+  for (const child of node.children || []) {
+    for (const id of collectFeatureIds(child)) ids.add(id)
+  }
+  return [...ids].sort((a, b) => a - b)
+}
+
 export function collectQuotaValues(node: PlanCapabilityNode, planId: number): CapabilityQuotaValue[] {
   const byId = new Map<number, CapabilityQuotaValue>()
   for (const cell of node.cells || []) {
@@ -152,6 +160,7 @@ export function selectionFromMatrix(matrix: PlanCapabilityMatrixData | null): Pl
     const ids = new Set<number>()
     for (const row of rows) {
       const cell = row.node.cells.find((item) => item.plan_id === plan.id)
+      if (!cell?.enabled && cell?.state !== 'enabled') continue
       for (const id of cell?.feature_ids || []) ids.add(id)
     }
     out[plan.id] = [...ids].sort((a, b) => a - b)
@@ -175,18 +184,37 @@ export function quotaValuesFromMatrix(matrix: PlanCapabilityMatrixData | null): 
 }
 
 export function nodeStateForPlan(node: PlanCapabilityNode, planId: number, selection: PlanFeatureSelection): CapabilityCellState {
-  const ids = collectFeatureIds(node)
-  if (!ids.length) return 'disabled'
   const selected = new Set(selection[planId] || [])
+  const childIds = collectChildFeatureIds(node)
+  if (childIds.length) {
+    const childEnabledCount = childIds.filter((id) => selected.has(id)).length
+    const selfEnabled = node.feature_id != null && selected.has(node.feature_id)
+    if (childEnabledCount === 0 && !selfEnabled) return 'disabled'
+    if (childEnabledCount === childIds.length) return 'enabled'
+    return 'partial'
+  }
+
+  const ids = node.feature_id != null ? [node.feature_id] : []
+  if (!ids.length) return 'disabled'
   const enabledCount = ids.filter((id) => selected.has(id)).length
   if (enabledCount === 0) return 'disabled'
   if (enabledCount === ids.length) return 'enabled'
   return 'partial'
 }
 
-export function setNodeEnabled(selection: PlanFeatureSelection, node: PlanCapabilityNode, plan: Plan, enabled: boolean): PlanFeatureSelection {
+export function setNodeEnabled(
+  selection: PlanFeatureSelection,
+  node: PlanCapabilityNode,
+  plan: Plan,
+  enabled: boolean,
+  options: { cascade?: boolean } = {},
+): PlanFeatureSelection {
   const next = { ...selection }
-  const ids = collectFeatureIds(node)
+  const ids = options.cascade
+    ? collectFeatureIds(node)
+    : node.feature_id != null
+      ? [node.feature_id]
+      : []
   const selected = new Set(next[plan.id] || [])
   for (const id of ids) {
     if (enabled) selected.add(id)

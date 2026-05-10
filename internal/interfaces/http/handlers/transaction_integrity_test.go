@@ -1,9 +1,12 @@
 package handlers
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -76,25 +79,55 @@ func TestPlanCapabilityRollbackDoesNotHalfUpdate(t *testing.T) {
 	require.Equal(t, 3, planQuota.QuotaValue)
 }
 
-func TestDeleteReferenceCheckKeepsReferencedPlan(t *testing.T) {
+func TestDeletePlanSoftDeletesReferencedPlan(t *testing.T) {
 	db := newTransactionTestDB(t, &models.SaasPlan{}, &models.TenantSubscription{})
 	now := time.Now()
 	plan := models.SaasPlan{PlanCode: "basic", PlanName: "Basic", PlanType: "STANDARD", BillingCycle: "MONTH", Status: 1, CreatedAt: now, UpdatedAt: now}
 	require.NoError(t, db.Create(&plan).Error)
 	require.NoError(t, db.Create(&models.TenantSubscription{TenantID: 1, PlanID: plan.ID, SubscriptionStatus: "ACTIVE", StartTime: now, CreatedAt: now, UpdatedAt: now}).Error)
 
-	err := db.Transaction(func(tx *gorm.DB) error {
-		if err := checkDeletionReferences(tx, "套餐", ref(&models.TenantSubscription{}, "主体订阅", "plan_id = ?", plan.ID)); err != nil {
-			return err
-		}
-		return tx.Model(&plan).Updates(map[string]interface{}{"deleted_at": now, "status": 0}).Error
-	})
+	gin.SetMode(gin.TestMode)
+	req := httptest.NewRequest(http.MethodDelete, "/api/plans/1", nil)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = req
+	c.Params = gin.Params{{Key: "id", Value: "1"}}
 
-	require.Error(t, err)
+	handler := &IdentityHandler{db: db}
+	handler.DeletePlan(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
 	var row models.SaasPlan
 	require.NoError(t, db.First(&row, plan.ID).Error)
-	require.Nil(t, row.DeletedAt)
-	require.Equal(t, 1, row.Status)
+	require.NotNil(t, row.DeletedAt)
+	require.Equal(t, 0, row.Status)
+
+	var subscription models.TenantSubscription
+	require.NoError(t, db.Where("tenant_id = ?", uint64(1)).First(&subscription).Error)
+	require.Equal(t, plan.ID, subscription.PlanID)
+}
+
+func TestTenantPackageRejectsDisabledOrDeletedPlan(t *testing.T) {
+	db := newTransactionTestDB(t, &models.SaasPlan{}, &models.TenantSubscription{}, &models.TenantQuotaOverride{})
+	now := time.Now()
+	deletedAt := now.Add(-time.Minute)
+	activePlan := models.SaasPlan{PlanCode: "active", PlanName: "Active", PlanType: "STANDARD", BillingCycle: "MONTH", Status: 1, CreatedAt: now, UpdatedAt: now}
+	disabledPlan := models.SaasPlan{PlanCode: "disabled", PlanName: "Disabled", PlanType: "STANDARD", BillingCycle: "MONTH", Status: 0, CreatedAt: now, UpdatedAt: now}
+	deletedPlan := models.SaasPlan{PlanCode: "deleted", PlanName: "Deleted", PlanType: "STANDARD", BillingCycle: "MONTH", Status: 0, DeletedAt: &deletedAt, CreatedAt: now, UpdatedAt: now}
+	require.NoError(t, db.Create(&activePlan).Error)
+	require.NoError(t, db.Create(&disabledPlan).Error)
+	require.NoError(t, db.Create(&deletedPlan).Error)
+	require.NoError(t, db.Model(&disabledPlan).Update("status", 0).Error)
+	require.NoError(t, db.Model(&deletedPlan).Updates(map[string]interface{}{"status": 0, "deleted_at": deletedAt}).Error)
+
+	handler := &IdentityHandler{db: db}
+	require.Error(t, handler.saveTenantPackageOnDB(db, 10, tenantPackagePayload{PlanID: disabledPlan.ID}))
+	require.Error(t, handler.saveTenantPackageOnDB(db, 11, tenantPackagePayload{PlanID: deletedPlan.ID}))
+	require.NoError(t, handler.saveTenantPackageOnDB(db, 12, tenantPackagePayload{PlanID: activePlan.ID}))
+
+	var blockedCount int64
+	require.NoError(t, db.Model(&models.TenantSubscription{}).Where("tenant_id IN ?", []uint64{10, 11}).Count(&blockedCount).Error)
+	require.Equal(t, int64(0), blockedCount)
 }
 
 func newTransactionTestDB(t *testing.T, modelsToMigrate ...interface{}) *gorm.DB {

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm/clause"
 
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 	"saas_baseon_go/internal/interfaces/http/dto"
@@ -19,17 +20,20 @@ func (h *IdentityHandler) SysParams(c *gin.Context) {
 	}
 	skip, limit := paginationParams(c)
 	var rows []models.SystemParam
-	query := h.tenantScope().Active(user.TenantID)
-	if !user.IsPlatformAdmin {
-		query = query.Where("is_platform_only = ?", false)
-	}
+	forPlatform := user.IsPlatformAdmin || h.viewerHasPlatformScope(user)
+	query := h.visibleSystemParamsQuery(user.TenantID, forPlatform)
 	if keyword := strings.TrimSpace(c.Query("keyword")); keyword != "" {
 		like := "%" + keyword + "%"
-		query = query.Where("param_key LIKE ?", like)
+		query = query.Where("sys_param.param_key LIKE ?", like)
 	}
 	var total int64
-	_ = query.Model(&models.SystemParam{}).Count(&total).Error
-	_ = query.Order("id asc").Offset(skip).Limit(limit).Find(&rows).Error
+	_ = query.Count(&total).Error
+	_ = query.Clauses(clause.OrderBy{
+		Expression: clause.Expr{
+			SQL:  "CASE WHEN sys_param.tenant_id = ? THEN 0 ELSE 1 END, sys_param.id ASC",
+			Vars: []interface{}{user.TenantID},
+		},
+	}).Offset(skip).Limit(limit).Find(&rows).Error
 	items := make([]dto.SystemParamResponse, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, h.sysParamToResponse(user.TenantID, row))
@@ -91,9 +95,12 @@ func (h *IdentityHandler) UpdateSysParam(c *gin.Context) {
 		return
 	}
 	var row models.SystemParam
-	if err := h.tenantScope().ActiveByID(user.TenantID, c.Param("id")).First(&row).Error; err != nil {
+	forPlatform := user.IsPlatformAdmin || h.viewerHasPlatformScope(user)
+	if found, err := h.visibleSystemParamByID(user.TenantID, c.Param("id"), forPlatform); err != nil {
 		response.Error(c, 404, response.CodeNotFound, "参数不存在")
 		return
+	} else {
+		row = found
 	}
 	value := body.ParamValue
 	if value == nil {
@@ -162,9 +169,12 @@ func (h *IdentityHandler) RestoreSysParam(c *gin.Context) {
 		return
 	}
 	var row models.SystemParam
-	if err := h.tenantScope().ActiveByID(user.TenantID, c.Param("id")).First(&row).Error; err != nil {
+	forPlatform := user.IsPlatformAdmin || h.viewerHasPlatformScope(user)
+	if found, err := h.visibleSystemParamByID(user.TenantID, c.Param("id"), forPlatform); err != nil {
 		response.Error(c, 404, response.CodeNotFound, "参数不存在")
 		return
+	} else {
+		row = found
 	}
 	_ = h.db.Where("tenant_id = ? AND param_id = ?", user.TenantID, row.ID).Delete(&models.TenantParamValue{}).Error
 	h.audit(c, user.TenantID, user.ID, "sys_param", "restore", "恢复系统参数默认值 "+row.Key, gin.H{"id": row.ID})
@@ -180,15 +190,21 @@ func (h *IdentityHandler) SysParamBatch(c *gin.Context) {
 	values := map[string]*string{}
 	var rows []models.SystemParam
 	keys := splitCSVParam(c.Query("keys"))
-	query := h.tenantScope().Active(user.TenantID)
+	forPlatform := user.IsPlatformAdmin || h.viewerHasPlatformScope(user)
+	query := h.visibleSystemParamsQuery(user.TenantID, forPlatform)
 	if len(keys) > 0 {
-		query = query.Where("param_key IN ?", keys)
+		query = query.Where("sys_param.param_key IN ?", keys)
 	}
-	if !user.IsPlatformAdmin {
-		query = query.Where("is_platform_only = ?", false)
-	}
-	_ = query.Find(&rows).Error
+	_ = query.Clauses(clause.OrderBy{
+		Expression: clause.Expr{
+			SQL:  "CASE WHEN sys_param.tenant_id = ? THEN 0 ELSE 1 END, sys_param.id ASC",
+			Vars: []interface{}{user.TenantID},
+		},
+	}).Find(&rows).Error
 	for _, row := range rows {
+		if _, exists := values[row.Key]; exists {
+			continue
+		}
 		item := h.sysParamToResponse(user.TenantID, row)
 		value := item.ParamValue
 		values[row.Key] = &value

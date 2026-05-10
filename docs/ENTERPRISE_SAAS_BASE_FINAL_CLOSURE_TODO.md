@@ -30,7 +30,7 @@
 - [x] `make check-release` 输出 artifact 内容列表，作为验收证据。
 - [x] 交付报告明确：最终只交付 `make package` 生成的 artifact，禁止 Finder/手工压缩整个源码目录。
 
-## P0-2 前端 Build 可复现
+## P0-2 前端构建可复现
 
 - [x] 删除并禁止依赖压缩包中的 `frontend/node_modules`。
 - [x] 使用干净依赖流程验证：`cd frontend && rm -rf node_modules dist && npm ci`。
@@ -92,7 +92,7 @@
 - [x] 补测试：DB 写入失败不扣配额。
 - [x] 补测试：导入成功扣一次配额。
 
-## P0-6 收敛 File Service 重复实现
+## P0-6 收敛文件服务重复实现
 
 - [x] 删除或废弃 handler 侧旧 `validateUploadFile()`。
 - [x] 删除或废弃 handler 侧旧 `validateZipUpload()`。
@@ -114,7 +114,7 @@
 - [x] 补测试：平台管理员跨租户访问会记录 audit。
 - [x] 补测试：无权限平台用户访问平台接口被拒绝。
 
-## P1-2 ReferenceGuard 统一
+## P1-2 删除引用保护统一
 
 - [x] 梳理 `ReferenceGuard` 与 `blockDeleteIfReferenced()` 并存点。
 - [x] 保留一个删除保护主入口。
@@ -122,7 +122,7 @@
 - [x] 删除保护内部错误不泄露到 response body。
 - [x] 补测试：被引用对象删除失败且数据不变。
 
-## P1-3 Tenant-Scoped Repository 扩展准入
+## P1-3 租户范围数据访问扩展准入
 
 - [x] 当前 user/file/quota usage 已使用 tenant-scoped repository 的路径保留并补齐测试。
 - [x] 文档明确新增业务模块 repository 默认必须 tenant scoped。

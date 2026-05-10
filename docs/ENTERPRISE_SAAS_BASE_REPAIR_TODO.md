@@ -16,7 +16,7 @@
 6. 关键写操作事务一致性
 7. user、plan/quota、file 优先 service 化
 
-## P0-1 Redis Session / JWT Fallback
+## P0-1 Redis 会话与 JWT 兜底边界
 
 - [x] Redis session 模式下，Redis session 缺失、过期、删除时必须认证失败。
 - [x] 只有 `jwtFallback=true` 时才允许解析 JWT fallback。
@@ -56,7 +56,7 @@
 - [x] 补测试：zip 路径穿越失败。
 - [x] 补测试：生产环境未配置 `UPLOAD_DIR` 失败。
 
-## P0-4 交付 Gate
+## P0-4 交付门禁
 
 - [x] 增加 `make package`。
 - [x] 增加 `make check-release`。
@@ -101,7 +101,7 @@
 - [x] 补测试：Redis 错误不会进入响应 body。
 - [x] 补测试：文件系统错误不会进入响应 body。
 
-## P1-2 优先 Service 化
+## P1-2 优先服务化
 
 本轮只优先迁移 user、plan/quota、file，避免大面积回归。
 

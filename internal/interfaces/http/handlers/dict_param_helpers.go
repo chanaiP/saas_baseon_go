@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 	"saas_baseon_go/internal/interfaces/http/dto"
@@ -70,6 +71,52 @@ func (h *IdentityHandler) dictItemsToJSON(tenantID uint64, rows []models.DictIte
 	return items
 }
 
+func (h *IdentityHandler) visibleDictTypeByCode(tenantID uint64, code string, includePlatformOnly bool) (models.DictType, error) {
+	var row models.DictType
+	query := h.db.Where("code = ? AND deleted_at IS NULL", strings.TrimSpace(code))
+	scopeTenantIDs := h.permissionScopeTenantIDs(tenantID)
+	if includePlatformOnly {
+		query = query.Where("tenant_id IN ?", scopeTenantIDs)
+	} else {
+		query = query.Where("tenant_id = ? OR (tenant_id IN ? AND is_platform_only = ?)", tenantID, scopeTenantIDs, false)
+	}
+	err := query.Clauses(clause.OrderBy{
+		Expression: clause.Expr{
+			SQL:  "CASE WHEN tenant_id = ? THEN 0 ELSE 1 END, id ASC",
+			Vars: []interface{}{tenantID},
+		},
+	}).First(&row).Error
+	return row, err
+}
+
+func (h *IdentityHandler) visibleDictTypeByID(tenantID uint64, id interface{}, includePlatformOnly bool) (models.DictType, error) {
+	var row models.DictType
+	query := h.db.Where("id = ? AND deleted_at IS NULL", id)
+	scopeTenantIDs := h.permissionScopeTenantIDs(tenantID)
+	if includePlatformOnly {
+		query = query.Where("tenant_id IN ?", scopeTenantIDs)
+	} else {
+		query = query.Where("tenant_id = ? OR (tenant_id IN ? AND is_platform_only = ?)", tenantID, scopeTenantIDs, false)
+	}
+	err := query.First(&row).Error
+	return row, err
+}
+
+func (h *IdentityHandler) visibleDictTypesQuery(tenantID uint64, includePlatformOnly bool) *gorm.DB {
+	scopeTenantIDs := h.permissionScopeTenantIDs(tenantID)
+	query := h.db.Model(&models.DictType{}).Where("dict_type.deleted_at IS NULL")
+	if includePlatformOnly {
+		return query.Where("dict_type.tenant_id IN ?", scopeTenantIDs)
+	}
+	return query.Where(
+		"dict_type.tenant_id = ? OR (dict_type.tenant_id IN ? AND dict_type.is_platform_only = ? AND NOT EXISTS (SELECT 1 FROM dict_type tenant_dict WHERE tenant_dict.tenant_id = ? AND tenant_dict.code = dict_type.code AND tenant_dict.deleted_at IS NULL))",
+		tenantID,
+		scopeTenantIDs,
+		false,
+		tenantID,
+	)
+}
+
 func dictItemUpdates(label *string, value *string, sortOrder *int, enabled *bool) map[string]interface{} {
 	updates := map[string]interface{}{}
 	if label != nil {
@@ -130,7 +177,47 @@ func (h *IdentityHandler) sysParamToResponse(tenantID uint64, row models.SystemP
 			}
 		}
 	}
-	return dto.SystemParamResponse{ID: row.ID, Key: row.Key, DefaultValue: row.Value, ParamValue: paramValue, Remark: row.Remark, ValueType: row.ValueType, TenantEditable: row.TenantEditable, IsPlatformOnly: row.IsPlatformOnly, IsOverride: isOverride}
+	return dto.SystemParamResponse{
+		ID:             row.ID,
+		TenantID:       row.TenantID,
+		Key:            row.Key,
+		DefaultValue:   row.Value,
+		ParamValue:     paramValue,
+		Remark:         row.Remark,
+		ValueType:      row.ValueType,
+		TenantEditable: row.TenantEditable,
+		IsPlatformOnly: row.IsPlatformOnly,
+		IsTenantOwned:  row.TenantID == tenantID,
+		IsOverride:     isOverride,
+	}
+}
+
+func (h *IdentityHandler) visibleSystemParamsQuery(tenantID uint64, includePlatformOnly bool) *gorm.DB {
+	scopeTenantIDs := h.permissionScopeTenantIDs(tenantID)
+	query := h.db.Model(&models.SystemParam{}).Where("sys_param.deleted_at IS NULL")
+	if includePlatformOnly {
+		return query.Where("sys_param.tenant_id IN ?", scopeTenantIDs)
+	}
+	return query.Where(
+		"sys_param.tenant_id = ? OR (sys_param.tenant_id IN ? AND sys_param.is_platform_only = ? AND NOT EXISTS (SELECT 1 FROM sys_param tenant_param WHERE tenant_param.tenant_id = ? AND tenant_param.param_key = sys_param.param_key AND tenant_param.deleted_at IS NULL))",
+		tenantID,
+		scopeTenantIDs,
+		false,
+		tenantID,
+	)
+}
+
+func (h *IdentityHandler) visibleSystemParamByID(tenantID uint64, id interface{}, includePlatformOnly bool) (models.SystemParam, error) {
+	var row models.SystemParam
+	query := h.db.Where("id = ? AND deleted_at IS NULL", id)
+	scopeTenantIDs := h.permissionScopeTenantIDs(tenantID)
+	if includePlatformOnly {
+		query = query.Where("tenant_id IN ?", scopeTenantIDs)
+	} else {
+		query = query.Where("tenant_id = ? OR (tenant_id IN ? AND is_platform_only = ?)", tenantID, scopeTenantIDs, false)
+	}
+	err := query.First(&row).Error
+	return row, err
 }
 
 func (h *IdentityHandler) upsertTenantParamValue(tenantID uint64, paramID uint64, value *string) *models.TenantParamValue {

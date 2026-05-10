@@ -71,6 +71,9 @@ func (h *IdentityHandler) currentQuotaLimitByCode(tenantID uint64, quotaCode str
 }
 
 func (h *IdentityHandler) tenantFeatureAllowed(tenantID uint64, featureCode string) bool {
+	if uncontrolledPackageFeatureCode(featureCode) {
+		return true
+	}
 	if !h.subscriptionAllowsLogin(tenantID) {
 		return false
 	}
@@ -126,10 +129,16 @@ func (h *IdentityHandler) tenantAllowedFeatureCodeSet(tenantID uint64) map[strin
 	for _, link := range links {
 		explicit[link.FeatureID] = struct{}{}
 		if feature, ok := byID[link.FeatureID]; ok {
+			if uncontrolledPackageFeatureCode(feature.FeatureCode) || reservedPackageFeatureCode(feature.FeatureCode) {
+				continue
+			}
 			allowed[feature.FeatureCode] = true
 		}
 	}
 	for _, feature := range features {
+		if uncontrolledPackageFeatureCode(feature.FeatureCode) || reservedPackageFeatureCode(feature.FeatureCode) {
+			continue
+		}
 		if feature.FeatureType != "BUTTON" || feature.ParentID == 0 {
 			continue
 		}
@@ -146,6 +155,9 @@ func (h *IdentityHandler) tenantAllowedFeatureCodeSet(tenantID uint64) map[strin
 	_ = h.db.Where("tenant_id = ? AND (start_time IS NULL OR start_time <= ?) AND (end_time IS NULL OR end_time >= ?)", tenantID, now, now).Order("id asc").Find(&overrides).Error
 	for _, override := range overrides {
 		if feature, ok := byID[override.FeatureID]; ok {
+			if uncontrolledPackageFeatureCode(feature.FeatureCode) || reservedPackageFeatureCode(feature.FeatureCode) {
+				continue
+			}
 			allowed[feature.FeatureCode] = override.Enabled
 		}
 	}

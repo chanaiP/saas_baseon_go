@@ -40,7 +40,7 @@ const nodeTypeLabelByValue = computed(() =>
   Object.fromEntries(orgNodeTypeItems.value.map((x) => [x.value, x.label])),
 )
 const companyTypeLabelByValue = computed(() =>
-  Object.fromEntries(companyTypeOptions.value.map((x) => [x.value, x.label])),
+  Object.fromEntries(companyTypeOptions.value.flatMap((x) => [[x.value, x.label], [x.value.toLowerCase(), x.label]])),
 )
 
 function nodeTypeLabel(nt: string): string {
@@ -50,7 +50,7 @@ function nodeTypeLabel(nt: string): string {
 function companyTypeLabel(code: string | null | undefined): string {
   const k = String(code || '').trim()
   if (!k) return '—'
-  return companyTypeLabelByValue.value[k] ?? k
+  return companyTypeLabelByValue.value[k] ?? companyTypeLabelByValue.value[k.toLowerCase()] ?? k
 }
 
 const orgFilterFields = computed<FilterField[]>(() => [
@@ -173,9 +173,21 @@ function onOrgSearch(payload: { keyword: string; filters: Record<string, unknown
   manualExpandedRowKeys.value = []
 }
 
-function onOrgExpandChange(_row: OrgNode, expandedRows: OrgNode[]) {
+function onOrgExpandChange(row: OrgNode, expanded: OrgNode[] | boolean) {
+  if (Array.isArray(expanded)) {
+    orgExpandMode.value = -1
+    manualExpandedRowKeys.value = expanded.map((r) => orgRowKeyStr(r))
+    return
+  }
+  const nextKeys = new Set(orgExpandedRowKeys.value)
   orgExpandMode.value = -1
-  manualExpandedRowKeys.value = expandedRows.map((r) => orgRowKeyStr(r))
+  const rowKey = orgRowKeyStr(row)
+  if (expanded) {
+    nextKeys.add(rowKey)
+  } else {
+    nextKeys.delete(rowKey)
+  }
+  manualExpandedRowKeys.value = Array.from(nextKeys)
 }
 
 function requiresCompanyType(nodeType: string): boolean {
@@ -322,6 +334,7 @@ function openEdit(row: OrgNode) {
 }
 
 async function saveNode() {
+  if (nodeSaving.value) return
   const name = nodeForm.value.name.trim()
   if (!name) return ElMessage.warning('请填写名称')
   if (!nodeForm.value.node_type?.trim()) {

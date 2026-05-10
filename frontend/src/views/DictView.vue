@@ -259,7 +259,7 @@ const typeColumns = computed<TableColumn[]>(() => [
   { key: 'scope', title: '作用域', minWidth: 100, width: 108 },
   { key: 'tenant_editable', title: '租户覆盖', minWidth: 112, width: 120 },
   { key: 'is_platform_only', title: '平台专属', minWidth: 100, width: 108, hidden: !isPlatformAdmin.value },
-  { key: 'actions', title: '操作', width: 156, minWidth: 156, fixed: 'right', tooltip: false, hidden: !isPlatformAdmin.value },
+  { key: 'actions', title: '操作', width: 156, minWidth: 156, tooltip: false, hidden: !isPlatformAdmin.value },
 ])
 
 const itemColumns = computed<TableColumn[]>(() => [
@@ -270,7 +270,7 @@ const itemColumns = computed<TableColumn[]>(() => [
   { key: 'sort_order', title: '排序', minWidth: 96, width: 96, align: 'center' },
   { key: 'enabled', title: '启用', minWidth: 96, width: 96, align: 'center' },
   { key: 'is_override', title: '覆盖', minWidth: 96, width: 96, align: 'center', hidden: isPlatformAdmin.value },
-  { key: 'actions', title: '操作', width: 168, minWidth: 168, fixed: 'right', tooltip: false },
+  { key: 'actions', title: '操作', width: isPlatformAdmin.value ? 156 : 228, minWidth: isPlatformAdmin.value ? 156 : 228, tooltip: false },
 ])
 
 onMounted(() => void loadTypes())
@@ -287,6 +287,8 @@ onMounted(() => void loadTypes())
           :data="types"
           :loading="loadingT"
           :total="totalT"
+          :page="pageT"
+          :page-size="limitT"
           :page-sizes="[10, 20, 50]"
           :show-create="isPlatformAdmin"
           :show-selection="false"
@@ -299,7 +301,7 @@ onMounted(() => void loadTypes())
           @page-size-change="onTypePageSizeChange"
         >
           <template #actions>
-            <el-button v-if="isPlatformAdmin" v-permission="'dict:create'" class="btn-gradient" @click="openTypeDlg">新增</el-button>
+            <el-button v-if="isPlatformAdmin" v-permission="'dict_type:create'" class="btn-gradient" @click="openTypeDlg">新增</el-button>
           </template>
           <template #col-name_code="{ row }">
             <div class="dict-type-title-cell">
@@ -319,8 +321,8 @@ onMounted(() => void loadTypes())
           </template>
           <template #col-actions="{ row }">
             <span class="op-btns">
-              <el-button v-permission="'dict:edit'" size="small" @click.stop="openTypeEdit(row)">编辑</el-button>
-              <el-button v-permission="'dict:delete'" type="danger" size="small" @click.stop="removeType(row)">删除</el-button>
+              <el-button v-permission="'dict_type:edit'" size="small" @click.stop="openTypeEdit(row)">编辑</el-button>
+              <el-button v-permission="'dict_type:delete'" type="danger" size="small" @click.stop="removeType(row)">删除</el-button>
             </span>
           </template>
         </NeuroAgentListPage>
@@ -335,6 +337,8 @@ onMounted(() => void loadTypes())
           :data="items"
           :loading="loadingI"
           :total="totalI"
+          :page="pageI"
+          :page-size="limitI"
           :page-sizes="[10, 20, 50]"
           :show-create="isPlatformAdmin"
           :show-selection="false"
@@ -343,7 +347,7 @@ onMounted(() => void loadTypes())
           @page-size-change="onItemPageSizeChange"
         >
           <template #actions>
-            <el-button v-if="isPlatformAdmin" v-permission="'dict:create'" class="btn-gradient" @click="openItemDlg">新增</el-button>
+            <el-button v-if="isPlatformAdmin" v-permission="'dict_item:create'" class="btn-gradient" @click="openItemDlg">新增</el-button>
           </template>
           <template #col-enabled="{ row }">
             <el-tag
@@ -364,14 +368,14 @@ onMounted(() => void loadTypes())
           <template #col-actions="{ row }">
             <span class="op-btns">
               <el-button
-                v-permission="'dict:edit'"
+                v-permission="'dict_item:edit'"
                 :disabled="!isPlatformAdmin && currentType?.tenant_editable === false"
                 @click="openItemEdit(row)"
               >
                 {{ isPlatformAdmin ? '编辑' : '覆盖' }}
               </el-button>
               <el-button v-if="!isPlatformAdmin" :disabled="!row.is_override" @click="restoreItem(row)">恢复默认</el-button>
-              <el-button v-if="isPlatformAdmin" v-permission="'dict:delete'" type="danger" @click="removeItem(row)">删除</el-button>
+              <el-button v-if="isPlatformAdmin" v-permission="'dict_item:delete'" type="danger" @click="removeItem(row)">删除</el-button>
             </span>
           </template>
         </NeuroAgentListPage>
@@ -517,10 +521,51 @@ onMounted(() => void loadTypes())
   padding: 16px;
 }
 
+.dict-data-table {
+  min-width: 0;
+}
+
 /* 字典页表格单元格略增左右留白，避免列内容贴在分隔线上 */
 .page :deep(.dict-data-table .neuro-el-table .cell) {
-  padding-left: 14px;
-  padding-right: 14px;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.page :deep(.dict-data-table .op-btns) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.page :deep(.dict-data-table .op-btns .el-button) {
+  margin-left: 0;
+  min-width: 64px;
+}
+
+.page :deep(.dict-data-table .card-table),
+.page :deep(.dict-data-table .el-table__inner-wrapper),
+.page :deep(.dict-data-table .el-table__body-wrapper),
+.page :deep(.dict-data-table .el-scrollbar),
+.page :deep(.dict-data-table .el-scrollbar__wrap),
+.page :deep(.dict-data-table .el-scrollbar__view) {
+  height: auto !important;
+  max-height: none !important;
+  overflow-y: visible !important;
+}
+
+.page :deep(.dict-data-table .el-scrollbar__bar) {
+  display: none !important;
+}
+
+.page :deep(.dict-data-table .el-table__body-wrapper) {
+  scrollbar-width: none;
+}
+
+.page :deep(.dict-data-table .el-table__body-wrapper::-webkit-scrollbar) {
+  width: 0;
+  height: 0;
 }
 
 .dict-type-title-cell {

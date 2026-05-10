@@ -115,14 +115,8 @@ func (h *IdentityHandler) UpdateRole(c *gin.Context) {
 		return
 	}
 	if body.PermissionIDs != nil {
-		if err := h.validateRolePermissionIDs(user, body.PermissionIDs); err != nil {
-			respondBadRequest(c, err)
-			return
-		}
-		if err := h.validateRoleDataOverrides(user.TenantID, body.DataOverrides); err != nil {
-			respondBadRequest(c, err)
-			return
-		}
+		response.Error(c, 400, response.CodeBadRequest, "角色权限请通过权限配置接口保存")
+		return
 	}
 	if err := h.db.Transaction(func(tx *gorm.DB) error {
 		updates := map[string]interface{}{}
@@ -137,11 +131,6 @@ func (h *IdentityHandler) UpdateRole(c *gin.Context) {
 				return err
 			}
 		}
-		if body.PermissionIDs != nil {
-			if err := replaceRolePermissionsWithOverrides(tx, role.ID, body.PermissionIDs, body.DataOverrides); err != nil {
-				return err
-			}
-		}
 		return nil
 	}); err != nil {
 		respondBadRequest(c, err)
@@ -150,6 +139,42 @@ func (h *IdentityHandler) UpdateRole(c *gin.Context) {
 	_ = h.db.First(&role, role.ID).Error
 	h.invalidateRoleAuthorizationCache(role.ID)
 	h.audit(c, user.TenantID, user.ID, "role", "update", "编辑角色 "+role.Name, gin.H{"id": role.ID, "code": role.Code, "permission_ids": body.PermissionIDs, "data_overrides": body.DataOverrides})
+	response.OK(c, h.roleToJSON(role, false))
+}
+
+func (h *IdentityHandler) UpdateRolePermissions(c *gin.Context) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	var body rolePayload
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	var role models.Role
+	if err := h.tenantScope().ActiveByID(user.TenantID, parseUintParam(c, "id")).First(&role).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "角色不存在")
+		return
+	}
+	if err := h.validateRolePermissionIDs(user, body.PermissionIDs); err != nil {
+		respondBadRequest(c, err)
+		return
+	}
+	if err := h.validateRoleDataOverrides(user.TenantID, body.DataOverrides); err != nil {
+		respondBadRequest(c, err)
+		return
+	}
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		return replaceRolePermissionsWithOverrides(tx, role.ID, body.PermissionIDs, body.DataOverrides)
+	}); err != nil {
+		respondBadRequest(c, err)
+		return
+	}
+	_ = h.db.First(&role, role.ID).Error
+	h.invalidateRoleAuthorizationCache(role.ID)
+	h.audit(c, user.TenantID, user.ID, "role", "permission", "配置角色权限 "+role.Name, gin.H{"id": role.ID, "code": role.Code, "permission_ids": body.PermissionIDs, "data_overrides": body.DataOverrides})
 	response.OK(c, h.roleToJSON(role, false))
 }
 

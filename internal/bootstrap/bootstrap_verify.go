@@ -140,25 +140,38 @@ FROM saas_feature
 WHERE status = 1
   AND feature_code IN (
     'user_manage','org_manage','position_manage','role_manage','dict_manage','param_manage','business_unit_manage',
-    'data_permission','advanced_data_permission','login_log','audit_log','import_data','export_data','file_manage',
-    'brand_config','system_monitor','ip_whitelist','mfa','sso_login','api_key','webhook','tenant_data_export'
+    'login_log','audit_log','import_data','export_data','file_manage','brand_config','system_monitor'
   )`)
 	if err != nil {
 		return BootstrapVerifyResult{}, err
 	}
-	add("core_saas_features", coreFeatures, "22", coreFeatures == 22)
+	add("core_saas_features", coreFeatures, "14", coreFeatures == 14)
 
-	quotas, err := count("SELECT COUNT(*) FROM saas_quota WHERE status = 1")
+	quotas, err := count(`
+SELECT COUNT(*)
+FROM saas_quota
+WHERE status = 1
+  AND quota_code IN (
+    'max_users','max_companies','max_stores','max_departments','max_business_units','max_roles',
+    'max_storage_gb','max_file_size_mb','daily_import_times','daily_export_times'
+  )`)
 	if err != nil {
 		return BootstrapVerifyResult{}, err
 	}
-	add("saas_quotas", quotas, "15", quotas == 15)
+	add("saas_quotas", quotas, "10", quotas == 10)
 
-	planQuotaMatrix, err := count("SELECT COUNT(*) FROM saas_plan_quota")
+	planQuotaMatrix, err := count(`
+SELECT COUNT(*)
+FROM saas_plan_quota spq
+JOIN saas_quota sq ON sq.id = spq.quota_id
+WHERE sq.quota_code IN (
+  'max_users','max_companies','max_stores','max_departments','max_business_units','max_roles',
+  'max_storage_gb','max_file_size_mb','daily_import_times','daily_export_times'
+)`)
 	if err != nil {
 		return BootstrapVerifyResult{}, err
 	}
-	add("plan_quota_matrix", planQuotaMatrix, "60", planQuotaMatrix == 60)
+	add("plan_quota_matrix", planQuotaMatrix, "40", planQuotaMatrix == 40)
 
 	corePlanFeatureMatrix, err := count(`
 SELECT COUNT(*)
@@ -166,13 +179,12 @@ FROM saas_plan_feature spf
 JOIN saas_feature sf ON sf.id = spf.feature_id
 WHERE sf.feature_code IN (
   'user_manage','org_manage','position_manage','role_manage','dict_manage','param_manage','business_unit_manage',
-  'data_permission','advanced_data_permission','login_log','audit_log','import_data','export_data','file_manage',
-  'brand_config','system_monitor','ip_whitelist','mfa','sso_login','api_key','webhook','tenant_data_export'
+  'login_log','audit_log','import_data','export_data','file_manage','brand_config','system_monitor'
 )`)
 	if err != nil {
 		return BootstrapVerifyResult{}, err
 	}
-	add("core_plan_feature_matrix", corePlanFeatureMatrix, "88", corePlanFeatureMatrix == 88)
+	add("core_plan_feature_matrix", corePlanFeatureMatrix, "56", corePlanFeatureMatrix == 56)
 
 	dictTypes, err := count(`
 SELECT COUNT(*)
@@ -213,7 +225,10 @@ JOIN tenant t ON t.id = p.tenant_id
 WHERE t.code = 'platform'
   AND p.path IN ('/roles','/menus','/permissions')
   AND p.deleted_at IS NULL
-  AND COALESCE(p.feature_code, '') <> 'role_manage'`)
+  AND (
+    (p.path IN ('/roles','/permissions') AND COALESCE(p.feature_code, '') <> 'role_manage')
+    OR (p.path = '/menus' AND COALESCE(p.feature_code, '') <> 'menu_manage')
+  )`)
 	if err != nil {
 		return BootstrapVerifyResult{}, err
 	}

@@ -1,4 +1,4 @@
-# Token Storage Security Policy
+# Token 存储安全策略
 
 当前前端保留 `localStorage` 中的 `access_token`，仅作为既有后台管理台兼容策略，不把它升级为长期推荐方案。
 

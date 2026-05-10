@@ -120,7 +120,10 @@ const hasParamActionColumn = computed(
   () =>
     permStore.can('param:create') || permStore.can('param:edit') || permStore.can('param:delete'),
 )
-const showParamCreate = computed(() => isPlatformAdmin.value && permStore.can('param:create'))
+const showParamCreate = computed(() => permStore.can('param:create'))
+function canDeleteParam(row: SysParamRow) {
+  return permStore.can('param:delete') && (isPlatformAdmin.value || row.is_tenant_owned === true)
+}
 
 const columns = computed<TableColumn[]>(() => [
   { key: 'param_key', title: '参数键名', minWidth: 280, width: 360 },
@@ -144,6 +147,8 @@ onMounted(load)
       :data="items"
       :loading="loading"
       :total="total"
+      :page="page"
+      :page-size="limit"
       :page-sizes="[10, 20, 50]"
       :show-create="showParamCreate"
       :show-selection="false"
@@ -154,7 +159,7 @@ onMounted(load)
       @page-size-change="onPageSizeChange"
     >
       <template #actions>
-        <el-button v-if="isPlatformAdmin" v-permission="'param:create'" class="btn-gradient" @click="openDlg">新增</el-button>
+        <el-button v-permission="'param:create'" class="btn-gradient" @click="openDlg">新增</el-button>
       </template>
       <template #col-tenant_editable="{ row }">
         <el-tag size="small" :type="row.tenant_editable === false ? 'info' : 'success'">
@@ -176,7 +181,7 @@ onMounted(load)
             {{ isPlatformAdmin ? '编辑' : '覆盖' }}
           </el-button>
           <el-button v-if="!isPlatformAdmin" v-permission="'param:edit'" :disabled="!row.is_override" @click="restoreDefault(row)">恢复默认</el-button>
-          <el-button v-if="isPlatformAdmin" v-permission="'param:delete'" type="danger" @click="remove(row)">删除</el-button>
+          <el-button v-if="canDeleteParam(row)" v-permission="'param:delete'" type="danger" @click="remove(row)">删除</el-button>
         </span>
       </template>
     </NeuroAgentListPage>
@@ -211,7 +216,7 @@ onMounted(load)
           </div>
           <div class="nm-form-item">
             <label class="nm-form-label">平台专属</label>
-            <el-switch v-model="form.is_platform_only" />
+            <el-switch v-model="form.is_platform_only" :disabled="!isPlatformAdmin" />
           </div>
         </div>
       </div>

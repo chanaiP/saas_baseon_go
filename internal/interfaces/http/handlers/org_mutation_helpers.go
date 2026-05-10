@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"strings"
 	"time"
 
@@ -28,8 +29,12 @@ func (h *IdentityHandler) createOrgNode(c *gin.Context, forcedType string) {
 	if body.NodeType == "" {
 		body.NodeType = "department"
 	}
-	if body.Status == 0 {
+	if !body.StatusSet {
 		body.Status = 1
+	}
+	if body.Status != 0 && body.Status != 1 {
+		response.Error(c, 400, response.CodeBadRequest, "组织状态不正确")
+		return
 	}
 	tenantID := user.TenantID
 	if err := h.requireFeatureAccess(tenantID, "org_manage"); err != nil {
@@ -53,12 +58,56 @@ func (h *IdentityHandler) createOrgNode(c *gin.Context, forcedType string) {
 		response.Error(c, 400, response.CodeBadRequest, "组织名称不能为空")
 		return
 	}
-	if err := h.db.Create(&row).Error; err != nil {
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := ensureOrgNodeNotDuplicate(tx, row); err != nil {
+			return err
+		}
+		return tx.Create(&row).Error
+	}); err != nil {
 		respondBadRequest(c, err)
 		return
 	}
 	h.audit(c, user.TenantID, user.ID, "organization", "create", "创建组织 "+row.Name, gin.H{"org_id": row.ID, "tenant_id": row.TenantID, "node_type": row.NodeType, "code": row.Code})
 	response.OK(c, gin.H{"id": row.ID})
+}
+
+func ensureOrgNodeNotDuplicate(tx *gorm.DB, row models.OrgNode) error {
+	return ensureOrgNodeNotDuplicateExcluding(tx, row, 0)
+}
+
+func ensureOrgNodeNotDuplicateExcluding(tx *gorm.DB, row models.OrgNode, excludeID uint64) error {
+	name := strings.TrimSpace(row.Name)
+	code := strings.TrimSpace(derefString(row.Code))
+	baseQuery := func() *gorm.DB {
+		query := tx.Model(&models.OrgNode{}).
+			Where("tenant_id = ? AND node_type = ? AND deleted_at IS NULL", row.TenantID, row.NodeType)
+		if excludeID > 0 {
+			query = query.Where("id <> ?", excludeID)
+		}
+		if row.ParentID == nil {
+			return query.Where("parent_id IS NULL")
+		}
+		return query.Where("parent_id = ?", *row.ParentID)
+	}
+	if code != "" {
+		var exists int64
+		if err := baseQuery().Where("lower(trim(code)) = lower(?)", code).Count(&exists).Error; err != nil {
+			return err
+		}
+		if exists > 0 {
+			return errors.New("同级组织下已存在相同编码")
+		}
+	}
+	if name != "" {
+		var exists int64
+		if err := baseQuery().Where("lower(trim(name)) = lower(?)", name).Count(&exists).Error; err != nil {
+			return err
+		}
+		if exists > 0 {
+			return errors.New("同级组织下已存在相同名称")
+		}
+	}
+	return nil
 }
 
 func (h *IdentityHandler) updateOrgNode(c *gin.Context) {
@@ -86,7 +135,11 @@ func (h *IdentityHandler) updateOrgNode(c *gin.Context) {
 	if body.Code != nil {
 		updates["code"] = nullableTrimmed(body.Code)
 	}
-	if body.Status != 0 {
+	if body.StatusSet {
+		if body.Status != 0 && body.Status != 1 {
+			response.Error(c, 400, response.CodeBadRequest, "组织状态不正确")
+			return
+		}
 		updates["status"] = body.Status
 	}
 	nextType := row.NodeType
@@ -120,6 +173,22 @@ func (h *IdentityHandler) updateOrgNode(c *gin.Context) {
 		return
 	}
 	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		nextRow := row
+		if name, ok := updates["name"].(string); ok {
+			nextRow.Name = name
+		}
+		if code, ok := updates["code"].(*string); ok {
+			nextRow.Code = code
+		}
+		if nodeType, ok := updates["node_type"].(string); ok {
+			nextRow.NodeType = nodeType
+		}
+		if parentID, ok := updates["parent_id"].(*uint64); ok {
+			nextRow.ParentID = parentID
+		}
+		if err := ensureOrgNodeNotDuplicateExcluding(tx, nextRow, row.ID); err != nil {
+			return err
+		}
 		if err := tx.Model(&row).Updates(updates).Error; err != nil {
 			return err
 		}

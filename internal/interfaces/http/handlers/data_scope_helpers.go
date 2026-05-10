@@ -33,7 +33,7 @@ func (h *IdentityHandler) resolveDataScopeForMenu(user models.AppUser, menuPath 
 	_ = h.db.Joins("JOIN permission p ON p.id = role_permission.permission_id").
 		Joins("JOIN user_role ur ON ur.role_id = role_permission.role_id").
 		Joins("JOIN role r ON r.id = ur.role_id").
-		Where("ur.user_id = ? AND p.tenant_id = ? AND p.path = ? AND p.perm_type = ? AND p.deleted_at IS NULL AND r.deleted_at IS NULL", user.ID, user.TenantID, dataPath, 4).
+		Where("ur.user_id = ? AND p.tenant_id IN ? AND p.path = ? AND p.perm_type = ? AND p.deleted_at IS NULL AND r.deleted_at IS NULL", user.ID, h.permissionScopeTenantIDs(user.TenantID), dataPath, 4).
 		Find(&links).Error
 	if len(links) == 0 {
 		return orgDataScope{Scope: "SELF"}

@@ -16,7 +16,7 @@ import (
 
 func (h *IdentityHandler) Quotas(c *gin.Context) {
 	skip, limit := paginationParams(c)
-	query := h.db.Order("id asc")
+	query := h.db.Where("quota_code NOT IN ?", hiddenPackageQuotaCodes()).Order("id asc")
 	var total int64
 	_ = query.Model(&models.SaasQuota{}).Count(&total).Error
 	var rows []models.SaasQuota
@@ -77,13 +77,17 @@ func (h *IdentityHandler) PlanQuotas(c *gin.Context) {
 	_ = h.db.Table("saas_plan_quota pq").
 		Select("pq.quota_id, q.quota_code, q.quota_name, pq.quota_value, q.period_type, q.unit").
 		Joins("join saas_quota q on q.id = pq.quota_id").
-		Where("pq.plan_id = ?", planID).
+		Where("pq.plan_id = ? AND q.quota_code NOT IN ?", planID, hiddenPackageQuotaCodes()).
 		Scan(&rows).Error
 	items := make([]dto.PlanQuotaItemResponse, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, dto.PlanQuotaItemResponse{QuotaID: row.QuotaID, QuotaCode: row.QuotaCode, QuotaName: row.QuotaName, QuotaValue: row.QuotaValue, PeriodType: row.PeriodType, Unit: row.Unit})
 	}
 	response.OK(c, dto.PlanQuotasResponse{PlanID: planID, Quotas: items})
+}
+
+func hiddenPackageQuotaCodes() []string {
+	return []string{"max_api_keys", "max_webhooks", "daily_api_calls", "monthly_sms_count", "monthly_email_count"}
 }
 
 func (h *IdentityHandler) SavePlanQuotas(c *gin.Context) {

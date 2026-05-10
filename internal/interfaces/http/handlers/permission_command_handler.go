@@ -37,12 +37,20 @@ func (h *IdentityHandler) CreatePermission(c *gin.Context) {
 		Enabled:          body.Enabled == nil || *body.Enabled,
 		Visible:          body.TenantVisible == nil || *body.TenantVisible,
 		IsPlatformOnly:   body.IsPlatformOnly != nil && *body.IsPlatformOnly,
-		IsPackageFeature: body.IsPackageFeature == nil || *body.IsPackageFeature,
+		IsPackageFeature: body.IsPackageFeature != nil && *body.IsPackageFeature,
 		TenantEditable:   body.TenantEditable != nil && *body.TenantEditable,
 		TenantEditScope:  nullableTrimmed(body.TenantEditScope),
 		FeatureCode:      nullableTrimmed(body.FeatureCode),
 		FeatureType:      nullableTrimmed(body.FeatureType),
 		DataPermMode:     coalesceStringPtr(body.DataPermMode, "ORG"),
+	}
+	if row.IsPlatformOnly && row.IsPackageFeature {
+		response.Error(c, 400, response.CodeBadRequest, "仅平台权限不能加入套餐中心")
+		return
+	}
+	if row.IsPackageFeature && !permissionCanJoinPackageCenter(row) {
+		response.Error(c, 400, response.CodeBadRequest, "该权限不允许加入套餐中心")
+		return
 	}
 	if row.Name == "" || row.Path == "" || body.PermType == nil {
 		response.Error(c, 400, response.CodeBadRequest, "权限名称、路径和类型不能为空")
@@ -84,6 +92,14 @@ func (h *IdentityHandler) UpdatePermission(c *gin.Context) {
 		return
 	}
 	applyPermissionPayload(&row, body)
+	if row.IsPlatformOnly && row.IsPackageFeature {
+		response.Error(c, 400, response.CodeBadRequest, "仅平台权限不能加入套餐中心")
+		return
+	}
+	if row.IsPackageFeature && !permissionCanJoinPackageCenter(row) {
+		response.Error(c, 400, response.CodeBadRequest, "该权限不允许加入套餐中心")
+		return
+	}
 	if err := h.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Save(&row).Error; err != nil {
 			return err
@@ -93,9 +109,56 @@ func (h *IdentityHandler) UpdatePermission(c *gin.Context) {
 		respondBadRequest(c, err)
 		return
 	}
+	if !row.IsPackageFeature {
+		h.disablePackageFeatureForPermission(row)
+	}
 	h.syncPackageFeaturesFromPermissions()
 	h.invalidateTenantAuthorizationCache(user.TenantID)
 	h.audit(c, user.TenantID, user.ID, "permission", "update", "编辑权限 "+row.Name, gin.H{"id": row.ID, "path": row.Path})
+	response.OK(c, h.permissionToJSON(row))
+}
+
+func (h *IdentityHandler) UpdatePermissionPackageFeature(c *gin.Context) {
+	user, ok := h.currentUser(c)
+	if !ok {
+		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	var row models.Permission
+	if err := h.tenantScope().ActiveByID(user.TenantID, c.Param("id")).First(&row).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "权限不存在")
+		return
+	}
+	var body struct {
+		IsPackageFeature *bool `json:"is_package_feature"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || body.IsPackageFeature == nil {
+		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	if !h.viewerHasPlatformScope(user) {
+		response.Error(c, 403, response.CodeForbidden, "仅平台管理员可维护套餐中心收录")
+		return
+	}
+	if row.IsPlatformOnly || (row.PermType != 2 && row.PermType != 3) {
+		response.Error(c, 400, response.CodeBadRequest, "仅租户侧菜单和操作可维护套餐中心收录")
+		return
+	}
+	row.IsPackageFeature = *body.IsPackageFeature
+	if row.IsPackageFeature && !permissionCanJoinPackageCenter(row) {
+		response.Error(c, 400, response.CodeBadRequest, "该权限不允许加入套餐中心")
+		return
+	}
+	if err := h.db.Save(&row).Error; err != nil {
+		respondBadRequest(c, err)
+		return
+	}
+	if !row.IsPackageFeature {
+		h.disablePackageFeatureForPermission(row)
+	}
+	h.syncPackageFeaturesFromPermissions()
+	h.invalidateTenantAuthorizationCache(user.TenantID)
+	h.audit(c, user.TenantID, user.ID, "permission", "package_feature", "更新套餐中心收录 "+row.Name, gin.H{"id": row.ID, "path": row.Path, "is_package_feature": row.IsPackageFeature})
 	response.OK(c, h.permissionToJSON(row))
 }
 
@@ -123,6 +186,14 @@ func (h *IdentityHandler) DeletePermission(c *gin.Context) {
 	h.invalidateTenantAuthorizationCache(user.TenantID)
 	h.audit(c, user.TenantID, user.ID, "permission", "delete", "删除权限 "+row.Name, gin.H{"id": id})
 	response.OK(c, gin.H{"deleted": id})
+}
+
+func permissionCanJoinPackageCenter(row models.Permission) bool {
+	if row.IsPlatformOnly || row.Path == "" {
+		return false
+	}
+	row.IsPackageFeature = true
+	return packageFeatureCodeForPermission(row) != ""
 }
 
 func coalesceString(value, fallback string) string {

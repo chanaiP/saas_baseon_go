@@ -1,12 +1,12 @@
-# AGENTS.md
+# AI Agent 项目导航
 
 本文件为 AI coding agents 提供项目导航。详细执行规则见 `CLAUDE.md`，运行方式见 `README.md`。
 
-## Project
+## 项目定位
 
 本项目是 SaaS 多租户管理后台：Gin + PostgreSQL + Redis，前端 Vue 3 + Element Plus。
 
-## Structure
+## 目录结构
 
 - `README.md`：启动方式、端口、Docker、演示账号、故障排查。
 - `CLAUDE.md`：Claude Code 专用执行规则。
@@ -22,7 +22,7 @@
 - `internal/infrastructure/persistence/postgres/schema/current_schema.sql`：当前 PostgreSQL schema baseline。
 - `internal/infrastructure/persistence/postgres/migrations/`：后续增量迁移 SQL。
 
-## Database & Docker Bootstrap
+## 数据库与 Docker 初始化
 
 AI 工具拿到代码后，如需构建可运行环境，优先按以下入口判断数据库与 Docker 环境：
 
@@ -40,7 +40,7 @@ AI 工具拿到代码后，如需构建可运行环境，优先按以下入口�
 
 生产或准生产环境不得依赖开发默认密码、默认 `JWT_SECRET` 或 `CORS_ORIGINS=*`。生产数据库初始化应优先使用 `go run ./cmd/migrate` 执行当前 schema baseline 与 `internal/infrastructure/persistence/postgres/migrations/` 下的版本化增量 SQL。
 
-## Backend
+## 后端
 
 后端接口、分页、错误码、tenant 约束必须遵守 `CLAUDE.md`。涉及租户内数据访问时，必须带 tenant 约束。
 
@@ -48,11 +48,11 @@ AI 工具拿到代码后，如需构建可运行环境，优先按以下入口�
 
 后端规范见 `CLAUDE.md` 的“5. 后端规范”。新增功能默认按 model -> repository -> domain/application service -> dto/handler -> router 的方向落位，并同步补 service 或 handler 单测。
 
-## Frontend
+## 前端
 
 前端使用 Vue 3 Composition API 与 `<script setup>`。API 调用集中在 `src/api`。列表页面优先使用 `NeuroAgentListPage`。权限与菜单以后端权限数据为准。
 
-## Agent Rules
+## Agent 执行规则
 
 新增业务模块前，先阅读 `docs/tech_design/业务开发标准.md`，确认业务对象、租户归属、权限、套餐、配额、数据权限、审计和测试准入要求。
 

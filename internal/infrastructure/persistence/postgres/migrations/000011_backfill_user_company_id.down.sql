@@ -1,0 +1,1 @@
+-- Intentionally no-op: removing inferred company ownership would hide existing users from tenant-scoped lists again.

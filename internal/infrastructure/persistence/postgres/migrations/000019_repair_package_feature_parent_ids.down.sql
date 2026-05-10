@@ -1,0 +1,1 @@
+-- Data repair only: keep repaired package feature parent links on rollback.

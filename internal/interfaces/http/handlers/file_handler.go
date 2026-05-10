@@ -121,6 +121,10 @@ func (h *IdentityHandler) DownloadFile(c *gin.Context) {
 		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
 		return
 	}
+	if err := h.requireFeatureAccess(user.TenantID, "file_manage"); err != nil {
+		respondForbidden(c, err)
+		return
+	}
 	fileID := c.Param("file_id")
 	fileObject, err := h.findTenantFileObject(user, fileID, "file:download")
 	if err != nil {
@@ -139,6 +143,10 @@ func (h *IdentityHandler) DeleteFile(c *gin.Context) {
 	user, ok := h.currentUser(c)
 	if !ok {
 		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	if err := h.requireFeatureAccess(user.TenantID, "file_manage"); err != nil {
+		respondForbidden(c, err)
 		return
 	}
 	fileID := c.Param("file_id")

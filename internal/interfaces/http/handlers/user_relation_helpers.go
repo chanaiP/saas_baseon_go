@@ -84,6 +84,17 @@ func (h *IdentityHandler) companyIDForDepartment(tenantID uint64, departmentID u
 	return nil
 }
 
+func (h *IdentityHandler) rootCompanyIDForTenant(tenantID uint64) *uint64 {
+	var row models.OrgNode
+	if err := h.db.
+		Where("tenant_id = ? AND node_type = ? AND parent_id IS NULL AND deleted_at IS NULL", tenantID, "company").
+		Order("id asc").
+		First(&row).Error; err != nil {
+		return nil
+	}
+	return &row.ID
+}
+
 func (h *IdentityHandler) assertPositionsInTenant(tenantID uint64, positionIDs []uint64) error {
 	ids := uniqueUint64s(positionIDs)
 	if len(ids) == 0 {

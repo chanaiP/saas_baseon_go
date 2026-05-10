@@ -21,7 +21,7 @@ func (h *IdentityHandler) tenantCapabilityContext(tenantID uint64) tenantCapabil
 		return empty
 	}
 	var plan models.SaasPlan
-	if err := h.db.Where("id = ? AND deleted_at IS NULL", sub.PlanID).First(&plan).Error; err != nil || plan.Status != 1 {
+	if err := h.db.Where("id = ?", sub.PlanID).First(&plan).Error; err != nil {
 		return empty
 	}
 	now := time.Now()
@@ -47,6 +47,9 @@ func (h *IdentityHandler) tenantCapabilityContext(tenantID uint64) tenantCapabil
 		var rows []models.SaasFeature
 		_ = h.db.Where("id IN ? AND status = ?", ids, 1).Order("feature_code asc").Find(&rows).Error
 		for _, row := range rows {
+			if uncontrolledPackageFeatureCode(row.FeatureCode) || reservedPackageFeatureCode(row.FeatureCode) {
+				continue
+			}
 			features = append(features, row.FeatureCode)
 		}
 	}
@@ -56,6 +59,9 @@ func (h *IdentityHandler) tenantCapabilityContext(tenantID uint64) tenantCapabil
 	for _, row := range planQuotas {
 		var quota models.SaasQuota
 		if err := h.db.Where("id = ? AND status = ?", row.QuotaID, 1).First(&quota).Error; err == nil {
+			if hiddenPackageQuotaCode(quota.QuotaCode) {
+				continue
+			}
 			quotas[quota.QuotaCode] = row.QuotaValue
 		}
 	}
@@ -64,6 +70,9 @@ func (h *IdentityHandler) tenantCapabilityContext(tenantID uint64) tenantCapabil
 	for _, override := range quotaOverrides {
 		var quota models.SaasQuota
 		if err := h.db.Where("id = ? AND status = ?", override.QuotaID, 1).First(&quota).Error; err == nil {
+			if hiddenPackageQuotaCode(quota.QuotaCode) {
+				continue
+			}
 			quotas[quota.QuotaCode] = override.QuotaValue
 		}
 	}
@@ -103,7 +112,7 @@ func (h *IdentityHandler) permissionCodesForUser(user models.AppUser, filterSubs
 		Joins("JOIN role_permission rp ON rp.permission_id = permission.id").
 		Joins("JOIN user_role ur ON ur.role_id = rp.role_id").
 		Joins("JOIN role r ON r.id = ur.role_id").
-		Where("ur.user_id = ? AND permission.tenant_id = ? AND permission.enabled = ? AND permission.deleted_at IS NULL AND r.deleted_at IS NULL", user.ID, user.TenantID, true).
+		Where("ur.user_id = ? AND r.tenant_id = ? AND permission.enabled = ? AND permission.deleted_at IS NULL AND r.deleted_at IS NULL", user.ID, user.TenantID, true).
 		Where("permission.perm_type IN ?", []int{2, 3}).
 		Order("permission.id asc").
 		Find(&permissions).Error
@@ -115,6 +124,9 @@ func (h *IdentityHandler) permissionCodesForUser(user models.AppUser, filterSubs
 	}
 	for _, permission := range permissions {
 		if permission.Path == "" || permission.Path == "__operations_root__" || permission.Path == "__menu_root__" {
+			continue
+		}
+		if isPureViewPermissionPath(permission.Path) {
 			continue
 		}
 		if !user.IsPlatformAdmin && !h.viewerHasPlatformScope(user) && permission.IsPlatformOnly {
@@ -129,7 +141,7 @@ func (h *IdentityHandler) permissionCodesForUser(user models.AppUser, filterSubs
 		seen[permission.Path] = struct{}{}
 		codes = append(codes, permission.Path)
 	}
-	for _, fixed := range []string{"/home", "home:view"} {
+	for _, fixed := range []string{"/home"} {
 		if _, ok := seen[fixed]; ok {
 			continue
 		}
@@ -186,6 +198,13 @@ func (h *IdentityHandler) userCanEditTenantBranding(user models.AppUser) bool {
 		Joins("JOIN role_permission rp ON rp.permission_id = permission.id").
 		Joins("JOIN user_role ur ON ur.role_id = rp.role_id").
 		Where("ur.user_id = ? AND permission.path = ? AND permission.enabled = ?", user.ID, "brand:edit", true).
+		Count(&count).Error
+	if count > 0 {
+		return true
+	}
+	_ = h.db.Model(&models.Role{}).
+		Joins("JOIN user_role ur ON ur.role_id = role.id").
+		Where("ur.user_id = ? AND role.tenant_id = ? AND role.code = ? AND role.status = ? AND role.deleted_at IS NULL", user.ID, user.TenantID, "admin", 1).
 		Count(&count).Error
 	return count > 0
 }

@@ -6,14 +6,14 @@ import { fetchMonitorServicesOverview } from '@/api/monitor'
 import type { MonitorServicesOverview } from '@/api/monitor'
 import { usePageAction } from '@/composables/usePageAction'
 
-const { pageAction } = usePageAction()
+const { pageMenu } = usePageAction()
 
 const loading = ref(false)
 const data = ref<MonitorServicesOverview | null>(null)
 const err = ref('')
 
 async function load() {
-  if (!pageAction('monservices:view')) return
+  if (!pageMenu()) return
   loading.value = true
   err.value = ''
   try {
@@ -34,10 +34,10 @@ onMounted(() => void load())
       <template #header>
         <div class="hdr">
           <span>服务监控</span>
-          <el-button v-if="pageAction('monservices:view')" type="primary" plain @click="load">刷新</el-button>
+          <el-button v-if="pageMenu()" type="primary" plain @click="load">刷新</el-button>
         </div>
       </template>
-      <el-empty v-if="!pageAction('monservices:view')" description="无查看权限" />
+      <el-empty v-if="!pageMenu()" description="无查看权限" />
       <template v-else>
         <el-alert v-if="err" :title="err" type="error" show-icon :closable="false" style="margin-bottom: 16px" />
         <div v-if="data" class="grid">

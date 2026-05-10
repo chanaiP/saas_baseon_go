@@ -99,8 +99,14 @@ func (h *IdentityHandler) CreateUser(c *gin.Context) {
 				companyID = found
 			}
 		}
+	} else if companyID == nil {
+		companyID = h.rootCompanyIDForTenant(tenantID)
 	}
-	user := models.AppUser{TenantID: tenantID, EmployeeNo: body.EmployeeNo, Account: body.EmployeeNo, PasswordHash: devPasswordHash(body.Password), Name: body.Name, Phone: phone, Email: body.Email, CompanyID: companyID, DepartmentID: departmentID, Status: body.Status}
+	initialPassword := strings.TrimSpace(body.Password)
+	if initialPassword == "" {
+		initialPassword = generateRandomPassword(14)
+	}
+	user := models.AppUser{TenantID: tenantID, EmployeeNo: body.EmployeeNo, Account: body.EmployeeNo, PasswordHash: devPasswordHash(initialPassword), Name: body.Name, Phone: phone, Email: body.Email, CompanyID: companyID, DepartmentID: departmentID, Status: body.Status}
 	var err error
 	user, err = h.userService().CreateWithRelations(c.Request.Context(), user, appuser.Relations{RoleIDs: uniqueUint64s(body.RoleIDs), PositionIDs: uniqueUint64s(body.PositionIDs), DepartmentIDs: departmentIDs})
 	if err != nil {
@@ -108,7 +114,9 @@ func (h *IdentityHandler) CreateUser(c *gin.Context) {
 		return
 	}
 	h.auditCurrentUser(c, "user", "create", "创建用户 "+user.Name, gin.H{"user_id": user.ID, "tenant_id": user.TenantID, "employee_no": user.EmployeeNo})
-	response.OK(c, h.userToJSON(user))
+	item := h.userToJSON(user)
+	item["initial_password"] = initialPassword
+	response.OK(c, item)
 }
 
 func (h *IdentityHandler) UpdateUser(c *gin.Context) {

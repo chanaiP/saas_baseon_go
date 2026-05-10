@@ -18,7 +18,7 @@ func (h *IdentityHandler) MenuBundles(c *gin.Context) {
 	}
 	forPlatform := user.IsPlatformAdmin || h.viewerHasPlatformScope(user)
 	var permissions []models.Permission
-	_ = h.db.Where("tenant_id = ? AND perm_type = ? AND enabled = ? AND visible = ? AND deleted_at IS NULL", user.TenantID, 3, true, true).Order("sort_order asc, id asc").Find(&permissions).Error
+	_ = h.db.Where("tenant_id IN ? AND perm_type = ? AND enabled = ? AND visible = ? AND deleted_at IS NULL", h.permissionScopeTenantIDs(user.TenantID), 3, true, true).Order("sort_order asc, id asc").Find(&permissions).Error
 	bundles := make([]gin.H, 0, len(permissions))
 	for _, permission := range permissions {
 		if !forPlatform && permission.IsPlatformOnly {
@@ -44,7 +44,49 @@ func (h *IdentityHandler) MenuBundles(c *gin.Context) {
 			"data_perm_mode":     permission.DataPermMode,
 		})
 	}
+	bundles = append(bundles, h.standaloneCapabilityBundles(user.TenantID, forPlatform)...)
 	response.OK(c, bundles)
+}
+
+func (h *IdentityHandler) standaloneCapabilityBundles(tenantID uint64, forPlatform bool) []gin.H {
+	var permissions []models.Permission
+	_ = h.db.Where(
+		"tenant_id IN ? AND perm_type = ? AND enabled = ? AND visible = ? AND deleted_at IS NULL AND path IN ?",
+		h.permissionScopeTenantIDs(tenantID),
+		2,
+		true,
+		true,
+		[]string{"brand:edit"},
+	).Order("sort_order asc, id asc").Find(&permissions).Error
+	bundles := make([]gin.H, 0, len(permissions))
+	for _, permission := range permissions {
+		if !forPlatform && permission.IsPlatformOnly {
+			continue
+		}
+		if !forPlatform && !h.permissionAllowedForTenantSubscription(tenantID, permission) {
+			continue
+		}
+		title := permission.Name
+		if title == "" || title == "品牌-维护" {
+			title = "品牌维护"
+		}
+		bundles = append(bundles, gin.H{
+			"path":               permission.Path,
+			"title":              title,
+			"menu_permission_id": permission.ID,
+			"data_permission_id": uint64(0),
+			"operations":         []gin.H{},
+			"is_platform_only":   permission.IsPlatformOnly,
+			"is_package_feature": permission.IsPackageFeature,
+			"feature_code":       permission.FeatureCode,
+			"feature_type":       packageFeatureTypeForPermission(permission),
+			"tenant_visible":     permission.Visible,
+			"tenant_editable":    permission.TenantEditable,
+			"tenant_edit_scope":  permission.TenantEditScope,
+			"data_perm_mode":     "NONE",
+		})
+	}
+	return bundles
 }
 
 func (h *IdentityHandler) MenuOverrides(c *gin.Context) {
@@ -90,7 +132,7 @@ func (h *IdentityHandler) SaveMenuOverrides(c *gin.Context) {
 		}
 		seen[item.PermissionID] = struct{}{}
 		var permission models.Permission
-		if err := h.db.Where("id = ? AND tenant_id = ? AND perm_type = ? AND deleted_at IS NULL", item.PermissionID, user.TenantID, 3).First(&permission).Error; err != nil {
+		if err := h.db.Where("id = ? AND tenant_id IN ? AND perm_type = ? AND deleted_at IS NULL", item.PermissionID, h.permissionScopeTenantIDs(user.TenantID), 3).First(&permission).Error; err != nil {
 			response.Error(c, 404, response.CodeNotFound, "菜单不存在")
 			return
 		}

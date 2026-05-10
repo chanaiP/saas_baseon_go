@@ -23,6 +23,7 @@ type orgNodePayload struct {
 	ParentStoreID      *uint64 `json:"parent_store_id"`
 	StoreID            *uint64 `json:"store_id"`
 	Status             int     `json:"status"`
+	StatusSet          bool    `json:"-"`
 }
 
 func (p *orgNodePayload) UnmarshalJSON(data []byte) error {
@@ -36,6 +37,7 @@ func (p *orgNodePayload) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	_, raw.ParentIDSet = fields["parent_id"]
+	_, raw.StatusSet = fields["status"]
 	*p = orgNodePayload(raw)
 	return nil
 }
@@ -60,6 +62,9 @@ func (h *IdentityHandler) resolveOrgNodeCreatePlacement(tenantID uint64, body or
 		}
 		return parentID, nil, nil
 	case "department":
+		if body.CompanyID == nil && body.ParentID != nil {
+			body.CompanyID = h.resolveCompanyIDFromParent(tenantID, body.ParentID)
+		}
 		if body.CompanyID == nil {
 			return nil, nil, errors.New("所属公司不能为空")
 		}
@@ -67,6 +72,36 @@ func (h *IdentityHandler) resolveOrgNodeCreatePlacement(tenantID uint64, body or
 			return nil, nil, err
 		}
 		parentID := body.CompanyID
+		if body.ParentID != nil {
+			parent, err := h.orgNodeByID(tenantID, *body.ParentID)
+			if err != nil {
+				return nil, nil, errors.New("父级节点不存在")
+			}
+			switch parent.NodeType {
+			case "company":
+				if parent.ID != *body.CompanyID {
+					return nil, nil, errors.New("父级公司与所属公司不一致")
+				}
+				parentID = body.ParentID
+			case "store":
+				if parent.CompanyID == nil || *parent.CompanyID != *body.CompanyID {
+					return nil, nil, errors.New("门店与所属公司不一致")
+				}
+				body.StoreID = body.ParentID
+				parentID = body.ParentID
+			case "department":
+				if parent.CompanyID == nil || *parent.CompanyID != *body.CompanyID {
+					return nil, nil, errors.New("上级部门与所属公司不一致")
+				}
+				if !sameOptionalUint64(h.storeAncestorID(tenantID, parent.ID), body.StoreID) {
+					return nil, nil, errors.New("子部门与上级的门店归属不一致")
+				}
+				parentID = body.ParentID
+			default:
+				return nil, nil, errors.New("部门只能挂在公司、门店或部门下")
+			}
+			return parentID, body.CompanyID, nil
+		}
 		if body.StoreID != nil {
 			store, err := h.orgNodeByType(tenantID, *body.StoreID, "store")
 			if err != nil {

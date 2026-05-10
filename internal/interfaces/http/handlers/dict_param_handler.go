@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm/clause"
 
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 	"saas_baseon_go/internal/interfaces/http/response"
@@ -18,19 +19,25 @@ func (h *IdentityHandler) DictTypes(c *gin.Context) {
 	}
 	skip, limit := paginationParams(c)
 	var rows []models.DictType
-	query := h.db.Where("tenant_id = ? AND deleted_at IS NULL", user.TenantID)
-	if !user.IsPlatformAdmin {
-		query = query.Where("is_platform_only = ?", false)
-	} else if raw := strings.TrimSpace(c.Query("platform_only")); raw != "" {
-		query = query.Where("is_platform_only = ?", raw == "true" || raw == "1")
+	forPlatform := user.IsPlatformAdmin || h.viewerHasPlatformScope(user)
+	query := h.visibleDictTypesQuery(user.TenantID, forPlatform)
+	if forPlatform {
+		if raw := strings.TrimSpace(c.Query("platform_only")); raw != "" {
+			query = query.Where("is_platform_only = ?", raw == "true" || raw == "1")
+		}
 	}
 	if keyword := strings.TrimSpace(c.Query("keyword")); keyword != "" {
 		like := "%" + keyword + "%"
-		query = query.Where("name LIKE ? OR code LIKE ?", like, like)
+		query = query.Where("dict_type.name LIKE ? OR dict_type.code LIKE ?", like, like)
 	}
 	var total int64
-	_ = query.Model(&models.DictType{}).Count(&total).Error
-	_ = query.Order("id asc").Offset(skip).Limit(limit).Find(&rows).Error
+	_ = query.Count(&total).Error
+	_ = query.Clauses(clause.OrderBy{
+		Expression: clause.Expr{
+			SQL:  "CASE WHEN dict_type.tenant_id = ? THEN 0 ELSE 1 END, dict_type.id ASC",
+			Vars: []interface{}{user.TenantID},
+		},
+	}).Offset(skip).Limit(limit).Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, dictTypeToJSON(row))
@@ -146,13 +153,20 @@ func (h *IdentityHandler) DictItemsByCode(c *gin.Context) {
 		return
 	}
 	code := c.Param("code")
+	if code == "" {
+		code = c.Query("code")
+	}
+	code = strings.TrimSpace(code)
 	var dictType models.DictType
-	if err := h.tenantScope().ActiveByCode(user.TenantID, code).First(&dictType).Error; err != nil {
+	forPlatform := user.IsPlatformAdmin || h.viewerHasPlatformScope(user)
+	if row, err := h.visibleDictTypeByCode(user.TenantID, code, forPlatform); err == nil {
+		dictType = row
+	} else {
 		response.OK(c, gin.H{"code": code, "items": []gin.H{}})
 		return
 	}
 	var rows []models.DictItem
-	_ = h.db.Where("tenant_id = ? AND dict_type_id = ? AND deleted_at IS NULL", user.TenantID, dictType.ID).Order("sort_order asc, id asc").Find(&rows).Error
+	_ = h.db.Where("tenant_id = ? AND dict_type_id = ? AND deleted_at IS NULL", dictType.TenantID, dictType.ID).Order("sort_order asc, id asc").Find(&rows).Error
 	items := h.dictItemsToJSON(user.TenantID, rows, true)
 	response.OK(c, gin.H{"code": code, "items": items})
 }
@@ -167,7 +181,13 @@ func (h *IdentityHandler) DictItems(c *gin.Context) {
 	var rows []models.DictItem
 	query := h.tenantScope().Active(user.TenantID)
 	if dictTypeID := c.Query("dict_type_id"); dictTypeID != "" {
-		query = query.Where("dict_type_id = ?", dictTypeID)
+		forPlatform := user.IsPlatformAdmin || h.viewerHasPlatformScope(user)
+		dictType, err := h.visibleDictTypeByID(user.TenantID, dictTypeID, forPlatform)
+		if err != nil {
+			response.OK(c, paginatedWithTotal([]gin.H{}, 0, skip, limit))
+			return
+		}
+		query = h.db.Where("tenant_id = ? AND dict_type_id = ? AND deleted_at IS NULL", dictType.TenantID, dictType.ID)
 	}
 	var total int64
 	_ = query.Model(&models.DictItem{}).Count(&total).Error
@@ -226,13 +246,18 @@ func (h *IdentityHandler) UpdateDictItem(c *gin.Context) {
 		return
 	}
 	var row models.DictItem
-	if err := h.tenantScope().ActiveByID(user.TenantID, c.Param("id")).First(&row).Error; err != nil {
+	if err := h.db.Where("id = ? AND deleted_at IS NULL", c.Param("id")).First(&row).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "不存在")
+		return
+	}
+	forPlatform := user.IsPlatformAdmin || h.viewerHasPlatformScope(user)
+	dictType, err := h.visibleDictTypeByID(user.TenantID, row.DictTypeID, forPlatform)
+	if err != nil || dictType.ID == 0 || dictType.ID != row.DictTypeID || row.TenantID != dictType.TenantID {
 		response.Error(c, 404, response.CodeNotFound, "不存在")
 		return
 	}
 	if !user.IsPlatformAdmin {
-		var dictType models.DictType
-		if err := h.tenantScope().ActiveByID(user.TenantID, row.DictTypeID).First(&dictType).Error; err != nil || !dictType.TenantEditable {
+		if !dictType.TenantEditable {
 			response.Error(c, 403, response.CodeForbidden, "该字典不允许租户覆盖")
 			return
 		}
@@ -279,7 +304,13 @@ func (h *IdentityHandler) RestoreDictItem(c *gin.Context) {
 		return
 	}
 	var row models.DictItem
-	if err := h.tenantScope().ActiveByID(user.TenantID, c.Param("id")).First(&row).Error; err != nil {
+	if err := h.db.Where("id = ? AND deleted_at IS NULL", c.Param("id")).First(&row).Error; err != nil {
+		response.Error(c, 404, response.CodeNotFound, "字典项不存在")
+		return
+	}
+	forPlatform := user.IsPlatformAdmin || h.viewerHasPlatformScope(user)
+	dictType, err := h.visibleDictTypeByID(user.TenantID, row.DictTypeID, forPlatform)
+	if err != nil || row.TenantID != dictType.TenantID {
 		response.Error(c, 404, response.CodeNotFound, "字典项不存在")
 		return
 	}

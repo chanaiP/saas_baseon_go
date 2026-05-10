@@ -4,6 +4,7 @@ import type { Paginated } from './types'
 
 export interface SysParamRow {
   id: number
+  tenant_id?: number
   param_key: string
   default_value?: string | null
   param_value: string | null
@@ -11,6 +12,7 @@ export interface SysParamRow {
   value_type?: string
   tenant_editable?: boolean
   is_platform_only?: boolean
+  is_tenant_owned?: boolean
   is_override?: boolean
 }
 

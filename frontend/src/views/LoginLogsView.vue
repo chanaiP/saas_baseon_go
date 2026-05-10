@@ -10,14 +10,14 @@ import NeuroAgentListPage from '@/views/components/NeuroAgentListPage.vue'
 import { usePageAction } from '@/composables/usePageAction'
 import { usePermissionStore } from '@/stores/permission'
 
-const { pageAction } = usePageAction()
+const { pageMenu } = usePageAction()
 const perm = usePermissionStore()
 
 const loading = ref(false)
 const items = ref<LoginLogRow[]>([])
 const total = ref(0)
 const page = ref(1)
-const limit = ref(20)
+const limit = ref(10)
 const successFilter = ref<boolean | undefined>(undefined)
 const appliedAccount = ref('')
 const appliedIp = ref('')
@@ -29,9 +29,10 @@ const appliedDateTo = ref('')
 const showTenantScopeFilters = computed(
   () => !!(perm.profile?.is_platform_admin || perm.profile?.tenant_is_platform),
 )
+const canViewLoginLogs = computed(() => pageMenu())
 
 async function load() {
-  if (!pageAction('login:view')) return
+  if (!canViewLoginLogs.value) return
   loading.value = true
   try {
     const skip = (page.value - 1) * limit.value
@@ -149,7 +150,7 @@ const loginFilterFields = computed<FilterField[]>(() => {
 
 <template>
   <div class="page">
-    <el-empty v-if="!pageAction('login:view')" description="无查看权限" />
+    <el-empty v-if="!canViewLoginLogs" description="无查看权限" />
     <NeuroAgentListPage
       v-else
       mode="el-table"
@@ -158,6 +159,8 @@ const loginFilterFields = computed<FilterField[]>(() => {
       :data="items"
       :loading="loading"
       :total="total"
+      :page="page"
+      :page-size="limit"
       :page-sizes="[10, 20, 50]"
       :show-create="false"
       :show-selection="false"

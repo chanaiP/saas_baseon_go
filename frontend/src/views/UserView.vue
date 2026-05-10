@@ -9,8 +9,8 @@ import type { DictItemRow } from '@/api/dict'
 import { fetchOrgTree } from '@/api/organization'
 import type { OrgNode } from '@/api/organization'
 import { fetchSysParamBatch } from '@/api/param'
-import { fetchPositions } from '@/api/position'
-import type { PositionRow } from '@/api/position'
+import { fetchPositions, fetchPositionTypes } from '@/api/position'
+import type { PositionRow, PositionTypeRow } from '@/api/position'
 import { createUser, deleteUser, fetchAssignableRoles, fetchUsers, resetUserPassword, updateUser } from '@/api/user'
 import type { UserRow } from '@/api/user'
 import { archiveSuccessMessage, confirmArchiveAction } from '@/composables/useArchiveConfirm'
@@ -37,6 +37,8 @@ const limit = ref(10)
 
 const roles = ref<{ id: number; name: string }[]>([])
 const positions = ref<PositionRow[]>([])
+const positionTypes = ref<PositionTypeRow[]>([])
+const positionKeyword = ref('')
 
 const scopeLabel = ref('未限定组织（全部用户）')
 
@@ -45,9 +47,10 @@ const edit = ref<UserRow | null>(null)
 
 const resetResultDlg = ref(false)
 const resetResult = ref<{ employee_no: string; phone: string; password: string } | null>(null)
+const credentialDialogTitle = ref('密码已重置')
+const credentialPasswordLabel = ref('重置后的密码')
 const form = ref({
   employee_no: '',
-  password: '',
   name: '',
   phone: '',
   role_ids: [] as number[],
@@ -55,22 +58,122 @@ const form = ref({
   position_ids: [] as number[],
 })
 
-function flattenDepartmentOptions(nodes: OrgNode[], companyName = ''): { value: number; label: string }[] {
+function flattenDepartmentOptions(nodes: OrgNode[], path: string[] = []): { value: number; label: string }[] {
   const out: { value: number; label: string }[] = []
   for (const n of nodes) {
+    const nextPath = [...path, n.name]
     if (n.node_type === 'company') {
-      if (n.children?.length) out.push(...flattenDepartmentOptions(n.children, n.name))
-    } else if (n.node_type === 'department') {
-      out.push({ value: n.id, label: companyName ? `${companyName} · ${n.name}` : n.name })
-      if (n.children?.length) out.push(...flattenDepartmentOptions(n.children, companyName))
-    } else if (n.children?.length) {
-      out.push(...flattenDepartmentOptions(n.children, companyName))
+      if (n.children?.length) out.push(...flattenDepartmentOptions(n.children, nextPath))
+    } else {
+      const typeLabel = orgNodeTypeLabel(n.node_type)
+      out.push({ value: n.id, label: `${nextPath.join(' · ')}（${typeLabel}）` })
+      if (n.children?.length) out.push(...flattenDepartmentOptions(n.children, nextPath))
     }
   }
   return out
 }
 
+type DepartmentTreeOption = {
+  value: number
+  label: string
+  searchText: string
+  disabled?: boolean
+  children?: DepartmentTreeOption[]
+}
+
+type PositionCascaderOption = {
+  value: number | string
+  label: string
+  searchText: string
+  children?: PositionCascaderOption[]
+}
+
+function buildDepartmentTreeOptions(nodes: OrgNode[], path: string[] = []): DepartmentTreeOption[] {
+  return nodes.map((n) => {
+    const typeLabel = orgNodeTypeLabel(n.node_type)
+    const nextPath = [...path, n.name]
+    const item: DepartmentTreeOption = {
+      value: n.id,
+      label: `${n.name}（${typeLabel}）`,
+      searchText: `${nextPath.join(' ')} ${n.name} ${n.code ?? ''} ${typeLabel} ${n.node_type ?? ''}`.toLowerCase(),
+      disabled: n.node_type === 'company',
+    }
+    if (n.children?.length) item.children = buildDepartmentTreeOptions(n.children, nextPath)
+    return item
+  })
+}
+
+function filterDepartmentNode(keyword: string, data: DepartmentTreeOption) {
+  const q = keyword.trim().toLowerCase()
+  if (!q) return true
+  return data.searchText.includes(q)
+}
+
 const departmentOptions = computed(() => flattenDepartmentOptions(org.value))
+const departmentTreeOptions = computed(() => buildDepartmentTreeOptions(org.value))
+const positionCascaderProps = {
+  multiple: true,
+  emitPath: false,
+  value: 'value',
+  label: 'label',
+  children: 'children',
+} as const
+const positionCascaderOptions = computed<PositionCascaderOption[]>(() => {
+  const typeById = new Map(positionTypes.value.map((t) => [t.id, t]))
+  const positionsByType = new Map<number, PositionRow[]>()
+  const unknownPositions: PositionRow[] = []
+
+  for (const position of positions.value) {
+    if (!typeById.has(position.position_type_id)) {
+      unknownPositions.push(position)
+      continue
+    }
+    const list = positionsByType.get(position.position_type_id) ?? []
+    list.push(position)
+    positionsByType.set(position.position_type_id, list)
+  }
+
+  const options = positionTypes.value
+    .filter((type) => positionsByType.has(type.id))
+    .map((type) => ({
+      value: `type-${type.id}`,
+      label: type.name,
+      searchText: `${type.name} ${type.code}`.toLowerCase(),
+      children: (positionsByType.get(type.id) ?? []).map((position) => ({
+        value: position.id,
+        label: position.name,
+        searchText: `${type.name} ${type.code} ${position.name} ${position.code}`.toLowerCase(),
+      })),
+    }))
+
+  if (unknownPositions.length) {
+    options.push({
+      value: 'type-unknown',
+      label: '未分类',
+      searchText: '未分类',
+      children: unknownPositions.map((position) => ({
+        value: position.id,
+        label: position.name,
+        searchText: `未分类 ${position.name} ${position.code}`.toLowerCase(),
+      })),
+    })
+  }
+
+  const q = positionKeyword.value.trim().toLowerCase()
+  if (!q) return options
+  const filtered: PositionCascaderOption[] = []
+  for (const type of options) {
+    const typeMatched = type.searchText.includes(q)
+    const children = (type.children ?? []).filter((position) => typeMatched || position.searchText.includes(q))
+    if (children.length) filtered.push({ ...type, children })
+  }
+  return filtered
+})
+
+function onPositionCascaderVisibleChange(visible: boolean) {
+  if (!visible) positionKeyword.value = ''
+}
+
 const nodeTypeLabelByValue = computed(() =>
   Object.fromEntries(orgNodeTypeOptions.value.map((x) => [String(x.value).trim(), x.label])),
 )
@@ -87,29 +190,12 @@ const positionNameById = computed(() => Object.fromEntries(positions.value.map((
 
 const roleNameById = computed(() => Object.fromEntries(roles.value.map((r) => [r.id, r.name])))
 
-function firstDept(nodes: OrgNode[], companyId: number | null): { companyId?: number; departmentId: number } | null {
-  for (const n of nodes) {
-    const nextC = n.node_type === 'company' ? n.id : companyId
-    if (n.node_type === 'department') return { companyId: nextC ?? undefined, departmentId: n.id }
-    if (n.children?.length) {
-      const r = firstDept(n.children, nextC)
-      if (r) return r
-    }
-  }
-  return null
-}
-
 async function loadOrg() {
   try {
     org.value = markRaw(await fetchOrgTree())
   } catch {
     /** 无组织架构菜单权限、套餐未含 org_manage、或接口异常时不应阻断用户列表加载 */
     org.value = []
-  }
-  const p = firstDept(org.value, null)
-  if (p) {
-    departmentId.value = p.departmentId
-    companyId.value = undefined
   }
 }
 
@@ -128,6 +214,15 @@ async function loadPositions() {
     positions.value = r.items
   } catch {
     positions.value = []
+  }
+}
+
+async function loadPositionTypes() {
+  try {
+    const r = await fetchPositionTypes(0, 500)
+    positionTypes.value = r.items
+  } catch {
+    positionTypes.value = []
   }
 }
 
@@ -201,14 +296,16 @@ const userFilterFields = computed<FilterField[]>(() => {
 })
 
 function openCreate() {
+  if (!positionTypes.value.length) void loadPositionTypes()
+  if (!positions.value.length) void loadPositions()
+  if (!roles.value.length) void loadRoles()
   edit.value = null
   form.value = {
     employee_no: '',
-    password: '112233',
     name: '',
     phone: '',
-    role_ids: roles.value[0] ? [roles.value[0].id] : [],
-    department_ids: departmentId.value ? [departmentId.value] : [],
+    role_ids: [],
+    department_ids: [],
     position_ids: [],
   }
   dlg.value = true
@@ -220,7 +317,6 @@ function openEdit(row: UserRow) {
     row.department_ids?.length ? [...row.department_ids] : row.department_id != null ? [row.department_id] : []
   form.value = {
     employee_no: row.employee_no,
-    password: '',
     name: row.name,
     phone: row.phone || '',
     role_ids: [...row.role_ids],
@@ -247,17 +343,26 @@ async function save() {
       }
       await updateUser(edit.value.id, body)
     } else {
-      await createUser({
+      const primaryDepartmentId = form.value.department_ids[0]
+      const created = await createUser({
         employee_no: form.value.employee_no,
-        password: form.value.password,
+        password: '',
         name: form.value.name,
         phone: form.value.phone ? normalizePhoneInput(form.value.phone) : undefined,
         company_id: companyId.value,
-        department_id: departmentId.value,
+        department_id: primaryDepartmentId ?? null,
         department_ids: form.value.department_ids.length ? form.value.department_ids : undefined,
         position_ids: form.value.position_ids.length ? form.value.position_ids : undefined,
         role_ids: form.value.role_ids,
       })
+      credentialDialogTitle.value = '用户已创建'
+      credentialPasswordLabel.value = '初始密码'
+      resetResult.value = {
+        employee_no: created.employee_no,
+        phone: (created.phone ?? '').trim(),
+        password: created.initial_password || '',
+      }
+      resetResultDlg.value = true
     }
     dlg.value = false
     ElMessage.success('已保存')
@@ -335,6 +440,8 @@ async function resetPwd(row: UserRow) {
       { type: 'warning' },
     )
     const res = await resetUserPassword(row.id)
+    credentialDialogTitle.value = '密码已重置'
+    credentialPasswordLabel.value = '重置后的密码'
     resetResult.value = {
       employee_no: row.employee_no,
       phone: (row.phone ?? '').trim(),
@@ -403,13 +510,13 @@ const columns: TableColumn[] = [
   { key: 'positions', title: '岗位', minWidth: 140 },
   { key: 'roles', title: '角色', minWidth: 160 },
   { key: 'phone', title: '手机', width: 130 },
-  { key: 'status', title: '状态', width: 80 },
-  { key: 'actions', title: '操作', minWidth: 300, width: 320, fixed: 'right', tooltip: false },
+  { key: 'status', title: '状态', width: 90 },
+  { key: 'actions', title: '操作', minWidth: 306, width: 318, tooltip: false },
 ]
 
 onMounted(async () => {
   await loadOrg()
-  await Promise.all([loadRoles(), loadPositions()])
+  await Promise.all([loadRoles(), loadPositionTypes(), loadPositions()])
   const [st, orgTypeDict, params] = await Promise.all([
     fetchDictItemsByCode('common_status'),
     fetchDictItemsByCode('org_node_type'),
@@ -475,6 +582,8 @@ onMounted(async () => {
           :data="items"
           :loading="loading"
           :total="total"
+          :page="page"
+          :page-size="limit"
           :page-sizes="[10, 20, 50]"
           :show-create="true"
           :show-selection="false"
@@ -536,10 +645,6 @@ onMounted(async () => {
           <label class="nm-form-label">工号</label>
           <el-input v-model="form.employee_no" />
         </div>
-        <div class="nm-form-item" v-if="!edit">
-          <label class="nm-form-label">初始密码</label>
-          <el-input v-model="form.password" type="password" />
-        </div>
         <div class="nm-form-row">
           <div class="nm-form-item">
             <label class="nm-form-label">姓名</label>
@@ -557,31 +662,52 @@ onMounted(async () => {
         </div>
         <div class="nm-form-item">
           <label class="nm-form-label">任职部门</label>
-          <el-select
+          <el-tree-select
             v-model="form.department_ids"
+            :data="departmentTreeOptions"
             multiple
             filterable
+            node-key="value"
+            :props="{ label: 'label', children: 'children', disabled: 'disabled' }"
+            check-strictly
+            :filter-node-method="filterDepartmentNode"
             collapse-tags
             collapse-tags-tooltip
-            placeholder="多项时任职部门列表的第一项为主部门"
+            render-after-expand
+            default-expand-all
+            placeholder="搜索并选择任职部门；多项时第一项为主部门"
             style="width: 100%"
-          >
-            <el-option v-for="o in departmentOptions" :key="o.value" :label="o.label" :value="o.value" />
-          </el-select>
+          />
         </div>
         <div class="nm-form-item">
           <label class="nm-form-label">岗位</label>
-          <el-select
+          <el-cascader
             v-model="form.position_ids"
-            multiple
-            filterable
+            :options="positionCascaderOptions"
+            :props="positionCascaderProps"
+            clearable
             collapse-tags
             collapse-tags-tooltip
-            placeholder="可选择多个岗位"
+            :show-all-levels="false"
+            placeholder="按岗位类型选择岗位"
             style="width: 100%"
+            @visible-change="onPositionCascaderVisibleChange"
           >
-            <el-option v-for="p in positions" :key="p.id" :label="p.name" :value="p.id" />
-          </el-select>
+            <template #header>
+              <div class="position-cascader-search">
+                <el-input
+                  v-model="positionKeyword"
+                  clearable
+                  placeholder="搜索岗位类型、岗位名称或编码"
+                  @click.stop
+                  @keydown.stop
+                />
+              </div>
+            </template>
+            <template #empty>
+              <div class="position-cascader-empty">未找到匹配岗位</div>
+            </template>
+          </el-cascader>
         </div>
         <div class="nm-form-item">
           <label class="nm-form-label">角色</label>
@@ -605,7 +731,7 @@ onMounted(async () => {
 
     <NeuroAgentDialog
       v-model="resetResultDlg"
-      title="密码已重置"
+      :title="credentialDialogTitle"
       icon="🔑"
       size="medium"
       :show-cancel="false"
@@ -623,7 +749,7 @@ onMounted(async () => {
           <div class="reset-result-value">{{ displayResetPhone() }}</div>
         </div>
         <div class="nm-form-item">
-          <label class="nm-form-label">重置后的密码</label>
+          <label class="nm-form-label">{{ credentialPasswordLabel }}</label>
           <div class="reset-result-value reset-result-value--mono">{{ resetResult.password }}</div>
         </div>
       </div>
@@ -754,14 +880,28 @@ onMounted(async () => {
   overflow: auto;
 }
 
-/* 命令布局默认禁止末列换行，用户管理操作列按钮多，需放宽以免裁切 */
-.user-mgmt-root :deep(.neuro-command-layout .el-table__fixed-right .el-table__cell .cell) {
+/* Chrome 对表格按钮组的最小宽度计算更激进，操作列必须固定单行横排。 */
+.user-mgmt-root :deep(.el-table__cell .cell) {
   flex-wrap: wrap;
   white-space: normal;
 }
 
-.user-mgmt-root :deep(.neuro-command-layout .user-mgmt-op-btns.op-btns) {
-  flex-wrap: wrap;
+.user-mgmt-root :deep(.user-mgmt-op-btns.op-btns) {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: none;
+  white-space: nowrap;
+}
+
+.user-mgmt-root :deep(.user-mgmt-op-btns.op-btns .el-button) {
+  flex: 0 0 auto;
+  margin-left: 0;
+  min-width: 62px;
+  padding-left: 12px;
+  padding-right: 12px;
 }
 
 .cell-multi-line {
@@ -818,5 +958,17 @@ onMounted(async () => {
 .reset-result-value--mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   letter-spacing: 0.02em;
+}
+
+.position-cascader-search {
+  padding: 10px 12px 8px;
+  min-width: 420px;
+  box-sizing: border-box;
+}
+
+.position-cascader-empty {
+  padding: 16px 20px;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
 }
 </style>

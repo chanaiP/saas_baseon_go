@@ -107,7 +107,7 @@ func (h *IdentityHandler) filterPermissionIDsForTenantSubscription(tenantID uint
 		return []uint64{}
 	}
 	var rows []models.Permission
-	_ = h.db.Where("tenant_id = ? AND id IN ? AND deleted_at IS NULL", tenantID, ids).Find(&rows).Error
+	_ = h.db.Where("tenant_id IN ? AND id IN ? AND deleted_at IS NULL", h.permissionScopeTenantIDs(tenantID), ids).Find(&rows).Error
 	allowed := map[uint64]struct{}{}
 	for _, row := range rows {
 		if h.permissionAllowedForTenantSubscription(tenantID, row) {
@@ -129,7 +129,7 @@ func (h *IdentityHandler) validateRolePermissionIDs(user models.AppUser, ids []u
 	}
 	uniqueIDs := uniqueUint64s(ids)
 	var rows []models.Permission
-	if err := h.db.Where("tenant_id = ? AND id IN ? AND deleted_at IS NULL", user.TenantID, uniqueIDs).Find(&rows).Error; err != nil {
+	if err := h.db.Where("tenant_id IN ? AND id IN ? AND deleted_at IS NULL", h.permissionScopeTenantIDs(user.TenantID), uniqueIDs).Find(&rows).Error; err != nil {
 		return err
 	}
 	byID := map[uint64]models.Permission{}
@@ -157,7 +157,7 @@ func (h *IdentityHandler) validateRoleDataOverrides(tenantID uint64, overrides [
 		ids = append(ids, override.PermissionID)
 	}
 	var rows []models.Permission
-	_ = h.db.Where("tenant_id = ? AND id IN ? AND deleted_at IS NULL", tenantID, uniqueUint64s(ids)).Find(&rows).Error
+	_ = h.db.Where("tenant_id IN ? AND id IN ? AND deleted_at IS NULL", h.permissionScopeTenantIDs(tenantID), uniqueUint64s(ids)).Find(&rows).Error
 	modeByID := map[uint64]string{}
 	for _, row := range rows {
 		modeByID[row.ID] = coalesceString(row.DataPermMode, "ORG")

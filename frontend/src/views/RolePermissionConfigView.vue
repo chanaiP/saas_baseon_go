@@ -11,7 +11,7 @@ import { fetchBusinessUnitPage } from '@/api/businessUnit'
 import type { BusinessUnitRow } from '@/api/businessUnit'
 import { fetchMenuBundles } from '@/api/permission'
 import type { MenuBundle } from '@/api/permission'
-import { fetchRole, updateRole } from '@/api/role'
+import { fetchRole, updateRolePermissions } from '@/api/role'
 import type { RoleDataOverride, RoleRow } from '@/api/role'
 import { fetchUsers } from '@/api/user'
 import type { UserRow } from '@/api/user'
@@ -87,8 +87,8 @@ const preservedPermissionIds = ref<number[]>([])
 function idsCoveredByBundles(bundleList: MenuBundle[]): Set<number> {
   const s = new Set<number>()
   for (const b of bundleList) {
-    s.add(b.menu_permission_id)
-    s.add(b.data_permission_id)
+    if (b.menu_permission_id > 0) s.add(b.menu_permission_id)
+    if (b.data_permission_id > 0) s.add(b.data_permission_id)
     for (const o of b.operations) s.add(o.id)
   }
   return s
@@ -252,6 +252,72 @@ function buOptionLabel(item: BusinessUnitRow): string {
   return item.status === 1 ? item.name : `${item.name}（已停用）`
 }
 
+const PERMISSION_PREFIX_LABELS: Record<string, string> = {
+  tenant: '主体',
+  plan: '套餐',
+  user: '用户',
+  org: '组织',
+  pos: '岗位',
+  role: '角色',
+  perm: '权限',
+  menu: '菜单',
+  dict: '字典',
+  dict_type: '字典类型',
+  dict_item: '字典项',
+  param: '参数',
+  business_unit: '业务单元',
+  file: '文件',
+  brand: '品牌',
+}
+
+const PERMISSION_ACTION_LABELS: Record<string, string> = {
+  create: '新增',
+  edit: '编辑',
+  delete: '删除',
+  status: '启停',
+  reset_password: '重置密码',
+  reset_primary_password: '重置主管理员密码',
+  quota_config: '调整配额',
+  permission: '权限设置',
+  package_feature: '套餐中心收录',
+  import: '导入',
+  export: '导出',
+  upload: '上传',
+  download: '下载',
+}
+
+function splitPermissionCode(code: string): { prefix: string; action: string } | null {
+  const raw = code.trim()
+  if (!raw) return null
+  const colon = raw.indexOf(':')
+  if (colon > 0) {
+    return { prefix: raw.slice(0, colon), action: raw.slice(colon + 1) }
+  }
+  for (const prefix of ['business_unit', 'dict_type', 'dict_item']) {
+    if (raw.startsWith(`${prefix}_`)) {
+      return { prefix, action: raw.slice(prefix.length + 1) }
+    }
+  }
+  const underscore = raw.indexOf('_')
+  if (underscore > 0) {
+    return { prefix: raw.slice(0, underscore), action: raw.slice(underscore + 1) }
+  }
+  return null
+}
+
+function operationDisplayName(op: { name?: string; path?: string }): string {
+  const name = String(op.name || '').trim()
+  const path = String(op.path || '').trim()
+  const shouldTranslate = !name || name === path || /^[a-z][a-z0-9_]*[:_][a-z0-9_]+$/i.test(name)
+  if (!shouldTranslate) return name
+  const parsed = splitPermissionCode(path || name)
+  if (!parsed) return name || path
+  const action = PERMISSION_ACTION_LABELS[parsed.action]
+  if (!action) return name || path
+  const prefix = PERMISSION_PREFIX_LABELS[parsed.prefix]
+  return prefix ? `${prefix}-${action}` : action
+}
+
 function onDataScopeChange(path: string, newScope: string) {
   ensureStatePath(path)
   const s = menuState[path]
@@ -307,8 +373,8 @@ function buildPayload(): { permission_ids: number[]; data_overrides: RoleDataOve
   for (const b of bundles.value) {
     const s = menuState[b.path]
     if (!s?.menuOn) continue
-    ids.add(b.menu_permission_id)
-    ids.add(b.data_permission_id)
+    if (b.menu_permission_id > 0) ids.add(b.menu_permission_id)
+    if (b.data_permission_id > 0) ids.add(b.data_permission_id)
     for (const oid of s.opIds) ids.add(oid)
     const orgEnabled = supportsOrgScope(b.path)
     const buEnabled = supportsBuScope(b.path)
@@ -402,9 +468,7 @@ async function save() {
   saving.value = true
   try {
     const { permission_ids, data_overrides } = buildPayload()
-    await updateRole(role.value.id, {
-      name: role.value.name,
-      description: role.value.description ?? undefined,
+    await updateRolePermissions(role.value.id, {
       permission_ids,
       data_overrides,
     })
@@ -524,7 +588,7 @@ watch(roleId, (rid) => {
             <div v-show="menuState[b.path]?.menuOn && b.operations.length" class="bundle-ops">
               <el-checkbox-group v-model="menuState[b.path]!.opIds" class="op-group" @click.stop>
                 <el-checkbox v-for="op in b.operations" :key="op.id" :label="op.id">
-                  <span class="op-name">{{ op.name }}</span>
+                  <span class="op-name" :title="op.path">{{ operationDisplayName(op) }}</span>
                 </el-checkbox>
               </el-checkbox-group>
             </div>

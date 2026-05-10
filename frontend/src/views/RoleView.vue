@@ -16,7 +16,7 @@ const loading = ref(false)
 const items = ref<RoleRow[]>([])
 const total = ref(0)
 const page = ref(1)
-const limit = ref(20)
+const limit = ref(10)
 const kw = ref('')
 
 const dlg = ref(false)
@@ -125,6 +125,8 @@ onMounted(load)
       :data="items"
       :loading="loading"
       :total="total"
+      :page="page"
+      :page-size="limit"
       :page-sizes="[10, 20, 50]"
       :show-create="true"
       :show-selection="false"
@@ -141,7 +143,7 @@ onMounted(load)
       </template>
       <template #col-actions="{ row }">
         <span class="op-btns">
-          <el-button v-permission="'role:edit'" @click="openPermissionConfig(row)">权限</el-button>
+          <el-button v-permission="'role:permission'" @click="openPermissionConfig(row)">权限</el-button>
           <el-button v-permission="'role:edit'" @click="openEditInfo(row)">编辑</el-button>
           <el-button v-permission="'role:delete'" type="danger" @click="remove(row)">删除</el-button>
         </span>

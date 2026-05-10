@@ -20,6 +20,10 @@ export interface UserRow {
   created_at?: string
 }
 
+export interface CreateUserResult extends UserRow {
+  initial_password?: string
+}
+
 export interface AssignableRoleRow {
   id: number
   code: string
@@ -55,7 +59,7 @@ export async function createUser(body: {
   role_ids?: number[]
   status?: number
 }) {
-  return unwrap(http.post<ApiResponse<UserRow>>('/api/users', body))
+  return unwrap(http.post<ApiResponse<CreateUserResult>>('/api/users', body))
 }
 
 export async function updateUser(

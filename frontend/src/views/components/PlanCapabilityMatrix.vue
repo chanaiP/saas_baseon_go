@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ArrowDown, ArrowRight } from '@element-plus/icons-vue'
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import type { Plan, PlanCapabilityMatrixData, PlanCapabilityNode } from '@/api/plan'
 import {
@@ -21,13 +21,54 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  toggle: [payload: { plan: Plan; node: PlanCapabilityNode; enabled: boolean }]
-  detail: [payload: { plan: Plan; node: PlanCapabilityNode }]
+  toggle: [payload: { plan: Plan; node: PlanCapabilityNode; enabled: boolean; cascade?: boolean }]
   savePlan: [plan: Plan]
-  planAction: [payload: { plan: Plan; action: 'edit' | 'copy' | 'toggle' | 'delete' | 'detail' }]
+  planAction: [payload: { plan: Plan; action: 'edit' | 'copy' | 'toggle' | 'delete' }]
+  editFeature: [featureId: number]
 }>()
 
 const rows = computed(() => flattenCapabilityNodes(props.matrix.nodes))
+const matrixShellRef = ref<HTMLElement | null>(null)
+const matrixShellWidth = ref(0)
+
+const CAPABILITY_COLUMN_MIN = 300
+const CAPABILITY_COLUMN_MAX = 380
+const PLAN_COLUMN_MIN = 190
+const PLAN_COLUMN_MAX = 360
+
+let matrixResizeObserver: ResizeObserver | null = null
+
+function clampColumnWidth(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function updateMatrixShellWidth() {
+  matrixShellWidth.value = matrixShellRef.value?.clientWidth ?? 0
+}
+
+onMounted(() => {
+  updateMatrixShellWidth()
+  if (!matrixShellRef.value) return
+  matrixResizeObserver = new ResizeObserver(updateMatrixShellWidth)
+  matrixResizeObserver.observe(matrixShellRef.value)
+})
+
+onBeforeUnmount(() => {
+  matrixResizeObserver?.disconnect()
+  matrixResizeObserver = null
+})
+
+const matrixGridColumns = computed(() => {
+  const planCount = props.matrix.plans.length
+  const shellWidth = matrixShellWidth.value
+  if (!planCount || shellWidth <= 0) {
+    return `minmax(${CAPABILITY_COLUMN_MIN}px, ${CAPABILITY_COLUMN_MAX}px)`
+  }
+  const capabilityWidth = clampColumnWidth(Math.round(shellWidth * 0.2), CAPABILITY_COLUMN_MIN, CAPABILITY_COLUMN_MAX)
+  const availableForPlans = Math.max(0, shellWidth - capabilityWidth)
+  const planWidth = clampColumnWidth(Math.floor(availableForPlans / planCount), PLAN_COLUMN_MIN, PLAN_COLUMN_MAX)
+  return `${capabilityWidth}px repeat(${planCount}, ${planWidth}px)`
+})
 
 /** 展开的节点 id（有子节点才可折叠；默认全部展开） */
 const expandedIds = ref<Set<string>>(new Set())
@@ -125,7 +166,11 @@ function stateLabel(state: string) {
 
 /** 类型胶囊文案 */
 function typePillLabel(node: PlanCapabilityNode) {
-  if (node.node_type === 'domain' || node.node_type === 'group') return '业务域'
+  if (node.node_type === 'domain') return '业务域'
+  if (node.node_type === 'group') return '目录'
+  if (node.feature_type === 'BUTTON' && !String(node.feature_code || '').startsWith('button_')) {
+    return '能力'
+  }
   const map: Record<string, string> = {
     MENU: '菜单',
     BUTTON: '操作',
@@ -158,156 +203,166 @@ function nodeSubtitle(row: { node: PlanCapabilityNode; path: string[] }) {
   return row.node.feature_code || row.path.slice(0, -1).join(' / ') || ''
 }
 
-function quotaSummary(node: PlanCapabilityNode, planId: number) {
-  const values = new Map<number, string>()
-  function walk(current: PlanCapabilityNode) {
-    const cell = current.cells.find((item) => item.plan_id === planId)
-    for (const quota of cell?.quota_values || []) {
-      const value = props.quotaValues[planId]?.[quota.quota_id] ?? quota.quota_value
-      const text = value === -1 ? '无限制' : value === 0 ? '不可用' : String(value)
-      values.set(quota.quota_id, `${quota.quota_name} ${text}`)
-    }
-    for (const child of current.children || []) walk(child)
-  }
-  walk(node)
-  return [...values.values()].slice(0, 2)
-}
-
 function emitPlanAction(plan: Plan, action: string | number | object) {
   if (typeof action !== 'string') return
-  emit('planAction', { plan, action: action as 'edit' | 'copy' | 'toggle' | 'delete' | 'detail' })
+  emit('planAction', { plan, action: action as 'edit' | 'copy' | 'toggle' | 'delete' })
+}
+
+function canEditFeatureNode(node: PlanCapabilityNode) {
+  if (node.node_type !== 'feature' || !node.feature_id) return false
+  if (node.feature_type === 'MENU') return false
+  if (node.feature_type === 'BUTTON') {
+    return !String(node.feature_code || '').startsWith('button_')
+  }
+  return ['API', 'SERVICE', 'CONFIG'].includes(node.feature_type || '')
+}
+
+function editableFeatureTitle(node: PlanCapabilityNode) {
+  return canEditFeatureNode(node)
+    ? '编辑功能点'
+    : '目录、菜单和操作由菜单管理维护；套餐列可控制开关'
 }
 </script>
 
 <template>
   <section class="capability-matrix">
-    <div class="matrix-heading">
-      <div>
-        <span class="eyebrow">Capability Matrix</span>
-        <h3>能力矩阵</h3>
-        <p>按业务域组织能力，横向比较每个套餐开通范围和配额限制。</p>
-      </div>
-      <div class="heading-right">
-        <div class="legend">
-          <span class="dot enabled" />已开
-          <span class="dot partial" />部分
-          <span class="dot disabled" />未开
-        </div>
-        <div class="fold-toolbar" aria-label="矩阵展开层级">
-          <div class="fold-toolbar-row fold-toolbar-row--toggles">
-            <button
-              type="button"
-              class="fold-toolbar-btn"
-              :title="menuLayerToggleTitle"
-              @click="toggleMenuLayer"
-            >
-              {{ menuLayerToggleLabel }}
-            </button>
-            <button
-              type="button"
-              class="fold-toolbar-btn"
-              :title="operationLayerToggleTitle"
-              @click="toggleOperationLayer"
-            >
-              {{ operationLayerToggleLabel }}
-            </button>
-            <button
-              type="button"
-              class="fold-toolbar-btn"
-              :title="fullMatrixToggleTitle"
-              @click="toggleFullMatrix"
-            >
-              {{ fullMatrixToggleLabel }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- 单层 grid + 每行 subgrid：列数变化时仍与表头共用轨道，避免多列挤压换行后左右纵不对齐 -->
-    <div
-      class="matrix-shell matrix-shell--grid"
-      :style="{
-        gridTemplateColumns: `minmax(280px, 1.4fr) repeat(${matrix.plans.length}, minmax(170px, 1fr))`,
-      }"
-    >
-      <div class="matrix-row matrix-row--head">
-        <div class="capability-head">业务能力</div>
-        <div v-for="plan in matrix.plans" :key="plan.id" class="plan-head">
-          <div class="plan-title-line">
-            <div>
-              <strong>{{ plan.plan_name }}</strong>
-              <small>{{ plan.plan_code }}</small>
-            </div>
-            <el-dropdown trigger="click" @command="(action: string | number | object) => emitPlanAction(plan, action)">
-              <button class="plan-menu-btn">操作</button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="detail">查看详情</el-dropdown-item>
-                  <el-dropdown-item command="edit">编辑套餐</el-dropdown-item>
-                  <el-dropdown-item command="copy">复制套餐</el-dropdown-item>
-                  <el-dropdown-item command="toggle">{{ plan.status === 1 ? '停用套餐' : '启用套餐' }}</el-dropdown-item>
-                  <el-dropdown-item command="delete" divided>归档套餐</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
-          </div>
-          <button
-            type="button"
-            class="save-link"
-            :disabled="savingPlanId === plan.id"
-            @click.stop="emit('savePlan', plan)"
-          >
-            {{ savingPlanId === plan.id ? '保存中' : '保存本列' }}
-          </button>
-        </div>
-      </div>
-
+    <div ref="matrixShellRef" class="matrix-shell">
       <div
-        v-for="row in visibleRows"
-        :key="row.node.id"
-        class="matrix-row"
-        :class="[`matrix-row--${row.node.node_type}`]"
+        class="matrix-grid"
+        :style="{
+          gridTemplateColumns: matrixGridColumns,
+        }"
       >
-        <div class="capability-cell" :style="{ paddingLeft: `${12 + row.depth * 22}px` }">
-          <div class="capability-main">
-            <strong class="node-title">{{ row.node.label }}</strong>
-            <span class="type-pill" :class="typePillClass(row.node)">{{ typePillLabel(row.node) }}</span>
-            <button
-              v-if="row.hasChildren"
-              type="button"
-              class="fold-btn"
-              :aria-expanded="isExpanded(row.node.id)"
-              :title="isExpanded(row.node.id) ? '收起' : '展开'"
-              @click.stop="toggleFold(row.node.id)"
-            >
-              <el-icon class="fold-icon">
-                <ArrowDown v-if="isExpanded(row.node.id)" />
-                <ArrowRight v-else />
-              </el-icon>
-            </button>
-            <span v-else class="fold-spacer" aria-hidden="true" />
+        <div class="matrix-row matrix-row--head">
+          <div class="capability-head sticky-capability">
+            <strong>业务能力</strong>
+            <div class="fold-toolbar" aria-label="矩阵展开层级">
+              <button
+                type="button"
+                class="fold-toolbar-btn"
+                :title="menuLayerToggleTitle"
+                @click="toggleMenuLayer"
+              >
+                {{ menuLayerToggleLabel }}
+              </button>
+              <button
+                type="button"
+                class="fold-toolbar-btn"
+                :title="operationLayerToggleTitle"
+                @click="toggleOperationLayer"
+              >
+                {{ operationLayerToggleLabel }}
+              </button>
+              <button
+                type="button"
+                class="fold-toolbar-btn"
+                :title="fullMatrixToggleTitle"
+                @click="toggleFullMatrix"
+              >
+                {{ fullMatrixToggleLabel }}
+              </button>
+            </div>
           </div>
-          <small v-if="nodeSubtitle(row)" class="node-sub">{{ nodeSubtitle(row) }}</small>
+          <div v-for="plan in matrix.plans" :key="plan.id" class="plan-head" :class="{ 'is-disabled-plan': plan.status !== 1 }">
+            <div class="plan-title-line">
+              <div>
+                <div class="plan-name-line">
+                  <strong>{{ plan.plan_name }}</strong>
+                  <span v-if="plan.status !== 1" class="plan-status-pill">已停用</span>
+                </div>
+                <small>{{ plan.plan_code }}</small>
+              </div>
+              <el-dropdown trigger="click" @command="(action: string | number | object) => emitPlanAction(plan, action)">
+                <button class="plan-menu-btn">操作</button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="edit">编辑套餐</el-dropdown-item>
+                    <el-dropdown-item command="copy">复制套餐</el-dropdown-item>
+                    <el-dropdown-item command="toggle">{{ plan.status === 1 ? '停用套餐' : '启用套餐' }}</el-dropdown-item>
+                    <el-dropdown-item command="delete" divided>删除套餐</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
+            <button
+              type="button"
+              class="save-link"
+              :disabled="savingPlanId === plan.id"
+              @click.stop="emit('savePlan', plan)"
+            >
+              {{ savingPlanId === plan.id ? '保存中' : '保存本列' }}
+            </button>
+          </div>
         </div>
 
-        <div v-for="plan in matrix.plans" :key="plan.id" class="plan-cell">
-          <div class="plan-cell-pill-row">
-            <button
-              class="state-pill"
-              :class="nodeStateForPlan(row.node, plan.id, featureSelection)"
-              @click="emit('toggle', {
-                plan,
-                node: row.node,
-                enabled: nodeStateForPlan(row.node, plan.id, featureSelection) !== 'enabled',
-              })"
-            >
-              {{ stateLabel(nodeStateForPlan(row.node, plan.id, featureSelection)) }}
-            </button>
-            <button type="button" class="detail-link" @click="emit('detail', { plan, node: row.node })">详情</button>
+        <div
+          v-for="row in visibleRows"
+          :key="row.node.id"
+          class="matrix-row"
+          :class="[`matrix-row--${row.node.node_type}`]"
+        >
+          <div class="capability-cell sticky-capability" :style="{ paddingLeft: `${12 + row.depth * 22}px` }">
+            <div class="capability-main">
+              <strong class="node-title">{{ row.node.label }}</strong>
+              <span class="type-pill" :class="typePillClass(row.node)">{{ typePillLabel(row.node) }}</span>
+              <button
+                v-if="canEditFeatureNode(row.node)"
+                type="button"
+                class="feature-edit-btn"
+                :title="editableFeatureTitle(row.node)"
+                @click.stop="emit('editFeature', row.node.feature_id!)"
+              >
+                编辑功能点
+              </button>
+              <button
+                v-if="row.hasChildren"
+                type="button"
+                class="fold-btn"
+                :aria-expanded="isExpanded(row.node.id)"
+                :title="isExpanded(row.node.id) ? '收起' : '展开'"
+                @click.stop="toggleFold(row.node.id)"
+              >
+                <el-icon class="fold-icon">
+                  <ArrowDown v-if="isExpanded(row.node.id)" />
+                  <ArrowRight v-else />
+                </el-icon>
+              </button>
+              <span v-else class="fold-spacer" aria-hidden="true" />
+            </div>
+            <small v-if="nodeSubtitle(row)" class="node-sub">{{ nodeSubtitle(row) }}</small>
           </div>
-          <div v-if="quotaSummary(row.node, plan.id).length" class="quota-chips">
-            <span v-for="quota in quotaSummary(row.node, plan.id)" :key="quota">{{ quota }}</span>
+
+          <div v-for="plan in matrix.plans" :key="plan.id" class="plan-cell" :class="{ 'is-disabled-plan': plan.status !== 1 }">
+            <div v-if="row.node.node_type === 'domain'" class="domain-action-row">
+              <button
+                type="button"
+                class="domain-action-btn domain-action-btn--enable"
+                @click="emit('toggle', { plan, node: row.node, enabled: true, cascade: true })"
+              >
+                全部开启
+              </button>
+              <button
+                type="button"
+                class="domain-action-btn domain-action-btn--disable"
+                @click="emit('toggle', { plan, node: row.node, enabled: false, cascade: true })"
+              >
+                全部关闭
+              </button>
+            </div>
+            <div v-else class="plan-cell-pill-row">
+              <button
+                class="state-pill"
+                :class="nodeStateForPlan(row.node, plan.id, featureSelection)"
+                @click="emit('toggle', {
+                  plan,
+                  node: row.node,
+                  enabled: nodeStateForPlan(row.node, plan.id, featureSelection) !== 'enabled',
+                })"
+              >
+                {{ stateLabel(nodeStateForPlan(row.node, plan.id, featureSelection)) }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -319,82 +374,27 @@ function emitPlanAction(plan: Plan, action: string | number | object) {
 .capability-matrix {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-}
-
-.matrix-heading {
-  display: flex;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 22px;
-  border: 1px solid rgba(120, 140, 190, 0.22);
-  border-radius: var(--neuro-radius-2xl, 24px);
-  background:
-    radial-gradient(circle at 18% 12%, color-mix(in srgb, var(--plan-accent, #4778ff) 18%, transparent), transparent 34%),
-    var(--plan-panel-soft, linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(246, 249, 255, 0.78)));
-}
-
-.eyebrow {
-  color: var(--plan-warning, #4778ff);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.matrix-heading h3 {
-  margin: 6px 0 4px;
-  font-size: 24px;
-}
-
-.matrix-heading p {
-  margin: 0;
-  color: var(--plan-text-muted, #667085);
-}
-
-.heading-right {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 10px;
-}
-
-.legend {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--plan-text-muted, #667085);
-  white-space: nowrap;
+  gap: 0;
 }
 
 .fold-toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px 14px;
-  justify-content: flex-end;
-}
-
-.fold-toolbar-row {
-  display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  justify-content: flex-end;
-}
-
-.fold-toolbar-row--toggles {
-  flex-wrap: nowrap;
+  gap: 6px;
 }
 
 .fold-toolbar-btn {
   border: 1px solid rgba(120, 140, 190, 0.28);
-  border-radius: var(--neuro-radius-full, 999px);
-  background: rgba(255, 255, 255, 0.55);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.12);
   color: var(--plan-text, #344054);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
-  padding: 6px 12px;
+  line-height: 1.2;
+  padding: 5px 8px;
+  white-space: nowrap;
 }
 
 .fold-toolbar-btn:hover {
@@ -402,34 +402,26 @@ function emitPlanAction(plan: Plan, action: string | number | object) {
   color: var(--plan-accent, #3154c9);
 }
 
-.dot {
-  width: 9px;
-  height: 9px;
-  border-radius: var(--neuro-radius-full, 999px);
-}
-
-.dot.enabled { background: #16a34a; }
-.dot.partial { background: #f59e0b; }
-.dot.disabled {
-  background: color-mix(in srgb, var(--nm-text-muted) 55%, var(--nm-bg-deep));
-}
-
 .matrix-shell {
+  max-width: 100%;
   overflow: auto;
   border: 1px solid rgba(120, 140, 190, 0.18);
   border-radius: var(--neuro-radius-2xl, 24px);
   background: var(--plan-panel-bg, rgba(255, 255, 255, 0.9));
-  /* 全局 * 滚动条轨道为 transparent 时，横向滚动条槽会透出更暗的底层；轨道与面板底色一致 */
-  scrollbar-color: rgba(0, 245, 212, 0.12) var(--plan-panel-bg, rgba(15, 27, 43, 0.92)) !important;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
-.matrix-shell::-webkit-scrollbar-track {
-  background: var(--plan-panel-bg, rgba(15, 27, 43, 0.92)) !important;
+.matrix-shell::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
-.matrix-shell--grid {
+.matrix-grid {
   display: grid;
-  min-width: max-content;
+  width: max-content;
+  min-width: 100%;
   grid-auto-rows: auto;
   align-items: stretch;
 }
@@ -448,7 +440,20 @@ function emitPlanAction(plan: Plan, action: string | number | object) {
 .matrix-row--head {
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 5;
+  background: var(--plan-panel-strong, linear-gradient(180deg, #f8fbff, #eef4ff));
+}
+
+.sticky-capability {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: var(--plan-panel-bg, rgba(255, 255, 255, 0.94));
+  border-right: none !important;
+}
+
+.matrix-row--head .sticky-capability {
+  z-index: 7;
   background: var(--plan-panel-strong, linear-gradient(180deg, #f8fbff, #eef4ff));
 }
 
@@ -456,14 +461,55 @@ function emitPlanAction(plan: Plan, action: string | number | object) {
 .plan-head,
 .capability-cell,
 .plan-cell {
+  position: relative;
   padding: 14px 16px;
   border-right: 1px solid rgba(120, 140, 190, 0.12);
+}
+
+.capability-head {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 10px;
+}
+
+.capability-head > strong {
+  color: var(--plan-text, #101828);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.sticky-capability::after {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(120, 140, 190, 0.12);
+  content: '';
 }
 
 .plan-head {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.plan-head.is-disabled-plan,
+.plan-cell.is-disabled-plan {
+  filter: grayscale(0.9);
+  opacity: 0.48;
+}
+
+.plan-head.is-disabled-plan {
+  background: color-mix(in srgb, var(--nm-bg-elevated) 78%, var(--nm-bg-deep));
+}
+
+.plan-cell.is-disabled-plan {
+  background: color-mix(in srgb, var(--nm-bg-elevated) 68%, var(--nm-bg-deep));
 }
 
 .plan-title-line {
@@ -478,6 +524,30 @@ function emitPlanAction(plan: Plan, action: string | number | object) {
   min-width: 0;
   flex-direction: column;
   gap: 2px;
+}
+
+.plan-name-line {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.plan-name-line strong {
+  min-width: 0;
+}
+
+.plan-status-pill {
+  flex: 0 0 auto;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: var(--neuro-radius-full, 999px);
+  background: rgba(148, 163, 184, 0.16);
+  color: var(--plan-text-muted, #7a8599);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 4px 7px;
+  white-space: nowrap;
 }
 
 .plan-head small,
@@ -498,8 +568,7 @@ function emitPlanAction(plan: Plan, action: string | number | object) {
   white-space: nowrap;
 }
 
-.save-link,
-.detail-link {
+.save-link {
   border: none;
   background: none;
   color: var(--plan-accent, #4778ff);
@@ -507,13 +576,6 @@ function emitPlanAction(plan: Plan, action: string | number | object) {
   font-weight: 700;
   padding: 0;
   text-align: left;
-}
-
-.plan-cell .detail-link {
-  flex: 0 0 auto;
-  margin-left: auto;
-  white-space: nowrap;
-  text-align: right;
 }
 
 .save-link:disabled {
@@ -606,35 +668,50 @@ function emitPlanAction(plan: Plan, action: string | number | object) {
   border: 1px solid rgba(100, 116, 139, 0.2);
 }
 
+.feature-edit-btn {
+  border: 1px solid color-mix(in srgb, var(--plan-accent, #14dcc8) 45%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--plan-accent, #14dcc8) 12%, transparent);
+  color: var(--plan-accent, #14dcc8);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 5px 8px;
+  white-space: nowrap;
+}
+
+.feature-edit-btn:hover {
+  background: color-mix(in srgb, var(--plan-accent, #14dcc8) 20%, transparent);
+}
+
 .fold-btn {
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 18px;
+  height: 18px;
   padding: 0;
-  border: 1px solid rgba(120, 140, 190, 0.28);
-  border-radius: var(--neuro-radius-md, 8px);
-  background: rgba(255, 255, 255, 0.65);
-  color: var(--plan-text, #344054);
+  border: 0;
+  background: transparent;
+  color: #ffffff;
   cursor: pointer;
 }
 
 .fold-btn:hover {
-  border-color: color-mix(in srgb, var(--plan-accent, #4778ff) 40%, transparent);
-  color: var(--plan-accent, #3154c9);
+  color: var(--plan-accent, #00f5d4);
 }
 
 .fold-icon {
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .fold-spacer {
   display: inline-block;
   flex-shrink: 0;
-  width: 28px;
-  height: 28px;
+  width: 18px;
+  height: 18px;
 }
 
 .matrix-row--domain .capability-cell {
@@ -650,6 +727,7 @@ function emitPlanAction(plan: Plan, action: string | number | object) {
   min-height: 76px;
   flex-direction: column;
   align-items: flex-start;
+  justify-content: center;
   gap: 8px;
 }
 
@@ -660,10 +738,43 @@ function emitPlanAction(plan: Plan, action: string | number | object) {
   gap: 8px;
 }
 
+.domain-action-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.domain-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 62px;
+  border: 1px solid rgba(120, 140, 190, 0.26);
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+  padding: 6px 8px;
+  white-space: nowrap;
+}
+
+.domain-action-btn--enable {
+  background: color-mix(in srgb, var(--plan-accent, #00f5d4) 18%, var(--plan-panel-strong, rgba(20, 25, 38, 0.96)));
+  border-color: color-mix(in srgb, var(--plan-accent, #00f5d4) 44%, transparent);
+  color: var(--plan-accent, #00f5d4);
+}
+
+.domain-action-btn--disable {
+  background: color-mix(in srgb, var(--nm-bg-elevated) 86%, var(--nm-bg-deep));
+  border-color: color-mix(in srgb, var(--nm-border) 90%, transparent);
+  color: var(--nm-text-muted);
+}
+
 .state-pill {
   flex: 0 0 auto;
   width: fit-content;
-  max-width: calc(100% - 52px);
+  max-width: 100%;
   border: none;
   border-radius: var(--neuro-radius-full, 999px);
   cursor: pointer;
@@ -687,17 +798,4 @@ function emitPlanAction(plan: Plan, action: string | number | object) {
   border: 1px solid color-mix(in srgb, var(--nm-border) 90%, transparent);
 }
 
-.quota-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.quota-chips span {
-  padding: 3px 7px;
-  border-radius: var(--neuro-radius-full, 999px);
-  background: rgba(71, 120, 255, 0.1);
-  color: #3154c9;
-  font-size: 12px;
-}
 </style>

@@ -19,10 +19,7 @@ function defaultTree(): MenuNode[] {
       title: '首页',
       path: '/home',
       icon: 'House',
-      children: [
-        { id: 'home-v', type: 'button', title: '查看', permissionCode: 'home:view', enabled: true },
-        { id: 'brand-e', type: 'button', title: '品牌维护', permissionCode: 'brand:edit', enabled: true },
-      ],
+      children: [],
     },
     {
       id: 'sys',
@@ -115,6 +112,7 @@ function defaultTree(): MenuNode[] {
             { id: 'role-c', type: 'button', title: '新增', permissionCode: 'role:create', enabled: true },
             { id: 'role-e', type: 'button', title: '编辑', permissionCode: 'role:edit', enabled: true },
             { id: 'role-d', type: 'button', title: '删除', permissionCode: 'role:delete', enabled: true },
+            { id: 'role-p', type: 'button', title: '权限设置', permissionCode: 'role:permission', enabled: true },
           ],
         },
         {
@@ -127,6 +125,7 @@ function defaultTree(): MenuNode[] {
             { id: 'menu-c', type: 'button', title: '新增', permissionCode: 'menu:create', enabled: true },
             { id: 'menu-e', type: 'button', title: '编辑', permissionCode: 'menu:edit', enabled: true },
             { id: 'menu-d', type: 'button', title: '删除', permissionCode: 'menu:delete', enabled: true },
+            { id: 'menu-pkg', type: 'button', title: '套餐中心收录', permissionCode: 'menu:package_feature', enabled: true },
           ],
         },
         {
@@ -136,9 +135,12 @@ function defaultTree(): MenuNode[] {
           path: '/dict',
           icon: 'Collection',
           children: [
-            { id: 'dict-c', type: 'button', title: '新增', permissionCode: 'dict:create', enabled: true },
-            { id: 'dict-e', type: 'button', title: '编辑', permissionCode: 'dict:edit', enabled: true },
-            { id: 'dict-d', type: 'button', title: '删除', permissionCode: 'dict:delete', enabled: true },
+            { id: 'dict-type-c', type: 'button', title: '字典类型-新增', permissionCode: 'dict_type:create', enabled: true },
+            { id: 'dict-type-e', type: 'button', title: '字典类型-编辑', permissionCode: 'dict_type:edit', enabled: true },
+            { id: 'dict-type-d', type: 'button', title: '字典类型-删除', permissionCode: 'dict_type:delete', enabled: true },
+            { id: 'dict-item-c', type: 'button', title: '字典项-新增', permissionCode: 'dict_item:create', enabled: true },
+            { id: 'dict-item-e', type: 'button', title: '字典项-编辑', permissionCode: 'dict_item:edit', enabled: true },
+            { id: 'dict-item-d', type: 'button', title: '字典项-删除', permissionCode: 'dict_item:delete', enabled: true },
           ],
         },
         {
@@ -159,7 +161,7 @@ function defaultTree(): MenuNode[] {
           title: '操作日志',
           path: '/audit-logs',
           icon: 'Document',
-          children: [{ id: 'audit-v', type: 'button', title: '查看', permissionCode: 'audit:view', enabled: true }],
+          children: [],
         },
         {
           id: 'login-log',
@@ -167,7 +169,7 @@ function defaultTree(): MenuNode[] {
           title: '登录日志',
           path: '/login-logs',
           icon: 'Key',
-          children: [{ id: 'login-v', type: 'button', title: '查看', permissionCode: 'login:view', enabled: true }],
+          children: [],
         },
       ],
     },
@@ -183,9 +185,7 @@ function defaultTree(): MenuNode[] {
           title: '健康检查',
           path: '/monitor/health',
           icon: 'CircleCheck',
-          children: [
-            { id: 'mon-h-v', type: 'button', title: '查看', permissionCode: 'monhealth:view', enabled: true },
-          ],
+          children: [],
         },
         {
           id: 'mon-srv',
@@ -193,9 +193,7 @@ function defaultTree(): MenuNode[] {
           title: '服务器信息',
           path: '/monitor/server',
           icon: 'Cpu',
-          children: [
-            { id: 'mon-s-v', type: 'button', title: '查看', permissionCode: 'monserver:view', enabled: true },
-          ],
+          children: [],
         },
         {
           id: 'mon-jobs',
@@ -203,9 +201,7 @@ function defaultTree(): MenuNode[] {
           title: '定时任务',
           path: '/monitor/jobs',
           icon: 'Timer',
-          children: [
-            { id: 'mon-j-v', type: 'button', title: '查看', permissionCode: 'monjobs:view', enabled: true },
-          ],
+          children: [],
         },
         {
           id: 'mon-svc',
@@ -213,9 +209,7 @@ function defaultTree(): MenuNode[] {
           title: '服务监控',
           path: '/monitor/services',
           icon: 'Connection',
-          children: [
-            { id: 'mon-svc-v', type: 'button', title: '查看', permissionCode: 'monservices:view', enabled: true },
-          ],
+          children: [],
         },
         {
           id: 'mon-cache',
@@ -223,9 +217,7 @@ function defaultTree(): MenuNode[] {
           title: '缓存监控',
           path: '/monitor/cache',
           icon: 'Histogram',
-          children: [
-            { id: 'mon-c-v', type: 'button', title: '查看', permissionCode: 'moncache:view', enabled: true },
-          ],
+          children: [],
         },
         {
           id: 'mon-cache-keys',
@@ -233,9 +225,7 @@ function defaultTree(): MenuNode[] {
           title: '缓存列表',
           path: '/monitor/cache-keys',
           icon: 'List',
-          children: [
-            { id: 'mon-ck-v', type: 'button', title: '查看', permissionCode: 'moncachekeys:view', enabled: true },
-          ],
+          children: [],
         },
       ],
     },
@@ -387,6 +377,26 @@ function indexMenuNodesById(nodes: MenuNode[], out: Map<string, MenuNode>): void
   }
 }
 
+const deprecatedBuiltinPermissionCodes = new Set([
+  'dict:create',
+  'dict:edit',
+  'dict:delete',
+  'home:view',
+  'audit:view',
+  'login:view',
+  'brand:edit',
+  'monhealth:view',
+  'monserver:view',
+  'monjobs:view',
+  'monservices:view',
+  'moncache:view',
+  'moncachekeys:view',
+])
+
+function isDeprecatedBuiltinButton(node: MenuNode): boolean {
+  return node.type === 'button' && !!node.permissionCode && deprecatedBuiltinPermissionCodes.has(node.permissionCode)
+}
+
 /**
  * 将 localStorage 中的旧侧栏树与当前 defaultTree 的内置「按钮」子项对齐。
  * 解决升级后仍只显示「维护」或菜单仅「编辑」：旧 JSON 不会自动出现新 permissionCode。
@@ -398,20 +408,33 @@ function mergeBuiltinMenuButtonsWithDefaults(nodes: MenuNode[]): { next: MenuNod
   const before = JSON.stringify(nodes)
 
   function walk(list: MenuNode[]): MenuNode[] {
-    return list.map((node) => {
+    return list.filter((node) => !isDeprecatedBuiltinButton(node)).map((node) => {
       const walkedChildren = node.children?.length ? walk(node.children) : undefined
       let nextNode: MenuNode = { ...node, children: walkedChildren }
       if (nextNode.type !== 'menu' || !nextNode.id) return nextNode
 
-      const defMenu = defByMenuId.get(nextNode.id)
-      if (!defMenu?.children?.length) return nextNode
-
-      const defButtons = defMenu.children.filter((c) => c.type === 'button' && c.permissionCode)
-      if (!defButtons.length) return nextNode
-
       const currentChildren = nextNode.children || []
+      const defMenu = defByMenuId.get(nextNode.id)
+      if (!defMenu?.children?.length) {
+        nextNode.children = currentChildren
+        return nextNode
+      }
+
+      const defButtons = defMenu.children.filter(
+        (c) => c.type === 'button' && c.permissionCode && !deprecatedBuiltinPermissionCodes.has(c.permissionCode),
+      )
+      if (!defButtons.length) {
+        nextNode.children = currentChildren
+        return nextNode
+      }
+
       const nonButtons = currentChildren.filter((c) => c.type !== 'button')
-      const storedButtons = currentChildren.filter((c) => c.type === 'button' && c.permissionCode)
+      const storedButtons = currentChildren.filter(
+        (c) =>
+          c.type === 'button' &&
+          c.permissionCode &&
+          !deprecatedBuiltinPermissionCodes.has(c.permissionCode),
+      )
       const byCode = new Map(storedButtons.map((b) => [b.permissionCode!, b]))
       const mergedButtons: MenuNode[] = []
       for (const defBtn of defButtons) {
@@ -426,6 +449,7 @@ function mergeBuiltinMenuButtonsWithDefaults(nodes: MenuNode[]): { next: MenuNod
         }
       }
       for (const sb of storedButtons) {
+        if (deprecatedBuiltinPermissionCodes.has(sb.permissionCode!)) continue
         if (!defButtons.some((d) => d.permissionCode === sb.permissionCode)) {
           mergedButtons.push(sb)
         }
@@ -520,6 +544,14 @@ export const useSidebarMenuStore = defineStore('sidebarMenu', () => {
   function replace(next: MenuNode[]) {
     tree.value = next
     persist()
+  }
+
+  function normalizeBuiltinTree(): boolean {
+    const { next, changed } = mergeBuiltinMenuButtonsWithDefaults(tree.value)
+    if (!changed) return false
+    tree.value = next
+    persist()
+    return true
   }
 
   async function loadTenantMenuRuntime(options: { force?: boolean; isPlatformAdmin?: boolean } = {}) {
@@ -686,7 +718,7 @@ export const useSidebarMenuStore = defineStore('sidebarMenu', () => {
   /** 更新节点展示字段（平台菜单树，持久化到 localStorage） */
   function updateMenuNode(
     nodeId: string,
-    patch: Partial<Pick<MenuNode, 'title' | 'path' | 'icon' | 'permissionCode' | 'enabled' | 'dataPermMode'>>,
+    patch: Partial<Pick<MenuNode, 'title' | 'path' | 'icon' | 'permissionCode' | 'isPlatformOnly' | 'enabled' | 'dataPermMode'>>,
   ): boolean {
     const next = JSON.parse(JSON.stringify(tree.value)) as MenuNode[]
     function walk(nodes: MenuNode[]): boolean {
@@ -696,6 +728,7 @@ export const useSidebarMenuStore = defineStore('sidebarMenu', () => {
           if (patch.path !== undefined) n.path = patch.path
           if (patch.icon !== undefined) n.icon = patch.icon
           if (patch.permissionCode !== undefined) n.permissionCode = patch.permissionCode
+          if (patch.isPlatformOnly !== undefined) n.isPlatformOnly = patch.isPlatformOnly
           if (patch.enabled !== undefined) n.enabled = patch.enabled
           if (patch.dataPermMode !== undefined) n.dataPermMode = patch.dataPermMode
           return true
@@ -743,6 +776,7 @@ export const useSidebarMenuStore = defineStore('sidebarMenu', () => {
     persist,
     resetDefault,
     replace,
+    normalizeBuiltinTree,
     loadTenantMenuRuntime,
     clearTenantMenuRuntime,
     saveTenantMenuOverrideForPath,

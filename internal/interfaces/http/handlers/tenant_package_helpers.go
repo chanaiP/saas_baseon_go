@@ -95,6 +95,10 @@ func (h *IdentityHandler) saveTenantPackageOnDB(db *gorm.DB, tenantID uint64, bo
 	if body.PlanID == 0 {
 		return errors.New("套餐不存在")
 	}
+	var plan models.SaasPlan
+	if err := db.Where("id = ? AND deleted_at IS NULL AND status = ?", body.PlanID, 1).First(&plan).Error; err != nil {
+		return errors.New("套餐不存在或已停用")
+	}
 	var existing models.TenantSubscription
 	sub := models.TenantSubscription{TenantID: tenantID, PlanID: body.PlanID, SubscriptionStatus: body.SubscriptionStatus, StartTime: start, EndTime: parseTimePtr(body.EndTime), TrialEndTime: parseTimePtr(body.TrialEndTime), AutoRenew: body.AutoRenew, FrozenReason: body.FrozenReason}
 	if err := db.Where("tenant_id = ?", tenantID).First(&existing).Error; err == nil {
