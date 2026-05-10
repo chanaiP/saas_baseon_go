@@ -53,6 +53,7 @@ func TestRoleServiceUpdateCanReplacePermissions(t *testing.T) {
 
 	updated, err := service.Update(context.Background(), RoleUpdateCommand{
 		ID:            existing.ID,
+		TenantID:      existing.TenantID,
 		Name:          &name,
 		PermissionIDs: []uint64{2, 2, 5},
 		UpdatePerms:   true,
@@ -82,9 +83,9 @@ func (r *fakeRoleRepo) List(_ context.Context, query domain.RoleListQuery) ([]do
 	return items, int64(len(items)), nil
 }
 
-func (r *fakeRoleRepo) FindByID(_ context.Context, id uint64) (domain.Role, error) {
+func (r *fakeRoleRepo) FindByID(_ context.Context, tenantID uint64, id uint64) (domain.Role, error) {
 	role, ok := r.roles[id]
-	if !ok {
+	if !ok || role.TenantID != tenantID {
 		return domain.Role{}, domain.ErrRoleNotFound
 	}
 	return role, nil
@@ -102,7 +103,11 @@ func (r *fakeRoleRepo) Update(_ context.Context, role domain.Role, _ bool) (doma
 	return role, nil
 }
 
-func (r *fakeRoleRepo) Delete(_ context.Context, id uint64) error {
+func (r *fakeRoleRepo) Delete(_ context.Context, tenantID uint64, id uint64) error {
+	role, ok := r.roles[id]
+	if !ok || role.TenantID != tenantID {
+		return domain.ErrRoleNotFound
+	}
 	delete(r.roles, id)
 	return nil
 }

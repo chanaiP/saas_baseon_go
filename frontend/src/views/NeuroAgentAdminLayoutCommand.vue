@@ -24,6 +24,7 @@
             :current-copyright="copyrightInfo"
             :is-platform-admin="platformUiScope"
             :can-edit-branding="canEditStemBranding"
+            :can-edit-footer="tenantBrand.canEditFooter"
             @update:logo="handleLogoUpdate"
             @update:name="handleNameUpdate"
             @update:copyright="handleCopyrightUpdate"
@@ -151,7 +152,7 @@
                   }"
                   :style="{ '--neuron-delay': index * 0.06 + 's' }"
                   :draggable="!isSavingShortcutOrder"
-                  @dragstart="onShortcutDragStart(index)"
+                  @dragstart="onShortcutDragStart($event, index)"
                   @dragover.prevent="onShortcutDragOver(index)"
                   @drop.prevent="onShortcutDrop(index)"
                   @dragend="onShortcutDragEnd"
@@ -454,6 +455,7 @@ const platformUiScope = computed(
 const canEditStemBranding = computed(
   () =>
     !!perm.profile?.is_platform_admin ||
+    tenantBrand.canEdit ||
     perm.canUseAction('brand:edit'),
 )
 const userRole = computed(() => {
@@ -504,11 +506,17 @@ const handleLogoUploadSuccess = (_logoUrl: string) => { /* persisted */ }
 const handleLogoUploadError = (_error: string) => { /* show toast */ }
 const handleSettingsChange = async (settings: { logo: string; name: string; copyright: string }) => {
   try {
-    await tenantBrand.save(settings.name, settings.logo, settings.copyright)
+    await tenantBrand.save(
+      settings.name,
+      settings.logo,
+      tenantBrand.canEditFooter ? settings.copyright : undefined,
+    )
     // store 状态已由 save() 自动更新，同步到本地
     customLogoUrl.value = settings.logo
     systemName.value = settings.name
-    copyrightInfo.value = settings.copyright
+    if (tenantBrand.canEditFooter) {
+      copyrightInfo.value = settings.copyright
+    }
   } catch (e) {
     console.error('品牌设置保存失败:', e)
     ElMessage.error('保存失败：' + (e instanceof Error ? e.message : '未知错误'))
@@ -1001,9 +1009,28 @@ const shortcutMenuItems = computed(() => {
   })
 
   return shortcut.shortcutIds
-    .map(id => idMap.get(id))
+    .map(id => idMap.get(normalizeShortcutMenuId(id, idMap)))
     .filter(Boolean) as ShortcutMenuItem[]
 })
+
+function normalizeShortcutMenuId(id: string, idMap: Map<string, ShortcutMenuItem>): string {
+  if (idMap.has(id)) return id
+  const aliases: Record<string, string> = {
+    org_manage: 'org',
+    position_manage: 'pos',
+    role_manage: 'role',
+    user_manage: 'user',
+    menu_manage: 'menu',
+    dict_manage: 'dict',
+    param_manage: 'param',
+    business_unit_manage: 'business-unit',
+    audit_log: 'audit-log',
+    login_log: 'login-log',
+  }
+  const alias = aliases[id]
+  if (alias && idMap.has(alias)) return alias
+  return id
+}
 
 const startShortcutEdit = () => {
   if (!shortcutMenuItems.value.length) return
@@ -1046,8 +1073,10 @@ const saveShortcutOrder = async () => {
   }
 }
 
-const onShortcutDragStart = (index: number) => {
+const onShortcutDragStart = (event: DragEvent, index: number) => {
   if (isSavingShortcutOrder.value) return
+  event.dataTransfer?.setData('text/plain', String(index))
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
   dragFromIndex.value = index
   dragOverIndex.value = index
 }

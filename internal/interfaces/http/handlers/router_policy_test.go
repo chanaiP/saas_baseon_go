@@ -7,20 +7,54 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+
+	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 )
 
 func TestRequiredPermissionForOperationRoutes(t *testing.T) {
 	require.Equal(t, "user:create", requiredPermission("POST", "/api/users"))
 	require.Equal(t, "user:edit", requiredPermission("PUT", "/api/users/:id"))
 	require.Equal(t, "tenant:quota_config", requiredPermission("PUT", "/api/tenants/:id/quota-overrides"))
+	require.Equal(t, "plan:delete", requiredPermission("DELETE", "/api/plans/:id"))
+	require.Equal(t, "role:permission", requiredPermission("PUT", "/api/roles/:id/permissions"))
+	require.Equal(t, "param:create", requiredPermission("POST", "/api/params"))
 	require.Equal(t, "brand:edit", requiredPermission("PUT", "/api/tenant/branding"))
+	require.Equal(t, "dict_type:create", requiredPermission("POST", "/api/dict-types"))
+	require.Equal(t, "dict_item:edit", requiredPermission("DELETE", "/api/dict-items/:id/override"))
+	require.Equal(t, "menu:edit", requiredPermission("POST", "/api/permissions"))
+	require.Equal(t, "menu:edit", requiredPermission("PUT", "/api/permissions/:id"))
+	require.Equal(t, "menu:edit", requiredPermission("DELETE", "/api/permissions/:id"))
+	require.Equal(t, "menu:package_feature", requiredPermission("PUT", "/api/permissions/menu-package-feature/:id"))
 }
 
 func TestRequiredPermissionForMenuRoutes(t *testing.T) {
 	require.Equal(t, "/users", requiredPermission("GET", "/api/users"))
 	require.Equal(t, "/organization", requiredPermission("GET", "/api/organizations/detail"))
 	require.Equal(t, "/monitor/cache-keys", requiredPermission("GET", "/api/monitor/cache-keys"))
+	require.Equal(t, "/tenants", requiredPermission("GET", "/api/tenants/:id/quota-usage"))
+	require.Equal(t, "/business-units", requiredPermission("GET", "/api/business-units/:id/org-mappings"))
+	require.Equal(t, "/params", requiredPermission("GET", "/api/sys-params/batch"))
+	require.Equal(t, "/params", requiredPermission("GET", "/api/params/:key"))
+	require.Equal(t, "/roles", requiredPermission("GET", "/api/roles/permission-menu-bundles"))
+	require.Equal(t, "/menus", requiredPermission("GET", "/api/permissions/tree"))
+	require.Empty(t, requiredPermission("GET", "/api/dict-types/by-code/:code/items"))
 	require.Empty(t, requiredPermission("GET", "/api/users/me"))
+}
+
+func TestRouteAllowedFailsClosedForUnclassifiedRoutes(t *testing.T) {
+	handler := &IdentityHandler{}
+
+	require.False(t, handler.routeAllowed(testPlatformAdminUser(), "GET", "/api/unclassified"))
+	require.True(t, handler.routeAllowed(testPlatformAdminUser(), "GET", "/api/users/me"))
+	require.False(t, handler.routeAllowed(testPlatformAdminUser(), "GET", "/api/users"))
+}
+
+func testPlatformAdminUser() models.AppUser {
+	return models.AppUser{ID: 1, TenantID: 1, IsPlatformAdmin: true, Status: 1}
+}
+
+func testStringPtr(value string) *string {
+	return &value
 }
 
 func TestFallbackHandlerReturnsStrict404(t *testing.T) {
@@ -55,9 +89,47 @@ func TestFeatureQuotaMappingMatchesPlanCatalogPolicy(t *testing.T) {
 	require.ElementsMatch(t, []string{"max_companies", "max_stores", "max_departments"}, quotaCodesForFeatureCode("org_manage"))
 	require.ElementsMatch(t, []string{"daily_import_times"}, quotaCodesForFeatureCode("import_data"))
 	require.ElementsMatch(t, []string{"daily_export_times"}, quotaCodesForFeatureCode("export_data"))
-	require.ElementsMatch(t, []string{"max_api_keys", "daily_api_calls"}, quotaCodesForFeatureCode("api_key"))
-	require.ElementsMatch(t, []string{"max_webhooks"}, quotaCodesForFeatureCode("webhook"))
+	require.Empty(t, quotaCodesForFeatureCode("api_key"))
+	require.Empty(t, quotaCodesForFeatureCode("webhook"))
+	require.ElementsMatch(t, []string{"max_storage_gb", "max_file_size_mb"}, quotaCodesForFeatureCode("file_manage"))
 	require.Empty(t, quotaCodesForFeatureCode("brand_config"))
+}
+
+func TestPureViewOperationsDoNotBecomePackageFeatures(t *testing.T) {
+	require.Empty(t, packageFeatureOverride("login:view"))
+	require.Empty(t, packageFeatureOverride("audit:view"))
+	require.True(t, isPureViewPermissionPath("monhealth:view"))
+	require.True(t, isPureViewPermissionPath("moncachekeys:view"))
+	require.Equal(t, "dict_manage", parentPackageFeatureCodeForOperation("dict_item:edit"))
+	require.Equal(t, "dict_manage", parentPackageFeatureCodeForOperation("dict_type:edit"))
+	require.Empty(t, parentPackageFeatureCodeForOperation("perm:create"))
+	require.True(t, excludedPackageFeaturePath("perm:create"))
+	require.True(t, excludedPackageFeaturePath("perm:edit"))
+	require.True(t, excludedPackageFeaturePath("perm:delete"))
+	require.True(t, excludedPackageFeaturePath("/home"))
+	require.True(t, excludedPackageFeaturePath("/tenants"))
+	require.True(t, excludedPackageFeaturePath("/plans"))
+	require.True(t, excludedPackageFeaturePath("/permissions"))
+	require.True(t, excludedPackageFeaturePath("/monitor/health"))
+	require.Empty(t, packageFeatureCodeForPermission(models.Permission{Path: "/home", PermType: 3, IsPackageFeature: true, FeatureCode: testStringPtr("home")}))
+	require.Empty(t, packageFeatureCodeForPermission(models.Permission{Path: "/tenants", PermType: 3, IsPackageFeature: true, FeatureCode: testStringPtr("tenant_manage")}))
+	require.Empty(t, packageFeatureCodeForPermission(models.Permission{Path: "/plans", PermType: 3, IsPackageFeature: true, FeatureCode: testStringPtr("plan_manage")}))
+	require.Empty(t, packageFeatureCodeForPermission(models.Permission{Path: "/permissions", PermType: 3, IsPackageFeature: true, FeatureCode: testStringPtr("role_manage")}))
+	require.Empty(t, packageFeatureCodeForPermission(models.Permission{Path: "/monitor/health", PermType: 3, IsPackageFeature: true, FeatureCode: testStringPtr("system_monitor")}))
+	require.Equal(t, "menu_manage", packageFeatureCodeForPermission(models.Permission{Path: "/menus", PermType: 3, IsPackageFeature: true, FeatureCode: testStringPtr("menu_manage")}))
+	require.Equal(t, "brand_config", packageFeatureCodeForPermission(models.Permission{Path: "brand:edit", PermType: 2, IsPackageFeature: true}))
+	require.Equal(t, "CONFIG", packageFeatureTypeForPermission(models.Permission{Path: "brand:edit", PermType: 2, IsPackageFeature: true}))
+	require.Equal(t, "品牌配置", packageFeatureNameForPermission(models.Permission{Path: "brand:edit", Name: "品牌-维护", PermType: 2, IsPackageFeature: true}))
+	require.False(t, excludedPlanMatrixFeatureRow(models.SaasFeature{FeatureCode: "brand_config", FeatureName: "品牌配置", FeatureType: "CONFIG"}))
+	require.True(t, excludedPlanMatrixFeatureRow(models.SaasFeature{FeatureCode: "system_monitor", FeatureName: "系统监控", FeatureType: "MENU"}))
+	require.False(t, permissionCanJoinPackageCenter(models.Permission{Path: "/home", PermType: 3, IsPackageFeature: true, FeatureCode: testStringPtr("home")}))
+	require.False(t, permissionCanJoinPackageCenter(models.Permission{Path: "menu:delete", PermType: 2, IsPackageFeature: true}))
+	require.True(t, permissionCanJoinPackageCenter(models.Permission{Path: "menu:edit", PermType: 2, IsPackageFeature: true}))
+
+	allowed := map[string]bool{"login_log": true, "audit_log": false, "system_monitor": false}
+	require.True(t, permissionAllowedByFeatureCodeSet(models.Permission{Path: "login:view", PermType: 2, IsPackageFeature: true}, allowed))
+	require.True(t, permissionAllowedByFeatureCodeSet(models.Permission{Path: "audit:view", PermType: 2, IsPackageFeature: true}, allowed))
+	require.True(t, permissionAllowedByFeatureCodeSet(models.Permission{Path: "monhealth:view", PermType: 2, IsPackageFeature: true}, allowed))
 }
 
 func TestValidatePermissionPayloadMatchesOriginalDataPermissionPolicy(t *testing.T) {

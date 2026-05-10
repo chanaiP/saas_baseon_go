@@ -4,8 +4,8 @@ import { ArrowDown, ArrowDownBold, ArrowUp, ArrowUpBold } from '@element-plus/ic
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 
-import type { MenuBundle } from '@/api/permission'
-import { fetchPermissionMenuBundles, updatePermission } from '@/api/permission'
+import type { MenuBundle, MenuBundleOp } from '@/api/permission'
+import { fetchPermissionMenuBundles, updatePermission, updatePermissionPackageFeature } from '@/api/permission'
 import { confirmArchiveAction } from '@/composables/useArchiveConfirm'
 import { usePermissionStore } from '@/stores/permission'
 import { filterPlatformOnlyMenus, useSidebarMenuStore } from '@/stores/sidebarMenu'
@@ -69,6 +69,16 @@ const bundleByMenuPath = computed(() => {
   return m
 })
 
+const bundleOpByPermissionCode = computed(() => {
+  const m = new Map<string, MenuBundleOp>()
+  for (const b of menuBundlesForScope.value) {
+    for (const op of b.operations || []) {
+      m.set(op.path, op)
+    }
+  }
+  return m
+})
+
 async function loadMenuBundlesForScope() {
   if (!perm.profile?.is_platform_admin) {
     menuBundlesForScope.value = []
@@ -84,21 +94,22 @@ async function loadMenuBundlesForScope() {
 /** 目录无归属；菜单按路由 path；按钮按 permissionCode 在 bundles.operations 中匹配 */
 function menuScopeTag(row: MenuNode): { text: string; type: 'warning' | 'success' | 'info' } | null {
   if (row.type === 'directory') return null
+  if (row.type === 'menu' && row.path === '/home') return { text: '系统内置', type: 'info' }
   if (row.type === 'menu' && row.path) {
     const b = bundleByMenuPath.value.get(row.path)
-    if (!b) return { text: '自定义', type: 'info' }
+    if (!b) return row.isPlatformOnly ? { text: '仅平台', type: 'warning' } : { text: '仅主体', type: 'success' }
     if (b.is_platform_only) return { text: '仅平台', type: 'warning' }
-    return { text: '租户菜单', type: 'success' }
+    return { text: '仅主体', type: 'success' }
   }
   if (row.type === 'button' && row.permissionCode) {
     for (const b of menuBundlesForScope.value) {
       const op = b.operations.find((o) => o.path === row.permissionCode)
       if (op) {
         if (op.is_platform_only) return { text: '仅平台', type: 'warning' }
-        return { text: '租户菜单', type: 'success' }
+        return { text: '仅主体', type: 'success' }
       }
     }
-    return { text: '自定义', type: 'info' }
+    return row.isPlatformOnly ? { text: '仅平台', type: 'warning' } : { text: '仅主体', type: 'success' }
   }
   return null
 }
@@ -109,6 +120,7 @@ const isPlatformAdmin = computed(
 const canCreateMenu = computed(() => perm.canUseAction('menu:create'))
 const canEditMenu = computed(() => perm.canUseAction('menu:edit'))
 const canDeleteMenu = computed(() => perm.canUseAction('menu:delete'))
+const canPackageFeatureMenu = computed(() => perm.canUseAction('menu:package_feature'))
 
 const selectedMenuNode = ref<MenuNode | null>(null)
 /** 从表格行「增加子项」打开时为该行；工具栏打开时为 null，须通过 globalAddParentId 指定上级 */
@@ -121,9 +133,10 @@ const addForm = ref<{
   title: string
   path: string
   permissionCode: string
+  scope: 'tenant' | 'platform'
   icon: string
   dataPermMode: 'NONE' | 'ORG' | 'BU' | 'ORG_BU'
-}>({ nodeType: 'menu', title: '新菜单', path: '', permissionCode: '', icon: 'Document', dataPermMode: 'ORG' })
+}>({ nodeType: 'menu', title: '新菜单', path: '', permissionCode: '', scope: 'tenant', icon: 'Document', dataPermMode: 'ORG' })
 
 const editDlg = ref(false)
 const editTargetId = ref<string | null>(null)
@@ -131,9 +144,14 @@ const editForm = ref({
   title: '',
   path: '',
   permissionCode: '',
+  scope: 'tenant' as 'tenant' | 'platform',
   icon: 'Document',
   dataPermMode: 'ORG' as 'NONE' | 'ORG' | 'BU' | 'ORG_BU',
 })
+const packageRemoveDlg = ref(false)
+const packageRemoveRow = ref<MenuNode | null>(null)
+const platformScopeConfirmDlg = ref(false)
+const pendingPlatformScopeSave = ref(false)
 
 function filterTenantManageableTree(nodes: MenuNode[]): MenuNode[] {
   const out: MenuNode[] = []
@@ -195,8 +213,6 @@ const menuTableTree = computed(() => {
 })
 
 const expandedRowKeys = ref<string[]>([])
-const editingTitleId = ref<string | null>(null)
-const editingTitleValue = ref('')
 
 function typeZh(t: string) {
   const m: Record<string, string> = { directory: '目录', menu: '菜单', button: '按钮' }
@@ -247,14 +263,89 @@ async function onRowEnabled(row: MenuNode, enabled: boolean) {
   }
 }
 
-function canRename(row: MenuNode) {
-  return !isPlatformAdmin.value && canEditMenu.value && row.type === 'menu'
+function canEditRow(row: MenuNode) {
+  if (!canEditMenu.value) return false
+  if (isPlatformAdmin.value) return true
+  return row.type === 'menu' && !!row.path
 }
 
-function startTitleEdit(row: MenuNode) {
-  if (!canRename(row)) return
-  editingTitleId.value = row.id
-  editingTitleValue.value = row.title
+type PackageFeatureTarget = {
+  id: number
+  is_platform_only?: boolean
+  is_package_feature?: boolean
+}
+
+function packageFeatureTarget(row: MenuNode): PackageFeatureTarget | null {
+  if (!isPlatformAdmin.value) return null
+  if (row.isPlatformOnly) return null
+  if (row.type === 'menu' && row.path) {
+    const bundle = bundleByMenuPath.value.get(row.path)
+    if (!bundle?.menu_permission_id) return null
+    return {
+      id: bundle.menu_permission_id,
+      is_platform_only: bundle.is_platform_only,
+      is_package_feature: bundle.is_package_feature,
+    }
+  }
+  if (row.type === 'button' && row.permissionCode) {
+    return bundleOpByPermissionCode.value.get(row.permissionCode) || null
+  }
+  return null
+}
+
+function packageFeatureState(row: MenuNode): { text: string; type: 'warning' | 'success' | 'info' } | null {
+  if (row.type !== 'menu' && row.type !== 'button') return null
+  const target = packageFeatureTarget(row)
+  if (!target || target.is_platform_only) return null
+  return target.is_package_feature ? { text: '已加入', type: 'success' } : { text: '未加入', type: 'info' }
+}
+
+function canTogglePackageFeature(row: MenuNode, target: boolean) {
+  if (!isPlatformAdmin.value || !canPackageFeatureMenu.value) return false
+  const current = packageFeatureTarget(row)
+  if (!current || current.is_platform_only) return false
+  return !!current.is_package_feature !== target
+}
+
+async function setPackageFeature(row: MenuNode, enabled: boolean) {
+  if (!enabled) {
+    packageRemoveRow.value = row
+    packageRemoveDlg.value = true
+    return
+  }
+  await updatePackageFeature(row, true)
+}
+
+async function updatePackageFeature(row: MenuNode, enabled: boolean) {
+  const target = packageFeatureTarget(row)
+  if (!target) {
+    ElMessage.warning('未找到该菜单/操作的后端权限定义')
+    return
+  }
+  if (target.is_platform_only) {
+    ElMessage.warning('仅平台功能不能加入套餐中心')
+    return
+  }
+  try {
+    await updatePermissionPackageFeature(target.id, enabled)
+    await loadMenuBundlesForScope()
+    await store.loadTenantMenuRuntime({ force: true, isPlatformAdmin: isPlatformAdmin.value })
+    ElMessage.success(enabled ? '已加入套餐中心' : '已移出套餐中心')
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '套餐中心收录状态保存失败')
+  }
+}
+
+async function confirmRemovePackageFeature() {
+  const row = packageRemoveRow.value
+  if (!row) return
+  await updatePackageFeature(row, false)
+  packageRemoveDlg.value = false
+  packageRemoveRow.value = null
+}
+
+function onPackageRemoveDialogClosed() {
+  packageRemoveRow.value = null
 }
 
 function findNodeById(nodes: MenuNode[], id: string): MenuNode | null {
@@ -377,7 +468,7 @@ function resolveDirectParentForNewNode(nodeType: MenuNodeType, parentNode: MenuN
 function openAddDlg() {
   addContextRow.value = null
   globalAddParentId.value = null
-  addForm.value = { nodeType: 'menu', title: '新菜单', path: '', permissionCode: '', icon: 'Document', dataPermMode: 'ORG' }
+  addForm.value = { nodeType: 'menu', title: '新菜单', path: '', permissionCode: '', scope: 'tenant', icon: 'Document', dataPermMode: 'ORG' }
   addDlg.value = true
 }
 
@@ -386,11 +477,11 @@ function openAddDlgUnderRow(row: MenuNode) {
   globalAddParentId.value = null
   addContextRow.value = row
   if (row.type === 'menu') {
-    addForm.value = { nodeType: 'button', title: '新按钮', path: '', permissionCode: '', icon: 'Document', dataPermMode: 'ORG' }
+    addForm.value = { nodeType: 'button', title: '新按钮', path: '', permissionCode: '', scope: 'tenant', icon: 'Document', dataPermMode: 'ORG' }
   } else if (row.type === 'directory') {
-    addForm.value = { nodeType: 'menu', title: '新菜单', path: '', permissionCode: '', icon: 'Document', dataPermMode: 'ORG' }
+    addForm.value = { nodeType: 'menu', title: '新菜单', path: '', permissionCode: '', scope: 'tenant', icon: 'Document', dataPermMode: 'ORG' }
   } else {
-    addForm.value = { nodeType: 'button', title: '新按钮', path: '', permissionCode: '', icon: 'Document', dataPermMode: 'ORG' }
+    addForm.value = { nodeType: 'button', title: '新按钮', path: '', permissionCode: '', scope: 'tenant', icon: 'Document', dataPermMode: 'ORG' }
   }
   addDlg.value = true
 }
@@ -429,6 +520,7 @@ function confirmAdd() {
   }
   if (nt === 'menu') node.path = addForm.value.path.trim()
   if (nt === 'button') node.permissionCode = addForm.value.permissionCode.trim()
+  if (nt === 'menu' || nt === 'button') node.isPlatformOnly = addForm.value.scope === 'platform'
   if (nt === 'menu') node.dataPermMode = addForm.value.dataPermMode
 
   if (addParentScenario.value === 'root') {
@@ -463,23 +555,55 @@ const editTargetRow = computed(() => {
 })
 
 function openEditRow(row: MenuNode) {
-  if (!isPlatformAdmin.value || !canEditMenu.value) return
+  if (!canEditRow(row)) return
+  const bundleMode =
+    row.type === 'menu' && row.path
+      ? bundleByMenuPath.value.get(row.path)?.data_perm_mode
+      : undefined
+  const backendScope =
+    row.type === 'menu' && row.path
+      ? bundleByMenuPath.value.get(row.path)?.is_platform_only
+      : row.type === 'button' && row.permissionCode
+        ? bundleOpByPermissionCode.value.get(row.permissionCode)?.is_platform_only
+        : undefined
   editTargetId.value = row.id
   editForm.value = {
     title: row.title,
     path: row.path || '',
     permissionCode: row.permissionCode || '',
+    scope: (backendScope ?? row.isPlatformOnly) ? 'platform' : 'tenant',
     icon: row.icon || 'Document',
-    dataPermMode: row.dataPermMode || 'ORG',
+    dataPermMode: bundleMode || row.dataPermMode || 'ORG',
   }
   editDlg.value = true
 }
 
 function onEditDlgClosed() {
   editTargetId.value = null
+  pendingPlatformScopeSave.value = false
 }
 
 async function confirmEdit() {
+  await confirmEditWithScopeGuard(false)
+}
+
+function permissionMetaForRow(row: MenuNode): PackageFeatureTarget | null {
+  if (row.type === 'menu' && row.path) {
+    const bundle = bundleByMenuPath.value.get(row.path)
+    if (!bundle?.menu_permission_id) return null
+    return {
+      id: bundle.menu_permission_id,
+      is_platform_only: bundle.is_platform_only,
+      is_package_feature: bundle.is_package_feature,
+    }
+  }
+  if (row.type === 'button' && row.permissionCode) {
+    return bundleOpByPermissionCode.value.get(row.permissionCode) || null
+  }
+  return null
+}
+
+async function confirmEditWithScopeGuard(forcePlatformScope: boolean) {
   const id = editTargetId.value
   if (!id) return
   const row = findNodeById(displayTree.value, id)
@@ -487,6 +611,21 @@ async function confirmEdit() {
   const t = editForm.value.title.trim()
   if (!t) {
     ElMessage.warning('请输入名称')
+    return
+  }
+  if (!isPlatformAdmin.value) {
+    if (row.type !== 'menu' || !row.path) return
+    try {
+      await store.saveTenantMenuOverrideForPath(row.path, {
+        custom_name: t,
+        custom_icon: editForm.value.icon.trim() || 'Document',
+      })
+      await store.loadTenantMenuRuntime({ force: true })
+      editDlg.value = false
+      ElMessage.success('菜单展示已保存')
+    } catch (e) {
+      ElMessage.error(e instanceof Error ? e.message : '保存菜单覆盖失败')
+    }
     return
   }
   if (row.type === 'menu' && !editForm.value.path.trim().startsWith('/')) {
@@ -497,30 +636,48 @@ async function confirmEdit() {
     ElMessage.warning('按钮须填写权限码')
     return
   }
+  const nextIsPlatformOnly = editForm.value.scope === 'platform'
+  const meta = permissionMetaForRow(row)
+  if (!forcePlatformScope && nextIsPlatformOnly && meta?.is_package_feature && !meta.is_platform_only) {
+    platformScopeConfirmDlg.value = true
+    pendingPlatformScopeSave.value = true
+    return
+  }
   const patch: Partial<MenuNode> = { title: t, icon: editForm.value.icon.trim() || 'Document' }
   if (row.type === 'menu') patch.path = editForm.value.path.trim()
   if (row.type === 'button') patch.permissionCode = editForm.value.permissionCode.trim()
+  if (row.type === 'menu' || row.type === 'button') patch.isPlatformOnly = nextIsPlatformOnly
   if (row.type === 'menu') patch.dataPermMode = editForm.value.dataPermMode
   if (!store.updateMenuNode(id, patch)) return
-  if (row.type === 'menu' && row.path) {
-    const bundle = bundleByMenuPath.value.get(row.path)
-    if (bundle?.menu_permission_id) {
-      try {
-        await updatePermission(bundle.menu_permission_id, {
-          data_perm_mode: editForm.value.dataPermMode,
-        })
-        await loadMenuBundlesForScope()
-      } catch (e) {
-        ElMessage.error(e instanceof Error ? e.message : '权限类型保存失败')
-        return
-      }
-    } else {
-      ElMessage.error('未找到该菜单的后端权限映射，已阻止保存。请刷新页面后重试。')
+  if ((row.type === 'menu' || row.type === 'button') && meta?.id) {
+    try {
+      await updatePermission(meta.id, {
+        ...(row.type === 'menu' ? { data_perm_mode: editForm.value.dataPermMode } : {}),
+        is_platform_only: nextIsPlatformOnly,
+      })
+      await loadMenuBundlesForScope()
+    } catch (e) {
+      ElMessage.error(e instanceof Error ? e.message : '权限元数据保存失败')
       return
     }
+  } else if (row.type === 'menu' && row.path) {
+    ElMessage.error('未找到该菜单的后端权限映射，已阻止保存。请刷新页面后重试。')
+    return
   }
   editDlg.value = false
-  ElMessage.success('已保存')
+  pendingPlatformScopeSave.value = false
+  ElMessage.success(nextIsPlatformOnly && meta?.is_package_feature ? '已保存，并移出套餐中心' : '已保存')
+}
+
+async function confirmPlatformScopeSave() {
+  platformScopeConfirmDlg.value = false
+  if (!pendingPlatformScopeSave.value) return
+  await confirmEditWithScopeGuard(true)
+}
+
+function cancelPlatformScopeSave() {
+  platformScopeConfirmDlg.value = false
+  pendingPlatformScopeSave.value = false
 }
 
 async function removeCustomRow(row: MenuNode) {
@@ -534,31 +691,6 @@ async function removeCustomRow(row: MenuNode) {
     if (selectedMenuNode.value?.id === row.id) selectedMenuNode.value = null
     ElMessage.success('已移除')
   }
-}
-
-async function submitTitleEdit(row: MenuNode) {
-  if (editingTitleId.value !== row.id) return
-  const nextTitle = editingTitleValue.value.trim()
-  if (nextTitle && nextTitle !== row.title) {
-    if (isPlatformAdmin.value) {
-      if (!canEditMenu.value) return
-      store.setNodeTitle(row.id, nextTitle)
-    } else {
-      try {
-        await store.saveTenantMenuOverrideForPath(row.path!, { custom_name: nextTitle })
-        ElMessage.success('菜单名称已保存')
-      } catch (e) {
-        ElMessage.error(e instanceof Error ? e.message : '保存菜单名称失败')
-      }
-    }
-  }
-  editingTitleId.value = null
-  editingTitleValue.value = ''
-}
-
-function cancelTitleEdit() {
-  editingTitleId.value = null
-  editingTitleValue.value = ''
 }
 
 function isRootNode(row: MenuNode): boolean {
@@ -695,17 +827,27 @@ const columns = computed<TableColumn[]>(() => [
     align: 'center',
     hidden: !isPlatformAdmin.value,
   },
-  { key: 'path', title: '路由', minWidth: 200, width: 220, hidden: !isPlatformAdmin.value },
+  {
+    key: 'packageFeature',
+    title: '套餐中心',
+    width: 190,
+    minWidth: 180,
+    align: 'center',
+    hidden: !isPlatformAdmin.value || !canPackageFeatureMenu.value,
+  },
+  { key: 'path', title: '路由', minWidth: 200, width: 220 },
   { key: 'permissionCode', title: '权限码', minWidth: 160, width: 180, hidden: !isPlatformAdmin.value },
   {
     key: 'ops',
     title: '操作',
-    minWidth: 268,
-    width: 280,
+    minWidth: 220,
+    width: 240,
     align: 'center',
     fixed: 'right',
     tooltip: false,
-    hidden: !isPlatformAdmin.value || (!canCreateMenu.value && !canEditMenu.value && !canDeleteMenu.value),
+    hidden: isPlatformAdmin.value
+      ? (!canCreateMenu.value && !canEditMenu.value && !canDeleteMenu.value)
+      : !canEditMenu.value,
   },
 ])
 
@@ -722,6 +864,7 @@ watch(
 )
 
 onMounted(() => {
+  store.normalizeBuiltinTree()
   void store.loadTenantMenuRuntime({
     isPlatformAdmin: isPlatformAdmin.value,
     force: true,
@@ -731,32 +874,9 @@ onMounted(() => {
 
 <template>
   <div class="page page-menu-mgmt">
-    <el-alert
-      v-if="perm.profile && !isPlatformAdmin"
-      type="warning"
-      show-icon
-      :closable="false"
-      title="当前主体只显示套餐与角色权限内的菜单；平台级菜单不会生成到租户侧。租户只能关闭/开启或更换显示名称。"
-      class="page-alert"
-    />
-    <el-alert
-      v-if="isPlatformAdmin"
-      type="info"
-      show-icon
-      :closable="false"
-      title="「归属」列便于辨认菜单与操作在后端权限模型中是「仅平台」还是「租户菜单」；实际边界由代码（如 PLATFORM_ONLY_PERMISSION_PATHS）与库表同步写入决定，此页不提供修改归属，避免与租户安全模型冲突。"
-      class="page-alert"
-    />
-    <el-alert
-      type="info"
-      show-icon
-      :closable="false"
-      title="层级规则：目录下只能添加子目录或菜单；菜单下只能添加按钮（操作）。工具栏「新增子项」须在弹窗选择上级：可选「根节点」挂到侧栏顶级（与首页等同级），或选某一目录/菜单。从按钮行「增加子项」时，新按钮挂到该按钮所属菜单下。"
-      class="page-alert"
-    />
     <NeuroAgentListPage
       mode="el-table"
-      :title="isPlatformAdmin ? '平台菜单管理（全量菜单结构）' : '租户菜单管理（套餐内菜单覆盖）'"
+      :title="isPlatformAdmin ? '平台菜单管理' : '菜单管理'"
       :columns="columns"
       :data="menuTableTree"
       :show-create="false"
@@ -819,27 +939,14 @@ onMounted(() => {
         </span>
       </template>
       <template #col-title="{ row }">
-        <span v-if="editingTitleId !== row.id" :class="titleCellClass(row)">
+        <span :class="titleCellClass(row)">
           <el-tooltip v-if="row.icon && menuIconComponent(row.icon)" :content="row.icon" placement="top">
             <span class="menu-tbl-title-ico">
               <el-icon><component :is="menuIconComponent(row.icon)!" /></el-icon>
             </span>
           </el-tooltip>
           <span class="menu-tbl-title-text">{{ row.title }}</span>
-          <el-button v-if="canRename(row)" link type="primary" class="rename-btn" @click.stop="startTitleEdit(row)">
-            改名
-          </el-button>
         </span>
-        <el-input
-          v-else
-          v-model="editingTitleValue"
-          size="small"
-          class="title-edit-input"
-          @keyup.enter="submitTitleEdit(row)"
-          @keyup.esc="cancelTitleEdit"
-          @blur="submitTitleEdit(row)"
-          @click.stop
-        />
         <span v-if="row.children && row.children.length" class="title-expand" @click.stop="onTitleToggle(row)">
           <svg v-if="expandedRowKeys.includes(row.id)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14"><path d="M6 9l6 6 6-6"/></svg>
           <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14"><path d="M9 6l6 6-6 6"/></svg>
@@ -855,18 +962,45 @@ onMounted(() => {
         />
       </template>
       <template #col-type="{ row }">{{ typeZh(row.type) }}</template>
+      <template #col-path="{ row }">
+        <span v-if="row.type === 'menu' && row.path">{{ row.path }}</span>
+        <span v-else class="scope-dash">—</span>
+      </template>
       <template #col-scope="{ row }">
         <span v-for="t in [menuScopeTag(row)]" :key="`${row.id}-scope`">
           <el-tag v-if="t" size="small" :type="t.type">{{ t.text }}</el-tag>
           <span v-else class="scope-dash">—</span>
         </span>
       </template>
+      <template #col-packageFeature="{ row }">
+        <span v-if="packageFeatureState(row)" class="package-feature-cell">
+          <el-button
+            v-if="canTogglePackageFeature(row, true)"
+            v-permission="'menu:package_feature'"
+            class="package-feature-action package-feature-action--add"
+            size="small"
+            @click.stop="setPackageFeature(row, true)"
+          >
+            加入
+          </el-button>
+          <el-button
+            v-if="canTogglePackageFeature(row, false)"
+            v-permission="'menu:package_feature'"
+            class="package-feature-action package-feature-action--remove"
+            size="small"
+            @click.stop="setPackageFeature(row, false)"
+          >
+            移出
+          </el-button>
+        </span>
+        <span v-else class="scope-dash">—</span>
+      </template>
       <template #col-ops="{ row }">
         <span class="op-btns">
-          <el-button v-permission="'menu:edit'" size="small" @click.stop="openEditRow(row)">编辑</el-button>
-          <el-button v-permission="'menu:create'" size="small" @click.stop="openAddDlgUnderRow(row)">增加子项</el-button>
+          <el-button v-if="canEditRow(row)" v-permission="'menu:edit'" size="small" @click.stop="openEditRow(row)">编辑</el-button>
+          <el-button v-if="isPlatformAdmin" v-permission="'menu:create'" size="small" @click.stop="openAddDlgUnderRow(row)">增加子项</el-button>
           <el-button
-            v-if="row.id.startsWith('custom_menu_')"
+            v-if="isPlatformAdmin && row.id.startsWith('custom_menu_')"
             v-permission="'menu:delete'"
             type="danger"
             size="small"
@@ -877,6 +1011,42 @@ onMounted(() => {
         </span>
       </template>
     </NeuroAgentListPage>
+
+    <NeuroAgentDialog
+      v-model="packageRemoveDlg"
+      title="移出套餐中心"
+      icon="⚠️"
+      size="small"
+      confirm-text="移出"
+      confirm-icon="×"
+      @confirm="confirmRemovePackageFeature"
+      @close="onPackageRemoveDialogClosed"
+    >
+      <div class="package-remove-confirm">
+        <p>
+          确认将
+          <strong>「{{ packageRemoveRow?.title || '该功能点' }}」</strong>
+          移出套餐中心？
+        </p>
+        <small>移出后套餐中心将不再展示该功能点，已购买套餐的历史配置不受影响。</small>
+      </div>
+    </NeuroAgentDialog>
+
+    <NeuroAgentDialog
+      v-model="platformScopeConfirmDlg"
+      title="切换为仅平台"
+      icon="⚠️"
+      size="small"
+      confirm-text="继续保存"
+      confirm-icon="✓"
+      @confirm="confirmPlatformScopeSave"
+      @close="cancelPlatformScopeSave"
+    >
+      <div class="package-remove-confirm">
+        <p>该菜单/操作当前已加入套餐中心。保存为「仅平台」后会自动移出套餐功能点，套餐中心列将显示为「—」。</p>
+        <small>已购买套餐的历史配置不受影响，但新套餐能力矩阵不再展示该功能点。</small>
+      </div>
+    </NeuroAgentDialog>
 
     <NeuroAgentDialog
       v-model="addDlg"
@@ -916,6 +1086,16 @@ onMounted(() => {
             <el-option v-if="allowedAddNodeTypes.includes('menu')" label="菜单" value="menu" />
             <el-option v-if="allowedAddNodeTypes.includes('button')" label="按钮（操作）" value="button" />
           </el-select>
+        </div>
+        <div v-if="addForm.nodeType === 'menu' || addForm.nodeType === 'button'" class="nm-form-item">
+          <label class="nm-form-label">归属</label>
+          <el-segmented
+            v-model="addForm.scope"
+            :options="[
+              { label: '仅主体', value: 'tenant' },
+              { label: '仅平台', value: 'platform' },
+            ]"
+          />
         </div>
         <div class="nm-form-item">
           <label class="nm-form-label">名称</label>
@@ -958,19 +1138,29 @@ onMounted(() => {
       @close="onEditDlgClosed"
     >
       <div v-if="editTargetRow" class="nm-form">
-        <div class="nm-form-item">
+        <div v-if="isPlatformAdmin" class="nm-form-item">
           <label class="nm-form-label">类型</label>
           <el-input :model-value="typeZh(editTargetRow.type)" disabled />
+        </div>
+        <div v-if="isPlatformAdmin && (editTargetRow.type === 'menu' || editTargetRow.type === 'button')" class="nm-form-item">
+          <label class="nm-form-label">归属</label>
+          <el-segmented
+            v-model="editForm.scope"
+            :options="[
+              { label: '仅主体', value: 'tenant' },
+              { label: '仅平台', value: 'platform' },
+            ]"
+          />
         </div>
         <div class="nm-form-item">
           <label class="nm-form-label">名称</label>
           <el-input v-model="editForm.title" placeholder="显示名称" />
         </div>
-        <div v-if="editTargetRow.type === 'menu'" class="nm-form-item">
+        <div v-if="isPlatformAdmin && editTargetRow.type === 'menu'" class="nm-form-item">
           <label class="nm-form-label">路由</label>
           <el-input v-model="editForm.path" placeholder="须以 / 开头" />
         </div>
-        <div v-if="editTargetRow.type === 'menu'" class="nm-form-item">
+        <div v-if="isPlatformAdmin && editTargetRow.type === 'menu'" class="nm-form-item">
           <label class="nm-form-label">数据权限需求类型</label>
           <el-select v-model="editForm.dataPermMode" class="nm-form-control">
             <el-option label="不需要（NONE）" value="NONE" />
@@ -979,7 +1169,7 @@ onMounted(() => {
             <el-option label="组织 + 业务单元（ORG_BU）" value="ORG_BU" />
           </el-select>
         </div>
-        <div v-if="editTargetRow.type === 'button'" class="nm-form-item">
+        <div v-if="isPlatformAdmin && editTargetRow.type === 'button'" class="nm-form-item">
           <label class="nm-form-label">权限码</label>
           <el-input v-model="editForm.permissionCode" placeholder="如 report:view" />
         </div>
@@ -1058,8 +1248,41 @@ onMounted(() => {
   justify-content: center;
   gap: 6px;
 }
-.page-alert {
-  margin-bottom: 12px;
+.package-feature-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.package-feature-action {
+  min-width: 64px;
+}
+.package-feature-action--add {
+  color: var(--el-color-primary);
+  border-color: rgba(64, 158, 255, 0.5);
+  background: rgba(64, 158, 255, 0.1);
+}
+.package-feature-action--remove {
+  color: var(--el-color-danger);
+  border-color: rgba(245, 108, 108, 0.5);
+  background: rgba(245, 108, 108, 0.1);
+}
+.package-remove-confirm {
+  display: grid;
+  gap: 10px;
+  color: var(--el-text-color-primary);
+  line-height: 1.7;
+}
+.package-remove-confirm p {
+  margin: 0;
+  font-size: 15px;
+}
+.package-remove-confirm strong {
+  color: var(--el-color-warning);
+}
+.package-remove-confirm small {
+  color: var(--el-text-color-secondary);
 }
 .sort-btns {
   display: inline-flex !important;
@@ -1115,13 +1338,6 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-}
-.rename-btn {
-  height: 22px;
-  padding: 0 2px;
-}
-.title-edit-input {
-  width: min(220px, 100%);
 }
 :deep(.menu-tbl-row--l1 .menu-tbl-title-cell) {
   margin-left: 24px;

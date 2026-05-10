@@ -20,7 +20,7 @@ func NewSystemParamRepository(db *gorm.DB) *SystemParamRepository {
 
 func (r *SystemParamRepository) List(ctx context.Context) ([]domain.Param, error) {
 	var rows []models.SystemParam
-	if err := r.db.WithContext(ctx).Order("id desc").Find(&rows).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("deleted_at IS NULL").Order("id desc").Find(&rows).Error; err != nil {
 		return nil, err
 	}
 
@@ -33,7 +33,7 @@ func (r *SystemParamRepository) List(ctx context.Context) ([]domain.Param, error
 
 func (r *SystemParamRepository) FindByKey(ctx context.Context, key string) (domain.Param, error) {
 	var row models.SystemParam
-	err := r.db.WithContext(ctx).Where("param_key = ?", key).First(&row).Error
+	err := r.db.WithContext(ctx).Where("param_key = ? AND deleted_at IS NULL", key).First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return domain.Param{}, domain.ErrParamNotFound
 	}

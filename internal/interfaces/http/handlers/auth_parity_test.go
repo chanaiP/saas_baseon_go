@@ -1,10 +1,14 @@
 package handlers
 
 import (
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+
+	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 )
 
 func TestAuthSessionKeyUsesOriginalRedisNamespace(t *testing.T) {
@@ -40,6 +44,24 @@ func TestValidateNewPasswordMatchesOriginalPolicy(t *testing.T) {
 	require.Equal(t, "新密码须同时包含英文字母与数字", validateNewPassword("old12345", "abcdefgh", "abcdefgh"))
 	require.Equal(t, "两次输入的新密码不一致", validateNewPassword("old12345", "new12345", "new12346"))
 	require.Equal(t, "新密码不能与当前密码相同", validateNewPassword("same1234", "same1234", "same1234"))
+}
+
+func TestRateLimitNoopsWithoutRedis(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	h := &IdentityHandler{}
+
+	message, blocked := h.rateLimitExceeded(c, "rate:test", 1, time.Minute)
+
+	require.Empty(t, message)
+	require.False(t, blocked)
+}
+
+func TestViewerHasPlatformScopeRequiresExplicitPlatformAdmin(t *testing.T) {
+	h := &IdentityHandler{}
+
+	require.True(t, h.viewerHasPlatformScope(models.AppUser{IsPlatformAdmin: true}))
+	require.False(t, h.viewerHasPlatformScope(models.AppUser{IsPlatformAdmin: false, TenantID: 1}))
 }
 
 func TestNormalizeOptionalPhoneMatchesOriginalPolicy(t *testing.T) {

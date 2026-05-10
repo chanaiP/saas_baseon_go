@@ -57,6 +57,7 @@
       :current-system-name="displayName"
       :current-copyright="copyrightInfo"
       :is-platform-admin="props.isPlatformAdmin"
+      :can-edit-footer="props.canEditFooter"
       @save="handleSettingsSave"
     />
   </div>
@@ -71,6 +72,8 @@ interface Props {
   currentName?: string
   currentCopyright?: string
   isPlatformAdmin?: boolean
+  /** 底部版权归平台所有，仅后端返回 can_edit_footer=true 时开放 */
+  canEditFooter?: boolean
   /** 具备 ``brand:edit`` 且套餐含 ``brand_config``（或平台管理员）；无则仅展示不可点开设置 */
   canEditBranding?: boolean
 }
@@ -80,6 +83,7 @@ const props = withDefaults(defineProps<Props>(), {
   currentName: 'Ai DevOS',
   currentCopyright: '© 2026 PMTools - AI协作开发系统',
   isPlatformAdmin: false,
+  canEditFooter: false,
   canEditBranding: false,
 })
 

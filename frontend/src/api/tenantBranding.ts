@@ -6,7 +6,7 @@ export interface TenantBranding {
   /** 自定义展示名，null/空 表示使用主体名称 */
   brand_display_name: string | null
   logo_data: string | null
-  /** 底部版权/说明，仅系统管理员可维护 */
+  /** 底部版权/说明，仅平台运维账号可维护 */
   footer_text: string | null
   tenant_name: string
   can_edit: boolean

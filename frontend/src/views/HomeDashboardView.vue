@@ -31,7 +31,7 @@ const quickLinks = computed<QuickItem[]>(() => {
     items.push({ title: '角色权限', path: '/roles', desc: '角色与授权', icon: Key })
   }
   if (perm.canUseMenuPath('/monitor/health')) {
-    items.push({ title: '健康检查', path: '/monitor/health', desc: 'MySQL / Redis', icon: Monitor })
+    items.push({ title: '健康检查', path: '/monitor/health', desc: 'PostgreSQL / Redis', icon: Monitor })
   }
   if (perm.canUseMenuPath('/tenants')) {
     items.push({ title: '主体管理', path: '/tenants', desc: '租户与配额', icon: Setting })
@@ -78,10 +78,10 @@ function go(path: string) {
     <section class="pro-card-block tips">
       <h2 class="pro-card-block__title">使用提示</h2>
       <ul>
-        <li>登录后默认进入本页；顶栏可切换主题、内容区全屏与界面设置。</li>
-        <li>顶栏<strong>多页签</strong>参考 Ant Design Pro：点击菜单打开页签，可关闭或批量操作。</li>
-        <li>侧栏可<strong>收起为仅图标</strong>；混合导航时顶级模块在顶栏、子菜单在侧栏。</li>
-        <li>平台管理员可使用<strong>系统监控</strong>等全局能力。</li>
+        <li>登录后进入首页；常用入口会按当前账号的菜单权限自动展示。</li>
+        <li>顶栏支持主题切换、内容区全屏和界面设置，已打开页面可通过页签快速切换。</li>
+        <li>侧栏支持收起为图标；在界面设置中切换混合导航后，顶级模块在顶栏展示，子菜单保留在侧栏。</li>
+        <li>主体管理、套餐中心、系统监控等平台能力仅对具备对应权限的账号开放。</li>
       </ul>
     </section>
   </div>

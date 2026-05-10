@@ -10,14 +10,14 @@ import NeuroAgentListPage from '@/views/components/NeuroAgentListPage.vue'
 import { usePageAction } from '@/composables/usePageAction'
 import { usePermissionStore } from '@/stores/permission'
 
-const { pageAction } = usePageAction()
+const { pageMenu } = usePageAction()
 const perm = usePermissionStore()
 
 const loading = ref(false)
 const items = ref<AuditLogRow[]>([])
 const total = ref(0)
 const page = ref(1)
-const limit = ref(20)
+const limit = ref(10)
 
 const appliedKeyword = ref('')
 const appliedTenantNameHint = ref('')
@@ -47,7 +47,7 @@ const auditFilterFields = computed<FilterField[]>(() => {
 })
 
 async function load() {
-  if (!pageAction('audit:view')) return
+  if (!pageMenu()) return
   loading.value = true
   try {
     const skip = (page.value - 1) * limit.value
@@ -147,7 +147,7 @@ const columns = computed<TableColumn[]>(() => [
 
 <template>
   <div class="page">
-    <el-empty v-if="!pageAction('audit:view')" description="无查看权限" />
+    <el-empty v-if="!pageMenu()" description="无查看权限" />
     <NeuroAgentListPage
       v-else
       mode="el-table"
@@ -156,6 +156,8 @@ const columns = computed<TableColumn[]>(() => [
       :data="items"
       :loading="loading"
       :total="total"
+      :page="page"
+      :page-size="limit"
       :page-sizes="[10, 20, 50]"
       :show-create="false"
       :show-selection="false"

@@ -1,0 +1,12 @@
+DROP INDEX IF EXISTS idx_dict_item_tenant_type_deleted;
+DROP INDEX IF EXISTS idx_dict_type_tenant_scope_deleted;
+DROP INDEX IF EXISTS idx_sys_param_tenant_key_deleted;
+DROP INDEX IF EXISTS idx_org_node_tenant_type_status_deleted;
+DROP INDEX IF EXISTS idx_business_unit_tenant_status_deleted;
+DROP INDEX IF EXISTS idx_login_log_tenant_created;
+DROP INDEX IF EXISTS idx_audit_log_tenant_created;
+DROP INDEX IF EXISTS idx_permission_tenant_feature_deleted;
+DROP INDEX IF EXISTS idx_permission_tenant_path_type_deleted;
+DROP INDEX IF EXISTS idx_role_tenant_status_deleted;
+DROP INDEX IF EXISTS idx_app_user_tenant_account_deleted;
+DROP INDEX IF EXISTS idx_app_user_tenant_status_deleted;

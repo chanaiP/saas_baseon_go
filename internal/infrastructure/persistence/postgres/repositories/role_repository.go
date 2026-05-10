@@ -3,7 +3,9 @@ package repositories
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -21,7 +23,7 @@ func NewRoleRepository(db *gorm.DB) *RoleRepository {
 
 func (r *RoleRepository) List(ctx context.Context, query domain.RoleListQuery) ([]domain.Role, int64, error) {
 	var rows []models.Role
-	db := r.db.WithContext(ctx).Model(&models.Role{}).Where("tenant_id = ?", query.TenantID)
+	db := r.db.WithContext(ctx).Model(&models.Role{}).Where("tenant_id = ? AND deleted_at IS NULL", query.TenantID)
 	if query.Keyword != "" {
 		kw := "%" + strings.ToLower(query.Keyword) + "%"
 		db = db.Where("lower(code) LIKE ? OR lower(name) LIKE ?", kw, kw)
@@ -44,9 +46,9 @@ func (r *RoleRepository) List(ctx context.Context, query domain.RoleListQuery) (
 	return items, total, nil
 }
 
-func (r *RoleRepository) FindByID(ctx context.Context, id uint64) (domain.Role, error) {
+func (r *RoleRepository) FindByID(ctx context.Context, tenantID uint64, id uint64) (domain.Role, error) {
 	var row models.Role
-	err := r.db.WithContext(ctx).First(&row, id).Error
+	err := r.db.WithContext(ctx).Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", id, tenantID).First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return domain.Role{}, domain.ErrRoleNotFound
 	}
@@ -67,14 +69,18 @@ func (r *RoleRepository) Create(ctx context.Context, role domain.Role) (domain.R
 	if err != nil {
 		return domain.Role{}, err
 	}
-	return r.FindByID(ctx, row.ID)
+	return r.FindByID(ctx, row.TenantID, row.ID)
 }
 
 func (r *RoleRepository) Update(ctx context.Context, role domain.Role, updatePermissions bool) (domain.Role, error) {
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		updates := map[string]interface{}{"name": role.Name, "description": role.Description}
-		if err := tx.Model(&models.Role{}).Where("id = ?", role.ID).Updates(updates).Error; err != nil {
-			return err
+		result := tx.Model(&models.Role{}).Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", role.ID, role.TenantID).Updates(updates)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return domain.ErrRoleNotFound
 		}
 		if updatePermissions {
 			return replaceRolePermissions(ctx, tx, role.ID, role.PermissionIDs)
@@ -84,11 +90,30 @@ func (r *RoleRepository) Update(ctx context.Context, role domain.Role, updatePer
 	if err != nil {
 		return domain.Role{}, err
 	}
-	return r.FindByID(ctx, role.ID)
+	return r.FindByID(ctx, role.TenantID, role.ID)
 }
 
-func (r *RoleRepository) Delete(ctx context.Context, id uint64) error {
-	return r.db.WithContext(ctx).Delete(&models.Role{}, id).Error
+func (r *RoleRepository) Delete(ctx context.Context, tenantID uint64, id uint64) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var row models.Role
+		if err := tx.Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", id, tenantID).First(&row).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return domain.ErrRoleNotFound
+			}
+			return err
+		}
+		result := tx.Model(&row).Updates(map[string]interface{}{
+			"deleted_at": time.Now(),
+			"code":       tombstoneRoleCode(row.Code, row.ID),
+		})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return domain.ErrRoleNotFound
+		}
+		return nil
+	})
 }
 
 func (r *RoleRepository) toDomainRole(ctx context.Context, row models.Role) (domain.Role, error) {
@@ -111,6 +136,19 @@ func (r *RoleRepository) toDomainRole(ctx context.Context, row models.Role) (dom
 		CreatedAt:     row.CreatedAt,
 		UpdatedAt:     row.UpdatedAt,
 	}, nil
+}
+
+func tombstoneRoleCode(code string, id uint64) string {
+	tail := "__deleted_" + strconv.FormatUint(id, 10) + "_" + time.Now().Format("20060102150405")
+	if len(tail) >= 64 {
+		return tail[len(tail)-64:]
+	}
+	prefix := strings.TrimSpace(code)
+	prefixLen := 64 - len(tail)
+	if len(prefix) > prefixLen {
+		prefix = prefix[:prefixLen]
+	}
+	return prefix + tail
 }
 
 func replaceRolePermissions(ctx context.Context, tx *gorm.DB, roleID uint64, permissionIDs []uint64) error {

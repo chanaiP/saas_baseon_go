@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"context"
 	"time"
 
-	"gorm.io/gorm"
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
+
+	"gorm.io/gorm"
 )
 
 func (h *IdentityHandler) currentQuotaUsage(tenantID uint64, quotaCode string) int {
@@ -38,18 +40,22 @@ func (h *IdentityHandler) currentQuotaUsage(tenantID uint64, quotaCode string) i
 }
 
 func (h *IdentityHandler) currentQuotaLimit(tenantID uint64, quotaID uint64) int {
-	if !h.subscriptionAllowsLogin(tenantID) {
+	return h.currentQuotaLimitUsing(h.db, tenantID, quotaID)
+}
+
+func (h *IdentityHandler) currentQuotaLimitUsing(db *gorm.DB, tenantID uint64, quotaID uint64) int {
+	if !h.subscriptionAllowsLoginUsing(db, tenantID) {
 		return 0
 	}
 	now := time.Now()
 	var override models.TenantQuotaOverride
-	if err := h.db.Where("tenant_id = ? AND quota_id = ? AND (start_time IS NULL OR start_time <= ?) AND (end_time IS NULL OR end_time >= ?)", tenantID, quotaID, now, now).Order("id desc").First(&override).Error; err == nil {
+	if err := db.Where("tenant_id = ? AND quota_id = ? AND (start_time IS NULL OR start_time <= ?) AND (end_time IS NULL OR end_time >= ?)", tenantID, quotaID, now, now).Order("id desc").First(&override).Error; err == nil {
 		return override.QuotaValue
 	}
 	var sub models.TenantSubscription
-	if err := h.db.Where("tenant_id = ?", tenantID).Order("id desc").First(&sub).Error; err == nil {
+	if err := db.Where("tenant_id = ?", tenantID).Order("id desc").First(&sub).Error; err == nil {
 		var planQuota models.SaasPlanQuota
-		if err := h.db.Where("plan_id = ? AND quota_id = ?", sub.PlanID, quotaID).First(&planQuota).Error; err == nil {
+		if err := db.Where("plan_id = ? AND quota_id = ?", sub.PlanID, quotaID).First(&planQuota).Error; err == nil {
 			return planQuota.QuotaValue
 		}
 	}
@@ -65,6 +71,9 @@ func (h *IdentityHandler) currentQuotaLimitByCode(tenantID uint64, quotaCode str
 }
 
 func (h *IdentityHandler) tenantFeatureAllowed(tenantID uint64, featureCode string) bool {
+	if uncontrolledPackageFeatureCode(featureCode) {
+		return true
+	}
 	if !h.subscriptionAllowsLogin(tenantID) {
 		return false
 	}
@@ -99,6 +108,62 @@ func (h *IdentityHandler) tenantFeatureAllowed(tenantID uint64, featureCode stri
 	return false
 }
 
+func (h *IdentityHandler) tenantAllowedFeatureCodeSet(tenantID uint64) map[string]bool {
+	allowed := map[string]bool{}
+	if !h.subscriptionAllowsLogin(tenantID) {
+		return allowed
+	}
+	var sub models.TenantSubscription
+	if err := h.db.Where("tenant_id = ?", tenantID).Order("id desc").First(&sub).Error; err != nil {
+		return allowed
+	}
+	var features []models.SaasFeature
+	_ = h.db.Where("status = ?", 1).Find(&features).Error
+	byID := make(map[uint64]models.SaasFeature, len(features))
+	for _, feature := range features {
+		byID[feature.ID] = feature
+	}
+	var links []models.SaasPlanFeature
+	_ = h.db.Where("plan_id = ? AND enabled = ?", sub.PlanID, true).Find(&links).Error
+	explicit := map[uint64]struct{}{}
+	for _, link := range links {
+		explicit[link.FeatureID] = struct{}{}
+		if feature, ok := byID[link.FeatureID]; ok {
+			if uncontrolledPackageFeatureCode(feature.FeatureCode) || reservedPackageFeatureCode(feature.FeatureCode) {
+				continue
+			}
+			allowed[feature.FeatureCode] = true
+		}
+	}
+	for _, feature := range features {
+		if uncontrolledPackageFeatureCode(feature.FeatureCode) || reservedPackageFeatureCode(feature.FeatureCode) {
+			continue
+		}
+		if feature.FeatureType != "BUTTON" || feature.ParentID == 0 {
+			continue
+		}
+		if _, ok := explicit[feature.ID]; ok {
+			continue
+		}
+		parent, ok := byID[feature.ParentID]
+		if ok && allowed[parent.FeatureCode] {
+			allowed[feature.FeatureCode] = true
+		}
+	}
+	now := time.Now()
+	var overrides []models.TenantFeatureOverride
+	_ = h.db.Where("tenant_id = ? AND (start_time IS NULL OR start_time <= ?) AND (end_time IS NULL OR end_time >= ?)", tenantID, now, now).Order("id asc").Find(&overrides).Error
+	for _, override := range overrides {
+		if feature, ok := byID[override.FeatureID]; ok {
+			if uncontrolledPackageFeatureCode(feature.FeatureCode) || reservedPackageFeatureCode(feature.FeatureCode) {
+				continue
+			}
+			allowed[feature.FeatureCode] = override.Enabled
+		}
+	}
+	return allowed
+}
+
 func (h *IdentityHandler) requireQuotaAvailable(tenantID uint64, quotaCode string, increment int) error {
 	if increment <= 0 {
 		increment = 1
@@ -118,34 +183,16 @@ func (h *IdentityHandler) requireQuotaAvailable(tenantID uint64, quotaCode strin
 	return nil
 }
 
+func (h *IdentityHandler) RequireAvailable(_ context.Context, tenantID uint64, quotaCode string, increment int) error {
+	return h.requireQuotaAvailable(tenantID, quotaCode, increment)
+}
+
+func (h *IdentityHandler) Consume(ctx context.Context, tenantID uint64, quotaCode string, increment int) error {
+	return h.quotaService().Consume(ctx, tenantID, quotaCode, increment)
+}
+
 func (h *IdentityHandler) consumeQuota(tenantID uint64, quotaCode string, increment int) error {
-	if increment <= 0 {
-		increment = 1
-	}
-	var quota models.SaasQuota
-	if err := h.db.Where("quota_code = ? AND status = ?", quotaCode, 1).First(&quota).Error; err != nil {
-		return nil
-	}
-	if err := h.requireQuotaAvailable(tenantID, quotaCode, increment); err != nil {
-		return err
-	}
-	periodKey := "TOTAL"
-	if quota.PeriodType != nil && *quota.PeriodType == "DAY" {
-		periodKey = time.Now().Format("20060102")
-	}
-	periodType := quota.PeriodType
-	limit := h.currentQuotaLimit(tenantID, quota.ID)
-	now := time.Now()
-	var usage models.TenantQuotaUsage
-	err := h.db.Where("tenant_id = ? AND quota_code = ? AND period_key = ?", tenantID, quotaCode, periodKey).First(&usage).Error
-	if err == nil {
-		return h.db.Model(&usage).Updates(map[string]interface{}{"used_value": usage.UsedValue + increment, "limit_value": limit, "last_refresh_time": now, "updated_at": now}).Error
-	}
-	if err != nil && err != gorm.ErrRecordNotFound {
-		return err
-	}
-	usage = models.TenantQuotaUsage{TenantID: tenantID, QuotaCode: quotaCode, UsedValue: increment, LimitValue: limit, PeriodType: periodType, PeriodKey: periodKey, LastRefreshTime: &now, CreatedAt: now, UpdatedAt: now}
-	return h.db.Create(&usage).Error
+	return h.quotaService().Consume(context.Background(), tenantID, quotaCode, increment)
 }
 
 type quotaExceededError struct {

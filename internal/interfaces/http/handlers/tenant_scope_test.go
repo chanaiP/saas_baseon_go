@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func TestEffectiveTenantID(t *testing.T) {
@@ -34,4 +35,12 @@ func TestNullableTrimmedMatchesBrandingPayloadPolicy(t *testing.T) {
 	empty := "   "
 	require.Nil(t, nullableTrimmed(&empty))
 	require.Nil(t, nullableTrimmed(nil))
+}
+
+func TestTenantScopeServiceBuildsScopedQueries(t *testing.T) {
+	db := &gorm.DB{}
+	h := &IdentityHandler{db: db}
+	scope := h.tenantScope()
+
+	require.Same(t, db, scope.db)
 }

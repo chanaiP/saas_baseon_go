@@ -4,15 +4,14 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onMounted, ref } from 'vue'
 
 import {
-  fetchFeatures,
-  fetchPlanFeatures,
+  fetchPlanMatrix,
   fetchPlanQuotas,
   fetchPlans,
   fetchTenantQuotaOverrides,
   fetchTenantSubscription,
   saveTenantQuotaOverrides,
 } from '@/api/plan'
-import type { Feature, Plan, PlanQuotaValue, Quota } from '@/api/plan'
+import type { Plan, PlanCapabilityCell, PlanCapabilityNode, PlanQuotaValue, Quota } from '@/api/plan'
 import {
   createTenantWithPackage,
   deleteTenant,
@@ -29,6 +28,7 @@ import type { TenantPrimaryAdminPasswordResetResult } from '@/api/tenant'
 import type { Tenant, TenantBusinessUnitQuotaRecord, TenantCreatePayload, TenantOrgQuotaRecord } from '@/api/tenant'
 import { usePermissionStore } from '@/stores/permission'
 import { useTenantBrandingStore } from '@/stores/tenantBranding'
+import { sortQuotasByDisplayOrder } from '@/utils/quotaDisplayOrder'
 import { isValidOptionalPhone, normalizePhoneInput, sanitizePhoneInput } from '@/utils/phone'
 import type { TableColumn } from '@/views/components/NeuroAgentListPage.vue'
 import NeuroAgentDialog from '@/views/components/NeuroAgentDialog.vue'
@@ -208,7 +208,6 @@ const editForm = ref({
 })
 const createStep = ref<1 | 2>(1)
 const plans = ref<Plan[]>([])
-const features = ref<Feature[]>([])
 const selectedPlanId = ref<number | null>(null)
 const planQuotas = ref<PlanQuotaValue[]>([])
 const quotaValues = ref<Record<number, number>>({})
@@ -223,7 +222,7 @@ const packageForm = ref({
   frozen_reason: '',
 })
 const planDetailDlg = ref(false)
-const planDetailFeatures = ref<Feature[]>([])
+const planDetailNodes = ref<PlanCapabilityNode[]>([])
 const planDetailQuotas = ref<PlanQuotaValue[]>([])
 const editRow = ref<Tenant | null>(null)
 const quotaOverrideDlg = ref(false)
@@ -248,16 +247,56 @@ function quotaText(value: number) {
   return String(value)
 }
 
+function selectedPlanCell(node: PlanCapabilityNode): PlanCapabilityCell | null {
+  if (!selectedPlanId.value) return null
+  return node.cells.find((cell) => cell.plan_id === selectedPlanId.value) ?? null
+}
+
+function planDetailNodeActive(node: PlanCapabilityNode): boolean {
+  const cell = selectedPlanCell(node)
+  return !!cell && (cell.enabled || cell.state === 'partial')
+}
+
+function clonePlanDetailNode(node: PlanCapabilityNode): PlanCapabilityNode | null {
+  const children = (node.children || [])
+    .map((child) => clonePlanDetailNode(child))
+    .filter((child): child is PlanCapabilityNode => !!child)
+  if (node.node_type === 'domain') {
+    return children.length > 0 ? { ...node, children } : null
+  }
+  if (!planDetailNodeActive(node) && children.length === 0) return null
+  return { ...node, children }
+}
+
+function planDetailStateLabel(node: PlanCapabilityNode): string {
+  const state = selectedPlanCell(node)?.state
+  if (state === 'partial') return '部分'
+  if (state === 'enabled') return '已开'
+  return '未开'
+}
+
+function planDetailStateClass(node: PlanCapabilityNode): string {
+  return `package-tree-state package-tree-state--${selectedPlanCell(node)?.state || 'disabled'}`
+}
+
+function planDetailFeatureTypeLabel(node: PlanCapabilityNode): string {
+  const type = String(node.feature_type || '').toUpperCase()
+  if (type === 'MENU') return '菜单'
+  if (type === 'BUTTON') return '操作'
+  if (type === 'CONFIG') return '配置'
+  if (type === 'SERVICE') return '服务'
+  if (type === 'ACCESS') return '接入'
+  return type || '能力'
+}
+
 async function loadPackageOptions() {
   packageLoading.value = true
   packageLoadError.value = ''
   try {
-    const [planRes, featureRes] = await Promise.all([
+    const [planRes] = await Promise.all([
       fetchPlans(0, 100),
-      fetchFeatures(0, 300),
     ])
     plans.value = planRes.items.filter((item) => item.status === 1)
-    features.value = featureRes.items
     if (!selectedPlanId.value) {
       selectedPlanId.value = plans.value.find((item) => item.is_default)?.id ?? plans.value[0]?.id ?? null
     }
@@ -265,7 +304,6 @@ async function loadPackageOptions() {
   } catch (e) {
     packageLoadError.value = e instanceof Error ? e.message : '套餐数据加载失败'
     plans.value = []
-    features.value = []
     selectedPlanId.value = null
     planQuotas.value = []
     quotaValues.value = {}
@@ -281,7 +319,7 @@ async function loadSelectedPlanQuotas() {
     return
   }
   const data = await fetchPlanQuotas(selectedPlanId.value)
-  planQuotas.value = data.quotas
+  planQuotas.value = sortQuotasByDisplayOrder(data.quotas)
   quotaValues.value = Object.fromEntries(data.quotas.map((item) => [item.quota_id, item.quota_value]))
 }
 
@@ -297,13 +335,14 @@ function onPackageStartDateChange() {
 
 async function openPlanDetail() {
   if (!selectedPlanId.value) return
-  const [featureData, quotaData] = await Promise.all([
-    fetchPlanFeatures(selectedPlanId.value),
+  const [matrixData, quotaData] = await Promise.all([
+    fetchPlanMatrix(),
     fetchPlanQuotas(selectedPlanId.value),
   ])
-  const featureIds = new Set(featureData.feature_ids)
-  planDetailFeatures.value = features.value.filter((item) => featureIds.has(item.id))
-  planDetailQuotas.value = quotaData.quotas
+  planDetailNodes.value = matrixData.nodes
+    .map((node) => clonePlanDetailNode(node))
+    .filter((node): node is PlanCapabilityNode => !!node)
+  planDetailQuotas.value = sortQuotasByDisplayOrder(quotaData.quotas)
   planDetailDlg.value = true
 }
 
@@ -446,7 +485,7 @@ async function openQuotaOverrideDialog(row: Tenant) {
       fetchTenantQuotaOverrides(row.id),
     ])
     const overrideByQuota = new Map(overrideData.overrides.map((item) => [item.quota_id, item]))
-    quotaOverrideRows.value = planQuotasData.quotas.map((q) => ({
+    quotaOverrideRows.value = sortQuotasByDisplayOrder(planQuotasData.quotas).map((q) => ({
       id: q.quota_id,
       quota_code: q.quota_code,
       quota_name: q.quota_name,
@@ -1260,16 +1299,45 @@ onMounted(async () => {
       <div class="package-detail">
         <div class="package-detail-section">
           <h3>功能点</h3>
-          <div class="package-chip-list">
-            <span v-for="feature in planDetailFeatures" :key="feature.id" class="package-chip">
-              {{ feature.feature_name }}
-              <small>{{ feature.feature_code }}</small>
-            </span>
+          <div v-if="planDetailNodes.length" class="package-tree">
+            <section v-for="domain in planDetailNodes" :key="domain.id" class="package-tree-domain">
+              <div class="package-tree-domain__title">
+                <strong>{{ domain.label }}</strong>
+                <small>目录</small>
+              </div>
+              <div class="package-tree-domain__body">
+                <article v-for="menu in domain.children" :key="menu.id" class="package-tree-menu">
+                  <div class="package-tree-node package-tree-node--menu">
+                    <div>
+                      <strong class="package-tree-name">
+                        <span>{{ menu.label }}</span>
+                        <span class="package-tree-type">{{ planDetailFeatureTypeLabel(menu) }}</span>
+                      </strong>
+                      <small>{{ menu.feature_code || menu.id }}</small>
+                    </div>
+                    <span :class="planDetailStateClass(menu)">{{ planDetailStateLabel(menu) }}</span>
+                  </div>
+                  <div v-if="menu.children.length" class="package-tree-ops">
+                    <div v-for="op in menu.children" :key="op.id" class="package-tree-node package-tree-node--op">
+                      <div>
+                        <strong class="package-tree-name">
+                          <span>{{ op.label }}</span>
+                          <span class="package-tree-type">{{ planDetailFeatureTypeLabel(op) }}</span>
+                        </strong>
+                        <small>{{ op.feature_code || op.id }}</small>
+                      </div>
+                      <span :class="planDetailStateClass(op)">{{ planDetailStateLabel(op) }}</span>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </section>
           </div>
+          <el-empty v-else description="当前套餐未开通功能点" />
         </div>
         <div class="package-detail-section">
           <h3>默认配额</h3>
-          <div class="quota-editor">
+          <div v-if="planDetailQuotas.length" class="quota-editor">
             <div v-for="quota in planDetailQuotas" :key="quota.quota_id" class="quota-editor-row readonly">
               <div>
                 <strong>{{ quota.quota_name }}</strong>
@@ -1278,6 +1346,7 @@ onMounted(async () => {
               <b>{{ quotaText(quota.quota_value) }}</b>
             </div>
           </div>
+          <el-empty v-else description="当前套餐未配置默认配额" />
         </div>
       </div>
       <template #footer-right>
@@ -1486,26 +1555,103 @@ onMounted(async () => {
   color: var(--neuro-text);
 }
 
-.package-chip-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.package-tree {
+  display: grid;
+  gap: 12px;
 }
 
-.package-chip {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 140px;
-  padding: 10px 12px;
+.package-tree-domain {
+  overflow: hidden;
   border: 1px solid var(--neuro-border);
-  border-radius: var(--neuro-radius-md);
+  border-radius: var(--neuro-radius-lg);
   background: var(--neuro-surface-soft);
+}
+
+.package-tree-domain__title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: rgba(20, 184, 166, 0.1);
   color: var(--neuro-text);
 }
 
-.package-chip small {
+.package-tree-domain__title small,
+.package-tree-node small {
   color: var(--neuro-text-secondary);
+}
+
+.package-tree-domain__body {
+  display: grid;
+}
+
+.package-tree-menu + .package-tree-menu {
+  border-top: 1px solid var(--neuro-border);
+}
+
+.package-tree-node {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 14px;
+}
+
+.package-tree-node small {
+  display: block;
+}
+
+.package-tree-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.package-tree-name > span:first-child {
+  min-width: 0;
+}
+
+.package-tree-node--op {
+  padding-left: 32px;
+  background: rgba(15, 23, 42, 0.24);
+}
+
+.package-tree-type,
+.package-tree-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 46px;
+  min-height: 24px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.package-tree-type {
+  border: 1px solid rgba(45, 212, 191, 0.24);
+  color: var(--neuro-primary);
+  background: rgba(20, 184, 166, 0.08);
+}
+
+.package-tree-state--enabled {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.14);
+}
+
+.package-tree-state--partial {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.16);
+}
+
+.package-tree-state--disabled {
+  color: var(--neuro-text-secondary);
+  background: rgba(148, 163, 184, 0.12);
 }
 
 /* === Page ===

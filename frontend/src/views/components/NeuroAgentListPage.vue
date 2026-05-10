@@ -227,7 +227,6 @@
           :row-class-name="rowClassName"
           highlight-current-row
           class="neuro-el-table"
-          native-scrollbar
           @expand-change="onExpandChange"
           @row-click="onRowClick"
           @selection-change="onSelectionChange"
@@ -672,11 +671,20 @@ watch(
   },
 )
 const localPageSize = ref(props.pageSize)
+watch(
+  () => props.pageSize,
+  (s) => {
+    if (s == null || !Number.isFinite(Number(s))) return
+    const n = Number(s)
+    if (n > 0 && n !== localPageSize.value) localPageSize.value = n
+  },
+)
 const pageSize = computed({ get: () => localPageSize.value, set: (v) => { localPageSize.value = v; emit('page-size-change', v) } })
 const sizeDropdownOpen = ref(false)
 const isServerPagination = computed(() => props.total !== undefined)
 const totalItems = computed(() => isServerPagination.value ? (props.total ?? 0) : filteredData.value.length)
 const totalPages = computed(() => Math.ceil(totalItems.value / pageSize.value))
+const lastValidPage = computed(() => Math.max(1, totalPages.value))
 
 /** 底部分页未出现时，表格区域为面板最底层，需与 .list-el-panel 大圆角衔接，避免底边/固定列在圆角处断裂 */
 const panelTableFlushBottom = computed(() => !props.showPagination || totalPages.value <= 1)
@@ -696,7 +704,10 @@ const filteredData = computed(() => {
 })
 
 const paginatedData = computed(() => {
-  if (isServerPagination.value) return props.data
+  if (isServerPagination.value) {
+    if (!props.showPagination) return props.data
+    return (props.data ?? []).slice(0, pageSize.value)
+  }
   if (!props.showPagination) return filteredData.value
   const start = (currentPage.value - 1) * pageSize.value
   return filteredData.value.slice(start, start + pageSize.value)
@@ -771,12 +782,14 @@ function handleSearch() {
     filterValues.keyword !== undefined && filterValues.keyword !== null
       ? String(filterValues.keyword).trim()
       : ''
+  currentPage.value = 1
   emit('search', { keyword: topKw || filterKw, filters: { ...filterValues } })
 }
 
 function handleReset() {
   localKeyword.value = ''
   props.filterFields.forEach(f => { filterValues[f.key] = f.type === 'switch' ? false : '' })
+  currentPage.value = 1
   emit('reset')
   emit('search', { keyword: '', filters: { ...filterValues } })
 }
@@ -820,8 +833,25 @@ const sortByColumn = (columnKey: string) => {
 }
 
 const goToPage = (page: number) => {
-  if (page >= 1 && page <= totalPages.value) { currentPage.value = page; emit('page-change', page) }
+  if (page >= 1 && page <= lastValidPage.value) { currentPage.value = page; emit('page-change', page) }
 }
+
+watch(
+  () => [totalItems.value, pageSize.value, props.data.length] as const,
+  ([total, _size, rowCount]) => {
+    const maxPage = Math.max(1, Math.ceil(total / pageSize.value))
+    if (currentPage.value > maxPage) {
+      currentPage.value = maxPage
+      if (isServerPagination.value) emit('page-change', maxPage)
+      return
+    }
+    if (isServerPagination.value && total > 0 && rowCount === 0 && currentPage.value > 1) {
+      currentPage.value = 1
+      emit('page-change', 1)
+    }
+  },
+  { flush: 'post' },
+)
 
 const onExpandChange = (row: any, expandedRows: any[]) => {
   emit('expand-change', row, expandedRows)
@@ -848,7 +878,7 @@ onMounted(() => {
 .neuro-agent-list-page {
   position: relative;
   width: 100%;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -883,7 +913,7 @@ onMounted(() => {
   position: relative;
   z-index: 5;
   margin-top: 12px;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -915,7 +945,7 @@ onMounted(() => {
 
 .list-el-panel {
   position: relative;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -1357,6 +1387,8 @@ onMounted(() => {
   --el-table-text-color: var(--neuro-text);
   --el-table-header-text-color: var(--neuro-primary);
   border-radius: 0 !important;
+  height: auto !important;
+  max-height: none !important;
 }
 
 .neuro-el-table :deep(.el-table__inner-wrapper::before),
@@ -1421,6 +1453,8 @@ onMounted(() => {
  */
 .neuro-el-table :deep(.el-table__inner-wrapper) {
   height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
 }
 
 .neuro-el-table :deep(.el-table__body-wrapper) {
@@ -1446,11 +1480,13 @@ onMounted(() => {
   display: none !important;
 }
 
-.neuro-el-table :deep(.el-table__body-wrapper) {
+.neuro-el-table :deep(.el-table__body-wrapper),
+.neuro-el-table :deep(.el-scrollbar__wrap) {
   scrollbar-width: none;
 }
 
-.neuro-el-table :deep(.el-table__body-wrapper)::-webkit-scrollbar {
+.neuro-el-table :deep(.el-table__body-wrapper)::-webkit-scrollbar,
+.neuro-el-table :deep(.el-scrollbar__wrap)::-webkit-scrollbar {
   width: 0;
   height: 0;
 }

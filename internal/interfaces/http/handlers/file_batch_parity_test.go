@@ -6,12 +6,33 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 )
 
 func TestFileIDValidationRejectsGlobPatterns(t *testing.T) {
 	require.True(t, safeFileIDPattern.MatchString("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
 	require.False(t, safeFileIDPattern.MatchString("*"))
 	require.False(t, safeFileIDPattern.MatchString("../aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+}
+
+func TestFileObjectOwnerCanAccessWithoutPermissionLookup(t *testing.T) {
+	row := models.FileObject{TenantID: 9, CreatedBy: 7}
+
+	require.True(t, fileObjectAccessAllowed(row, models.AppUser{ID: 7, TenantID: 9}, "file:download", nil))
+	require.True(t, fileObjectAccessAllowed(row, models.AppUser{ID: 8, TenantID: 9}, "file:download", map[string]struct{}{"file:download": {}}))
+	require.False(t, fileObjectAccessAllowed(row, models.AppUser{ID: 8, TenantID: 9}, "file:download", nil))
+	require.False(t, fileObjectAccessAllowed(row, models.AppUser{ID: 7, TenantID: 10}, "file:download", map[string]struct{}{"file:download": {}}))
+}
+
+func TestFileObjectPathMustStayInsideTenantRoot(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("UPLOAD_DIR", root)
+	inside := filepath.Join(root, "9", "2026", "01", "01", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.txt")
+	outside := filepath.Join(root, "10", "2026", "01", "01", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.txt")
+
+	require.True(t, filePathInsideTenantRoot(9, inside))
+	require.False(t, filePathInsideTenantRoot(9, outside))
 }
 
 func TestDecodeCSVContentRemovesUTF8BOM(t *testing.T) {

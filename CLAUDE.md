@@ -1,4 +1,4 @@
-# Project Instructions  
+# 项目工程执行规则
 
 本文件是本项目的工程执行规则。Claude Code 或其他 AI coding agent 在生成、修改、重构、排查代码时，必须优先遵守本文件。
 
@@ -90,7 +90,7 @@
 router -> dto -> application service -> domain/repository contract -> postgres repository -> GORM model
 ```
 
-### 5.1 Router
+### 5.1 路由层
 
 `cmd/api` 和 `internal/interfaces/http/handlers/*.go` 只做 HTTP 边界：
 
@@ -101,7 +101,7 @@ router -> dto -> application service -> domain/repository contract -> postgres r
 - 用 `internal/interfaces/http/response` 统一包装返回结果。
 - 不得在 router 中写数据库查询、业务判断、审计日志、CSV/文件解析、Redis 读写、密码校验、token 签发、数据范围过滤、复杂响应组装。
 
-### 5.2 Service
+### 5.2 服务层
 
 `internal/application/**/*_service.go` 承载业务流程；历史尚未下沉的接口可在 handler 中保持兼容，但新增稳定业务规则应继续下沉：
 
@@ -112,7 +112,7 @@ router -> dto -> application service -> domain/repository contract -> postgres r
 - 返回错误必须安全、可读，并由 HTTP 层转换为统一响应；不得泄露 SQL、堆栈、连接串或内部实现。
 - 新增可测试分支必须同步新增 `internal/application`、`internal/domain` 或 handler 的 Go 单测。
 
-### 5.3 Repository
+### 5.3 数据访问层
 
 `internal/domain/*/*_repository.go` 定义 repository contract，`internal/infrastructure/persistence/postgres/repositories/*.go` 实现数据访问与可复用持久化操作：
 
@@ -124,7 +124,7 @@ router -> dto -> application service -> domain/repository contract -> postgres r
 - repository 可以执行单表或明确的持久化操作，但多步骤事务、审计日志、权限判断、异常消息编排应由 service 组织。
 - 平台管理员跨租户逻辑必须在 service 中显式表达，不得为了方便在 repository 中绕过 tenant。
 
-### 5.4 DTO 与 Model
+### 5.4 DTO 与模型
 
 - `internal/interfaces/http/dto/*.go` 定义请求、响应、分页契约。
 - `internal/infrastructure/persistence/postgres/models/*.go` 只负责 GORM 映射，不承载业务流程。

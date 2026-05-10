@@ -97,9 +97,21 @@ export async function updatePermission(
   permissionId: number,
   payload: {
     data_perm_mode?: 'NONE' | 'ORG' | 'BU' | 'ORG_BU'
+    is_platform_only?: boolean
   },
 ) {
   return unwrap(
     http.put<ApiResponse<unknown>>(`/api/permissions/menu-data-perm-mode/${permissionId}`, payload),
+  )
+}
+
+export async function updatePermissionPackageFeature(
+  permissionId: number,
+  isPackageFeature: boolean,
+) {
+  return unwrap(
+    http.put<ApiResponse<unknown>>(`/api/permissions/menu-package-feature/${permissionId}`, {
+      is_package_feature: isPackageFeature,
+    }),
   )
 }

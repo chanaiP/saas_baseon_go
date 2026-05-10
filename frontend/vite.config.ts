@@ -22,7 +22,7 @@ function readRepoEnvInt(key: string, fallback: number): number {
   return fallback
 }
 
-const apiPort = readRepoEnvInt('BASICP_API_PORT', 8000)
+const apiPort = readRepoEnvInt('BASICP_API_PORT', 8081)
 const vitePort = readRepoEnvInt('BASICP_VITE_PORT', 5173)
 const proxyTarget = `http://127.0.0.1:${apiPort}`
 

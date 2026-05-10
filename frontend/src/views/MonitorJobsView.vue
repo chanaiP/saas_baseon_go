@@ -8,14 +8,14 @@ import type { TableColumn } from '@/views/components/NeuroAgentListPage.vue'
 import NeuroAgentListPage from '@/views/components/NeuroAgentListPage.vue'
 import { usePageAction } from '@/composables/usePageAction'
 
-const { pageAction } = usePageAction()
+const { pageMenu } = usePageAction()
 
 const loading = ref(false)
 const data = ref<MonitorJobsData | null>(null)
 const err = ref('')
 
 async function load() {
-  if (!pageAction('monjobs:view')) return
+  if (!pageMenu()) return
   loading.value = true
   err.value = ''
   try {
@@ -36,7 +36,7 @@ const columns: TableColumn[] = [
 
 <template>
   <div class="page">
-    <el-empty v-if="!pageAction('monjobs:view')" description="无查看权限" />
+    <el-empty v-if="!pageMenu()" description="无查看权限" />
     <template v-else>
       <el-alert v-if="err" :title="err" type="error" show-icon :closable="false" class="err-alert" />
       <NeuroAgentListPage

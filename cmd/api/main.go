@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
@@ -21,6 +22,12 @@ func main() {
 
 func run() error {
 	cfg := bootstrap.LoadConfig()
+	if err := cfg.ValidateForRuntime(); err != nil {
+		return err
+	}
+	if raw, err := json.Marshal(cfg.SafeSummary()); err == nil {
+		log.Printf("runtime_config_summary=%s", raw)
+	}
 
 	db, err := bootstrap.NewPostgresWithOptions(cfg.DatabaseDSN, cfg.AutoMigrate)
 	if err != nil {

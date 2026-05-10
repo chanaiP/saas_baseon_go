@@ -2137,6 +2137,8 @@ function brandClickHandler() {
     border-color 0.4s ease;
   position: relative;
   overflow: hidden;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 /* 浅色模式输入框 */
@@ -2193,6 +2195,7 @@ function brandClickHandler() {
   background: linear-gradient(135deg, transparent, rgba(0, 255, 157, 0.1), transparent);
   opacity: 0;
   transition: opacity 0.4s ease;
+  pointer-events: none;
 }
 
 .input-round :deep(.el-input__wrapper:hover),
@@ -2239,6 +2242,8 @@ function brandClickHandler() {
 .input-round :deep(.el-select__selected-item) {
   color: var(--neural-fg) !important;
   font-family: 'IBM Plex Sans', sans-serif;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .input-round :deep(.el-input__inner::placeholder) {

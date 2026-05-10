@@ -40,11 +40,19 @@ export async function updateRole(
   body: Partial<{
     name: string
     description: string
-    permission_ids: number[]
-    data_overrides: RoleDataOverride[]
   }>,
 ) {
   return unwrap(http.put<ApiResponse<RoleRow>>(`/api/roles/${id}`, body))
+}
+
+export async function updateRolePermissions(
+  id: number,
+  body: {
+    permission_ids: number[]
+    data_overrides: RoleDataOverride[]
+  },
+) {
+  return unwrap(http.put<ApiResponse<RoleRow>>(`/api/roles/${id}/permissions`, body))
 }
 
 export async function deleteRole(id: number) {

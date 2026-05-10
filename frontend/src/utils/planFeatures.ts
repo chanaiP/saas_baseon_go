@@ -6,7 +6,7 @@ const MENU_FEATURE_BY_PATH: Record<string, string> = {
   '/users': 'user_manage',
   '/roles': 'role_manage',
   '/permissions': 'role_manage',
-  '/menus': 'role_manage',
+  '/menus': 'menu_manage',
   '/dict': 'dict_manage',
   '/params': 'param_manage',
   '/business-units': 'business_unit_manage',
@@ -34,15 +34,13 @@ const ACTION_FEATURE_BY_PERMISSION: Record<string, string> = {
   'role:create': 'role_manage',
   'role:edit': 'role_manage',
   'role:delete': 'role_manage',
-  'perm:create': 'role_manage',
-  'perm:edit': 'role_manage',
-  'perm:delete': 'role_manage',
-  'menu:create': 'role_manage',
-  'menu:edit': 'role_manage',
-  'menu:delete': 'role_manage',
-  'dict:create': 'dict_manage',
-  'dict:edit': 'dict_manage',
-  'dict:delete': 'dict_manage',
+  'role:permission': 'role_manage',
+  'menu:create': 'menu_manage',
+  'menu:edit': 'menu_manage',
+  'menu:package_feature': 'menu_manage',
+  'dict_item:create': 'dict_manage',
+  'dict_item:edit': 'dict_manage',
+  'dict_item:delete': 'dict_manage',
   'param:create': 'param_manage',
   'param:edit': 'param_manage',
   'param:delete': 'param_manage',
@@ -50,14 +48,6 @@ const ACTION_FEATURE_BY_PERMISSION: Record<string, string> = {
   'business_unit:edit': 'business_unit_manage',
   'business_unit:delete': 'business_unit_manage',
   'brand:edit': 'brand_config',
-  'audit:view': 'audit_log',
-  'login:view': 'login_log',
-  'monhealth:view': 'system_monitor',
-  'monserver:view': 'system_monitor',
-  'monjobs:view': 'system_monitor',
-  'monservices:view': 'system_monitor',
-  'moncache:view': 'system_monitor',
-  'moncachekeys:view': 'system_monitor',
 }
 
 const QUOTA_CODES_BY_FEATURE: Record<string, string[]> = {
@@ -67,8 +57,7 @@ const QUOTA_CODES_BY_FEATURE: Record<string, string[]> = {
   role_manage: ['max_roles'],
   import_data: ['daily_import_times'],
   export_data: ['daily_export_times'],
-  api_key: ['max_api_keys', 'daily_api_calls'],
-  webhook: ['max_webhooks'],
+  file_manage: ['max_storage_gb', 'max_file_size_mb'],
 }
 
 export function featureForMenuPath(path: string): string | null {
@@ -93,6 +82,7 @@ function codesGrantMenuFeature(profile: Profile, featureCode: string): boolean {
 
 /** 与后端 Permission / SaasFeature 对齐的按钮级套餐编码，如 org:delete → button_org_delete */
 export function packageFeatureCodeForOperation(operationCode: string): string | null {
+  if (operationCode === 'brand:edit') return 'brand_config'
   if (!operationCode || !operationCode.includes(':')) return null
   const normalized = operationCode.replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_|_$/g, '').toLowerCase()
   return normalized ? `button_${normalized}` : null
@@ -100,7 +90,7 @@ export function packageFeatureCodeForOperation(operationCode: string): string | 
 
 /**
  * 操作是否在套餐内可用：必须命中对应的 ``button_*``（由后端 profile.features 下发）。
- * 旧套餐仅有 MENU、未写入子 BUTTON 行时，由后端在租户能力中补齐子编码以兼容历史数据。
+ * 菜单只决定是否可进入页面，不能隐式开启新增、编辑、删除等操作。
  */
 function bypassPlanSkuGate(profile: Profile | null | undefined): boolean {
   return !!(profile?.is_platform_admin || profile?.tenant_is_platform)
@@ -112,14 +102,9 @@ export function hasPlanFeatureForOperation(profile: Profile | null | undefined, 
   if (!granular) return true
   if (!profile?.features || !Array.isArray(profile.features)) return true
   const feats = profile.features as string[]
-  const parentMenuFeature = ACTION_FEATURE_BY_PERMISSION[operationCode]
-  if (parentMenuFeature && codesGrantMenuFeature(profile, parentMenuFeature)) return true
   if (feats.length === 0) return true
-  if (feats.includes(granular)) return true
-  /** 未配置父级映射的操作（如扩展按钮）不按矩阵细粒度拦截 */
-  if (!parentMenuFeature) return true
-  /** 旧套餐或仅同步了 MENU 能力码时：有 role_manage 无 button_role_edit 等情况应对齐菜单路径校验 */
-  return feats.includes(parentMenuFeature)
+  if (!ACTION_FEATURE_BY_PERMISSION[operationCode]) return true
+  return feats.includes(granular)
 }
 
 /** 与同路径菜单绑定的操作码任一命中即视为可进入该菜单（对齐后端 _require_menu_path_or_any_operation）。 */
