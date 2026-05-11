@@ -79,6 +79,54 @@ func (h *AppHandler) Create(c *gin.Context) {
 	response.OK(c, result)
 }
 
+func (h *AppHandler) Update(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequest, "应用 ID 不合法")
+		return
+	}
+	var req dto.AppUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequest, "请求参数不合法")
+		return
+	}
+	result, err := h.service.UpdateApp(c.Request.Context(), userID, id, req)
+	if err != nil {
+		writeAppError(c, err)
+		return
+	}
+	response.OK(c, result)
+}
+
+func (h *AppHandler) UpdateStatus(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequest, "应用 ID 不合法")
+		return
+	}
+	var req dto.AppStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequest, "请求参数不合法")
+		return
+	}
+	result, err := h.service.UpdateAppStatus(c.Request.Context(), userID, id, req)
+	if err != nil {
+		writeAppError(c, err)
+		return
+	}
+	response.OK(c, result)
+}
+
 func (h *AppHandler) Stats(c *gin.Context) {
 	userID, ok := currentUserID(c)
 	if !ok {
@@ -128,7 +176,9 @@ func writeAppError(c *gin.Context, err error) {
 		response.Error(c, http.StatusNotFound, response.CodeNotFound, "应用不存在")
 	case errors.Is(err, services.ErrAppCodeRequired),
 		errors.Is(err, services.ErrAppNameRequired),
-		errors.Is(err, services.ErrInvalidAppCode):
+		errors.Is(err, services.ErrInvalidAppCode),
+		errors.Is(err, services.ErrInvalidAppStatus),
+		errors.Is(err, services.ErrBuiltinStatusImmutable):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequest, err.Error())
 	case errors.Is(err, services.ErrAppCodeExists):
 		response.Error(c, http.StatusConflict, response.CodeConflict, "应用编码已存在")

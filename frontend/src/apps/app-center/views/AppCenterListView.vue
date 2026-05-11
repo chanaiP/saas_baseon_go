@@ -2,7 +2,7 @@
 defineOptions({ name: 'AppCenterListView' })
 
 import { Box, Grid, Monitor, Plus, Refresh, Search, Setting } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
@@ -10,8 +10,8 @@ import { fetchDictItemsByCode, type DictItemRow } from '@/api/dict'
 import NeuroAgentDialog from '@/views/components/NeuroAgentDialog.vue'
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
-import { createAppCenterApp, fetchAppCenterApp, fetchAppCenterApps, fetchAppCenterStats } from '../api'
-import type { AppCenterApp, AppCenterCreatePayload, AppCenterStats } from '../types'
+import { createAppCenterApp, fetchAppCenterApp, fetchAppCenterApps, fetchAppCenterStats, updateAppCenterApp, updateAppCenterAppStatus } from '../api'
+import type { AppCenterApp, AppCenterCreatePayload, AppCenterStats, AppCenterUpdatePayload } from '../types'
 
 const loading = ref(false)
 const apps = ref<AppCenterApp[]>([])
@@ -23,11 +23,14 @@ const sourceFilter = ref('')
 const activeSection = ref('apps')
 const route = useRoute()
 const createDialogVisible = ref(false)
+const editDialogVisible = ref(false)
 const detailDialogVisible = ref(false)
 const saving = ref(false)
 const detailLoading = ref(false)
 const detailApp = ref<AppCenterApp | null>(null)
 const createForm = ref<AppCenterCreatePayload>(newCreateForm())
+const editAppId = ref<number | null>(null)
+const editForm = ref<AppCenterUpdatePayload>(newEditForm())
 const emptyStats: AppCenterStats = {
   total: 0,
   online: 0,
@@ -242,9 +245,49 @@ function newCreateForm(): AppCenterCreatePayload {
   }
 }
 
+function newEditForm(): AppCenterUpdatePayload {
+  return {
+    app_name: '',
+    icon: '',
+    app_type: 'BUSINESS_APP',
+    charge_mode: 'SUBSCRIPTION',
+    visibility_scope: 'PLATFORM_ONLY',
+    owner: '',
+    version: '',
+    description: '',
+    sort_order: 0,
+  }
+}
+
+function appToEditForm(app: AppCenterApp): AppCenterUpdatePayload {
+  return {
+    app_name: app.app_name,
+    icon: app.icon || '',
+    app_type: app.app_type,
+    charge_mode: app.charge_mode,
+    visibility_scope: app.visibility_scope,
+    owner: app.owner || '',
+    version: app.version || '',
+    description: app.description || '',
+    sort_order: app.sort_order,
+  }
+}
+
 function trimNullable(value: string | null | undefined) {
   const trimmed = String(value ?? '').trim()
   return trimmed || null
+}
+
+function normalizeUpdatePayload(value: AppCenterUpdatePayload): AppCenterUpdatePayload {
+  return {
+    ...value,
+    app_name: value.app_name.trim(),
+    icon: trimNullable(value.icon),
+    owner: trimNullable(value.owner),
+    version: trimNullable(value.version),
+    description: trimNullable(value.description),
+    sort_order: Number(value.sort_order || 0),
+  }
 }
 
 function openCreateDialog() {
@@ -278,6 +321,52 @@ async function saveCreateDialog() {
     ElMessage.error(error instanceof Error ? error.message : '创建应用失败')
   } finally {
     saving.value = false
+  }
+}
+
+function openEditDialog(app: AppCenterApp) {
+  editAppId.value = app.id
+  editForm.value = appToEditForm(app)
+  editDialogVisible.value = true
+}
+
+async function saveEditDialog() {
+  if (!editAppId.value) return
+  const payload = normalizeUpdatePayload(editForm.value)
+  if (!payload.app_name) {
+    ElMessage.error('请填写应用名称')
+    return
+  }
+  saving.value = true
+  try {
+    const updated = await updateAppCenterApp(editAppId.value, payload)
+    ElMessage.success('应用已更新')
+    editDialogVisible.value = false
+    await loadApps()
+    detailApp.value = updated
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '更新应用失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+async function toggleAppStatus(app: AppCenterApp) {
+  const nextStatus = app.status === 'DISABLED' ? 'ONLINE' : 'DISABLED'
+  const actionText = nextStatus === 'DISABLED' ? '停用' : '启用'
+  try {
+    await ElMessageBox.confirm(`确认${actionText}「${app.app_name}」？`, `${actionText}应用`, {
+      confirmButtonText: actionText,
+      cancelButtonText: '取消',
+      type: nextStatus === 'DISABLED' ? 'warning' : 'info',
+    })
+    const updated = await updateAppCenterAppStatus(app.id, nextStatus)
+    ElMessage.success(`应用已${actionText}`)
+    await loadApps()
+    if (detailApp.value?.id === updated.id) detailApp.value = updated
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return
+    ElMessage.error(error instanceof Error ? error.message : `${actionText}应用失败`)
   }
 }
 
@@ -481,7 +570,10 @@ watch(
                     <button class="app-card__detail app-card__detail--primary" type="button" @click="openDetailDialog(app)">
                       进入详情
                     </button>
-                    <button class="app-card__detail" type="button" disabled>编辑</button>
+                    <button class="app-card__detail" type="button" @click="openEditDialog(app)">编辑</button>
+                    <button class="app-card__detail" type="button" :disabled="app.is_builtin" @click="toggleAppStatus(app)">
+                      {{ app.status === 'DISABLED' ? '启用' : '停用' }}
+                    </button>
                     <button class="app-card__detail" type="button" disabled>安装记录</button>
                     <button class="app-card__detail" type="button" disabled>邀请体验</button>
                   </div>
@@ -570,6 +662,68 @@ watch(
         <label class="app-form__full">
           <span>说明</span>
           <textarea v-model="createForm.description" placeholder="请输入应用说明，选填"></textarea>
+        </label>
+      </div>
+    </NeuroAgentDialog>
+
+    <NeuroAgentDialog
+      v-model="editDialogVisible"
+      title="编辑应用"
+      icon="📦"
+      size="large"
+      :loading="saving"
+      :confirm-disabled="saving"
+      confirm-text="保存"
+      @confirm="saveEditDialog"
+    >
+      <div class="app-form">
+        <label>
+          <span>应用名称</span>
+          <input v-model="editForm.app_name" placeholder="请输入应用名称" />
+        </label>
+        <label>
+          <span>应用类型</span>
+          <select v-model="editForm.app_type">
+            <option v-for="item in dictOptions('app_type')" :key="item.value" :value="item.value">
+              {{ item.label }}
+            </option>
+          </select>
+        </label>
+        <label>
+          <span>计费模式</span>
+          <select v-model="editForm.charge_mode">
+            <option v-for="item in dictOptions('app_charge_mode')" :key="item.value" :value="item.value">
+              {{ item.label }}
+            </option>
+          </select>
+        </label>
+        <label>
+          <span>可见范围</span>
+          <select v-model="editForm.visibility_scope">
+            <option v-for="item in dictOptions('app_visibility_scope')" :key="item.value" :value="item.value">
+              {{ item.label }}
+            </option>
+          </select>
+        </label>
+        <label>
+          <span>图标</span>
+          <input v-model="editForm.icon" placeholder="图标名或标识，选填" />
+        </label>
+        <label>
+          <span>负责人</span>
+          <input v-model="editForm.owner" placeholder="负责人，选填" />
+        </label>
+        <label>
+          <span>版本</span>
+          <input v-model="editForm.version" placeholder="例如 0.1.0" />
+        </label>
+        <label>
+          <span>排序</span>
+          <input v-model.number="editForm.sort_order" type="number" min="0" step="1" />
+        </label>
+        <label class="app-form__full">
+          <span>说明</span>
+          <textarea v-model="editForm.description" placeholder="请输入应用说明，选填"></textarea>
         </label>
       </div>
     </NeuroAgentDialog>

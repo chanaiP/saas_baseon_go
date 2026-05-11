@@ -25,6 +25,22 @@ type AppCreateRequest struct {
 	SortOrder       int     `json:"sort_order"`
 }
 
+type AppUpdateRequest struct {
+	AppName         string  `json:"app_name"`
+	Icon            *string `json:"icon"`
+	AppType         string  `json:"app_type"`
+	ChargeMode      string  `json:"charge_mode"`
+	VisibilityScope string  `json:"visibility_scope"`
+	Owner           *string `json:"owner"`
+	Version         *string `json:"version"`
+	Description     *string `json:"description"`
+	SortOrder       int     `json:"sort_order"`
+}
+
+type AppStatusRequest struct {
+	Status string `json:"status"`
+}
+
 type AppResponse struct {
 	ID              uint64    `json:"id"`
 	AppCode         string    `json:"app_code"`

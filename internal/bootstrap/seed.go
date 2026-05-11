@@ -290,7 +290,7 @@ func seedPermissions(db *gorm.DB, tenantID uint64) ([]models.Permission, error) 
 		{Name: "套餐-配置", Path: "plan:config", Type: 2, PlatformOnly: true, PackageFeature: false, FeatureType: "OPERATION", DataPermMode: "NONE"},
 	}
 	for _, path := range []string{
-		"app:create",
+		"app:create", "app:edit", "app:status",
 		"org:create", "org:edit", "org:delete",
 		"pos:create", "pos:edit", "pos:delete",
 		"business_unit:create", "business_unit:edit", "business_unit:delete",

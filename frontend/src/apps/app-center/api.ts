@@ -1,7 +1,7 @@
 import http, { unwrap } from '@/api/http'
 import type { ApiResponse } from '@/api/types'
 
-import type { AppCenterApp, AppCenterCreatePayload, AppCenterListQuery, AppCenterListResponse, AppCenterStats } from './types'
+import type { AppCenterApp, AppCenterCreatePayload, AppCenterListQuery, AppCenterListResponse, AppCenterStats, AppCenterUpdatePayload } from './types'
 
 export async function fetchAppCenterApps(query: AppCenterListQuery = {}) {
   const params: Record<string, string | number> = {
@@ -26,4 +26,12 @@ export async function fetchAppCenterApp(id: number) {
 
 export async function createAppCenterApp(payload: AppCenterCreatePayload) {
   return unwrap(http.post<ApiResponse<AppCenterApp>>('/api/apps', payload))
+}
+
+export async function updateAppCenterApp(id: number, payload: AppCenterUpdatePayload) {
+  return unwrap(http.put<ApiResponse<AppCenterApp>>(`/api/apps/${id}`, payload))
+}
+
+export async function updateAppCenterAppStatus(id: number, status: string) {
+  return unwrap(http.patch<ApiResponse<AppCenterApp>>(`/api/apps/${id}/status`, { status }))
 }

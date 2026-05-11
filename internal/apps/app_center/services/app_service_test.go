@@ -115,6 +115,51 @@ func TestAppCenterCreateRejectsDuplicateCode(t *testing.T) {
 	require.True(t, errors.Is(err, ErrAppCodeExists))
 }
 
+func TestAppCenterUpdatePersistsBasicFields(t *testing.T) {
+	db := newAppCenterTestDB(t)
+	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
+	require.NoError(t, db.Create(&models.SysApp{ID: 10, AppCode: "crm-suite", AppName: "客户管理", AppType: "BUSINESS_APP", Source: "MANUAL", Status: "DRAFT", ChargeMode: "SUBSCRIPTION", VisibilityScope: "PLATFORM_ONLY", IsPlatformOnly: true}).Error)
+
+	service := NewAppService(repositories.NewAppRepository(db))
+	updated, err := service.UpdateApp(context.Background(), 1, 10, dto.AppUpdateRequest{
+		AppName:         "客户经营套件",
+		AppType:         "SUITE_APP",
+		ChargeMode:      "FREE",
+		VisibilityScope: "TENANT",
+		SortOrder:       8,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, "crm-suite", updated.AppCode)
+	require.Equal(t, "客户经营套件", updated.AppName)
+	require.Equal(t, "SUITE_APP", updated.AppType)
+	require.False(t, updated.IsPlatformOnly)
+	require.Equal(t, 8, updated.SortOrder)
+}
+
+func TestAppCenterUpdateStatusRejectsDisablingBuiltinApps(t *testing.T) {
+	db := newAppCenterTestDB(t)
+	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
+	require.NoError(t, db.Create(&models.SysApp{ID: 10, AppCode: "app-center", AppName: "应用中心", AppType: "SYSTEM_APP", Source: "BUILTIN", Status: "ONLINE", ChargeMode: "NON_SELLABLE", VisibilityScope: "PLATFORM_ONLY", IsBuiltin: true, IsPlatformOnly: true}).Error)
+
+	service := NewAppService(repositories.NewAppRepository(db))
+	_, err := service.UpdateAppStatus(context.Background(), 1, 10, dto.AppStatusRequest{Status: "DISABLED"})
+
+	require.True(t, errors.Is(err, ErrBuiltinStatusImmutable))
+}
+
+func TestAppCenterUpdateStatusPersistsManualAppStatus(t *testing.T) {
+	db := newAppCenterTestDB(t)
+	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
+	require.NoError(t, db.Create(&models.SysApp{ID: 10, AppCode: "crm-suite", AppName: "客户管理", AppType: "BUSINESS_APP", Source: "MANUAL", Status: "DRAFT", ChargeMode: "SUBSCRIPTION", VisibilityScope: "TENANT"}).Error)
+
+	service := NewAppService(repositories.NewAppRepository(db))
+	updated, err := service.UpdateAppStatus(context.Background(), 1, 10, dto.AppStatusRequest{Status: "ONLINE"})
+
+	require.NoError(t, err)
+	require.Equal(t, "ONLINE", updated.Status)
+}
+
 func newAppCenterTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})

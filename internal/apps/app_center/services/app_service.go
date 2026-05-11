@@ -19,8 +19,19 @@ var ErrAppCodeRequired = errors.New("应用编码不能为空")
 var ErrAppNameRequired = errors.New("应用名称不能为空")
 var ErrInvalidAppCode = errors.New("应用编码仅允许小写字母、数字和中横线，且必须以字母开头")
 var ErrAppCodeExists = errors.New("应用编码已存在")
+var ErrInvalidAppStatus = errors.New("应用状态不合法")
+var ErrBuiltinStatusImmutable = errors.New("内置应用状态不允许在应用中心启停")
 
 var appCodePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{1,63}$`)
+var allowedAppStatuses = map[string]struct{}{
+	"DRAFT":      {},
+	"PLANNED":    {},
+	"DEVELOPING": {},
+	"BETA":       {},
+	"ONLINE":     {},
+	"DISABLED":   {},
+	"ARCHIVED":   {},
+}
 
 type AppService struct {
 	repo *repositories.AppRepository
@@ -116,6 +127,70 @@ func (s *AppService) CreateApp(ctx context.Context, viewerID uint64, req dto.App
 	}
 	row.IsPlatformOnly = row.VisibilityScope == "PLATFORM_ONLY"
 	if err := s.repo.Create(ctx, &row); err != nil {
+		return dto.AppResponse{}, err
+	}
+	return appToResponse(row), nil
+}
+
+func (s *AppService) UpdateApp(ctx context.Context, viewerID uint64, id uint64, req dto.AppUpdateRequest) (dto.AppResponse, error) {
+	if err := s.requirePlatformViewer(ctx, viewerID); err != nil {
+		return dto.AppResponse{}, err
+	}
+	if id == 0 {
+		return dto.AppResponse{}, ErrAppNotFound
+	}
+	appName := strings.TrimSpace(req.AppName)
+	if appName == "" {
+		return dto.AppResponse{}, ErrAppNameRequired
+	}
+	row, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return dto.AppResponse{}, ErrAppNotFound
+		}
+		return dto.AppResponse{}, err
+	}
+	visibilityScope := defaultString(req.VisibilityScope, row.VisibilityScope)
+	updates := map[string]interface{}{
+		"app_name":         appName,
+		"icon":             cleanOptionalString(req.Icon),
+		"app_type":         defaultString(req.AppType, row.AppType),
+		"charge_mode":      defaultString(req.ChargeMode, row.ChargeMode),
+		"visibility_scope": visibilityScope,
+		"owner":            cleanOptionalString(req.Owner),
+		"version":          cleanOptionalString(req.Version),
+		"description":      cleanOptionalString(req.Description),
+		"is_platform_only": visibilityScope == "PLATFORM_ONLY",
+		"sort_order":       req.SortOrder,
+	}
+	if err := s.repo.Update(ctx, &row, updates); err != nil {
+		return dto.AppResponse{}, err
+	}
+	return appToResponse(row), nil
+}
+
+func (s *AppService) UpdateAppStatus(ctx context.Context, viewerID uint64, id uint64, req dto.AppStatusRequest) (dto.AppResponse, error) {
+	if err := s.requirePlatformViewer(ctx, viewerID); err != nil {
+		return dto.AppResponse{}, err
+	}
+	if id == 0 {
+		return dto.AppResponse{}, ErrAppNotFound
+	}
+	status := strings.ToUpper(strings.TrimSpace(req.Status))
+	if _, ok := allowedAppStatuses[status]; !ok {
+		return dto.AppResponse{}, ErrInvalidAppStatus
+	}
+	row, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return dto.AppResponse{}, ErrAppNotFound
+		}
+		return dto.AppResponse{}, err
+	}
+	if row.IsBuiltin && (status == "DISABLED" || status == "ARCHIVED") {
+		return dto.AppResponse{}, ErrBuiltinStatusImmutable
+	}
+	if err := s.repo.Update(ctx, &row, map[string]interface{}{"status": status}); err != nil {
 		return dto.AppResponse{}, err
 	}
 	return appToResponse(row), nil

@@ -31,6 +31,8 @@ func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHan
 		api.GET("/apps/stats", appHandler.Stats)
 		api.GET("/apps/:id", appHandler.Detail)
 		api.POST("/apps", appHandler.Create)
+		api.PUT("/apps/:id", appHandler.Update)
+		api.PATCH("/apps/:id/status", appHandler.UpdateStatus)
 		api.POST("/users", identityHandler.CreateUser)
 		api.PUT("/users/:id", identityHandler.UpdateUser)
 		api.PUT("/users/:id/password", identityHandler.ResetUserPassword)

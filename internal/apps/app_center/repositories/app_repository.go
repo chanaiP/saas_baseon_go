@@ -80,6 +80,16 @@ func (r *AppRepository) Create(ctx context.Context, row *models.SysApp) error {
 	return nil
 }
 
+func (r *AppRepository) Update(ctx context.Context, row *models.SysApp, updates map[string]interface{}) error {
+	if err := r.db.WithContext(ctx).
+		Model(row).
+		Where("id = ? AND deleted_at IS NULL", row.ID).
+		Updates(updates).Error; err != nil {
+		return err
+	}
+	return r.db.WithContext(ctx).Where("id = ? AND deleted_at IS NULL", row.ID).First(row).Error
+}
+
 func (r *AppRepository) Stats(ctx context.Context) (dto.AppStatsResponse, error) {
 	countApps := func(where string, args ...interface{}) (int64, error) {
 		query := r.db.WithContext(ctx).Model(&models.SysApp{}).Where("deleted_at IS NULL")

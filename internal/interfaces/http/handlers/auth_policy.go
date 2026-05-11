@@ -102,6 +102,8 @@ func optionalRouteByMethodPath() map[string]bool {
 func operationPermissionByRoute() map[string]string {
 	return map[string]string{
 		"POST /api/apps":                                "app:create",
+		"PUT /api/apps/:id":                             "app:edit",
+		"PATCH /api/apps/:id/status":                    "app:status",
 		"PUT /api/tenant/branding":                      "brand:edit",
 		"POST /api/tenants":                             "tenant:create",
 		"POST /api/tenants/with-package":                "tenant:create",

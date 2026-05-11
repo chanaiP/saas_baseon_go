@@ -62,3 +62,15 @@ export interface AppCenterCreatePayload {
   description?: string | null
   sort_order: number
 }
+
+export interface AppCenterUpdatePayload {
+  app_name: string
+  icon?: string | null
+  app_type: string
+  charge_mode: string
+  visibility_scope: string
+  owner?: string | null
+  version?: string | null
+  description?: string | null
+  sort_order: number
+}
