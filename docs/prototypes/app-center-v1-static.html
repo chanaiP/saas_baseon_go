@@ -33,7 +33,7 @@
       line-height: 1.5;
     }
 
-    button, input, select {
+    button, input, select, textarea {
       font: inherit;
     }
 
@@ -197,13 +197,19 @@
       align-items: center;
     }
 
-    input, select {
+    input, select, textarea {
       height: 36px;
       border: 1px solid var(--line);
       border-radius: 8px;
       background: #fff;
       padding: 0 10px;
       color: var(--text);
+    }
+
+    textarea {
+      min-height: 92px;
+      padding: 10px;
+      resize: vertical;
     }
 
     .content {
@@ -399,6 +405,214 @@
       color: var(--muted);
     }
 
+    .drawer-mask {
+      position: fixed;
+      inset: 0;
+      background: rgba(9, 22, 17, 0.48);
+      display: none;
+      justify-content: flex-end;
+      z-index: 50;
+    }
+
+    .drawer-mask.is-visible {
+      display: flex;
+    }
+
+    .drawer {
+      width: min(1080px, 96vw);
+      height: 100vh;
+      background: var(--bg);
+      border-left: 1px solid rgba(255,255,255,0.4);
+      box-shadow: -24px 0 60px rgba(0,0,0,0.2);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .drawer-head {
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+      padding: 18px 20px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .drawer-body {
+      min-height: 0;
+      flex: 1;
+      display: grid;
+      grid-template-columns: 230px 1fr 280px;
+      gap: 14px;
+      padding: 14px;
+      overflow: auto;
+    }
+
+    .wizard-steps {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      align-self: start;
+    }
+
+    .wizard-step {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      text-align: left;
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      gap: 8px;
+      align-items: start;
+      padding: 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      color: var(--text);
+    }
+
+    .wizard-step i {
+      width: 24px;
+      height: 24px;
+      border-radius: 999px;
+      background: var(--panel-2);
+      color: var(--muted);
+      display: grid;
+      place-items: center;
+      font-style: normal;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .wizard-step strong { display: block; font-size: 13px; }
+    .wizard-step span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+
+    .wizard-step.is-active {
+      background: var(--green-2);
+    }
+
+    .wizard-step.is-active i {
+      background: var(--green);
+      color: #fff;
+    }
+
+    .wizard-panel {
+      display: none;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .wizard-panel.is-active {
+      display: block;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .field label {
+      font-size: 12px;
+      font-weight: 800;
+      color: #37554a;
+    }
+
+    .field.full {
+      grid-column: 1 / -1;
+    }
+
+    .check-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .check-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      background: #fff;
+      font-size: 13px;
+    }
+
+    .inline-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .inline-row {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr 1fr auto;
+      gap: 8px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px;
+      background: #fff;
+    }
+
+    .create-preview {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .preview-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+    }
+
+    .preview-list {
+      margin: 10px 0 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 8px;
+      font-size: 13px;
+    }
+
+    .preview-list li {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      border-bottom: 1px solid #eef3f1;
+      padding-bottom: 7px;
+    }
+
+    .preview-list li:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .drawer-foot {
+      background: var(--panel);
+      border-top: 1px solid var(--line);
+      padding: 12px 20px;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+    }
+
     @media (max-width: 1100px) {
       .shell { grid-template-columns: 1fr; }
       .sidebar { position: static; }
@@ -415,6 +629,9 @@
       .app-grid, .two-col, .stats, .flow { grid-template-columns: 1fr; }
       .actions, .filters { width: 100%; }
       .btn, input, select { width: 100%; justify-content: center; }
+      .drawer-body { grid-template-columns: 1fr; }
+      .check-grid { grid-template-columns: 1fr; }
+      .inline-row { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -449,7 +666,7 @@
         </div>
         <div class="actions">
           <button class="btn ghost" type="button">导入 Manifest</button>
-          <button class="btn primary" type="button">手工创建应用</button>
+          <button class="btn primary" type="button" id="open-create">手工创建应用</button>
         </div>
       </section>
 
@@ -792,6 +1009,313 @@
     </main>
   </div>
 
+  <div class="drawer-mask" id="create-drawer" role="dialog" aria-modal="true" aria-label="创建应用">
+    <section class="drawer">
+      <header class="drawer-head">
+        <div>
+          <h2>创建应用</h2>
+          <p class="muted">手工创建不只是登记名称，还要一次性明确应用定位、可见租户、开通收费、客户端、入口/API/权限、文档和初始版本。</p>
+        </div>
+        <button class="btn" type="button" id="close-create">关闭</button>
+      </header>
+
+      <div class="drawer-body">
+        <nav class="wizard-steps" aria-label="创建步骤">
+          <button class="wizard-step is-active" data-create-step="basic"><i>1</i><span><strong>基础信息</strong><span>app_code、类型、定位</span></span></button>
+          <button class="wizard-step" data-create-step="access"><i>2</i><span><strong>可见与开通</strong><span>租户范围、试用、收费</span></span></button>
+          <button class="wizard-step" data-create-step="clients"><i>3</i><span><strong>客户端</strong><span>PC、移动端、API Only</span></span></button>
+          <button class="wizard-step" data-create-step="assets"><i>4</i><span><strong>入口/API/权限</strong><span>运行资产模板</span></span></button>
+          <button class="wizard-step" data-create-step="docs"><i>5</i><span><strong>文档与版本</strong><span>知识资产和初始版本</span></span></button>
+          <button class="wizard-step" data-create-step="review"><i>6</i><span><strong>确认创建</strong><span>生成应用资产草稿</span></span></button>
+        </nav>
+
+        <div>
+          <div class="wizard-panel is-active" id="create-basic">
+            <div class="section-head">
+              <div>
+                <h3>基础信息</h3>
+                <p class="muted small">这里决定应用的长期身份。`app_code` 创建后不建议修改。</p>
+              </div>
+              <span class="badge green">必填</span>
+            </div>
+            <div class="form-grid">
+              <div class="field">
+                <label>应用名称</label>
+                <input value="AI 项目管理系统" />
+              </div>
+              <div class="field">
+                <label>应用编码 app_code</label>
+                <input value="ai-project-manager" />
+              </div>
+              <div class="field">
+                <label>应用类型</label>
+                <select>
+                  <option>业务应用 BUSINESS_APP</option>
+                  <option>能力应用 ABILITY_APP</option>
+                  <option>AI 应用 AI_APP</option>
+                  <option>系统应用 SYSTEM_APP</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>应用定位</label>
+                <select>
+                  <option>业务场景 BUSINESS_SCENARIO</option>
+                  <option>公共能力 / 业务中台 COMMON_CAPABILITY</option>
+                  <option>AI / Agent AI_AGENT</option>
+                  <option>平台内置 PLATFORM_BUILTIN</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>应用来源</label>
+                <select>
+                  <option>手工创建 MANUAL</option>
+                  <option>声明文件装载 MANIFEST</option>
+                  <option>系统内置 BUILTIN</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>应用状态</label>
+                <select>
+                  <option>规划中 PLANNED</option>
+                  <option>开发中 DEVELOPING</option>
+                  <option>内测中 BETA</option>
+                  <option>已上线 ONLINE</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>负责人</label>
+                <input value="平台产品组" />
+              </div>
+              <div class="field">
+                <label>排序</label>
+                <input value="20" />
+              </div>
+              <div class="field full">
+                <label>应用介绍</label>
+                <textarea>用于内部或指定租户的 AI 项目协同、需求拆解、任务跟踪、文档沉淀和 Agent 辅助研发管理。</textarea>
+              </div>
+            </div>
+          </div>
+
+          <div class="wizard-panel" id="create-access">
+            <div class="section-head">
+              <div>
+                <h3>可见范围、开通方式与收费方式</h3>
+                <p class="muted small">可见范围只保留全部租户和指定租户。内部应用不特殊化，只是选择指定租户。</p>
+              </div>
+            </div>
+            <div class="form-grid">
+              <div class="field">
+                <label>可见范围</label>
+                <select>
+                  <option>指定租户 SPECIFIED_TENANTS</option>
+                  <option>全部租户 ALL_TENANTS</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>指定租户</label>
+                <select>
+                  <option>租户 A、租户 B、演示主体</option>
+                  <option>选择租户...</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>开通方式</label>
+                <select>
+                  <option>邀请码 / 平台授权</option>
+                  <option>套餐开通 / 套餐外订阅</option>
+                  <option>试用开通</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>收费方式</label>
+                <select>
+                  <option>免费 FREE</option>
+                  <option>订阅制 SUBSCRIPTION</option>
+                  <option>一次性买断 BUYOUT</option>
+                  <option>按量收费 USAGE_BASED</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>免费试用</label>
+                <select>
+                  <option>不限期</option>
+                  <option>7 天</option>
+                  <option>15 天</option>
+                  <option>30 天</option>
+                  <option>不支持试用</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>试用开始规则</label>
+                <select>
+                  <option>首次安装时开始</option>
+                  <option>首次启用时开始</option>
+                  <option>邀请码接受时开始</option>
+                  <option>平台管理员手动开始</option>
+                </select>
+              </div>
+            </div>
+            <div class="check-grid">
+              <label class="check-card"><input type="checkbox" checked /> 允许进入内部套餐</label>
+              <label class="check-card"><input type="checkbox" /> 允许套餐外订阅</label>
+              <label class="check-card"><input type="checkbox" checked /> 允许邀请码开通</label>
+              <label class="check-card"><input type="checkbox" checked /> 允许平台授权</label>
+              <label class="check-card"><input type="checkbox" /> 允许一次性买断</label>
+              <label class="check-card"><input type="checkbox" /> 启用按量计费</label>
+            </div>
+          </div>
+
+          <div class="wizard-panel" id="create-clients">
+            <div class="section-head">
+              <div>
+                <h3>客户端形态</h3>
+                <p class="muted small">应用可拥有多个客户端。租户能下载或进入客户端，还要经过权益判断。</p>
+              </div>
+              <button class="btn primary" type="button">新增客户端</button>
+            </div>
+            <div class="check-grid">
+              <label class="check-card"><input type="checkbox" checked /> PC Web</label>
+              <label class="check-card"><input type="checkbox" checked /> API Only</label>
+              <label class="check-card"><input type="checkbox" /> H5</label>
+              <label class="check-card"><input type="checkbox" /> iOS</label>
+              <label class="check-card"><input type="checkbox" /> Android</label>
+              <label class="check-card"><input type="checkbox" /> Windows</label>
+              <label class="check-card"><input type="checkbox" /> macOS</label>
+              <label class="check-card"><input type="checkbox" /> 企业微信</label>
+              <label class="check-card"><input type="checkbox" /> 钉钉 / 飞书</label>
+            </div>
+            <div class="inline-list">
+              <div class="inline-row">
+                <input value="PC Web 管理端" />
+                <input value="/ai-projects" />
+                <input value="v0.1.0" />
+                <button class="btn">配置</button>
+              </div>
+              <div class="inline-row">
+                <input value="API Only" />
+                <input value="/api/ai-project/*" />
+                <input value="v1" />
+                <button class="btn">配置</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="wizard-panel" id="create-assets">
+            <div class="section-head">
+              <div>
+                <h3>入口、API 与权限模板</h3>
+                <p class="muted small">创建应用时可先生成草稿入口。后续 Manifest 装载会覆盖或补齐真实资产。</p>
+              </div>
+            </div>
+            <table class="table">
+              <thead><tr><th>资产类型</th><th>编码</th><th>名称</th><th>绑定权限</th><th>状态</th></tr></thead>
+              <tbody>
+                <tr><td>ENTRY</td><td><code>ai-project.dashboard</code></td><td>项目工作台</td><td>ai_project:dashboard:view</td><td>规划中</td></tr>
+                <tr><td>ENTRY</td><td><code>ai-project.requirement</code></td><td>需求管理</td><td>ai_project:req:view</td><td>规划中</td></tr>
+                <tr><td>API</td><td><code>ai-project.query</code></td><td>项目查询 API</td><td>ai_project:api:query</td><td>规划中</td></tr>
+                <tr><td>PERMISSION</td><td><code>ai_project:req:generate</code></td><td>AI 生成需求</td><td>--</td><td>规划中</td></tr>
+              </tbody>
+            </table>
+            <div class="actions" style="margin-top:12px;">
+              <button class="btn">新增入口</button>
+              <button class="btn">新增 API</button>
+              <button class="btn">新增权限点</button>
+              <button class="btn">同步套餐资源草稿</button>
+            </div>
+          </div>
+
+          <div class="wizard-panel" id="create-docs">
+            <div class="section-head">
+              <div>
+                <h3>文档池与初始版本</h3>
+                <p class="muted small">手工创建应用时就要建立知识资产和版本骨架，避免只有菜单没有需求依据。</p>
+              </div>
+            </div>
+            <div class="form-grid">
+              <div class="field">
+                <label>初始版本号</label>
+                <input value="v0.1.0" />
+              </div>
+              <div class="field">
+                <label>版本渠道</label>
+                <select>
+                  <option>开发版 DEV</option>
+                  <option>内测版 INTERNAL_TEST</option>
+                  <option>Beta BETA</option>
+                  <option>正式版 STABLE</option>
+                </select>
+              </div>
+              <div class="field full">
+                <label>初始发布说明</label>
+                <textarea>创建应用草稿，建立基础信息、入口模板、权限模板和文档池。</textarea>
+              </div>
+            </div>
+            <div class="check-grid">
+              <label class="check-card"><input type="checkbox" checked /> 创建需求文档占位</label>
+              <label class="check-card"><input type="checkbox" checked /> 创建技术设计占位</label>
+              <label class="check-card"><input type="checkbox" checked /> 创建 API 文档占位</label>
+              <label class="check-card"><input type="checkbox" checked /> 创建操作手册占位</label>
+              <label class="check-card"><input type="checkbox" /> 导入本地文档</label>
+              <label class="check-card"><input type="checkbox" checked /> 记录 AI 生成来源</label>
+            </div>
+          </div>
+
+          <div class="wizard-panel" id="create-review">
+            <div class="section-head">
+              <div>
+                <h3>确认创建</h3>
+                <p class="muted small">确认后生成应用草稿、客户端草稿、入口/API/权限草稿、文档池和初始版本。不直接发布正式版。</p>
+              </div>
+              <span class="badge amber">草稿</span>
+            </div>
+            <div class="flow">
+              <div class="flow-step"><b>1 应用主档</b><span class="small muted">sys_app + 指定租户可见关系</span></div>
+              <div class="flow-step"><b>2 运行资产</b><span class="small muted">client / entry / api / permission</span></div>
+              <div class="flow-step"><b>3 套餐资源</b><span class="small muted">生成 APP、CLIENT、ENTRY 草稿</span></div>
+              <div class="flow-step"><b>4 知识资产</b><span class="small muted">文档池 + 初始版本</span></div>
+            </div>
+            <div class="empty-note" style="margin-top:12px;">
+              这一步只是静态原型。真实实现时，创建接口需要事务保存这些草稿，并写入应用审计日志。
+            </div>
+          </div>
+        </div>
+
+        <aside class="create-preview">
+          <div class="preview-card">
+            <h3>创建摘要</h3>
+            <ul class="preview-list">
+              <li><span>应用</span><strong>AI 项目管理系统</strong></li>
+              <li><span>app_code</span><strong>ai-project-manager</strong></li>
+              <li><span>可见范围</span><strong>指定租户</strong></li>
+              <li><span>收费方式</span><strong>免费</strong></li>
+              <li><span>试用策略</span><strong>不限期</strong></li>
+              <li><span>客户端</span><strong>PC Web / API</strong></li>
+            </ul>
+          </div>
+          <div class="preview-card">
+            <h3>创建后进入</h3>
+            <ul class="preview-list">
+              <li><span>应用详情</span><strong>概览</strong></li>
+              <li><span>待补配置</span><strong>套餐资源</strong></li>
+              <li><span>待确认</span><strong>文档发布</strong></li>
+              <li><span>下一步</span><strong>Manifest 装载或手工完善</strong></li>
+            </ul>
+          </div>
+        </aside>
+      </div>
+
+      <footer class="drawer-foot">
+        <span class="muted small">建议创建后默认状态为草稿/规划中，避免半成品应用直接对租户可见。</span>
+        <div class="actions">
+          <button class="btn" type="button" id="prev-create-step">上一步</button>
+          <button class="btn" type="button" id="next-create-step">下一步</button>
+          <button class="btn primary" type="button">创建草稿应用</button>
+        </div>
+      </footer>
+    </section>
+  </div>
+
   <script>
     const apps = {
       product: { name: '商品中心', code: 'product-center', status: 'Beta', scope: '全部租户' },
@@ -803,6 +1327,10 @@
     const categoryView = document.getElementById('category-view');
     const detailView = document.getElementById('detail-view');
     const pageTitle = document.getElementById('page-title');
+    const createDrawer = document.getElementById('create-drawer');
+    const createSteps = Array.from(document.querySelectorAll('[data-create-step]'));
+    const createPanels = Array.from(document.querySelectorAll('.wizard-panel'));
+    let currentCreateStep = 0;
 
     function setMainView(name) {
       listView.style.display = name === 'list' ? 'grid' : 'none';
@@ -834,6 +1362,33 @@
     });
 
     document.getElementById('back-list').addEventListener('click', () => setMainView('list'));
+
+    function setCreateStep(index) {
+      currentCreateStep = Math.max(0, Math.min(createSteps.length - 1, index));
+      const step = createSteps[currentCreateStep].dataset.createStep;
+      createSteps.forEach((btn, i) => btn.classList.toggle('is-active', i === currentCreateStep));
+      createPanels.forEach((panel) => panel.classList.toggle('is-active', panel.id === 'create-' + step));
+    }
+
+    document.getElementById('open-create').addEventListener('click', () => {
+      createDrawer.classList.add('is-visible');
+      setCreateStep(0);
+    });
+
+    document.getElementById('close-create').addEventListener('click', () => {
+      createDrawer.classList.remove('is-visible');
+    });
+
+    createDrawer.addEventListener('click', (event) => {
+      if (event.target === createDrawer) createDrawer.classList.remove('is-visible');
+    });
+
+    createSteps.forEach((btn, index) => {
+      btn.addEventListener('click', () => setCreateStep(index));
+    });
+
+    document.getElementById('prev-create-step').addEventListener('click', () => setCreateStep(currentCreateStep - 1));
+    document.getElementById('next-create-step').addEventListener('click', () => setCreateStep(currentCreateStep + 1));
 
     document.querySelectorAll('[data-tab]').forEach((btn) => {
       btn.addEventListener('click', () => {
