@@ -34,7 +34,11 @@ const createStep = ref('basic')
 const createScrollRef = ref<HTMLElement | null>(null)
 const createDraft = ref(newCreateDraft())
 const editAppId = ref<number | null>(null)
+const editAppSnapshot = ref<AppCenterApp | null>(null)
 const editForm = ref<AppCenterUpdatePayload>(newEditForm())
+const editStep = ref('basic')
+const editScrollRef = ref<HTMLElement | null>(null)
+const editDraft = ref(newEditDraft())
 const emptyStats: AppCenterStats = {
   total: 0,
   online: 0,
@@ -137,6 +141,23 @@ const createStepCompletion = computed<Record<string, boolean>>(() => ({
   assets: selectedCreateAssets.value.length > 0,
   docs: Boolean(createDraft.value.version_no.trim() && createDraft.value.release_note.trim() && selectedCreateDocs.value.length > 0),
   review: Boolean(createForm.value.app_code.trim() && createForm.value.app_name.trim()),
+}))
+const selectedEditClients = computed(() => {
+  return editDraft.value.clients.filter((item) => item.checked).map((item) => item.label)
+})
+const selectedEditAssets = computed(() => {
+  return editDraft.value.assets.filter((item) => item.checked).map((item) => item.label)
+})
+const selectedEditDocs = computed(() => {
+  return editDraft.value.docs.filter((item) => item.checked).map((item) => item.label)
+})
+const editStepCompletion = computed<Record<string, boolean>>(() => ({
+  basic: Boolean(editForm.value.app_name.trim()),
+  access: Boolean(editForm.value.visibility_scope && editForm.value.charge_mode && editDraft.value.visibility_mode),
+  clients: selectedEditClients.value.length > 0,
+  assets: selectedEditAssets.value.length > 0,
+  docs: Boolean(String(editForm.value.version || '').trim() && editDraft.value.release_note.trim() && selectedEditDocs.value.length > 0),
+  review: Boolean(editForm.value.app_name.trim()),
 }))
 
 const groupedApps = computed(() => {
@@ -317,6 +338,21 @@ function newCreateDraft() {
   }
 }
 
+function newEditDraft(app?: AppCenterApp | null) {
+  const draft = newCreateDraft()
+  return {
+    ...draft,
+    visibility_mode: app?.visibility_scope === 'GLOBAL' ? 'ALL_TENANTS' : 'SPECIFIED_TENANTS',
+    visible_tenants: app?.visibility_scope === 'GLOBAL' ? '全部租户' : '按租户、套餐或平台授权控制',
+    trial_days: app?.charge_mode === 'FREE' ? '不限期' : '待配置',
+    release_note: app?.version ? `维护 ${app.version} 版本信息，补齐文档、客户端和应用资产配置。` : '维护应用主档、客户端、入口、权限、文档与版本骨架。',
+    clients: draft.clients.map((item) => ({
+      ...item,
+      checked: item.key === 'PC_WEB' || item.key === 'API_ONLY' || (app?.app_type === 'CLIENT_APP' && item.key === 'H5') || (app?.app_type === 'CONNECTOR_APP' && item.key === 'WEWORK_DINGTALK'),
+    })),
+  }
+}
+
 function newEditForm(): AppCenterUpdatePayload {
   return {
     app_name: '',
@@ -396,6 +432,30 @@ function handleCreateScroll() {
   createStep.value = current
 }
 
+async function setEditStep(step: string) {
+  editStep.value = step
+  await nextTick()
+  const target = document.getElementById(`edit-section-${step}`)
+  if (!target || !editScrollRef.value) return
+  editScrollRef.value.scrollTo({
+    top: target.offsetTop - editScrollRef.value.offsetTop,
+    behavior: 'smooth',
+  })
+}
+
+function handleEditScroll() {
+  const container = editScrollRef.value
+  if (!container) return
+  let current = createSteps[0]?.key || 'basic'
+  createSteps.forEach((step) => {
+    const target = document.getElementById(`edit-section-${step.key}`)
+    if (target && target.offsetTop - container.offsetTop - container.scrollTop <= 28) {
+      current = step.key
+    }
+  })
+  editStep.value = current
+}
+
 async function saveCreateDialog() {
   const payload: AppCenterCreatePayload = {
     ...createForm.value,
@@ -427,8 +487,14 @@ async function saveCreateDialog() {
 
 function openEditDialog(app: AppCenterApp) {
   editAppId.value = app.id
+  editAppSnapshot.value = app
   editForm.value = appToEditForm(app)
+  editDraft.value = newEditDraft(app)
+  editStep.value = 'basic'
   editDialogVisible.value = true
+  nextTick(() => {
+    editScrollRef.value?.scrollTo({ top: 0 })
+  })
 }
 
 async function saveEditDialog() {
@@ -444,6 +510,7 @@ async function saveEditDialog() {
     ElMessage.success('应用已更新')
     editDialogVisible.value = false
     await loadApps()
+    editAppSnapshot.value = updated
     detailApp.value = updated
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '更新应用失败')
@@ -969,60 +1036,263 @@ watch(
       title="编辑应用"
       icon="📦"
       size="large"
+      width="1040px"
+      height="86vh"
       :loading="saving"
       :confirm-disabled="saving"
       confirm-text="保存"
       @confirm="saveEditDialog"
     >
-      <div class="app-form">
-        <label>
-          <span>应用名称</span>
-          <input v-model="editForm.app_name" placeholder="请输入应用名称" />
-        </label>
-        <label>
-          <span>应用类型</span>
-          <select v-model="editForm.app_type">
-            <option v-for="item in dictOptions('app_type')" :key="item.value" :value="item.value">
-              {{ item.label }}
-            </option>
-          </select>
-        </label>
-        <label>
-          <span>计费模式</span>
-          <select v-model="editForm.charge_mode">
-            <option v-for="item in dictOptions('app_charge_mode')" :key="item.value" :value="item.value">
-              {{ item.label }}
-            </option>
-          </select>
-        </label>
-        <label>
-          <span>可见范围</span>
-          <select v-model="editForm.visibility_scope">
-            <option v-for="item in dictOptions('app_visibility_scope')" :key="item.value" :value="item.value">
-              {{ item.label }}
-            </option>
-          </select>
-        </label>
-        <label>
-          <span>图标</span>
-          <input v-model="editForm.icon" placeholder="图标名或标识，选填" />
-        </label>
-        <label>
-          <span>负责人</span>
-          <input v-model="editForm.owner" placeholder="负责人，选填" />
-        </label>
-        <label>
-          <span>版本</span>
-          <input v-model="editForm.version" placeholder="例如 0.1.0" />
-        </label>
-        <label>
-          <span>排序</span>
-          <input v-model.number="editForm.sort_order" type="number" min="0" step="1" />
-        </label>
-        <label class="app-form__full">
-          <span>说明</span>
-          <textarea v-model="editForm.description" placeholder="请输入应用说明，选填"></textarea>
-        </label>
+      <div class="app-create-wizard">
+        <aside class="app-create-steps">
+          <button
+            v-for="(step, index) in createSteps"
+            :key="step.key"
+            class="app-create-step"
+            :class="{ 'is-active': editStep === step.key, 'is-complete': editStepCompletion[step.key] }"
+            type="button"
+            @click="setEditStep(step.key)"
+          >
+            <i>{{ editStepCompletion[step.key] ? '✓' : index + 1 }}</i>
+            <span>
+              <strong>{{ step.title }}</strong>
+              <em>{{ step.hint }}</em>
+            </span>
+          </button>
+        </aside>
+
+        <section ref="editScrollRef" class="app-create-body" @scroll="handleEditScroll">
+          <div id="edit-section-basic" class="app-create-panel">
+            <div class="app-create-panel__head">
+              <div>
+                <h3>基础信息</h3>
+                <p>维护应用主档。应用编码由注册或装载阶段生成，编辑时仅展示不修改。</p>
+              </div>
+              <span>保存到主档</span>
+            </div>
+            <div class="app-form">
+              <label>
+                <span>应用编码</span>
+                <input :value="editAppSnapshot?.app_code || '—'" disabled />
+              </label>
+              <label>
+                <span>当前状态</span>
+                <input :value="editAppSnapshot ? labelOf('app_status', editAppSnapshot.status) : '—'" disabled />
+              </label>
+              <label>
+                <span>应用名称</span>
+                <input v-model="editForm.app_name" placeholder="请输入应用名称" />
+              </label>
+              <label>
+                <span>应用类型</span>
+                <select v-model="editForm.app_type">
+                  <option v-for="item in dictOptions('app_type')" :key="item.value" :value="item.value">
+                    {{ item.label }}
+                  </option>
+                </select>
+              </label>
+              <label>
+                <span>负责人</span>
+                <input v-model="editForm.owner" placeholder="负责人，选填" />
+              </label>
+              <label>
+                <span>图标</span>
+                <input v-model="editForm.icon" placeholder="图标名或标识，选填" />
+              </label>
+              <label>
+                <span>排序</span>
+                <input v-model.number="editForm.sort_order" type="number" min="0" step="1" />
+              </label>
+              <label>
+                <span>来源</span>
+                <input :value="editAppSnapshot ? labelOf('app_source', editAppSnapshot.source) : '—'" disabled />
+              </label>
+              <label class="app-form__full">
+                <span>应用介绍</span>
+                <textarea v-model="editForm.description" placeholder="说明应用定位、边界、主要用户和核心能力"></textarea>
+              </label>
+            </div>
+          </div>
+
+          <div id="edit-section-access" class="app-create-panel">
+            <div class="app-create-panel__head">
+              <div>
+                <h3>可见范围、开通与收费</h3>
+                <p>当前可保存可见范围与收费方式；V1 口径先作为编辑草稿，后续接租户可见关系和订阅策略。</p>
+              </div>
+            </div>
+            <div class="app-form">
+              <label>
+                <span>当前后端可见范围</span>
+                <select v-model="editForm.visibility_scope">
+                  <option v-for="item in dictOptions('app_visibility_scope')" :key="item.value" :value="item.value">
+                    {{ item.label }}
+                  </option>
+                </select>
+              </label>
+              <label>
+                <span>V1 可见范围草稿</span>
+                <select v-model="editDraft.visibility_mode">
+                  <option value="ALL_TENANTS">全部租户</option>
+                  <option value="SPECIFIED_TENANTS">指定租户</option>
+                </select>
+              </label>
+              <label class="app-form__full">
+                <span>指定租户草稿</span>
+                <input v-model="editDraft.visible_tenants" placeholder="选择或记录指定租户，后续落库到可见租户关系表" />
+              </label>
+              <label>
+                <span>开通方式草稿</span>
+                <select v-model="editDraft.open_method">
+                  <option value="PACKAGE,DIRECT_SUBSCRIBE">套餐开通 / 套餐外订阅</option>
+                  <option value="INVITE_CODE,ADMIN_GRANT">邀请码 / 平台授权</option>
+                  <option value="TRIAL">免费试用</option>
+                  <option value="BUYOUT">一次性买断</option>
+                </select>
+              </label>
+              <label>
+                <span>收费方式</span>
+                <select v-model="editForm.charge_mode">
+                  <option v-for="item in dictOptions('app_charge_mode')" :key="item.value" :value="item.value">
+                    {{ item.label }}
+                  </option>
+                </select>
+              </label>
+              <label>
+                <span>免费使用时间草稿</span>
+                <select v-model="editDraft.trial_days">
+                  <option>不支持试用</option>
+                  <option>7 天</option>
+                  <option>15 天</option>
+                  <option>30 天</option>
+                  <option>不限期</option>
+                  <option>待配置</option>
+                </select>
+              </label>
+              <label>
+                <span>试用开始规则草稿</span>
+                <select v-model="editDraft.trial_start_rule">
+                  <option>首次安装时开始</option>
+                  <option>首次启用时开始</option>
+                  <option>邀请码接受时开始</option>
+                  <option>平台管理员手动开始</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div id="edit-section-clients" class="app-create-panel">
+            <div class="app-create-panel__head">
+              <div>
+                <h3>客户端草稿</h3>
+                <p>维护应用支持的访问形态。当前先作为 UI 草稿，后续接应用客户端表和租户权益。</p>
+              </div>
+            </div>
+            <div class="app-create-checks">
+              <label v-for="client in editDraft.clients" :key="client.key">
+                <input v-model="client.checked" type="checkbox" />
+                <span>{{ client.label }}</span>
+              </label>
+            </div>
+          </div>
+
+          <div id="edit-section-assets" class="app-create-panel">
+            <div class="app-create-panel__head">
+              <div>
+                <h3>入口、API、权限草稿</h3>
+                <p>编辑应用资产规划，辅助后续 Manifest 装载、菜单权限同步和套餐资源挂载。</p>
+              </div>
+            </div>
+            <div class="app-create-checks">
+              <label v-for="asset in editDraft.assets" :key="asset.key">
+                <input v-model="asset.checked" type="checkbox" />
+                <span>{{ asset.label }}</span>
+              </label>
+            </div>
+            <div class="app-create-note">
+              <strong>保存说明：</strong>
+              <span>当前版本保存主档字段；资产草稿用于明确后续落库与装载边界。</span>
+            </div>
+          </div>
+
+          <div id="edit-section-docs" class="app-create-panel">
+            <div class="app-create-panel__head">
+              <div>
+                <h3>文档池与版本</h3>
+                <p>维护当前版本、发布说明和文档骨架，方便后续接入应用文档池和版本历史。</p>
+              </div>
+            </div>
+            <div class="app-form">
+              <label>
+                <span>版本</span>
+                <input v-model="editForm.version" placeholder="例如 0.1.0" />
+              </label>
+              <label>
+                <span>版本渠道</span>
+                <select v-model="editDraft.release_channel">
+                  <option value="DEV">开发版 DEV</option>
+                  <option value="INTERNAL_TEST">内测版 INTERNAL_TEST</option>
+                  <option value="BETA">Beta BETA</option>
+                  <option value="STABLE">正式版 STABLE</option>
+                </select>
+              </label>
+              <label class="app-form__full">
+                <span>版本说明草稿</span>
+                <textarea v-model="editDraft.release_note" placeholder="记录本次维护原因、版本范围和后续补齐计划"></textarea>
+              </label>
+            </div>
+            <div class="app-create-checks">
+              <label v-for="doc in editDraft.docs" :key="doc.key">
+                <input v-model="doc.checked" type="checkbox" />
+                <span>{{ doc.label }}</span>
+              </label>
+            </div>
+          </div>
+
+          <div id="edit-section-review" class="app-create-panel app-create-panel--review">
+            <div class="app-create-panel__head">
+              <div>
+                <h3>确认保存</h3>
+                <p>保存后会更新应用主档；客户端、资产和文档草稿保留为后续实现范围。</p>
+              </div>
+              <span>主档保存</span>
+            </div>
+            <div class="app-create-review">
+              <div>
+                <span>应用</span>
+                <strong>{{ editForm.app_name || '未填写' }}</strong>
+              </div>
+              <div>
+                <span>app_code</span>
+                <strong>{{ editAppSnapshot?.app_code || '—' }}</strong>
+              </div>
+              <div>
+                <span>可见范围</span>
+                <strong>{{ editDraft.visibility_mode === 'ALL_TENANTS' ? '全部租户' : '指定租户' }}</strong>
+              </div>
+              <div>
+                <span>收费方式</span>
+                <strong>{{ labelOf('app_charge_mode', editForm.charge_mode) }}</strong>
+              </div>
+              <div>
+                <span>客户端草稿</span>
+                <strong>{{ selectedEditClients.join(' / ') || '未选择' }}</strong>
+              </div>
+              <div>
+                <span>资产草稿</span>
+                <strong>{{ selectedEditAssets.length }} 项</strong>
+              </div>
+              <div>
+                <span>文档草稿</span>
+                <strong>{{ selectedEditDocs.length }} 项</strong>
+              </div>
+              <div>
+                <span>版本</span>
+                <strong>{{ editForm.version || '—' }} / {{ editDraft.release_channel }}</strong>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
     </NeuroAgentDialog>
 
