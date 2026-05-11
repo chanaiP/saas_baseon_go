@@ -29,6 +29,8 @@ const saving = ref(false)
 const detailLoading = ref(false)
 const detailApp = ref<AppCenterApp | null>(null)
 const createForm = ref<AppCenterCreatePayload>(newCreateForm())
+const createStep = ref('basic')
+const createDraft = ref(newCreateDraft())
 const editAppId = ref<number | null>(null)
 const editForm = ref<AppCenterUpdatePayload>(newEditForm())
 const emptyStats: AppCenterStats = {
@@ -107,6 +109,26 @@ const statusFilterOptions = computed(() => [
   { label: '规划开发中', value: 'PLANNED,DEVELOPING' },
   ...dictOptions('app_status'),
 ])
+
+const createSteps = [
+  { key: 'basic', title: '基础信息', hint: 'app_code、类型、状态' },
+  { key: 'access', title: '可见与开通', hint: '范围、收费、试用' },
+  { key: 'clients', title: '客户端', hint: 'PC Web、API、移动端' },
+  { key: 'assets', title: '入口/API/权限', hint: '应用资产草稿' },
+  { key: 'docs', title: '文档与版本', hint: '知识资产骨架' },
+  { key: 'review', title: '确认创建', hint: '生成应用主档' },
+]
+
+const createStepIndex = computed(() => createSteps.findIndex((item) => item.key === createStep.value))
+const selectedCreateClients = computed(() => {
+  return createDraft.value.clients.filter((item) => item.checked).map((item) => item.label)
+})
+const selectedCreateAssets = computed(() => {
+  return createDraft.value.assets.filter((item) => item.checked).map((item) => item.label)
+})
+const selectedCreateDocs = computed(() => {
+  return createDraft.value.docs.filter((item) => item.checked).map((item) => item.label)
+})
 
 const groupedApps = computed(() => {
   const order = new Map(dictOptions('app_type').map((item, index) => [item.value, index]))
@@ -245,6 +267,47 @@ function newCreateForm(): AppCenterCreatePayload {
   }
 }
 
+function newCreateDraft() {
+  return {
+    app_position: 'BUSINESS_SCENARIO',
+    visibility_mode: 'SPECIFIED_TENANTS',
+    visible_tenants: '租户 A、租户 B、演示主体',
+    open_method: 'INVITE_CODE,ADMIN_GRANT',
+    trial_days: '不限期',
+    trial_start_rule: '首次安装时开始',
+    clients: [
+      { key: 'PC_WEB', label: 'PC Web', checked: true },
+      { key: 'API_ONLY', label: 'API Only', checked: true },
+      { key: 'H5', label: 'H5', checked: false },
+      { key: 'IOS', label: 'iOS', checked: false },
+      { key: 'ANDROID', label: 'Android', checked: false },
+      { key: 'WINDOWS', label: 'Windows', checked: false },
+      { key: 'MACOS', label: 'macOS', checked: false },
+      { key: 'MINIAPP', label: '小程序', checked: false },
+      { key: 'WEWORK_DINGTALK', label: '企微 / 钉钉 / 飞书', checked: false },
+    ],
+    assets: [
+      { key: 'entry_dashboard', label: '创建应用工作台入口', checked: true },
+      { key: 'entry_manage', label: '创建管理列表入口', checked: true },
+      { key: 'api_query', label: '创建查询 API 草稿', checked: true },
+      { key: 'permission_view', label: '创建查看权限点', checked: true },
+      { key: 'permission_manage', label: '创建管理权限点', checked: false },
+      { key: 'package_resource', label: '生成套餐资源草稿', checked: true },
+    ],
+    version_no: '0.1.0',
+    release_channel: 'DEV',
+    release_note: '创建应用草稿，建立基础信息、客户端、入口、权限、文档与初始版本骨架。',
+    docs: [
+      { key: 'prd', label: '需求文档占位', checked: true },
+      { key: 'design', label: '技术设计占位', checked: true },
+      { key: 'api_doc', label: 'API 文档占位', checked: true },
+      { key: 'manual', label: '操作手册占位', checked: true },
+      { key: 'ai_trace', label: 'AI 生成来源记录', checked: true },
+      { key: 'release_note', label: '版本发布说明', checked: true },
+    ],
+  }
+}
+
 function newEditForm(): AppCenterUpdatePayload {
   return {
     app_name: '',
@@ -292,7 +355,23 @@ function normalizeUpdatePayload(value: AppCenterUpdatePayload): AppCenterUpdateP
 
 function openCreateDialog() {
   createForm.value = newCreateForm()
+  createDraft.value = newCreateDraft()
+  createStep.value = 'basic'
   createDialogVisible.value = true
+}
+
+function setCreateStep(step: string) {
+  createStep.value = step
+}
+
+function previousCreateStep() {
+  const nextIndex = Math.max(0, createStepIndex.value - 1)
+  createStep.value = createSteps[nextIndex]?.key || 'basic'
+}
+
+function nextCreateStep() {
+  const nextIndex = Math.min(createSteps.length - 1, createStepIndex.value + 1)
+  createStep.value = createSteps[nextIndex]?.key || 'review'
 }
 
 async function saveCreateDialog() {
@@ -302,7 +381,7 @@ async function saveCreateDialog() {
     app_name: createForm.value.app_name.trim(),
     icon: trimNullable(createForm.value.icon),
     owner: trimNullable(createForm.value.owner),
-    version: trimNullable(createForm.value.version),
+    version: trimNullable(createDraft.value.version_no) || trimNullable(createForm.value.version),
     description: trimNullable(createForm.value.description),
     sort_order: Number(createForm.value.sort_order || 0),
   }
@@ -599,70 +678,273 @@ watch(
       size="large"
       :loading="saving"
       :confirm-disabled="saving"
-      confirm-text="保存"
+      confirm-text="创建应用主档"
       @confirm="saveCreateDialog"
     >
-      <div class="app-form">
-        <label>
-          <span>应用编码</span>
-          <input v-model="createForm.app_code" placeholder="例如 crm-suite，只允许小写字母、数字、中横线" />
-        </label>
-        <label>
-          <span>应用名称</span>
-          <input v-model="createForm.app_name" placeholder="请输入应用名称" />
-        </label>
-        <label>
-          <span>应用类型</span>
-          <select v-model="createForm.app_type">
-            <option v-for="item in dictOptions('app_type')" :key="item.value" :value="item.value">
-              {{ item.label }}
-            </option>
-          </select>
-        </label>
-        <label>
-          <span>状态</span>
-          <select v-model="createForm.status">
-            <option v-for="item in dictOptions('app_status')" :key="item.value" :value="item.value">
-              {{ item.label }}
-            </option>
-          </select>
-        </label>
-        <label>
-          <span>计费模式</span>
-          <select v-model="createForm.charge_mode">
-            <option v-for="item in dictOptions('app_charge_mode')" :key="item.value" :value="item.value">
-              {{ item.label }}
-            </option>
-          </select>
-        </label>
-        <label>
-          <span>可见范围</span>
-          <select v-model="createForm.visibility_scope">
-            <option v-for="item in dictOptions('app_visibility_scope')" :key="item.value" :value="item.value">
-              {{ item.label }}
-            </option>
-          </select>
-        </label>
-        <label>
-          <span>图标</span>
-          <input v-model="createForm.icon" placeholder="图标名或标识，选填" />
-        </label>
-        <label>
-          <span>负责人</span>
-          <input v-model="createForm.owner" placeholder="负责人，选填" />
-        </label>
-        <label>
-          <span>版本</span>
-          <input v-model="createForm.version" placeholder="例如 0.1.0" />
-        </label>
-        <label>
-          <span>排序</span>
-          <input v-model.number="createForm.sort_order" type="number" min="0" step="1" />
-        </label>
-        <label class="app-form__full">
-          <span>说明</span>
-          <textarea v-model="createForm.description" placeholder="请输入应用说明，选填"></textarea>
-        </label>
+      <div class="app-create-wizard">
+        <aside class="app-create-steps">
+          <button
+            v-for="(step, index) in createSteps"
+            :key="step.key"
+            class="app-create-step"
+            :class="{ 'is-active': createStep === step.key }"
+            type="button"
+            @click="setCreateStep(step.key)"
+          >
+            <i>{{ index + 1 }}</i>
+            <span>
+              <strong>{{ step.title }}</strong>
+              <em>{{ step.hint }}</em>
+            </span>
+          </button>
+        </aside>
+
+        <section class="app-create-body">
+          <div v-if="createStep === 'basic'" class="app-create-panel">
+            <div class="app-create-panel__head">
+              <div>
+                <h3>基础信息</h3>
+                <p>创建应用主档，明确应用长期身份。应用编码创建后不建议修改。</p>
+              </div>
+              <span>必填</span>
+            </div>
+            <div class="app-form">
+              <label>
+                <span>应用编码</span>
+                <input v-model="createForm.app_code" placeholder="例如 ai-project-manager，只允许小写字母、数字、中横线" />
+              </label>
+              <label>
+                <span>应用名称</span>
+                <input v-model="createForm.app_name" placeholder="请输入应用名称" />
+              </label>
+              <label>
+                <span>应用类型</span>
+                <select v-model="createForm.app_type">
+                  <option v-for="item in dictOptions('app_type')" :key="item.value" :value="item.value">
+                    {{ item.label }}
+                  </option>
+                </select>
+              </label>
+              <label>
+                <span>应用定位</span>
+                <select v-model="createDraft.app_position">
+                  <option value="PLATFORM_BUILTIN">平台内置</option>
+                  <option value="COMMON_CAPABILITY">公共能力 / 业务中台</option>
+                  <option value="BUSINESS_SCENARIO">业务场景</option>
+                  <option value="AI_AGENT">AI / Agent</option>
+                  <option value="INTEGRATION_CONNECTOR">集成连接</option>
+                </select>
+              </label>
+              <label>
+                <span>状态</span>
+                <select v-model="createForm.status">
+                  <option v-for="item in dictOptions('app_status')" :key="item.value" :value="item.value">
+                    {{ item.label }}
+                  </option>
+                </select>
+              </label>
+              <label>
+                <span>负责人</span>
+                <input v-model="createForm.owner" placeholder="负责人，选填" />
+              </label>
+              <label>
+                <span>图标</span>
+                <input v-model="createForm.icon" placeholder="图标名或标识，选填" />
+              </label>
+              <label>
+                <span>排序</span>
+                <input v-model.number="createForm.sort_order" type="number" min="0" step="1" />
+              </label>
+              <label class="app-form__full">
+                <span>应用介绍</span>
+                <textarea v-model="createForm.description" placeholder="说明应用定位、边界、主要用户和核心能力"></textarea>
+              </label>
+            </div>
+          </div>
+
+          <div v-else-if="createStep === 'access'" class="app-create-panel">
+            <div class="app-create-panel__head">
+              <div>
+                <h3>可见范围、开通与收费</h3>
+                <p>可见范围最终只分为全部租户和指定租户。当前主档保存仍兼容现有后端可见范围字段。</p>
+              </div>
+            </div>
+            <div class="app-form">
+              <label>
+                <span>当前后端可见范围</span>
+                <select v-model="createForm.visibility_scope">
+                  <option v-for="item in dictOptions('app_visibility_scope')" :key="item.value" :value="item.value">
+                    {{ item.label }}
+                  </option>
+                </select>
+              </label>
+              <label>
+                <span>V1 可见范围草稿</span>
+                <select v-model="createDraft.visibility_mode">
+                  <option value="ALL_TENANTS">全部租户</option>
+                  <option value="SPECIFIED_TENANTS">指定租户</option>
+                </select>
+              </label>
+              <label class="app-form__full">
+                <span>指定租户草稿</span>
+                <input v-model="createDraft.visible_tenants" placeholder="选择或记录指定租户，后续落库到可见租户关系表" />
+              </label>
+              <label>
+                <span>开通方式草稿</span>
+                <select v-model="createDraft.open_method">
+                  <option value="PACKAGE,DIRECT_SUBSCRIBE">套餐开通 / 套餐外订阅</option>
+                  <option value="INVITE_CODE,ADMIN_GRANT">邀请码 / 平台授权</option>
+                  <option value="TRIAL">免费试用</option>
+                  <option value="BUYOUT">一次性买断</option>
+                </select>
+              </label>
+              <label>
+                <span>收费方式</span>
+                <select v-model="createForm.charge_mode">
+                  <option v-for="item in dictOptions('app_charge_mode')" :key="item.value" :value="item.value">
+                    {{ item.label }}
+                  </option>
+                </select>
+              </label>
+              <label>
+                <span>免费使用时间草稿</span>
+                <select v-model="createDraft.trial_days">
+                  <option>不支持试用</option>
+                  <option>7 天</option>
+                  <option>15 天</option>
+                  <option>30 天</option>
+                  <option>不限期</option>
+                </select>
+              </label>
+              <label>
+                <span>试用开始规则草稿</span>
+                <select v-model="createDraft.trial_start_rule">
+                  <option>首次安装时开始</option>
+                  <option>首次启用时开始</option>
+                  <option>邀请码接受时开始</option>
+                  <option>平台管理员手动开始</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div v-else-if="createStep === 'clients'" class="app-create-panel">
+            <div class="app-create-panel__head">
+              <div>
+                <h3>客户端草稿</h3>
+                <p>先明确应用支持的客户端形态。后续实现会保存到应用客户端表，并和租户权益联动。</p>
+              </div>
+            </div>
+            <div class="app-create-checks">
+              <label v-for="client in createDraft.clients" :key="client.key">
+                <input v-model="client.checked" type="checkbox" />
+                <span>{{ client.label }}</span>
+              </label>
+            </div>
+          </div>
+
+          <div v-else-if="createStep === 'assets'" class="app-create-panel">
+            <div class="app-create-panel__head">
+              <div>
+                <h3>入口、API、权限草稿</h3>
+                <p>手工创建阶段先生成资产草稿。真实代码应用后续通过 Manifest 装载补齐。</p>
+              </div>
+            </div>
+            <div class="app-create-checks">
+              <label v-for="asset in createDraft.assets" :key="asset.key">
+                <input v-model="asset.checked" type="checkbox" />
+                <span>{{ asset.label }}</span>
+              </label>
+            </div>
+            <div class="app-create-note">
+              <strong>建议默认生成：</strong>
+              <span>应用访问权限、PC Web 工作台入口、查询 API 草稿和套餐资源草稿。</span>
+            </div>
+          </div>
+
+          <div v-else-if="createStep === 'docs'" class="app-create-panel">
+            <div class="app-create-panel__head">
+              <div>
+                <h3>文档池与初始版本</h3>
+                <p>创建应用时就建立知识资产骨架，避免只有菜单没有需求和设计依据。</p>
+              </div>
+            </div>
+            <div class="app-form">
+              <label>
+                <span>初始版本</span>
+                <input v-model="createDraft.version_no" placeholder="例如 0.1.0" />
+              </label>
+              <label>
+                <span>版本渠道</span>
+                <select v-model="createDraft.release_channel">
+                  <option value="DEV">开发版 DEV</option>
+                  <option value="INTERNAL_TEST">内测版 INTERNAL_TEST</option>
+                  <option value="BETA">Beta BETA</option>
+                  <option value="STABLE">正式版 STABLE</option>
+                </select>
+              </label>
+              <label class="app-form__full">
+                <span>初始发布说明</span>
+                <textarea v-model="createDraft.release_note" placeholder="记录创建原因、初始范围和后续补齐计划"></textarea>
+              </label>
+            </div>
+            <div class="app-create-checks">
+              <label v-for="doc in createDraft.docs" :key="doc.key">
+                <input v-model="doc.checked" type="checkbox" />
+                <span>{{ doc.label }}</span>
+              </label>
+            </div>
+          </div>
+
+          <div v-else class="app-create-panel">
+            <div class="app-create-panel__head">
+              <div>
+                <h3>确认创建</h3>
+                <p>确认后当前版本先保存应用主档，其他应用资产作为后续实现和详情页完善项。</p>
+              </div>
+              <span>草稿</span>
+            </div>
+            <div class="app-create-review">
+              <div>
+                <span>应用</span>
+                <strong>{{ createForm.app_name || '未填写' }}</strong>
+              </div>
+              <div>
+                <span>app_code</span>
+                <strong>{{ createForm.app_code || '未填写' }}</strong>
+              </div>
+              <div>
+                <span>可见范围</span>
+                <strong>{{ createDraft.visibility_mode === 'ALL_TENANTS' ? '全部租户' : '指定租户' }}</strong>
+              </div>
+              <div>
+                <span>收费方式</span>
+                <strong>{{ labelOf('app_charge_mode', createForm.charge_mode) }}</strong>
+              </div>
+              <div>
+                <span>客户端草稿</span>
+                <strong>{{ selectedCreateClients.join(' / ') || '未选择' }}</strong>
+              </div>
+              <div>
+                <span>资产草稿</span>
+                <strong>{{ selectedCreateAssets.length }} 项</strong>
+              </div>
+              <div>
+                <span>文档草稿</span>
+                <strong>{{ selectedCreateDocs.length }} 项</strong>
+              </div>
+              <div>
+                <span>初始版本</span>
+                <strong>{{ createDraft.version_no }} / {{ createDraft.release_channel }}</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="app-create-footer">
+            <button class="app-btn" type="button" :disabled="createStepIndex <= 0" @click="previousCreateStep">上一步</button>
+            <button class="app-btn app-btn--primary" type="button" :disabled="createStepIndex >= createSteps.length - 1" @click="nextCreateStep">下一步</button>
+          </div>
+        </section>
       </div>
     </NeuroAgentDialog>
 
@@ -1243,6 +1525,202 @@ watch(
   color: var(--neuro-text);
 }
 
+.app-create-wizard {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 18px;
+  align-items: flex-start;
+}
+
+.app-create-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.app-create-step {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--neuro-border) 76%, transparent);
+  border-radius: var(--neuro-radius-sm);
+  background: color-mix(in srgb, var(--neuro-surface) 86%, transparent);
+  color: var(--neuro-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.app-create-step i {
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--neuro-primary) 14%, transparent);
+  color: var(--neuro-primary);
+  font-style: normal;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.app-create-step strong,
+.app-create-step em {
+  display: block;
+  min-width: 0;
+}
+
+.app-create-step strong {
+  margin-bottom: 3px;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.app-create-step em {
+  color: var(--neuro-text-secondary);
+  font-style: normal;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.app-create-step.is-active {
+  border-color: color-mix(in srgb, var(--neuro-primary) 58%, transparent);
+  background: color-mix(in srgb, var(--neuro-primary) 12%, var(--neuro-surface));
+  box-shadow: 0 10px 26px color-mix(in srgb, var(--neuro-primary) 12%, transparent);
+}
+
+.app-create-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.app-create-panel {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.app-create-panel__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.app-create-panel__head h3 {
+  margin: 0 0 5px;
+  color: var(--neuro-text);
+  font-size: 18px;
+  line-height: 1.3;
+}
+
+.app-create-panel__head p {
+  margin: 0;
+  color: var(--neuro-text-secondary);
+  line-height: 1.65;
+}
+
+.app-create-panel__head > span {
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--neuro-primary) 14%, transparent);
+  color: var(--neuro-primary);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.app-create-checks {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.app-create-checks label {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--neuro-border) 80%, transparent);
+  border-radius: var(--neuro-radius-sm);
+  background: color-mix(in srgb, var(--neuro-surface) 88%, transparent);
+  color: var(--neuro-text);
+  font-weight: 800;
+}
+
+.app-create-checks input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--neuro-primary);
+}
+
+.app-create-checks span {
+  min-width: 0;
+  line-height: 1.4;
+}
+
+.app-create-note {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--neuro-primary) 24%, transparent);
+  border-radius: var(--neuro-radius-sm);
+  background: color-mix(in srgb, var(--neuro-primary) 8%, transparent);
+  color: var(--neuro-text-secondary);
+  line-height: 1.6;
+}
+
+.app-create-note strong {
+  flex: 0 0 auto;
+  color: var(--neuro-text);
+}
+
+.app-create-review {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.app-create-review > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--neuro-border) 80%, transparent);
+  border-radius: var(--neuro-radius-sm);
+  background: color-mix(in srgb, var(--neuro-surface) 88%, transparent);
+}
+
+.app-create-review span {
+  color: var(--neuro-text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.app-create-review strong {
+  min-width: 0;
+  color: var(--neuro-text);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.app-create-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 2px;
+}
+
 .app-form {
   width: 100%;
   display: grid;
@@ -1369,6 +1847,19 @@ watch(
   .app-card__metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .app-create-wizard {
+    grid-template-columns: 1fr;
+  }
+
+  .app-create-steps {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .app-create-checks {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
@@ -1405,6 +1896,17 @@ watch(
 
   .app-form {
     grid-template-columns: 1fr;
+  }
+
+  .app-create-steps,
+  .app-create-checks,
+  .app-create-review {
+    grid-template-columns: 1fr;
+  }
+
+  .app-create-panel__head,
+  .app-create-note {
+    flex-direction: column;
   }
 }
 </style>
