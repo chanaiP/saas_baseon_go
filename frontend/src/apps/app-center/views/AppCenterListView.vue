@@ -7,6 +7,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { fetchDictItemsByCode, type DictItemRow } from '@/api/dict'
+import { formatDateTimeChina } from '@/utils/datetime'
 import NeuroAgentDialog from '@/views/components/NeuroAgentDialog.vue'
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
@@ -1033,34 +1034,117 @@ watch(
       title="应用详情"
       icon="📦"
       size="large"
+      width="1040px"
+      height="86vh"
       :loading="detailLoading"
       :show-confirm="false"
       cancel-text="关闭"
     >
       <div v-if="detailApp" class="app-detail">
-        <div class="app-detail__head">
-          <div class="app-card__icon">
-            <el-icon :size="24"><component :is="iconFor(detailApp)" /></el-icon>
+        <section class="app-detail-hero">
+          <div class="app-detail-hero__main">
+            <div class="app-card__icon">
+              <el-icon :size="24"><component :is="iconFor(detailApp)" /></el-icon>
+            </div>
+            <div>
+              <h3>{{ detailApp.app_name }}</h3>
+              <code>{{ detailApp.app_code }}</code>
+              <p>{{ detailApp.description || '暂无应用说明，可在编辑应用中补充业务定位、边界与主要使用人群。' }}</p>
+            </div>
           </div>
-          <div>
-            <h3>{{ detailApp.app_name }}</h3>
-            <code>{{ detailApp.app_code }}</code>
+          <div class="app-detail-hero__meta">
+            <span class="app-status" :class="statusClass(detailApp.status)">
+              {{ labelOf('app_status', detailApp.status) }}
+            </span>
+            <strong>{{ labelOf('app_type', detailApp.app_type) }}</strong>
+            <span>{{ labelOf('app_source', detailApp.source) }}</span>
           </div>
-          <span class="app-status" :class="statusClass(detailApp.status)">
-            {{ labelOf('app_status', detailApp.status) }}
-          </span>
-        </div>
-        <div class="app-detail__grid">
-          <span>应用类型</span><strong>{{ labelOf('app_type', detailApp.app_type) }}</strong>
-          <span>来源</span><strong>{{ labelOf('app_source', detailApp.source) }}</strong>
-          <span>计费模式</span><strong>{{ labelOf('app_charge_mode', detailApp.charge_mode) }}</strong>
-          <span>可见范围</span><strong>{{ labelOf('app_visibility_scope', detailApp.visibility_scope) }}</strong>
-          <span>负责人</span><strong>{{ detailApp.owner || '—' }}</strong>
-          <span>版本</span><strong>{{ detailApp.version || '—' }}</strong>
-          <span>排序</span><strong>{{ detailApp.sort_order }}</strong>
-          <span>内置应用</span><strong>{{ detailApp.is_builtin ? '是' : '否' }}</strong>
-        </div>
-        <p class="app-detail__desc">{{ detailApp.description || '暂无说明' }}</p>
+        </section>
+
+        <section class="app-detail-section">
+          <div class="app-detail-section__head">
+            <h4>应用主档</h4>
+            <span>基础身份</span>
+          </div>
+          <div class="app-detail-fields">
+            <div><span>应用编码</span><strong>{{ detailApp.app_code }}</strong></div>
+            <div><span>应用名称</span><strong>{{ detailApp.app_name }}</strong></div>
+            <div><span>应用类型</span><strong>{{ labelOf('app_type', detailApp.app_type) }}</strong></div>
+            <div><span>来源</span><strong>{{ labelOf('app_source', detailApp.source) }}</strong></div>
+            <div><span>负责人</span><strong>{{ detailApp.owner || '—' }}</strong></div>
+            <div><span>版本</span><strong>{{ detailApp.version || '—' }}</strong></div>
+            <div><span>排序</span><strong>{{ detailApp.sort_order }}</strong></div>
+            <div><span>内置应用</span><strong>{{ detailApp.is_builtin ? '是' : '否' }}</strong></div>
+          </div>
+        </section>
+
+        <section class="app-detail-section">
+          <div class="app-detail-section__head">
+            <h4>可见、开通与收费</h4>
+            <span>租户权益</span>
+          </div>
+          <div class="app-detail-fields">
+            <div><span>当前可见范围</span><strong>{{ labelOf('app_visibility_scope', detailApp.visibility_scope) }}</strong></div>
+            <div><span>V1 可见口径</span><strong>{{ detailApp.visibility_scope === 'GLOBAL' ? '全部租户' : '指定租户 / 平台控制' }}</strong></div>
+            <div><span>收费方式</span><strong>{{ labelOf('app_charge_mode', detailApp.charge_mode) }}</strong></div>
+            <div><span>平台专属</span><strong>{{ detailApp.is_platform_only ? '是' : '否' }}</strong></div>
+            <div><span>开通方式</span><strong>套餐开通 / 平台授权 / 试用邀请</strong></div>
+            <div><span>免费试用</span><strong>{{ detailApp.charge_mode === 'FREE' ? '不限期' : '待配置' }}</strong></div>
+          </div>
+        </section>
+
+        <section class="app-detail-section">
+          <div class="app-detail-section__head">
+            <h4>客户端</h4>
+            <span>访问形态</span>
+          </div>
+          <div class="app-detail-tags">
+            <span>PC Web</span>
+            <span>API Only</span>
+            <span :class="{ 'is-muted': detailApp.app_type !== 'CLIENT_APP' }">H5 / 移动端待配置</span>
+            <span :class="{ 'is-muted': detailApp.app_type !== 'CONNECTOR_APP' }">企微 / 钉钉 / 飞书待配置</span>
+          </div>
+        </section>
+
+        <section class="app-detail-section">
+          <div class="app-detail-section__head">
+            <h4>入口、API 与权限</h4>
+            <span>应用资产</span>
+          </div>
+          <div class="app-detail-assets">
+            <div>
+              <strong>入口</strong>
+              <span>工作台入口、管理列表入口、详情入口</span>
+            </div>
+            <div>
+              <strong>API</strong>
+              <span>查询 API 草稿、状态控制 API、主档维护 API</span>
+            </div>
+            <div>
+              <strong>权限</strong>
+              <span>查看应用、创建应用、编辑应用、启停应用</span>
+            </div>
+            <div>
+              <strong>套餐资源</strong>
+              <span>基础访问能力、客户端能力、试用与开通能力待落库</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="app-detail-section">
+          <div class="app-detail-section__head">
+            <h4>文档、版本与审计</h4>
+            <span>治理信息</span>
+          </div>
+          <div class="app-detail-fields">
+            <div><span>需求文档</span><strong>待接入文档池</strong></div>
+            <div><span>技术设计</span><strong>待接入文档池</strong></div>
+            <div><span>操作手册</span><strong>待接入文档池</strong></div>
+            <div><span>AI 生成记录</span><strong>待接入审计链路</strong></div>
+            <div><span>创建时间</span><strong>{{ formatDateTimeChina(detailApp.created_at) }}</strong></div>
+            <div><span>更新时间</span><strong>{{ formatDateTimeChina(detailApp.updated_at) }}</strong></div>
+          </div>
+        </section>
       </div>
     </NeuroAgentDialog>
   </NeuroAgentPageShell>
@@ -1836,47 +1920,168 @@ watch(
 .app-detail {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
+  height: calc(86vh - 150px);
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 8px;
 }
 
-.app-detail__head {
+.app-detail::-webkit-scrollbar {
+  width: 8px;
+}
+
+.app-detail::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.app-detail::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--neuro-border) 80%, transparent);
+}
+
+.app-detail-hero {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 18px;
+  padding: 20px;
+  border: 1px solid color-mix(in srgb, var(--neuro-primary) 24%, transparent);
+  border-radius: var(--neuro-radius-md);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--neuro-primary) 10%, transparent), transparent 38%),
+    color-mix(in srgb, var(--neuro-surface) 92%, transparent);
 }
 
-.app-detail__head h3 {
-  margin: 0 0 4px;
+.app-detail-hero__main {
+  min-width: 0;
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.app-detail-hero h3 {
+  margin: 0 0 5px;
   color: var(--neuro-text);
+  font-size: 22px;
+  line-height: 1.25;
 }
 
-.app-detail__head code,
-.app-detail__desc {
+.app-detail-hero code,
+.app-detail-hero p,
+.app-detail-hero__meta span {
   color: var(--neuro-text-secondary);
 }
 
-.app-detail__grid {
-  display: grid;
-  grid-template-columns: 120px minmax(0, 1fr);
-  gap: 10px 14px;
-  padding: 14px;
+.app-detail-hero p {
+  max-width: 640px;
+  margin: 10px 0 0;
+  line-height: 1.7;
+}
+
+.app-detail-hero__meta {
+  flex: 0 0 150px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  text-align: right;
+}
+
+.app-detail-hero__meta strong {
+  color: var(--neuro-text);
+}
+
+.app-detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
   border: 1px solid color-mix(in srgb, var(--neuro-border) 80%, transparent);
   border-radius: var(--neuro-radius-md);
-  background: color-mix(in srgb, var(--neuro-surface) 82%, transparent);
+  background: color-mix(in srgb, var(--neuro-surface) 90%, transparent);
 }
 
-.app-detail__grid span {
+.app-detail-section__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.app-detail-section__head h4 {
+  margin: 0;
+  color: var(--neuro-text);
+  font-size: 16px;
+}
+
+.app-detail-section__head > span {
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--neuro-primary) 10%, transparent);
+  color: var(--neuro-primary);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.app-detail-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.app-detail-fields > div,
+.app-detail-assets > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--neuro-border) 72%, transparent);
+  border-radius: var(--neuro-radius-sm);
+  background: color-mix(in srgb, var(--neuro-surface) 84%, transparent);
+}
+
+.app-detail-fields span,
+.app-detail-assets span {
+  color: var(--neuro-text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.app-detail-fields strong,
+.app-detail-assets strong {
+  min-width: 0;
+  color: var(--neuro-text);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.app-detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.app-detail-tags span {
+  padding: 8px 11px;
+  border: 1px solid color-mix(in srgb, var(--neuro-primary) 22%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--neuro-primary) 8%, transparent);
+  color: var(--neuro-text);
+  font-weight: 800;
+}
+
+.app-detail-tags span.is-muted {
+  border-color: color-mix(in srgb, var(--neuro-border) 76%, transparent);
+  background: color-mix(in srgb, var(--neuro-surface) 78%, transparent);
   color: var(--neuro-text-secondary);
 }
 
-.app-detail__grid strong {
-  min-width: 0;
-  color: var(--neuro-text);
-}
-
-.app-detail__desc {
-  margin: 0;
-  line-height: 1.7;
+.app-detail-assets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
 @media (max-width: 980px) {
@@ -1965,6 +2170,23 @@ watch(
   .app-create-panel__head,
   .app-create-note {
     flex-direction: column;
+  }
+
+  .app-detail-hero,
+  .app-detail-section__head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .app-detail-hero__meta {
+    flex: 0 0 auto;
+    align-items: flex-start;
+    text-align: left;
+  }
+
+  .app-detail-fields,
+  .app-detail-assets {
+    grid-template-columns: 1fr;
   }
 }
 </style>
