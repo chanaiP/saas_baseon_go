@@ -3,7 +3,7 @@ defineOptions({ name: 'AppCenterListView' })
 
 import { Box, Grid, Monitor, Plus, Refresh, Search, Setting } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { fetchDictItemsByCode, type DictItemRow } from '@/api/dict'
@@ -30,6 +30,7 @@ const detailLoading = ref(false)
 const detailApp = ref<AppCenterApp | null>(null)
 const createForm = ref<AppCenterCreatePayload>(newCreateForm())
 const createStep = ref('basic')
+const createScrollRef = ref<HTMLElement | null>(null)
 const createDraft = ref(newCreateDraft())
 const editAppId = ref<number | null>(null)
 const editForm = ref<AppCenterUpdatePayload>(newEditForm())
@@ -119,7 +120,6 @@ const createSteps = [
   { key: 'review', title: '确认创建', hint: '生成应用主档' },
 ]
 
-const createStepIndex = computed(() => createSteps.findIndex((item) => item.key === createStep.value))
 const selectedCreateClients = computed(() => {
   return createDraft.value.clients.filter((item) => item.checked).map((item) => item.label)
 })
@@ -129,6 +129,14 @@ const selectedCreateAssets = computed(() => {
 const selectedCreateDocs = computed(() => {
   return createDraft.value.docs.filter((item) => item.checked).map((item) => item.label)
 })
+const createStepCompletion = computed<Record<string, boolean>>(() => ({
+  basic: Boolean(createForm.value.app_code.trim() && createForm.value.app_name.trim()),
+  access: Boolean(createForm.value.visibility_scope && createForm.value.charge_mode && createDraft.value.visibility_mode),
+  clients: selectedCreateClients.value.length > 0,
+  assets: selectedCreateAssets.value.length > 0,
+  docs: Boolean(createDraft.value.version_no.trim() && createDraft.value.release_note.trim() && selectedCreateDocs.value.length > 0),
+  review: Boolean(createForm.value.app_code.trim() && createForm.value.app_name.trim()),
+}))
 
 const groupedApps = computed(() => {
   const order = new Map(dictOptions('app_type').map((item, index) => [item.value, index]))
@@ -358,20 +366,33 @@ function openCreateDialog() {
   createDraft.value = newCreateDraft()
   createStep.value = 'basic'
   createDialogVisible.value = true
+  nextTick(() => {
+    createScrollRef.value?.scrollTo({ top: 0 })
+  })
 }
 
-function setCreateStep(step: string) {
+async function setCreateStep(step: string) {
   createStep.value = step
+  await nextTick()
+  const target = document.getElementById(`create-section-${step}`)
+  if (!target || !createScrollRef.value) return
+  createScrollRef.value.scrollTo({
+    top: target.offsetTop - createScrollRef.value.offsetTop,
+    behavior: 'smooth',
+  })
 }
 
-function previousCreateStep() {
-  const nextIndex = Math.max(0, createStepIndex.value - 1)
-  createStep.value = createSteps[nextIndex]?.key || 'basic'
-}
-
-function nextCreateStep() {
-  const nextIndex = Math.min(createSteps.length - 1, createStepIndex.value + 1)
-  createStep.value = createSteps[nextIndex]?.key || 'review'
+function handleCreateScroll() {
+  const container = createScrollRef.value
+  if (!container) return
+  let current = createSteps[0]?.key || 'basic'
+  createSteps.forEach((step) => {
+    const target = document.getElementById(`create-section-${step.key}`)
+    if (target && target.offsetTop - container.offsetTop - container.scrollTop <= 28) {
+      current = step.key
+    }
+  })
+  createStep.value = current
 }
 
 async function saveCreateDialog() {
@@ -676,6 +697,8 @@ watch(
       title="新增应用"
       icon="📦"
       size="large"
+      width="1040px"
+      height="86vh"
       :loading="saving"
       :confirm-disabled="saving"
       confirm-text="创建应用主档"
@@ -687,11 +710,11 @@ watch(
             v-for="(step, index) in createSteps"
             :key="step.key"
             class="app-create-step"
-            :class="{ 'is-active': createStep === step.key }"
+            :class="{ 'is-active': createStep === step.key, 'is-complete': createStepCompletion[step.key] }"
             type="button"
             @click="setCreateStep(step.key)"
           >
-            <i>{{ index + 1 }}</i>
+            <i>{{ createStepCompletion[step.key] ? '✓' : index + 1 }}</i>
             <span>
               <strong>{{ step.title }}</strong>
               <em>{{ step.hint }}</em>
@@ -699,8 +722,8 @@ watch(
           </button>
         </aside>
 
-        <section class="app-create-body">
-          <div v-if="createStep === 'basic'" class="app-create-panel">
+        <section ref="createScrollRef" class="app-create-body" @scroll="handleCreateScroll">
+          <div id="create-section-basic" class="app-create-panel">
             <div class="app-create-panel__head">
               <div>
                 <h3>基础信息</h3>
@@ -762,7 +785,7 @@ watch(
             </div>
           </div>
 
-          <div v-else-if="createStep === 'access'" class="app-create-panel">
+          <div id="create-section-access" class="app-create-panel">
             <div class="app-create-panel__head">
               <div>
                 <h3>可见范围、开通与收费</h3>
@@ -828,7 +851,7 @@ watch(
             </div>
           </div>
 
-          <div v-else-if="createStep === 'clients'" class="app-create-panel">
+          <div id="create-section-clients" class="app-create-panel">
             <div class="app-create-panel__head">
               <div>
                 <h3>客户端草稿</h3>
@@ -843,7 +866,7 @@ watch(
             </div>
           </div>
 
-          <div v-else-if="createStep === 'assets'" class="app-create-panel">
+          <div id="create-section-assets" class="app-create-panel">
             <div class="app-create-panel__head">
               <div>
                 <h3>入口、API、权限草稿</h3>
@@ -862,7 +885,7 @@ watch(
             </div>
           </div>
 
-          <div v-else-if="createStep === 'docs'" class="app-create-panel">
+          <div id="create-section-docs" class="app-create-panel">
             <div class="app-create-panel__head">
               <div>
                 <h3>文档池与初始版本</h3>
@@ -896,7 +919,7 @@ watch(
             </div>
           </div>
 
-          <div v-else class="app-create-panel">
+          <div id="create-section-review" class="app-create-panel app-create-panel--review">
             <div class="app-create-panel__head">
               <div>
                 <h3>确认创建</h3>
@@ -938,11 +961,6 @@ watch(
                 <strong>{{ createDraft.version_no }} / {{ createDraft.release_channel }}</strong>
               </div>
             </div>
-          </div>
-
-          <div class="app-create-footer">
-            <button class="app-btn" type="button" :disabled="createStepIndex <= 0" @click="previousCreateStep">上一步</button>
-            <button class="app-btn app-btn--primary" type="button" :disabled="createStepIndex >= createSteps.length - 1" @click="nextCreateStep">下一步</button>
           </div>
         </section>
       </div>
@@ -1526,44 +1544,51 @@ watch(
 }
 
 .app-create-wizard {
+  height: 100%;
+  min-height: 0;
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
-  gap: 18px;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 20px;
   align-items: flex-start;
 }
 
 .app-create-steps {
+  position: sticky;
+  top: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+  padding: 4px 0;
+  opacity: 0.82;
 }
 
 .app-create-step {
   width: 100%;
   min-width: 0;
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
   align-items: flex-start;
-  padding: 12px;
-  border: 1px solid color-mix(in srgb, var(--neuro-border) 76%, transparent);
+  padding: 9px 8px;
+  border: 1px solid transparent;
   border-radius: var(--neuro-radius-sm);
-  background: color-mix(in srgb, var(--neuro-surface) 86%, transparent);
-  color: var(--neuro-text);
+  background: transparent;
+  color: var(--neuro-text-secondary);
   text-align: left;
   cursor: pointer;
 }
 
 .app-create-step i {
-  width: 28px;
-  height: 28px;
+  width: 22px;
+  height: 22px;
   display: inline-grid;
   place-items: center;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--neuro-primary) 14%, transparent);
-  color: var(--neuro-primary);
+  border: 1px solid color-mix(in srgb, var(--neuro-border) 76%, transparent);
+  background: color-mix(in srgb, var(--neuro-surface) 86%, transparent);
+  color: var(--neuro-text-secondary);
   font-style: normal;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 900;
 }
 
@@ -1574,8 +1599,9 @@ watch(
 }
 
 .app-create-step strong {
-  margin-bottom: 3px;
-  font-size: 14px;
+  margin-bottom: 2px;
+  color: var(--neuro-text);
+  font-size: 13px;
   line-height: 1.35;
 }
 
@@ -1586,17 +1612,46 @@ watch(
   line-height: 1.45;
 }
 
+.app-create-step:hover {
+  background: color-mix(in srgb, var(--neuro-surface) 74%, transparent);
+}
+
 .app-create-step.is-active {
-  border-color: color-mix(in srgb, var(--neuro-primary) 58%, transparent);
-  background: color-mix(in srgb, var(--neuro-primary) 12%, var(--neuro-surface));
-  box-shadow: 0 10px 26px color-mix(in srgb, var(--neuro-primary) 12%, transparent);
+  border-color: color-mix(in srgb, var(--neuro-primary) 28%, transparent);
+  background: color-mix(in srgb, var(--neuro-primary) 7%, transparent);
+}
+
+.app-create-step.is-complete i {
+  border-color: color-mix(in srgb, var(--neuro-primary) 46%, transparent);
+  background: color-mix(in srgb, var(--neuro-primary) 18%, transparent);
+  color: var(--neuro-primary);
 }
 
 .app-create-body {
+  position: relative;
+  width: 100%;
   min-width: 0;
+  height: calc(86vh - 150px);
+  overflow-y: auto;
+  padding: 2px 8px 10px 0;
+  scroll-behavior: smooth;
+  scroll-padding-top: 4px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
+}
+
+.app-create-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.app-create-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.app-create-body::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--neuro-border) 80%, transparent);
 }
 
 .app-create-panel {
@@ -1604,6 +1659,16 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 16px;
+  padding: 20px;
+  border: 1px solid color-mix(in srgb, var(--neuro-border) 80%, transparent);
+  border-radius: var(--neuro-radius-md);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--neuro-surface) 96%, transparent), color-mix(in srgb, var(--neuro-surface) 88%, transparent));
+  box-shadow: 0 18px 44px color-mix(in srgb, #000 8%, transparent);
+}
+
+.app-create-panel--review {
+  margin-bottom: 4px;
 }
 
 .app-create-panel__head {
@@ -1712,13 +1777,6 @@ watch(
   color: var(--neuro-text);
   line-height: 1.45;
   overflow-wrap: anywhere;
-}
-
-.app-create-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  padding-top: 2px;
 }
 
 .app-form {
