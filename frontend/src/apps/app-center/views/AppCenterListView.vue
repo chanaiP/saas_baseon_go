@@ -548,10 +548,7 @@ watch(
   <NeuroAgentPageShell class="app-center-page" :show-hero="activeSection === 'apps'">
     <template #title>应用中心</template>
     <template #subtitle>
-      管理平台内置应用与后续应用装载入口；当前仅开放平台应用列表。
-    </template>
-    <template #meta>
-      <span>内置应用必须声明 app_code、工程目录、菜单权限与套餐接入边界。</span>
+      统一注册、装载、订阅、安装、授权、计费、文档、版本和运行治理。
     </template>
     <template #actions>
       <button
