@@ -6,6 +6,8 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 
 import type { MenuBundle, MenuBundleOp } from '@/api/permission'
 import { fetchPermissionMenuBundles, updatePermission, updatePermissionPackageFeature } from '@/api/permission'
+import { fetchAppCenterApps } from '@/apps/app-center/api'
+import type { AppCenterApp } from '@/apps/app-center/types'
 import { confirmArchiveAction } from '@/composables/useArchiveConfirm'
 import { usePermissionStore } from '@/stores/permission'
 import { filterPlatformOnlyMenus, useSidebarMenuStore } from '@/stores/sidebarMenu'
@@ -60,6 +62,28 @@ const store = useSidebarMenuStore()
 
 /** 平台管理员菜单归属展示（来自后端菜单包元数据 is_platform_only 等） */
 const menuBundlesForScope = ref<MenuBundle[]>([])
+const menuApps = ref<AppCenterApp[]>([])
+const selectedMenuAppCode = ref('')
+
+const visibleMenuApps = computed(() => menuApps.value.filter((app) => app.status !== 'DISABLED'))
+
+async function loadMenuApps() {
+  if (!perm.profile?.is_platform_admin) {
+    menuApps.value = []
+    selectedMenuAppCode.value = ''
+    return
+  }
+  try {
+    const res = await fetchAppCenterApps({ limit: 100 })
+    menuApps.value = res.items
+    if (!selectedMenuAppCode.value && res.items.length) {
+      selectedMenuAppCode.value = res.items[0].app_code
+    }
+  } catch {
+    menuApps.value = []
+    selectedMenuAppCode.value = ''
+  }
+}
 
 const bundleByMenuPath = computed(() => {
   const m = new Map<string, MenuBundle>()
@@ -112,6 +136,29 @@ function menuScopeTag(row: MenuNode): { text: string; type: 'warning' | 'success
     return row.isPlatformOnly ? { text: '仅平台', type: 'warning' } : { text: '仅主体', type: 'success' }
   }
   return null
+}
+
+function appCodeForRow(row: MenuNode): string {
+  if (row.type === 'menu' && row.path) {
+    return bundleByMenuPath.value.get(row.path)?.app_code || 'system-management'
+  }
+  if (row.type === 'button' && row.permissionCode) {
+    return bundleOpByPermissionCode.value.get(row.permissionCode)?.app_code || 'system-management'
+  }
+  return ''
+}
+
+function filterMenuTreeByApp(nodes: MenuNode[], appCode: string): MenuNode[] {
+  if (!appCode) return nodes
+  const out: MenuNode[] = []
+  for (const node of nodes) {
+    const children = filterMenuTreeByApp(node.children || [], appCode)
+    const ownApp = appCodeForRow(node)
+    if (ownApp === appCode || children.length) {
+      out.push({ ...node, children })
+    }
+  }
+  return out
 }
 
 const isPlatformAdmin = computed(
@@ -177,7 +224,7 @@ function filterTenantManageableTree(nodes: MenuNode[]): MenuNode[] {
 }
 
 const displayTree = computed(() => {
-  if (isPlatformAdmin.value) return store.tree
+  if (isPlatformAdmin.value) return filterMenuTreeByApp(store.tree, selectedMenuAppCode.value)
   return filterTenantManageableTree(filterPlatformOnlyMenus(store.tenantTree))
 })
 
@@ -858,6 +905,7 @@ function onMenuTableRowClick(row: MenuNode) {
 watch(
   isPlatformAdmin,
   () => {
+    void loadMenuApps()
     void loadMenuBundlesForScope()
   },
   { immediate: true },
@@ -874,7 +922,25 @@ onMounted(() => {
 
 <template>
   <div class="page page-menu-mgmt">
-    <NeuroAgentListPage
+    <div class="menu-app-layout" :class="{ 'menu-app-layout--single': !isPlatformAdmin }">
+      <aside v-if="isPlatformAdmin" class="menu-app-sidebar">
+        <div class="menu-app-sidebar__title">应用</div>
+        <button
+          v-for="app in visibleMenuApps"
+          :key="app.app_code"
+          class="menu-app-item"
+          :class="{ 'is-active': selectedMenuAppCode === app.app_code }"
+          type="button"
+          @click="selectedMenuAppCode = app.app_code"
+        >
+          <span class="menu-app-item__text">
+            <strong>{{ app.app_name }}</strong>
+            <small>{{ app.app_code }}</small>
+          </span>
+        </button>
+      </aside>
+      <div class="menu-app-main">
+        <NeuroAgentListPage
       mode="el-table"
       :title="isPlatformAdmin ? '平台菜单管理' : '菜单管理'"
       :columns="columns"
@@ -1010,7 +1076,9 @@ onMounted(() => {
           </el-button>
         </span>
       </template>
-    </NeuroAgentListPage>
+        </NeuroAgentListPage>
+      </div>
+    </div>
 
     <NeuroAgentDialog
       v-model="packageRemoveDlg"
@@ -1183,6 +1251,77 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.menu-app-layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  min-width: 0;
+}
+.menu-app-main {
+  min-width: 0;
+}
+.menu-app-layout--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+.menu-app-sidebar {
+  position: sticky;
+  top: 16px;
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid rgba(20, 241, 210, 0.18);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(21, 42, 61, 0.92), rgba(12, 24, 40, 0.9));
+}
+.menu-app-sidebar__title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--el-text-color-secondary);
+}
+.menu-app-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 10px;
+  color: var(--el-text-color-regular);
+  background: rgba(15, 23, 42, 0.42);
+  text-align: left;
+  cursor: pointer;
+}
+.menu-app-item.is-active {
+  color: #09f4d2;
+  border-color: rgba(9, 244, 210, 0.55);
+  background: rgba(9, 244, 210, 0.12);
+}
+.menu-app-item__text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.menu-app-item__text strong,
+.menu-app-item__text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu-app-item__text strong {
+  font-size: 18px;
+  line-height: 1.25;
+  font-weight: 800;
+}
+
+.menu-app-item__text small {
+  font-size: 12px;
+  line-height: 1.25;
+  color: var(--el-text-color-secondary);
+}
 .page {
   padding: 16px;
 }

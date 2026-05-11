@@ -7,6 +7,7 @@ type SaasFeature struct {
 	FeatureCode string    `gorm:"column:feature_code;type:varchar(100);uniqueIndex;not null"`
 	FeatureName string    `gorm:"column:feature_name;type:varchar(100);not null"`
 	FeatureType string    `gorm:"column:feature_type;type:varchar(32);not null"`
+	AppCode     string    `gorm:"column:app_code;type:varchar(100);not null;default:'system-management';index"`
 	ParentID    uint64    `gorm:"column:parent_id;not null;default:0"`
 	MenuID      *uint64   `gorm:"column:menu_id"`
 	APIMethod   *string   `gorm:"column:api_method;type:varchar(20)"`

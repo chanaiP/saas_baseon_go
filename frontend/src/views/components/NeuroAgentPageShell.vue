@@ -4,11 +4,17 @@
  * 与「主体管理」页眉 + 面板结构一致，供各业务页复用。
  */
 defineOptions({ name: 'NeuroAgentPageShell' })
+
+withDefaults(defineProps<{
+  showHero?: boolean
+}>(), {
+  showHero: true,
+})
 </script>
 
 <template>
   <div class="neuro-page-shell">
-    <header class="neuro-page-shell__hero">
+    <header v-if="showHero" class="neuro-page-shell__hero">
       <div class="neuro-page-shell__hero-main">
         <h2 v-if="$slots.title" class="neuro-page-shell__title">
           <slot name="title" />

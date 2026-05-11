@@ -15,7 +15,11 @@ import { fetchRole, updateRolePermissions } from '@/api/role'
 import type { RoleDataOverride, RoleRow } from '@/api/role'
 import { fetchUsers } from '@/api/user'
 import type { UserRow } from '@/api/user'
+import { fetchAppCenterApps } from '@/apps/app-center/api'
+import type { AppCenterApp } from '@/apps/app-center/types'
 import OrgUserPicker from '@/components/OrgUserPicker.vue'
+import { buildDefaultMenuTreeSnapshot } from '@/stores/sidebarMenu'
+import type { MenuNode } from '@/types/menu'
 import NeuroAgentDialog from '@/views/components/NeuroAgentDialog.vue'
 
 const DATA_SCOPE_OPTIONS = [
@@ -42,6 +46,48 @@ const loading = ref(true)
 const saving = ref(false)
 const role = ref<RoleRow | null>(null)
 const bundles = ref<MenuBundle[]>([])
+const apps = ref<AppCenterApp[]>([])
+const selectedAppCode = ref('')
+const visibleApps = computed(() => apps.value.filter((app) => app.status !== 'DISABLED'))
+const displayBundles = computed(() => {
+  if (!selectedAppCode.value) return bundles.value
+  return bundles.value.filter((bundle) => (bundle.app_code || 'system-management') === selectedAppCode.value)
+})
+
+interface BundleGroup {
+  key: string
+  title: string
+  bundles: MenuBundle[]
+}
+
+function buildDirectoryByMenuPath(nodes: MenuNode[]): Map<string, string> {
+  const m = new Map<string, string>()
+  const walk = (items: MenuNode[], currentDirectory = '未分组') => {
+    for (const item of items) {
+      const nextDirectory = item.type === 'directory' ? item.title : currentDirectory
+      if (item.type === 'menu' && item.path) {
+        m.set(item.path, nextDirectory)
+      }
+      if (item.children?.length) walk(item.children, nextDirectory)
+    }
+  }
+  walk(nodes)
+  return m
+}
+
+const directoryByMenuPath = buildDirectoryByMenuPath(buildDefaultMenuTreeSnapshot())
+
+const displayBundleGroups = computed<BundleGroup[]>(() => {
+  const groups = new Map<string, BundleGroup>()
+  for (const bundle of displayBundles.value) {
+    const title = directoryByMenuPath.get(bundle.path) || '未分组'
+    if (!groups.has(title)) {
+      groups.set(title, { key: title, title, bundles: [] })
+    }
+    groups.get(title)!.bundles.push(bundle)
+  }
+  return [...groups.values()]
+})
 /** 「应用到所有菜单」时的模板行：随任意下拉变更更新 */
 const scopeTemplatePath = ref<string | null>(null)
 const orgTree = shallowRef<OrgNode[]>([])
@@ -156,15 +202,15 @@ function onMenuCheck(b: MenuBundle, checked: boolean) {
 }
 
 const allMenuChecked = computed(
-  () => bundles.value.length > 0 && bundles.value.every((b) => menuState[b.path]?.menuOn),
+  () => displayBundles.value.length > 0 && displayBundles.value.every((b) => menuState[b.path]?.menuOn),
 )
 const someMenuChecked = computed(
-  () => !allMenuChecked.value && bundles.value.some((b) => menuState[b.path]?.menuOn),
+  () => !allMenuChecked.value && displayBundles.value.some((b) => menuState[b.path]?.menuOn),
 )
 
 function resolveApplySourcePath(): string | null {
   if (scopeTemplatePath.value && menuState[scopeTemplatePath.value]) return scopeTemplatePath.value
-  return bundles.value.find((b) => menuState[b.path]?.menuOn)?.path || null
+  return displayBundles.value.find((b) => menuState[b.path]?.menuOn)?.path || null
 }
 
 const applySourceMenuLabel = computed(() => {
@@ -176,7 +222,7 @@ const applySourceMenuLabel = computed(() => {
 async function toggleAllMenus(checked: boolean) {
   const msg = checked ? '确定全选所有菜单权限？' : '确定取消全选？所有菜单权限将被关闭。'
   if (!(await openConfirmDialog('操作确认', msg))) return
-  for (const b of bundles.value) onMenuCheck(b, checked)
+  for (const b of displayBundles.value) onMenuCheck(b, checked)
 }
 
 const SCOPE_LABEL_MAP = Object.fromEntries(DATA_SCOPE_OPTIONS.map((o) => [o.value, o.label]))
@@ -209,7 +255,7 @@ async function applyToAllMenus() {
       `将「${SCOPE_MENU_LABEL(src)}」的${applyParts.join('，')}应用到所有已开启的菜单，确定？`,
     ))
   ) return
-  for (const b of bundles.value) {
+  for (const b of displayBundles.value) {
     const s = menuState[b.path]
     if (!s?.menuOn || b.path === src) continue
     if (shouldApplyOrg && supportsOrgScope(b.path)) {
@@ -406,15 +452,23 @@ async function load() {
       return
     }
     try {
-      const [r, b] = await Promise.all([fetchRole(id), fetchMenuBundles()])
+      const [r, b, appPage] = await Promise.all([
+        fetchRole(id),
+        fetchMenuBundles(),
+        fetchAppCenterApps({ limit: 100 }),
+      ])
       role.value = r
       bundles.value = b
+      apps.value = appPage.items
+      if (!selectedAppCode.value && appPage.items.length) selectedAppCode.value = appPage.items[0].app_code
       initMenuStateFromRole(r)
-      scopeTemplatePath.value = b[0]?.path ?? null
+      scopeTemplatePath.value = displayBundles.value[0]?.path ?? b[0]?.path ?? null
     } catch (e) {
       ElMessage.error(e instanceof Error ? e.message : '加载失败')
       role.value = null
       bundles.value = []
+      apps.value = []
+      selectedAppCode.value = ''
       resetMenuState()
       scopeTemplatePath.value = null
       preservedPermissionIds.value = []
@@ -522,13 +576,33 @@ watch(roleId, (rid) => {
             >全选菜单</el-checkbox>
           </div>
         </template>
-        <div class="bundle-list">
-          <div
-            v-for="b in bundles"
-            :key="b.path"
-            class="bundle-card"
-          >
-            <div class="bundle-card-hd">
+        <div class="role-permission-layout">
+          <aside class="role-app-sidebar">
+            <button
+              v-for="app in visibleApps"
+              :key="app.app_code"
+              type="button"
+              class="role-app-item"
+              :class="{ 'is-active': selectedAppCode === app.app_code }"
+              @click="selectedAppCode = app.app_code"
+            >
+              <strong>{{ app.app_name }}</strong>
+              <small>{{ app.app_code }}</small>
+            </button>
+          </aside>
+          <div class="bundle-list">
+            <section
+              v-for="group in displayBundleGroups"
+              :key="group.key"
+              class="bundle-group"
+            >
+              <div class="bundle-group-title">{{ group.title }}</div>
+              <div
+                v-for="b in group.bundles"
+                :key="b.path"
+                class="bundle-card"
+              >
+              <div class="bundle-card-hd">
               <el-checkbox
                 :model-value="menuState[b.path]?.menuOn ?? false"
                 @update:model-value="(v: boolean | string | number) => onMenuCheck(b, !!v)"
@@ -633,7 +707,10 @@ watch(roleId, (rid) => {
                 />
               </el-select>
               <div v-if="!businessUnitOptions.length" class="empty-hint">暂无业务单元数据</div>
-            </div>
+              </div>
+              </div>
+            </section>
+            <div v-if="!displayBundleGroups.length" class="bundle-empty">当前应用暂无可配置菜单。</div>
           </div>
         </div>
       </el-card>
@@ -711,8 +788,83 @@ watch(roleId, (rid) => {
   flex-shrink: 0;
 }
 
+.role-permission-layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.role-app-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  background: var(--el-fill-color-light);
+}
+
+.role-app-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--el-text-color-regular);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.role-app-item:hover,
+.role-app-item.is-active {
+  border-color: var(--el-color-primary);
+  color: var(--el-color-primary);
+  background: color-mix(in srgb, var(--el-color-primary) 10%, transparent);
+}
+
+.role-app-item small {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.bundle-list {
+  min-width: 0;
+}
+
+.bundle-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.bundle-group-title {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--el-color-primary) 42%, transparent);
+  border-radius: 7px;
+  color: var(--el-color-primary);
+  background: color-mix(in srgb, var(--el-color-primary) 10%, transparent);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.bundle-empty {
+  padding: 18px;
+  border: 1px dashed var(--el-border-color);
+  border-radius: 8px;
+  color: var(--el-text-color-secondary);
+  text-align: center;
+}
+
 .bundle-card {
-  margin-bottom: 12px;
   padding: 12px 14px;
   border-radius: 8px;
   border: 1px solid var(--el-border-color-lighter);

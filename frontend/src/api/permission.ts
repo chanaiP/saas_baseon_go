@@ -9,6 +9,7 @@ export interface MenuBundleOp {
   is_package_feature?: boolean
   feature_code?: string | null
   feature_type?: string | null
+  app_code?: string | null
   tenant_visible?: boolean
   tenant_editable?: boolean
   tenant_edit_scope?: string | null
@@ -24,6 +25,7 @@ export interface MenuBundle {
   is_package_feature?: boolean
   feature_code?: string | null
   feature_type?: string | null
+  app_code?: string | null
   tenant_visible?: boolean
   tenant_editable?: boolean
   tenant_edit_scope?: string | null

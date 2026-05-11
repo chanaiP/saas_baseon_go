@@ -102,6 +102,7 @@ type Permission struct {
 	IsPackageFeature bool       `gorm:"column:is_package_feature;not null;default:true"`
 	TenantEditable   bool       `gorm:"column:tenant_editable;not null;default:false"`
 	TenantEditScope  *string    `gorm:"column:tenant_edit_scope;type:varchar(100)"`
+	AppCode          string     `gorm:"column:app_code;type:varchar(100);not null;default:'system-management';index"`
 	FeatureCode      *string    `gorm:"column:feature_code;type:varchar(100);index"`
 	FeatureType      *string    `gorm:"column:feature_type;type:varchar(32)"`
 	DataPermMode     string     `gorm:"column:data_perm_mode;type:varchar(16);not null;default:'ORG'"`

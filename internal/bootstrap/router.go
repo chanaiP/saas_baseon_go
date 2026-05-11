@@ -9,6 +9,9 @@ import (
 	"gorm.io/gorm"
 
 	"saas_baseon_go/internal/application/system"
+	apphandlers "saas_baseon_go/internal/apps/app_center/handlers"
+	apprepos "saas_baseon_go/internal/apps/app_center/repositories"
+	appservices "saas_baseon_go/internal/apps/app_center/services"
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/repositories"
 	"saas_baseon_go/internal/interfaces/http/handlers"
 	"saas_baseon_go/internal/interfaces/http/middleware"
@@ -32,6 +35,9 @@ func NewRouter(cfg Config, db *gorm.DB, redisClient *redis.Client) *gin.Engine {
 	paramRepo := repositories.NewSystemParamRepository(db)
 	paramService := system.NewParamService(paramRepo)
 	paramHandler := handlers.NewParamHandler(paramService)
+	appRepo := apprepos.NewAppRepository(db)
+	appService := appservices.NewAppService(appRepo)
+	appHandler := apphandlers.NewAppHandler(appService)
 
 	router.GET("/health", healthHandler.Check)
 	router.GET("/health/live", healthHandler.Live)
@@ -45,7 +51,7 @@ func NewRouter(cfg Config, db *gorm.DB, redisClient *redis.Client) *gin.Engine {
 		c.String(200, swaggerUIHTML())
 	})
 
-	registerAPIRoutes(router, identityHandler, paramHandler)
+	registerAPIRoutes(router, identityHandler, paramHandler, appHandler)
 
 	if missing := handlers.UnclassifiedAPIRoutes(router.Routes()); len(missing) > 0 {
 		panic("unclassified API routes: " + strings.Join(missing, ", "))
@@ -115,6 +121,7 @@ func openAPISpec() gin.H {
 		"info":    gin.H{"title": "SaaS Baseon Go API", "version": "0.1.0"},
 		"tags": []gin.H{
 			{"name": "auth", "description": "认证与登录"},
+			{"name": "apps", "description": "应用中心"},
 			{"name": "tenants", "description": "主体管理"},
 			{"name": "users", "description": "用户管理"},
 			{"name": "roles", "description": "角色权限"},
@@ -135,6 +142,9 @@ func openAPISpec() gin.H {
 			"/api/auth/phone-login-tenants":                   gin.H{"get": api("auth", "手机号登录主体探测")},
 			"/api/auth/switch-tenant":                         gin.H{"post": api("auth", "切换主体")},
 			"/api/auth/switchable-tenants":                    gin.H{"get": api("auth", "可切换主体")},
+			"/api/apps":                                       gin.H{"get": api("apps", "应用列表"), "post": api("apps", "创建应用")},
+			"/api/apps/stats":                                 gin.H{"get": api("apps", "应用统计")},
+			"/api/apps/{id}":                                  gin.H{"get": api("apps", "应用详情")},
 			"/api/batch/companies/export":                     gin.H{"get": api("batch", "公司导出")},
 			"/api/batch/departments/export":                   gin.H{"get": api("batch", "部门导出")},
 			"/api/batch/users/export":                         gin.H{"get": api("batch", "用户导出")},
@@ -286,6 +296,10 @@ func withOpenAPISchemas(spec gin.H) gin.H {
 		}
 	}
 	setOpenAPIOperation(paths, "/api/auth/login", "post", "#/components/schemas/LoginRequest", "#/components/schemas/LoginResponse")
+	setOpenAPIOperation(paths, "/api/apps", "get", "", "#/components/schemas/AppPage")
+	setOpenAPIOperation(paths, "/api/apps", "post", "#/components/schemas/ObjectData", "#/components/schemas/App")
+	setOpenAPIOperation(paths, "/api/apps/stats", "get", "", "#/components/schemas/AppStats")
+	setOpenAPIOperation(paths, "/api/apps/{id}", "get", "", "#/components/schemas/App")
 	setOpenAPIOperation(paths, "/api/users", "get", "", "#/components/schemas/UserPage")
 	setOpenAPIOperation(paths, "/api/users", "post", "#/components/schemas/UserCreateRequest", "#/components/schemas/User")
 	setOpenAPIOperation(paths, "/api/users/{id}", "put", "#/components/schemas/UserUpdateRequest", "#/components/schemas/User")
@@ -361,6 +375,9 @@ func openAPIComponents() gin.H {
 		"DeleteResult":        objectSchema(gin.H{"deleted": integerSchema(), "id": integerSchema()}),
 		"LoginRequest":        objectSchema(gin.H{"account": stringSchema(), "password": stringSchema(), "captcha_key": stringSchema(), "captcha": stringSchema()}, "account", "password"),
 		"LoginResponse":       objectSchema(gin.H{"access_token": stringSchema(), "token_type": stringSchema(), "expires_in": integerSchema(), "user": refSchema("#/components/schemas/User")}),
+		"App":                 objectSchema(gin.H{"id": integerSchema(), "app_code": stringSchema(), "app_name": stringSchema(), "icon": nullableStringSchema(), "app_type": stringSchema(), "source": stringSchema(), "status": stringSchema(), "charge_mode": stringSchema(), "visibility_scope": stringSchema(), "owner": nullableStringSchema(), "version": nullableStringSchema(), "description": nullableStringSchema(), "is_builtin": gin.H{"type": "boolean"}, "is_platform_only": gin.H{"type": "boolean"}, "sort_order": integerSchema()}),
+		"AppPage":             pageSchema("#/components/schemas/App"),
+		"AppStats":            objectSchema(gin.H{"total": integerSchema(), "online": integerSchema(), "builtin": integerSchema(), "disabled": integerSchema()}),
 		"TenantCreateRequest": objectSchema(gin.H{"code": stringSchema(), "name": stringSchema(), "status": integerSchema(), "admin_name": stringSchema(), "admin_employee_no": stringSchema(), "admin_phone": stringSchema(), "admin_password": stringSchema()}, "code", "name", "admin_name", "admin_employee_no", "admin_password"),
 		"TenantUpdateRequest": objectSchema(gin.H{"name": stringSchema(), "status": integerSchema(), "contact_name": stringSchema(), "contact_phone": stringSchema()}),
 		"Tenant":              objectSchema(gin.H{"id": integerSchema(), "code": stringSchema(), "name": stringSchema(), "status": integerSchema(), "plan_name": nullableStringSchema(), "used_users": integerSchema(), "used_companies": integerSchema()}),

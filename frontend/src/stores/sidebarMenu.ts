@@ -22,6 +22,62 @@ function defaultTree(): MenuNode[] {
       children: [],
     },
     {
+      id: 'app-center',
+      type: 'directory',
+      title: '应用中心',
+      icon: 'Boxes',
+      children: [
+        {
+          id: 'app-center-list',
+          type: 'menu',
+          title: '应用列表',
+          path: '/apps',
+          icon: 'Boxes',
+          children: [],
+        },
+        {
+          id: 'app-center-clients',
+          type: 'menu',
+          title: '客户端中心',
+          path: '/apps/clients',
+          icon: 'Monitor',
+          children: [],
+        },
+        {
+          id: 'app-center-tenant-openings',
+          type: 'menu',
+          title: '租户开通总览',
+          path: '/apps/tenant-openings',
+          icon: 'Tickets',
+          children: [],
+        },
+        {
+          id: 'app-center-trial-invites',
+          type: 'menu',
+          title: '体验邀请总览',
+          path: '/apps/trial-invites',
+          icon: 'Promotion',
+          children: [],
+        },
+        {
+          id: 'app-center-manifests',
+          type: 'menu',
+          title: 'Manifest 装载记录',
+          path: '/apps/manifests',
+          icon: 'Document',
+          children: [],
+        },
+        {
+          id: 'app-center-audit',
+          type: 'menu',
+          title: '应用审计日志',
+          path: '/apps/audit-logs',
+          icon: 'Notebook',
+          children: [],
+        },
+      ],
+    },
+    {
       id: 'sys',
       type: 'directory',
       title: '系统管理',
@@ -238,7 +294,7 @@ export function buildDefaultMenuTreeSnapshot(): MenuNode[] {
 
 /** 仅系统管理员可见的侧栏顶级菜单 id（与 defaultTree 中节点 id 一致） */
 export const PLATFORM_ONLY_MENU_ID = 'tenant'
-export const PLATFORM_ONLY_ROOT_MENU_IDS = new Set(['tenant', 'plan', 'monitor'])
+export const PLATFORM_ONLY_ROOT_MENU_IDS = new Set(['app-center', 'tenant', 'plan', 'monitor'])
 
 /** 非平台管理员侧栏/菜单配置展示用：移除平台级节点 */
 export function filterPlatformOnlyMenus(nodes: MenuNode[]): MenuNode[] {
@@ -295,9 +351,10 @@ function loadFromStorage(): MenuNode[] {
     const parsed = JSON.parse(raw) as MenuNode[]
     if (!(Array.isArray(parsed) && parsed.length)) return defaultTree()
     const migrated = migrateDefaultNodes(parsed)
-    const missingMenus = mergeMissingSysMenusFromDefaults(migrated)
+    const missingRootMenus = mergeMissingRootMenusFromDefaults(migrated)
+    const missingMenus = mergeMissingSysMenusFromDefaults(missingRootMenus.next)
     const { next, changed } = mergeBuiltinMenuButtonsWithDefaults(missingMenus.next)
-    if (missingMenus.changed || changed) {
+    if (missingRootMenus.changed || missingMenus.changed || changed) {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
       } catch {
@@ -308,6 +365,61 @@ function loadFromStorage(): MenuNode[] {
   } catch {
     return defaultTree()
   }
+}
+
+/**
+ * 升级后 defaultTree 新增根级应用时，将缺失根节点补回。
+ * 典型场景：应用中心作为内置应用上线后，旧 localStorage 中没有 app-center 根节点。
+ */
+function mergeMissingRootMenusFromDefaults(nodes: MenuNode[]): { next: MenuNode[]; changed: boolean } {
+  const defaults = defaultTree()
+  const next = JSON.parse(JSON.stringify(nodes)) as MenuNode[]
+  const before = JSON.stringify(next)
+  const usedIds = new Set(next.map((item) => item.id))
+  const ordered: MenuNode[] = []
+  const consumed = new Set<string>()
+
+  for (const defRoot of defaults) {
+    const existing = next.find((item) => item.id === defRoot.id)
+    if (existing) {
+      ordered.push(mergeDefaultChildren(existing, defRoot))
+      consumed.add(existing.id)
+      continue
+    }
+    if (!usedIds.has(defRoot.id)) {
+      ordered.push(JSON.parse(JSON.stringify(defRoot)) as MenuNode)
+      consumed.add(defRoot.id)
+    }
+  }
+
+  for (const item of next) {
+    if (!consumed.has(item.id)) ordered.push(item)
+  }
+
+  return { next: ordered, changed: before !== JSON.stringify(ordered) }
+}
+
+function mergeDefaultChildren(existing: MenuNode, defNode: MenuNode): MenuNode {
+  if (!defNode.children?.length) return existing
+  const current = [...(existing.children || [])]
+  const ordered: MenuNode[] = []
+  const used = new Set<string>()
+  for (const defChild of defNode.children) {
+    const hit = current.find((item) => item.id === defChild.id)
+    if (hit) {
+      ordered.push(mergeDefaultChildren(hit, defChild))
+      used.add(hit.id)
+      continue
+    }
+    if (defChild.type === 'menu' && defChild.path) {
+      ordered.push(JSON.parse(JSON.stringify(defChild)) as MenuNode)
+      used.add(defChild.id)
+    }
+  }
+  for (const item of current) {
+    if (!used.has(item.id)) ordered.push(item)
+  }
+  return { ...existing, children: ordered }
 }
 
 /**
@@ -464,16 +576,23 @@ function mergeBuiltinMenuButtonsWithDefaults(nodes: MenuNode[]): { next: MenuNod
 }
 
 function findMenuByPath(nodes: MenuNode[], path: string): MenuNode | null {
-  for (const n of nodes) {
-    if (n.type === 'menu' && n.path && (path === n.path || path.startsWith(n.path + '/'))) {
-      return n
-    }
-    if (n.children?.length) {
-      const hit = findMenuByPath(n.children, path)
-      if (hit) return hit
+  let best: MenuNode | null = null
+  let bestLen = -1
+
+  function visit(list: MenuNode[]) {
+    for (const n of list) {
+      if (n.type === 'menu' && n.path && (path === n.path || path.startsWith(n.path + '/'))) {
+        const len = n.path.length
+        if (len > bestLen) {
+          best = n
+          bestLen = len
+        }
+      }
+      if (n.children?.length) visit(n.children)
     }
   }
-  return null
+  visit(nodes)
+  return best
 }
 
 function applyTenantOverrides(
@@ -547,9 +666,11 @@ export const useSidebarMenuStore = defineStore('sidebarMenu', () => {
   }
 
   function normalizeBuiltinTree(): boolean {
-    const { next, changed } = mergeBuiltinMenuButtonsWithDefaults(tree.value)
-    if (!changed) return false
-    tree.value = next
+    const missingRootMenus = mergeMissingRootMenusFromDefaults(tree.value)
+    const missingMenus = mergeMissingSysMenusFromDefaults(missingRootMenus.next)
+    const mergedButtons = mergeBuiltinMenuButtonsWithDefaults(missingMenus.next)
+    if (!missingRootMenus.changed && !missingMenus.changed && !mergedButtons.changed) return false
+    tree.value = mergedButtons.next
     persist()
     return true
   }

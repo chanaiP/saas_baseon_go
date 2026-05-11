@@ -43,6 +43,7 @@ func NewPostgresWithOptions(dsn string, autoMigrate bool) (*gorm.DB, error) {
 			&models.PermissionCustomDepartment{},
 			&models.PermissionCustomUser{},
 			&models.UserPreference{},
+			&models.SysApp{},
 			&models.SaasFeature{},
 			&models.SaasPlan{},
 			&models.SaasQuota{},

@@ -131,7 +131,8 @@ docs                            需求、技术、数据库、测试、安全和
 新增或调整可操作能力必须保持以下链路一致：
 
 ```text
-菜单与权限定义
+应用定义 / Manifest 装载（app_code）
+  -> 菜单与权限定义
   -> 套餐功能映射
   -> 租户菜单覆盖
   -> 角色权限
@@ -140,6 +141,8 @@ docs                            需求、技术、数据库、测试、安全和
   -> 数据权限
   -> 审计日志
 ```
+
+新增应用必须先声明 `app_code` 和 Manifest，并按 `docs/tech_design/应用中心接入强制规则.md` 同步底座菜单、角色权限资源、API 权限矩阵、套餐中心功能点/配额和租户菜单入口。不符合规范的应用必须拒绝装载。
 
 平台专属能力不得进入租户套餐中心；租户菜单和租户操作是否进入套餐中心，以 `internal/domain/permissioncatalog` 中的统一目录策略为准。
 
@@ -183,6 +186,8 @@ git diff --check
 - [项目总体介绍](docs/项目总体介绍.md)
 - [当前实现总览](docs/当前实现总览.md)
 - [总体技术方案](docs/tech_design/总体技术方案.md)
+- [应用中心接入强制规则](docs/tech_design/应用中心接入强制规则.md)
+- [应用中心](docs/tech_design/应用中心.md)
 - [业务开发标准](docs/tech_design/业务开发标准.md)
 - [模块接入准入清单](docs/tech_design/模块接入准入清单.md)
 - [最终交接报告](docs/FINAL_PARITY_REPORT.md)

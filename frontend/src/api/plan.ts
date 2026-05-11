@@ -39,6 +39,7 @@ export interface Feature {
   feature_code: string
   feature_name: string
   feature_type: string
+  app_code?: string | null
   parent_id: number
   menu_id?: number | null
   api_method?: string | null
@@ -52,6 +53,7 @@ export interface FeaturePayload {
   feature_code: string
   feature_name: string
   feature_type: string
+  app_code?: string | null
   parent_id: number
   menu_id?: number | null
   api_method?: string | null
@@ -180,10 +182,11 @@ export interface PlanCapabilityCell {
 export interface PlanCapabilityNode {
   id: string
   label: string
-  node_type: 'domain' | 'group' | 'feature'
+  node_type: 'app' | 'domain' | 'group' | 'feature'
   feature_id?: number | null
   feature_code?: string | null
   feature_type?: string | null
+  app_code?: string | null
   description?: string | null
   children: PlanCapabilityNode[]
   cells: PlanCapabilityCell[]

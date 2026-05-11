@@ -33,6 +33,42 @@ const router = createRouter({
           component: () => import('@/views/HomeDashboardView.vue'),
         },
         {
+          path: 'apps',
+          name: 'AppCenterListView',
+          meta: { title: '应用列表', requiresPlatformAdmin: true },
+          component: () => import('@/apps/app-center/views/AppCenterListView.vue'),
+        },
+        {
+          path: 'apps/clients',
+          name: 'AppCenterClientsView',
+          meta: { title: '客户端中心', requiresPlatformAdmin: true },
+          component: () => import('@/apps/app-center/views/AppCenterListView.vue'),
+        },
+        {
+          path: 'apps/tenant-openings',
+          name: 'AppCenterTenantOpeningsView',
+          meta: { title: '租户开通总览', requiresPlatformAdmin: true },
+          component: () => import('@/apps/app-center/views/AppCenterListView.vue'),
+        },
+        {
+          path: 'apps/trial-invites',
+          name: 'AppCenterTrialInvitesView',
+          meta: { title: '体验邀请总览', requiresPlatformAdmin: true },
+          component: () => import('@/apps/app-center/views/AppCenterListView.vue'),
+        },
+        {
+          path: 'apps/manifests',
+          name: 'AppCenterManifestLoadsView',
+          meta: { title: 'Manifest 装载记录', requiresPlatformAdmin: true },
+          component: () => import('@/apps/app-center/views/AppCenterListView.vue'),
+        },
+        {
+          path: 'apps/audit-logs',
+          name: 'AppCenterAuditLogsView',
+          meta: { title: '应用审计日志', requiresPlatformAdmin: true },
+          component: () => import('@/apps/app-center/views/AppCenterListView.vue'),
+        },
+        {
           path: 'tenants',
           name: 'TenantView',
           meta: { title: '主体管理', requiresPlatformAdmin: true },

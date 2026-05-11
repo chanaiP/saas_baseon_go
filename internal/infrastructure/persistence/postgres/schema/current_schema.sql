@@ -484,6 +484,7 @@ CREATE TABLE public.permission (
     is_package_feature boolean DEFAULT true NOT NULL,
     tenant_editable boolean DEFAULT false NOT NULL,
     tenant_edit_scope character varying(100),
+    app_code character varying(100) DEFAULT 'system-management'::character varying NOT NULL,
     feature_code character varying(100),
     feature_type character varying(32),
     data_perm_mode character varying(16) DEFAULT 'ORG'::character varying NOT NULL,
@@ -726,6 +727,7 @@ CREATE TABLE public.saas_feature (
     feature_code character varying(100) NOT NULL,
     feature_name character varying(100) NOT NULL,
     feature_type character varying(32) NOT NULL,
+    app_code character varying(100) DEFAULT 'system-management'::character varying NOT NULL,
     parent_id bigint DEFAULT 0 NOT NULL,
     menu_id bigint,
     api_method character varying(20),
@@ -2121,6 +2123,8 @@ CREATE INDEX idx_permission_custom_user_user_id ON public.permission_custom_user
 
 CREATE INDEX idx_permission_path ON public.permission USING btree (path);
 
+CREATE INDEX idx_permission_app_code ON public.permission USING btree (app_code);
+
 
 --
 -- Name: idx_permission_tenant_id; Type: INDEX; Schema: public; Owner: -
@@ -2210,6 +2214,8 @@ CREATE UNIQUE INDEX idx_role_tenant_code ON public.role USING btree (tenant_id, 
 --
 
 CREATE UNIQUE INDEX idx_saas_feature_feature_code ON public.saas_feature USING btree (feature_code);
+
+CREATE INDEX idx_saas_feature_app_code ON public.saas_feature USING btree (app_code);
 
 
 --
@@ -2373,6 +2379,40 @@ CREATE INDEX idx_user_role_role_id ON public.user_role USING btree (role_id);
 --
 
 CREATE INDEX idx_user_role_user_id ON public.user_role USING btree (user_id);
+
+
+--
+-- Name: sys_app; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE IF NOT EXISTS public.sys_app (
+    id bigserial NOT NULL,
+    app_code character varying(100) NOT NULL,
+    app_name character varying(100) NOT NULL,
+    icon character varying(80),
+    app_type character varying(32) NOT NULL,
+    source character varying(32) NOT NULL,
+    status character varying(32) NOT NULL,
+    charge_mode character varying(32) DEFAULT 'NON_SELLABLE'::character varying NOT NULL,
+    visibility_scope character varying(32) DEFAULT 'PLATFORM_ONLY'::character varying NOT NULL,
+    owner character varying(100),
+    version character varying(64),
+    description character varying(500),
+    is_builtin boolean DEFAULT false NOT NULL,
+    is_platform_only boolean DEFAULT true NOT NULL,
+    sort_order integer DEFAULT 0 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone,
+    CONSTRAINT sys_app_pkey PRIMARY KEY (id),
+    CONSTRAINT sys_app_app_code_key UNIQUE (app_code)
+);
+
+
+CREATE INDEX IF NOT EXISTS idx_sys_app_type_deleted ON public.sys_app USING btree (app_type, deleted_at);
+CREATE INDEX IF NOT EXISTS idx_sys_app_status_deleted ON public.sys_app USING btree (status, deleted_at);
+CREATE INDEX IF NOT EXISTS idx_sys_app_source_deleted ON public.sys_app USING btree (source, deleted_at);
+CREATE INDEX IF NOT EXISTS idx_sys_app_builtin_deleted ON public.sys_app USING btree (is_builtin, deleted_at);
 
 
 --

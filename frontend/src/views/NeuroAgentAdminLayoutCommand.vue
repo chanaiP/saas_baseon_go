@@ -560,13 +560,7 @@ const primaryMenu = computed(() => {
 // 当前页面对应的一级菜单标题
 const currentPrimaryTitle = computed(() => {
   if (!currentPage.value || currentPage.value.id === 'home') return ''
-  for (const node of finalMenuTree.value) {
-    if (node.type === 'directory' && node.enabled !== false && node.children?.length) {
-      const match = node.children.find(c => c.type === 'menu' && c.path === currentPage.value?.path)
-      if (match) return node.title
-    }
-  }
-  return ''
+  return findRouteMenuMatch(currentPage.value.path)?.primaryTitle ?? ''
 })
 
 // 快捷入口数据 - 保留原有的首页等快捷入口
@@ -666,6 +660,12 @@ interface MatrixMenuItem {
 // 路由路径 → 组件名映射（与 router/index.ts 中 route.name 一致）
 const pathToComponentName: Record<string, string> = {
   '/home': 'HomeDashboardView',
+  '/apps': 'AppCenterListView',
+  '/apps/clients': 'AppCenterListView',
+  '/apps/tenant-openings': 'AppCenterListView',
+  '/apps/trial-invites': 'AppCenterListView',
+  '/apps/manifests': 'AppCenterListView',
+  '/apps/audit-logs': 'AppCenterListView',
   '/tenants': 'TenantView',
   '/plans': 'PlanManagementView',
   '/organization': 'OrganizationView',
@@ -688,7 +688,121 @@ const pathToComponentName: Record<string, string> = {
 }
 
 function getComponentNameByPath(path: string): string {
-  return pathToComponentName[path] || ''
+  if (pathToComponentName[path]) return pathToComponentName[path]
+  if (/^\/roles\/[^/]+\/permission-config$/.test(path)) return pathToComponentName['/roles/:roleId/permission-config']
+  return ''
+}
+
+interface RouteMenuMatch {
+  menu: MenuNode & { path: string }
+  primaryId: string
+  primaryTitle: string
+}
+
+function routeMatchesMenuPath(routePath: string, menuPath?: string): boolean {
+  if (!menuPath) return false
+  if (routePath === menuPath) return true
+  if (menuPath === '/home') return false
+  return routePath.startsWith(menuPath + '/')
+}
+
+function findBestMenuInTree(nodes: MenuNode[], routePath: string): (MenuNode & { path: string }) | null {
+  let best: (MenuNode & { path: string }) | null = null
+  let bestLength = -1
+
+  function visit(list: MenuNode[]) {
+    for (const node of list) {
+      if (node.enabled === false) continue
+      if (node.type === 'menu' && node.path && routeMatchesMenuPath(routePath, node.path)) {
+        if (node.path.length > bestLength) {
+          best = node as MenuNode & { path: string }
+          bestLength = node.path.length
+        }
+      }
+      if (node.children?.length) visit(node.children)
+    }
+  }
+
+  visit(nodes)
+  return best
+}
+
+function findRouteMenuMatch(routePath: string): RouteMenuMatch | null {
+  for (const root of finalMenuTree.value) {
+    if (root.enabled === false) continue
+    if (root.type === 'menu' && root.path && routeMatchesMenuPath(routePath, root.path)) {
+      return {
+        menu: root as MenuNode & { path: string },
+        primaryId: `${ROOT_MENU_PRIMARY_PREFIX}${root.id}`,
+        primaryTitle: root.title,
+      }
+    }
+    if (root.type === 'directory') {
+      const menu = findBestMenuInTree(root.children || [], routePath)
+      if (menu) {
+        return {
+          menu,
+          primaryId: root.id,
+          primaryTitle: root.title,
+        }
+      }
+    }
+  }
+  return null
+}
+
+function syncNavigationWithRoute(path: string) {
+  openPages.value.forEach(p => { p.isActive = false })
+
+  if (!path || path === '/' || path === '/home') {
+    activePrimary.value = ''
+    const homePage = openPages.value.find(p => p.id === 'home')
+    if (homePage) {
+      homePage.isActive = true
+      currentPage.value = homePage
+    } else {
+      const newHome: PageState = {
+        id: 'home',
+        componentName: 'HomeDashboardView',
+        path: '/home',
+        title: '首页',
+        isActive: true,
+        isOpen: true,
+      }
+      openPages.value.unshift(newHome)
+      currentPage.value = newHome
+    }
+    return
+  }
+
+  const match = findRouteMenuMatch(path)
+  if (match) {
+    activePrimary.value = match.primaryId
+  }
+
+  const existingPage = openPages.value.find(p => p.path === path)
+  if (existingPage) {
+    existingPage.isActive = true
+    if (match) {
+      existingPage.id = match.menu.id
+      existingPage.title = match.menu.title
+      existingPage.componentName = getComponentNameByPath(path)
+    }
+    currentPage.value = existingPage
+    return
+  }
+
+  const title = match?.menu.title || String(route.meta?.title || '未命名页面')
+  const page: PageState = {
+    id: match?.menu.id || path,
+    componentName: getComponentNameByPath(path),
+    path,
+    title,
+    isActive: true,
+    isOpen: true,
+  }
+  openPages.value.push(page)
+  currentPage.value = page
 }
 
 // 状态
@@ -1219,28 +1333,14 @@ watch(theme, () => {
 watch(
   () => route.path,
   (newPath) => {
-    // 首页
-    if (newPath === '/home') {
-      openPages.value.forEach(p => { p.isActive = false })
-      const homePage = openPages.value.find(p => p.id === 'home')
-      if (homePage) {
-        homePage.isActive = true
-        currentPage.value = homePage
-      }
-      return
-    }
-    const page = openPages.value.find(p => p.path === newPath)
-    if (page) {
-      currentPage.value = page
-      openPages.value.forEach(p => { p.isActive = p.path === newPath })
-    }
-    // 不再自动切换左侧菜单面板
+    syncNavigationWithRoute(newPath)
   }
 )
 
 // 初始化
 onMounted(async () => {
   updateThemeStyles()
+  sidebarMenu.normalizeBuiltinTree()
 
   try {
     await tenantBrand.load()
@@ -1257,40 +1357,7 @@ onMounted(async () => {
     force: true,
   })
 
-  if (route.path && route.path !== '/' && route.path !== '/home') {
-    const existingPage = openPages.value.find(p => p.path === route.path)
-    if (existingPage) {
-      currentPage.value = existingPage
-      existingPage.isActive = true
-    } else {
-      let title = ''
-      let menuId = ''
-      for (const node of finalMenuTree.value) {
-        if (node.type === 'directory' && node.enabled !== false && node.children?.length) {
-          const match = node.children.find(c => c.type === 'menu' && c.path === route.path)
-          if (match) {
-            title = match.title
-            menuId = match.id
-            break
-          }
-        }
-      }
-      if (title) {
-        const newPage: PageState = {
-          id: menuId,
-          componentName: getComponentNameByPath(route.path),
-          path: route.path,
-          title,
-          isActive: true,
-          isOpen: true,
-        }
-        openPages.value.push(newPage)
-        currentPage.value = newPage
-      }
-    }
-  } else if (openPages.value.length > 0 && !currentPage.value) {
-    currentPage.value = openPages.value[0]
-  }
+  syncNavigationWithRoute(route.path)
 })
 
 // 跳转到个人中心

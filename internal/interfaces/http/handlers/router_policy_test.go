@@ -25,10 +25,14 @@ func TestRequiredPermissionForOperationRoutes(t *testing.T) {
 	require.Equal(t, "menu:edit", requiredPermission("PUT", "/api/permissions/:id"))
 	require.Equal(t, "menu:edit", requiredPermission("DELETE", "/api/permissions/:id"))
 	require.Equal(t, "menu:package_feature", requiredPermission("PUT", "/api/permissions/menu-package-feature/:id"))
+	require.Equal(t, "app:create", requiredPermission("POST", "/api/apps"))
 }
 
 func TestRequiredPermissionForMenuRoutes(t *testing.T) {
 	require.Equal(t, "/users", requiredPermission("GET", "/api/users"))
+	require.Equal(t, "/apps", requiredPermission("GET", "/api/apps"))
+	require.Equal(t, "/apps", requiredPermission("GET", "/api/apps/stats"))
+	require.Equal(t, "/apps", requiredPermission("GET", "/api/apps/:id"))
 	require.Equal(t, "/organization", requiredPermission("GET", "/api/organizations/detail"))
 	require.Equal(t, "/monitor/cache-keys", requiredPermission("GET", "/api/monitor/cache-keys"))
 	require.Equal(t, "/tenants", requiredPermission("GET", "/api/tenants/:id/quota-usage"))

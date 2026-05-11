@@ -63,12 +63,12 @@ FROM information_schema.tables
 WHERE table_schema = 'public'
   AND table_name IN (
     'tenant','org_node','app_user','file_object','role','permission','role_permission','saas_plan','saas_feature','saas_quota',
-    'saas_plan_feature','saas_plan_quota','tenant_subscription','dict_type','dict_item','sys_param','audit_log','login_log'
+    'saas_plan_feature','saas_plan_quota','tenant_subscription','dict_type','dict_item','sys_param','audit_log','login_log','sys_app'
   )`)
 	if err != nil {
 		return BootstrapVerifyResult{}, err
 	}
-	add("required_tables", requiredTables, "18", requiredTables == 18)
+	add("required_tables", requiredTables, "19", requiredTables == 19)
 
 	legacyParamTables, err := count("SELECT CASE WHEN to_regclass('public.system_param') IS NULL THEN 0 ELSE 1 END")
 	if err != nil {
@@ -205,6 +205,18 @@ WHERE t.code = 'platform' AND sp.deleted_at IS NULL`)
 		return BootstrapVerifyResult{}, err
 	}
 	add("platform_sys_params", sysParams, ">=5", sysParams >= 5)
+
+	builtinApps, err := count(`
+SELECT COUNT(*)
+FROM sys_app
+WHERE app_code IN ('app-center','system-management','system-monitor')
+  AND is_builtin = true
+  AND is_platform_only = true
+  AND deleted_at IS NULL`)
+	if err != nil {
+		return BootstrapVerifyResult{}, err
+	}
+	add("builtin_sys_apps", builtinApps, "3", builtinApps == 3)
 
 	permissionRoots, err := count(`
 SELECT COUNT(*)

@@ -261,7 +261,7 @@ function clonePlanDetailNode(node: PlanCapabilityNode): PlanCapabilityNode | nul
   const children = (node.children || [])
     .map((child) => clonePlanDetailNode(child))
     .filter((child): child is PlanCapabilityNode => !!child)
-  if (node.node_type === 'domain') {
+  if (node.node_type === 'app' || node.node_type === 'domain') {
     return children.length > 0 ? { ...node, children } : null
   }
   if (!planDetailNodeActive(node) && children.length === 0) return null
@@ -280,6 +280,9 @@ function planDetailStateClass(node: PlanCapabilityNode): string {
 }
 
 function planDetailFeatureTypeLabel(node: PlanCapabilityNode): string {
+  if (node.node_type === 'app') return '应用'
+  if (node.node_type === 'domain') return '目录'
+  if (node.node_type === 'group') return '目录'
   const type = String(node.feature_type || '').toUpperCase()
   if (type === 'MENU') return '菜单'
   if (type === 'BUTTON') return '操作'
@@ -1300,36 +1303,44 @@ onMounted(async () => {
         <div class="package-detail-section">
           <h3>功能点</h3>
           <div v-if="planDetailNodes.length" class="package-tree">
-            <section v-for="domain in planDetailNodes" :key="domain.id" class="package-tree-domain">
+            <section v-for="app in planDetailNodes" :key="app.id" class="package-tree-domain package-tree-app">
               <div class="package-tree-domain__title">
-                <strong>{{ domain.label }}</strong>
-                <small>目录</small>
+                <strong>{{ app.label }}</strong>
+                <small>{{ app.app_code || '应用' }}</small>
               </div>
               <div class="package-tree-domain__body">
-                <article v-for="menu in domain.children" :key="menu.id" class="package-tree-menu">
-                  <div class="package-tree-node package-tree-node--menu">
-                    <div>
-                      <strong class="package-tree-name">
-                        <span>{{ menu.label }}</span>
-                        <span class="package-tree-type">{{ planDetailFeatureTypeLabel(menu) }}</span>
-                      </strong>
-                      <small>{{ menu.feature_code || menu.id }}</small>
-                    </div>
-                    <span :class="planDetailStateClass(menu)">{{ planDetailStateLabel(menu) }}</span>
+                <section v-for="domain in app.children" :key="domain.id" class="package-tree-domain package-tree-domain--inner">
+                  <div class="package-tree-domain__title">
+                    <strong>{{ domain.label }}</strong>
+                    <small>{{ planDetailFeatureTypeLabel(domain) }}</small>
                   </div>
-                  <div v-if="menu.children.length" class="package-tree-ops">
-                    <div v-for="op in menu.children" :key="op.id" class="package-tree-node package-tree-node--op">
-                      <div>
-                        <strong class="package-tree-name">
-                          <span>{{ op.label }}</span>
-                          <span class="package-tree-type">{{ planDetailFeatureTypeLabel(op) }}</span>
-                        </strong>
-                        <small>{{ op.feature_code || op.id }}</small>
+                  <div class="package-tree-domain__body">
+                    <article v-for="menu in domain.children" :key="menu.id" class="package-tree-menu">
+                      <div class="package-tree-node package-tree-node--menu">
+                        <div>
+                          <strong class="package-tree-name">
+                            <span>{{ menu.label }}</span>
+                            <span class="package-tree-type">{{ planDetailFeatureTypeLabel(menu) }}</span>
+                          </strong>
+                          <small>{{ menu.feature_code || menu.id }}</small>
+                        </div>
+                        <span :class="planDetailStateClass(menu)">{{ planDetailStateLabel(menu) }}</span>
                       </div>
-                      <span :class="planDetailStateClass(op)">{{ planDetailStateLabel(op) }}</span>
-                    </div>
+                      <div v-if="menu.children.length" class="package-tree-ops">
+                        <div v-for="op in menu.children" :key="op.id" class="package-tree-node package-tree-node--op">
+                          <div>
+                            <strong class="package-tree-name">
+                              <span>{{ op.label }}</span>
+                              <span class="package-tree-type">{{ planDetailFeatureTypeLabel(op) }}</span>
+                            </strong>
+                            <small>{{ op.feature_code || op.id }}</small>
+                          </div>
+                          <span :class="planDetailStateClass(op)">{{ planDetailStateLabel(op) }}</span>
+                        </div>
+                      </div>
+                    </article>
                   </div>
-                </article>
+                </section>
               </div>
             </section>
           </div>
@@ -1565,6 +1576,15 @@ onMounted(async () => {
   border: 1px solid var(--neuro-border);
   border-radius: var(--neuro-radius-lg);
   background: var(--neuro-surface-soft);
+}
+
+.package-tree-domain--inner {
+  border-width: 0;
+  border-radius: 0;
+}
+
+.package-tree-domain--inner + .package-tree-domain--inner {
+  border-top: 1px solid var(--neuro-border);
 }
 
 .package-tree-domain__title {

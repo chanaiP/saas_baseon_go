@@ -1,0 +1,8 @@
+app_code: app-center
+app_name: 应用中心
+app_type: SYSTEM_APP
+source: BUILTIN
+status: ONLINE
+visibility_scope: PLATFORM_ONLY
+backend_dir: internal/apps/app_center
+frontend_dir: frontend/src/apps/app-center

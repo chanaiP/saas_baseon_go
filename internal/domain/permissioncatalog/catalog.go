@@ -61,7 +61,8 @@ func FeatureOverride(path string) string {
 
 func IsPlatformOnlyOperation(path string) bool {
 	value := strings.TrimSpace(path)
-	return strings.HasPrefix(value, "tenant:") ||
+	return strings.HasPrefix(value, "app:") ||
+		strings.HasPrefix(value, "tenant:") ||
 		strings.HasPrefix(value, "plan:") ||
 		strings.HasPrefix(value, "dict_type:") ||
 		strings.HasPrefix(value, "perm:") ||
@@ -126,6 +127,7 @@ func OperationParentPrefix(path string) string {
 
 func OperationName(path string) string {
 	names := map[string]string{
+		"app:create":                    "应用-新增",
 		"org:create":                    "组织-新增",
 		"org:edit":                      "组织-编辑",
 		"org:delete":                    "组织-删除",
@@ -196,6 +198,7 @@ func OperationLabel(path string) string {
 		"audit":         "操作日志",
 		"login":         "登录日志",
 		"brand":         "品牌",
+		"app":           "应用",
 	}
 	actionLabel := map[string]string{
 		"create":                 "新增",

@@ -126,6 +126,9 @@ func seedCoreData(db *gorm.DB) error {
 	if err := seedDictionaries(db, tenant.ID); err != nil {
 		return err
 	}
+	if err := seedBuiltinApps(db); err != nil {
+		return err
+	}
 	if err := seedSystemParams(db, tenant.ID); err != nil {
 		return err
 	}
@@ -220,9 +223,30 @@ type seedPermission struct {
 	PackageFeature  bool
 	TenantEditable  bool
 	TenantEditScope string
+	AppCode         string
 	FeatureCode     string
 	FeatureType     string
 	DataPermMode    string
+}
+
+func seedPermissionAppCode(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "/apps" || strings.HasPrefix(path, "/apps/") || strings.HasPrefix(path, "app:") || strings.HasPrefix(path, "data:app") {
+		return "app-center"
+	}
+	if strings.HasPrefix(path, "/monitor/") || strings.HasPrefix(path, "mon") || strings.HasPrefix(path, "data:mon") {
+		return "system-monitor"
+	}
+	return "system-management"
+}
+
+func seedFeatureAppCode(feature models.SaasFeature) string {
+	code := strings.TrimSpace(feature.FeatureCode)
+	name := strings.TrimSpace(feature.FeatureName)
+	if code == "system_monitor" || strings.HasPrefix(code, "button_mon") || strings.HasPrefix(name, "mon") {
+		return "system-monitor"
+	}
+	return "system-management"
 }
 
 func seedPermissions(db *gorm.DB, tenantID uint64) ([]models.Permission, error) {
@@ -230,19 +254,25 @@ func seedPermissions(db *gorm.DB, tenantID uint64) ([]models.Permission, error) 
 		{Name: "菜单根节点", Path: "__menu_root__", Type: 1, SortOrder: 0, Hidden: true, PackageFeature: false, FeatureType: "SYSTEM", DataPermMode: "NONE"},
 		{Name: "操作根节点", Path: "__operations_root__", Type: 1, SortOrder: 0, Hidden: true, PackageFeature: false, FeatureType: "SYSTEM", DataPermMode: "NONE"},
 		{Name: "首页", Path: "/home", Type: 3, SortOrder: 0, Hidden: true, PackageFeature: false, FeatureCode: "home", FeatureType: "MENU", DataPermMode: "NONE"},
-		{Name: "主体管理", Path: "/tenants", Type: 3, SortOrder: 1, PlatformOnly: true, PackageFeature: false, FeatureCode: "tenant_manage", FeatureType: "MENU", DataPermMode: "NONE"},
-		{Name: "套餐中心", Path: "/plans", Type: 3, SortOrder: 2, PlatformOnly: true, PackageFeature: false, FeatureCode: "plan_manage", FeatureType: "MENU", DataPermMode: "NONE"},
-		{Name: "组织架构", Path: "/organization", Type: 3, SortOrder: 3, PackageFeature: true, FeatureCode: "org_manage", FeatureType: "MENU", DataPermMode: "ORG"},
-		{Name: "岗位管理", Path: "/positions", Type: 3, SortOrder: 4, PackageFeature: true, FeatureCode: "position_manage", FeatureType: "MENU", DataPermMode: "ORG"},
-		{Name: "业务单元", Path: "/business-units", Type: 3, SortOrder: 5, PackageFeature: true, FeatureCode: "business_unit_manage", FeatureType: "MENU", DataPermMode: "BU"},
-		{Name: "用户管理", Path: "/users", Type: 3, SortOrder: 6, PackageFeature: true, FeatureCode: "user_manage", FeatureType: "MENU", DataPermMode: "ORG"},
-		{Name: "角色权限", Path: "/roles", Type: 3, SortOrder: 7, PackageFeature: true, FeatureCode: "role_manage", FeatureType: "MENU", DataPermMode: "ORG"},
-		{Name: "菜单管理", Path: "/menus", Type: 3, SortOrder: 8, PackageFeature: true, FeatureCode: "menu_manage", FeatureType: "MENU", TenantEditable: true, DataPermMode: "NONE"},
+		{Name: "应用列表", Path: "/apps", Type: 3, SortOrder: 1, PlatformOnly: true, PackageFeature: false, FeatureCode: "app_list", FeatureType: "MENU", DataPermMode: "NONE"},
+		{Name: "客户端中心", Path: "/apps/clients", Type: 3, SortOrder: 2, PlatformOnly: true, PackageFeature: false, FeatureCode: "app_clients", FeatureType: "MENU", DataPermMode: "NONE"},
+		{Name: "租户开通总览", Path: "/apps/tenant-openings", Type: 3, SortOrder: 3, PlatformOnly: true, PackageFeature: false, FeatureCode: "app_tenant_openings", FeatureType: "MENU", DataPermMode: "NONE"},
+		{Name: "体验邀请总览", Path: "/apps/trial-invites", Type: 3, SortOrder: 4, PlatformOnly: true, PackageFeature: false, FeatureCode: "app_trial_invites", FeatureType: "MENU", DataPermMode: "NONE"},
+		{Name: "Manifest 装载记录", Path: "/apps/manifests", Type: 3, SortOrder: 5, PlatformOnly: true, PackageFeature: false, FeatureCode: "app_manifest_loads", FeatureType: "MENU", DataPermMode: "NONE"},
+		{Name: "应用审计日志", Path: "/apps/audit-logs", Type: 3, SortOrder: 6, PlatformOnly: true, PackageFeature: false, FeatureCode: "app_audit_logs", FeatureType: "MENU", DataPermMode: "NONE"},
+		{Name: "主体管理", Path: "/tenants", Type: 3, SortOrder: 2, PlatformOnly: true, PackageFeature: false, FeatureCode: "tenant_manage", FeatureType: "MENU", DataPermMode: "NONE"},
+		{Name: "套餐中心", Path: "/plans", Type: 3, SortOrder: 3, PlatformOnly: true, PackageFeature: false, FeatureCode: "plan_manage", FeatureType: "MENU", DataPermMode: "NONE"},
+		{Name: "组织架构", Path: "/organization", Type: 3, SortOrder: 4, PackageFeature: true, FeatureCode: "org_manage", FeatureType: "MENU", DataPermMode: "ORG"},
+		{Name: "岗位管理", Path: "/positions", Type: 3, SortOrder: 5, PackageFeature: true, FeatureCode: "position_manage", FeatureType: "MENU", DataPermMode: "ORG"},
+		{Name: "业务单元", Path: "/business-units", Type: 3, SortOrder: 6, PackageFeature: true, FeatureCode: "business_unit_manage", FeatureType: "MENU", DataPermMode: "BU"},
+		{Name: "用户管理", Path: "/users", Type: 3, SortOrder: 7, PackageFeature: true, FeatureCode: "user_manage", FeatureType: "MENU", DataPermMode: "ORG"},
+		{Name: "角色权限", Path: "/roles", Type: 3, SortOrder: 8, PackageFeature: true, FeatureCode: "role_manage", FeatureType: "MENU", DataPermMode: "ORG"},
+		{Name: "菜单管理", Path: "/menus", Type: 3, SortOrder: 9, PackageFeature: true, FeatureCode: "menu_manage", FeatureType: "MENU", TenantEditable: true, DataPermMode: "NONE"},
 		{Name: "权限管理兼容入口", Path: "/permissions", Type: 3, SortOrder: 8, Hidden: true, FeatureCode: "role_manage", FeatureType: "MENU", DataPermMode: "ORG"},
-		{Name: "数据字典", Path: "/dict", Type: 3, SortOrder: 9, PackageFeature: true, FeatureCode: "dict_manage", FeatureType: "MENU", DataPermMode: "ORG"},
-		{Name: "参数管理", Path: "/params", Type: 3, SortOrder: 10, PackageFeature: true, FeatureCode: "param_manage", FeatureType: "MENU", DataPermMode: "ORG"},
-		{Name: "操作日志", Path: "/audit-logs", Type: 3, SortOrder: 11, PackageFeature: true, FeatureCode: "audit_log", FeatureType: "MENU", DataPermMode: "ORG"},
-		{Name: "登录日志", Path: "/login-logs", Type: 3, SortOrder: 12, PackageFeature: true, FeatureCode: "login_log", FeatureType: "MENU", DataPermMode: "ORG"},
+		{Name: "数据字典", Path: "/dict", Type: 3, SortOrder: 10, PackageFeature: true, FeatureCode: "dict_manage", FeatureType: "MENU", DataPermMode: "ORG"},
+		{Name: "参数管理", Path: "/params", Type: 3, SortOrder: 11, PackageFeature: true, FeatureCode: "param_manage", FeatureType: "MENU", DataPermMode: "ORG"},
+		{Name: "操作日志", Path: "/audit-logs", Type: 3, SortOrder: 12, PackageFeature: true, FeatureCode: "audit_log", FeatureType: "MENU", DataPermMode: "ORG"},
+		{Name: "登录日志", Path: "/login-logs", Type: 3, SortOrder: 13, PackageFeature: true, FeatureCode: "login_log", FeatureType: "MENU", DataPermMode: "ORG"},
 		{Name: "健康检查", Path: "/monitor/health", Type: 3, SortOrder: 101, PlatformOnly: true, FeatureCode: "system_monitor", FeatureType: "MENU", DataPermMode: "NONE"},
 		{Name: "服务器信息", Path: "/monitor/server", Type: 3, SortOrder: 102, PlatformOnly: true, FeatureCode: "system_monitor", FeatureType: "MENU", DataPermMode: "NONE"},
 		{Name: "定时任务", Path: "/monitor/jobs", Type: 3, SortOrder: 103, PlatformOnly: true, FeatureCode: "system_monitor", FeatureType: "MENU", DataPermMode: "NONE"},
@@ -260,6 +290,7 @@ func seedPermissions(db *gorm.DB, tenantID uint64) ([]models.Permission, error) 
 		{Name: "套餐-配置", Path: "plan:config", Type: 2, PlatformOnly: true, PackageFeature: false, FeatureType: "OPERATION", DataPermMode: "NONE"},
 	}
 	for _, path := range []string{
+		"app:create",
 		"org:create", "org:edit", "org:delete",
 		"pos:create", "pos:edit", "pos:delete",
 		"business_unit:create", "business_unit:edit", "business_unit:delete",
@@ -294,13 +325,17 @@ func seedPermissions(db *gorm.DB, tenantID uint64) ([]models.Permission, error) 
 			PackageFeature:  permissioncatalog.IsPackageFeatureOperation(path),
 			TenantEditable:  tenantEditable,
 			TenantEditScope: tenantEditScope,
+			AppCode:         seedPermissionAppCode(path),
 			FeatureCode:     featureCode,
 			FeatureType:     featureType,
 			DataPermMode:    dataPermMode,
 		})
 	}
-	for path, prefix := range map[string]string{"/tenants": "tenant", "/plans": "plan", "/organization": "org", "/positions": "pos", "/business-units": "business_unit", "/users": "user", "/roles": "role", "/menus": "menu", "/dict": "dict", "/params": "param", "/audit-logs": "audit", "/login-logs": "login", "/monitor/health": "monhealth", "/monitor/server": "monserver", "/monitor/jobs": "monjobs", "/monitor/services": "monservices", "/monitor/cache": "moncache", "/monitor/cache-keys": "moncachekeys"} {
+	for path, prefix := range map[string]string{"/apps": "app", "/tenants": "tenant", "/plans": "plan", "/organization": "org", "/positions": "pos", "/business-units": "business_unit", "/users": "user", "/roles": "role", "/menus": "menu", "/dict": "dict", "/params": "param", "/audit-logs": "audit", "/login-logs": "login", "/monitor/health": "monhealth", "/monitor/server": "monserver", "/monitor/jobs": "monjobs", "/monitor/services": "monservices", "/monitor/cache": "moncache", "/monitor/cache-keys": "moncachekeys"} {
 		platformOnly := strings.HasPrefix(path, "/monitor/") || path == "/tenants" || path == "/plans"
+		if path == "/apps" {
+			platformOnly = true
+		}
 		dataPermMode := "ORG"
 		if path == "/business-units" {
 			dataPermMode = "BU"
@@ -308,7 +343,7 @@ func seedPermissions(db *gorm.DB, tenantID uint64) ([]models.Permission, error) 
 		if platformOnly {
 			dataPermMode = "NONE"
 		}
-		items = append(items, seedPermission{Name: path + "-数据范围", Path: "data:" + prefix, Type: 4, PlatformOnly: platformOnly, PackageFeature: false, FeatureType: "DATA", DataPermMode: dataPermMode})
+		items = append(items, seedPermission{Name: path + "-数据范围", Path: "data:" + prefix, Type: 4, PlatformOnly: platformOnly, PackageFeature: false, AppCode: seedPermissionAppCode(path), FeatureType: "DATA", DataPermMode: dataPermMode})
 	}
 	items = append(items,
 		seedPermission{Name: "首页-数据范围", Path: "data:home", Type: 4, Hidden: true, PackageFeature: false, FeatureType: "DATA", DataPermMode: "NONE"},
@@ -321,11 +356,16 @@ func seedPermissions(db *gorm.DB, tenantID uint64) ([]models.Permission, error) 
 		if item.Type == 3 && !item.PlatformOnly {
 			tenantEditable = true
 		}
+		appCode := item.AppCode
+		if appCode == "" {
+			appCode = seedPermissionAppCode(item.Path)
+		}
 		permission := models.Permission{
 			TenantID:         tenantID,
 			Name:             item.Name,
 			Path:             item.Path,
 			PermType:         item.Type,
+			AppCode:          appCode,
 			SortOrder:        item.SortOrder,
 			Enabled:          true,
 			Visible:          !item.Hidden,
@@ -375,6 +415,7 @@ func seedPermissions(db *gorm.DB, tenantID uint64) ([]models.Permission, error) 
 			"is_package_feature": item.PackageFeature,
 			"tenant_editable":    tenantEditable,
 			"tenant_edit_scope":  tenantEditScope,
+			"app_code":           appCode,
 			"data_perm_mode":     dataPermMode,
 			"feature_code":       featureCode,
 			"feature_type":       featureType,
@@ -383,7 +424,35 @@ func seedPermissions(db *gorm.DB, tenantID uint64) ([]models.Permission, error) 
 		}
 		out = append(out, permission)
 	}
+	if err := seedPermissionParentIDs(db, tenantID); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+func seedPermissionParentIDs(db *gorm.DB, tenantID uint64) error {
+	pairs := map[string]string{
+		"/apps/clients":         "/apps",
+		"/apps/tenant-openings": "/apps",
+		"/apps/trial-invites":   "/apps",
+		"/apps/manifests":       "/apps",
+		"/apps/audit-logs":      "/apps",
+	}
+	for childPath, parentPath := range pairs {
+		var parent models.Permission
+		if err := db.Where("tenant_id = ? AND path = ? AND deleted_at IS NULL", tenantID, parentPath).First(&parent).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				continue
+			}
+			return err
+		}
+		if err := db.Model(&models.Permission{}).
+			Where("tenant_id = ? AND path = ? AND deleted_at IS NULL", tenantID, childPath).
+			Update("parent_id", parent.ID).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func seedSaasPlans(db *gorm.DB, tenantID uint64) error {
@@ -409,7 +478,19 @@ func seedSaasPlans(db *gorm.DB, tenantID uint64) error {
 		{FeatureCode: "system_monitor", FeatureName: "系统监控", FeatureType: "MENU", Status: 1, Description: stringPtr("健康、服务、缓存监控")},
 	}
 	for i := range features {
+		if features[i].AppCode == "" {
+			features[i].AppCode = seedFeatureAppCode(features[i])
+		}
 		if err := db.Where("feature_code = ?", features[i].FeatureCode).FirstOrCreate(&features[i]).Error; err != nil {
+			return err
+		}
+		if err := db.Model(&features[i]).Updates(map[string]interface{}{
+			"feature_name": features[i].FeatureName,
+			"feature_type": features[i].FeatureType,
+			"app_code":     features[i].AppCode,
+			"status":       features[i].Status,
+			"description":  features[i].Description,
+		}).Error; err != nil {
 			return err
 		}
 	}
@@ -546,6 +627,11 @@ func seedDictionaries(db *gorm.DB, tenantID uint64) error {
 		{"org_node_type", "组织节点类型", "组织节点类型", "platform", true, false, []struct{ label, value string }{{"集团", "group"}, {"公司", "company"}, {"部门", "department"}, {"门店", "store"}, {"仓库", "warehouse"}, {"项目组", "project_team"}}},
 		{"business_unit_type", "业务单元类型", "业务单元类型", "platform", true, false, []struct{ label, value string }{{"区域", "REGION"}, {"门店", "STORE"}, {"公司", "COMPANY"}, {"项目", "PROJECT"}, {"仓库", "WAREHOUSE"}, {"活动", "CAMPAIGN"}, {"自定义", "CUSTOM"}}},
 		{"quota_unit", "配额单位", "套餐配额值的展示单位", "platform", false, true, []struct{ label, value string }{{"数量", "COUNT"}, {"MB", "MB"}, {"GB", "GB"}, {"次", "TIMES"}, {"个", "ITEM"}}},
+		{"app_type", "应用类型", "应用中心的应用分类", "platform", false, true, []struct{ label, value string }{{"系统内置型", "SYSTEM_APP"}, {"业务中台型", "ABILITY_APP"}, {"独立业务型", "BUSINESS_APP"}, {"组合套件型", "SUITE_APP"}, {"连接器型", "CONNECTOR_APP"}, {"客户端型", "CLIENT_APP"}, {"AI / Agent 型", "AI_APP"}, {"API 能力型", "API_APP"}}},
+		{"app_status", "应用状态", "应用中心的生命周期状态", "platform", false, true, []struct{ label, value string }{{"草稿", "DRAFT"}, {"规划中", "PLANNED"}, {"开发中", "DEVELOPING"}, {"Beta", "BETA"}, {"已上线", "ONLINE"}, {"已停用", "DISABLED"}, {"已归档", "ARCHIVED"}}},
+		{"app_source", "应用来源", "应用注册来源", "platform", false, true, []struct{ label, value string }{{"系统内置", "BUILTIN"}, {"手工创建", "MANUAL"}, {"声明文件装载", "MANIFEST"}}},
+		{"app_charge_mode", "应用计费模式", "应用商业化计费模式", "platform", false, true, []struct{ label, value string }{{"免费", "FREE"}, {"订阅制", "SUBSCRIPTION"}, {"买断制", "BUYOUT"}, {"按量收费", "USAGE_BASED"}, {"组合计费", "MIXED"}, {"非售卖", "NON_SELLABLE"}}},
+		{"app_visibility_scope", "应用可见范围", "应用中心的可见与装载范围", "platform", false, true, []struct{ label, value string }{{"仅平台", "PLATFORM_ONLY"}, {"租户可用", "TENANT"}, {"全局可见", "GLOBAL"}}},
 	}
 	for _, item := range dicts {
 		dictType := models.DictType{TenantID: tenantID, Code: item.code, Name: item.name, Remark: &item.remark, Scope: item.scope, TenantEditable: item.tenantEditable, IsPlatformOnly: item.platformOnly}
@@ -567,6 +653,132 @@ func seedDictionaries(db *gorm.DB, tenantID uint64) error {
 			if err := db.Where("dict_type_id = ? AND value = ?", dictType.ID, option.value).FirstOrCreate(&dictItem).Error; err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func seedBuiltinApps(db *gorm.DB) error {
+	apps := []models.SysApp{
+		{
+			AppCode:         "app-center",
+			AppName:         "应用中心",
+			Icon:            stringPtr("Boxes"),
+			AppType:         "SYSTEM_APP",
+			Source:          "BUILTIN",
+			Status:          "ONLINE",
+			ChargeMode:      "NON_SELLABLE",
+			VisibilityScope: "PLATFORM_ONLY",
+			Owner:           stringPtr("平台架构组"),
+			Version:         stringPtr("0.1.0"),
+			Description:     stringPtr("应用注册、装载规范与平台内置应用治理入口"),
+			IsBuiltin:       true,
+			IsPlatformOnly:  true,
+			SortOrder:       1,
+		},
+		{
+			AppCode:         "system-management",
+			AppName:         "系统管理",
+			Icon:            stringPtr("Settings"),
+			AppType:         "SYSTEM_APP",
+			Source:          "BUILTIN",
+			Status:          "ONLINE",
+			ChargeMode:      "NON_SELLABLE",
+			VisibilityScope: "PLATFORM_ONLY",
+			Owner:           stringPtr("平台架构组"),
+			Version:         stringPtr("0.1.0"),
+			Description:     stringPtr("用户、角色、菜单、字典、参数等基础治理能力"),
+			IsBuiltin:       true,
+			IsPlatformOnly:  true,
+			SortOrder:       10,
+		},
+		{
+			AppCode:         "system-monitor",
+			AppName:         "系统监控",
+			Icon:            stringPtr("MonitorCog"),
+			AppType:         "SYSTEM_APP",
+			Source:          "BUILTIN",
+			Status:          "ONLINE",
+			ChargeMode:      "NON_SELLABLE",
+			VisibilityScope: "PLATFORM_ONLY",
+			Owner:           stringPtr("平台运维组"),
+			Version:         stringPtr("0.1.0"),
+			Description:     stringPtr("健康检查、服务状态、缓存和定时任务等运维监控能力"),
+			IsBuiltin:       true,
+			IsPlatformOnly:  true,
+			SortOrder:       20,
+		},
+		{
+			AppCode:         "workbench",
+			AppName:         "工作台",
+			Icon:            stringPtr("House"),
+			AppType:         "SYSTEM_APP",
+			Source:          "BUILTIN",
+			Status:          "PLANNED",
+			ChargeMode:      "NON_SELLABLE",
+			VisibilityScope: "PLATFORM_ONLY",
+			Owner:           stringPtr("平台产品组"),
+			Version:         stringPtr("0.1.0"),
+			Description:     stringPtr("平台与租户用户的统一工作入口、待办与概览能力"),
+			IsBuiltin:       true,
+			IsPlatformOnly:  true,
+			SortOrder:       30,
+		},
+		{
+			AppCode:         "integration-center",
+			AppName:         "第三方集成中心",
+			Icon:            stringPtr("Connection"),
+			AppType:         "CONNECTOR_APP",
+			Source:          "BUILTIN",
+			Status:          "PLANNED",
+			ChargeMode:      "SUBSCRIPTION",
+			VisibilityScope: "TENANT",
+			Owner:           stringPtr("平台集成组"),
+			Version:         stringPtr("0.1.0"),
+			Description:     stringPtr("第三方系统、开放 API、Webhook、OAuth 与外部连接器的统一接入中心"),
+			IsBuiltin:       true,
+			IsPlatformOnly:  false,
+			SortOrder:       40,
+		},
+		{
+			AppCode:         "data-center",
+			AppName:         "数据中心",
+			Icon:            stringPtr("DataAnalysis"),
+			AppType:         "ABILITY_APP",
+			Source:          "BUILTIN",
+			Status:          "PLANNED",
+			ChargeMode:      "SUBSCRIPTION",
+			VisibilityScope: "TENANT",
+			Owner:           stringPtr("数据产品组"),
+			Version:         stringPtr("0.1.0"),
+			Description:     stringPtr("跨应用数据资产、指标、报表、经营预警与数据看板能力中心"),
+			IsBuiltin:       true,
+			IsPlatformOnly:  false,
+			SortOrder:       50,
+		},
+	}
+	for i := range apps {
+		row := apps[i]
+		if err := db.Where("app_code = ?", row.AppCode).FirstOrCreate(&row).Error; err != nil {
+			return err
+		}
+		if err := db.Model(&row).Updates(map[string]interface{}{
+			"app_name":         apps[i].AppName,
+			"icon":             apps[i].Icon,
+			"app_type":         apps[i].AppType,
+			"source":           apps[i].Source,
+			"status":           apps[i].Status,
+			"charge_mode":      apps[i].ChargeMode,
+			"visibility_scope": apps[i].VisibilityScope,
+			"owner":            apps[i].Owner,
+			"version":          apps[i].Version,
+			"description":      apps[i].Description,
+			"is_builtin":       apps[i].IsBuiltin,
+			"is_platform_only": apps[i].IsPlatformOnly,
+			"sort_order":       apps[i].SortOrder,
+			"deleted_at":       nil,
+		}).Error; err != nil {
+			return err
 		}
 	}
 	return nil

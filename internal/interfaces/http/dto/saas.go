@@ -84,6 +84,7 @@ type PlanMatrixNode struct {
 	FeatureID   uint64           `json:"feature_id"`
 	FeatureCode string           `json:"feature_code"`
 	FeatureType string           `json:"feature_type"`
+	AppCode     string           `json:"app_code"`
 	Description *string          `json:"description"`
 	Children    []PlanMatrixNode `json:"children"`
 	Cells       []PlanMatrixCell `json:"cells"`

@@ -143,6 +143,7 @@ func (h *IdentityHandler) buildPlanMatrixNodes(plans []models.SaasPlan, features
 			ID:       spec.ID,
 			Label:    spec.Label,
 			NodeType: "domain",
+			AppCode:  planMatrixAppCodeForNodes(children),
 			Children: children,
 			Cells:    h.planMatrixStructuralCells(plans),
 		})
@@ -163,11 +164,96 @@ func (h *IdentityHandler) buildPlanMatrixNodes(plans []models.SaasPlan, features
 			ID:       "domain-other",
 			Label:    "其他能力",
 			NodeType: "domain",
+			AppCode:  planMatrixAppCodeForNodes(otherChildren),
 			Children: otherChildren,
 			Cells:    h.planMatrixStructuralCells(plans),
 		})
 	}
-	return nodes
+	return h.wrapPlanMatrixNodesByApp(plans, nodes)
+}
+
+func planMatrixAppCodeForNodes(nodes []dto.PlanMatrixNode) string {
+	for _, node := range nodes {
+		if strings.TrimSpace(node.AppCode) != "" {
+			return node.AppCode
+		}
+		if code := planMatrixAppCodeForNodes(node.Children); code != "" {
+			return code
+		}
+	}
+	return "system-management"
+}
+
+func (h *IdentityHandler) wrapPlanMatrixNodesByApp(plans []models.SaasPlan, nodes []dto.PlanMatrixNode) []dto.PlanMatrixNode {
+	if len(nodes) == 0 {
+		return nodes
+	}
+	appNames := h.planMatrixAppNames()
+	grouped := make(map[string][]dto.PlanMatrixNode)
+	order := []string{}
+	for _, node := range nodes {
+		code := strings.TrimSpace(node.AppCode)
+		if code == "" {
+			code = "system-management"
+			node.AppCode = code
+		}
+		if _, ok := grouped[code]; !ok {
+			order = append(order, code)
+		}
+		grouped[code] = append(grouped[code], node)
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		return planMatrixAppSort(order[i]) < planMatrixAppSort(order[j])
+	})
+	wrapped := make([]dto.PlanMatrixNode, 0, len(order))
+	for _, code := range order {
+		label := appNames[code]
+		if label == "" {
+			label = code
+		}
+		wrapped = append(wrapped, dto.PlanMatrixNode{
+			ID:       "app-" + code,
+			Label:    label,
+			NodeType: "app",
+			AppCode:  code,
+			Children: grouped[code],
+			Cells:    h.planMatrixStructuralCells(plans),
+		})
+	}
+	return wrapped
+}
+
+func (h *IdentityHandler) planMatrixAppNames() map[string]string {
+	names := map[string]string{}
+	var apps []models.SysApp
+	if err := h.db.Order("sort_order asc, id asc").Find(&apps).Error; err != nil {
+		return names
+	}
+	for _, app := range apps {
+		names[app.AppCode] = app.AppName
+	}
+	return names
+}
+
+func planMatrixAppSort(code string) int {
+	switch code {
+	case "app-center":
+		return 10
+	case "system-management":
+		return 20
+	case "system-monitor":
+		return 30
+	default:
+		return 100
+	}
+}
+
+func normalizedAppCode(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "system-management"
+	}
+	return value
 }
 
 func excludedPlanMatrixFeature(code string) bool {
@@ -269,6 +355,7 @@ func (h *IdentityHandler) planMatrixFeatureNode(plans []models.SaasPlan, feature
 		FeatureID:   feature.ID,
 		FeatureCode: featureCode,
 		FeatureType: featureType,
+		AppCode:     normalizedAppCode(feature.AppCode),
 		Description: feature.Description,
 		Children:    []dto.PlanMatrixNode{},
 		Cells:       h.planMatrixFeatureCells(plans, feature, enabled),
@@ -433,7 +520,7 @@ func (h *IdentityHandler) syncPackageFeaturesFromPermissions() {
 		name := packageFeatureNameForPermission(permission)
 		feature, found := h.packageFeatureForPermission(permission, code)
 		if found {
-			updates := map[string]interface{}{"feature_code": code, "feature_name": name, "feature_type": featureType, "parent_id": parentID, "status": 1}
+			updates := map[string]interface{}{"feature_code": code, "feature_name": name, "feature_type": featureType, "app_code": normalizedAppCode(permission.AppCode), "parent_id": parentID, "status": 1}
 			if permission.PermType == 3 {
 				updates["menu_id"] = permission.ID
 			}
@@ -442,7 +529,7 @@ func (h *IdentityHandler) syncPackageFeaturesFromPermissions() {
 			syncedCode[code] = true
 			continue
 		}
-		feature = models.SaasFeature{FeatureCode: code, FeatureName: name, FeatureType: featureType, ParentID: parentID, Status: 1}
+		feature = models.SaasFeature{FeatureCode: code, FeatureName: name, FeatureType: featureType, AppCode: normalizedAppCode(permission.AppCode), ParentID: parentID, Status: 1}
 		if permission.PermType == 3 {
 			feature.MenuID = &permission.ID
 		}
@@ -538,7 +625,7 @@ func (h *IdentityHandler) menuBundleOperations(tenantID uint64, menuPath string,
 		if !forPlatform && !h.permissionAllowedForTenantSubscription(tenantID, row) {
 			continue
 		}
-		items = append(items, gin.H{"id": row.ID, "path": row.Path, "name": row.Name, "is_platform_only": row.IsPlatformOnly, "is_package_feature": row.IsPackageFeature, "feature_code": row.FeatureCode, "feature_type": row.FeatureType, "tenant_visible": row.Visible, "tenant_editable": row.TenantEditable, "tenant_edit_scope": row.TenantEditScope, "data_perm_mode": row.DataPermMode})
+		items = append(items, gin.H{"id": row.ID, "path": row.Path, "name": row.Name, "is_platform_only": row.IsPlatformOnly, "is_package_feature": row.IsPackageFeature, "feature_code": row.FeatureCode, "feature_type": row.FeatureType, "app_code": row.AppCode, "tenant_visible": row.Visible, "tenant_editable": row.TenantEditable, "tenant_edit_scope": row.TenantEditScope, "data_perm_mode": row.DataPermMode})
 	}
 	return items
 }

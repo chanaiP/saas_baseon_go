@@ -42,6 +42,7 @@ func (h *IdentityHandler) CreatePermission(c *gin.Context) {
 		TenantEditScope:  nullableTrimmed(body.TenantEditScope),
 		FeatureCode:      nullableTrimmed(body.FeatureCode),
 		FeatureType:      nullableTrimmed(body.FeatureType),
+		AppCode:          normalizedAppCode(body.AppCode),
 		DataPermMode:     coalesceStringPtr(body.DataPermMode, "ORG"),
 	}
 	if row.IsPlatformOnly && row.IsPackageFeature {
@@ -228,6 +229,7 @@ type permissionPayload struct {
 	TenantEditable      *bool    `json:"tenant_editable"`
 	TenantEditScope     *string  `json:"tenant_edit_scope"`
 	DataPermMode        *string  `json:"data_perm_mode"`
+	AppCode             string   `json:"app_code"`
 }
 
 func validatePermissionPayload(body permissionPayload) string {
@@ -326,8 +328,14 @@ func applyPermissionPayload(row *models.Permission, body permissionPayload) {
 	if body.DataPermMode != nil {
 		row.DataPermMode = coalesceStringPtr(body.DataPermMode, "ORG")
 	}
+	if strings.TrimSpace(body.AppCode) != "" {
+		row.AppCode = normalizedAppCode(body.AppCode)
+	}
 	if row.DataPermMode == "" {
 		row.DataPermMode = "ORG"
+	}
+	if row.AppCode == "" {
+		row.AppCode = "system-management"
 	}
 }
 

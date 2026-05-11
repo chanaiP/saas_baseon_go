@@ -166,6 +166,7 @@ function stateLabel(state: string) {
 
 /** 类型胶囊文案 */
 function typePillLabel(node: PlanCapabilityNode) {
+  if (node.node_type === 'app') return '应用'
   if (node.node_type === 'domain') return '业务域'
   if (node.node_type === 'group') return '目录'
   if (node.feature_type === 'BUTTON' && !String(node.feature_code || '').startsWith('button_')) {
@@ -183,6 +184,7 @@ function typePillLabel(node: PlanCapabilityNode) {
 
 /** 类型胶囊样式（与业务域 / 菜单 / 操作等区分） */
 function typePillClass(node: PlanCapabilityNode) {
+  if (node.node_type === 'app') return 'type-pill--app'
   if (node.node_type === 'domain' || node.node_type === 'group') return 'type-pill--domain'
   if (node.feature_type === 'MENU') return 'type-pill--menu'
   if (node.feature_type === 'BUTTON') return 'type-pill--op'
@@ -194,6 +196,7 @@ function typePillClass(node: PlanCapabilityNode) {
 
 /** 名称下方的辅助说明（不再重复类型前缀） */
 function nodeSubtitle(row: { node: PlanCapabilityNode; path: string[] }) {
+  if (row.node.node_type === 'app') return row.node.app_code || row.node.feature_code || '内置应用'
   if (row.node.node_type === 'domain') {
     // 与侧栏菜单树对齐的业务域用「一级目录」；「其他能力」为套餐内非 MENU 树能力聚合，单独说明
     if (row.node.id === 'domain-other') return '特殊业务域分组'
@@ -334,7 +337,7 @@ function editableFeatureTitle(node: PlanCapabilityNode) {
           </div>
 
           <div v-for="plan in matrix.plans" :key="plan.id" class="plan-cell" :class="{ 'is-disabled-plan': plan.status !== 1 }">
-            <div v-if="row.node.node_type === 'domain'" class="domain-action-row">
+            <div v-if="row.node.node_type === 'app' || row.node.node_type === 'domain'" class="domain-action-row">
               <button
                 type="button"
                 class="domain-action-btn domain-action-btn--enable"
@@ -630,6 +633,12 @@ function editableFeatureTitle(node: PlanCapabilityNode) {
   background: color-mix(in srgb, var(--plan-warning, #f59e0b) 22%, transparent);
   color: #9a3412;
   border: 1px solid color-mix(in srgb, var(--plan-warning, #f59e0b) 35%, transparent);
+}
+
+.type-pill--app {
+  background: rgba(20, 220, 200, 0.14);
+  color: #0f766e;
+  border: 1px solid rgba(20, 220, 200, 0.32);
 }
 
 .type-pill--menu {

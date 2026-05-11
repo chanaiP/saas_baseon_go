@@ -3,10 +3,11 @@ package bootstrap
 import (
 	"github.com/gin-gonic/gin"
 
+	apphandlers "saas_baseon_go/internal/apps/app_center/handlers"
 	"saas_baseon_go/internal/interfaces/http/handlers"
 )
 
-func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHandler, paramHandler *handlers.ParamHandler) {
+func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHandler, paramHandler *handlers.ParamHandler, appHandler *apphandlers.AppHandler) {
 	api := router.Group("/api")
 	{
 		api.GET("/auth/captcha", identityHandler.Captcha)
@@ -26,6 +27,10 @@ func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHan
 		api.PUT("/users/me/password", identityHandler.UpdatePassword)
 		api.GET("/users/me/preferences", identityHandler.Preferences)
 		api.PUT("/users/me/preferences", identityHandler.SavePreferences)
+		api.GET("/apps", appHandler.List)
+		api.GET("/apps/stats", appHandler.Stats)
+		api.GET("/apps/:id", appHandler.Detail)
+		api.POST("/apps", appHandler.Create)
 		api.POST("/users", identityHandler.CreateUser)
 		api.PUT("/users/:id", identityHandler.UpdateUser)
 		api.PUT("/users/:id/password", identityHandler.ResetUserPassword)
