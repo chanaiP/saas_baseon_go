@@ -1,7 +1,7 @@
 <script setup lang="ts">
 defineOptions({ name: 'AppCenterListView' })
 
-import { Box, Grid, Monitor, Plus, Refresh, Search, Setting } from '@element-plus/icons-vue'
+import { Box, Download, Grid, Monitor, Plus, Refresh, Search, Setting, Upload } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
@@ -13,8 +13,8 @@ import { formatDateTimeChina } from '@/utils/datetime'
 import NeuroAgentDialog from '@/views/components/NeuroAgentDialog.vue'
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
-import { createAppCenterApp, fetchAppCenterApp, fetchAppCenterApps, fetchAppCenterStats, updateAppCenterApp, updateAppCenterAppStatus } from '../api'
-import type { AppCenterApp, AppCenterClient, AppCenterCreatePayload, AppCenterStats, AppCenterUpdatePayload } from '../types'
+import { createAppCenterApp, downloadAppManifestTemplate, fetchAppCenterApp, fetchAppCenterApps, fetchAppCenterStats, parseAppManifestFile, updateAppCenterApp, updateAppCenterAppStatus } from '../api'
+import type { AppCenterApp, AppCenterClient, AppCenterCreatePayload, AppCenterStats, AppCenterUpdatePayload, AppManifestParseResult } from '../types'
 
 const emptyStats: AppCenterStats = {
   total: 0,
@@ -38,6 +38,7 @@ const dicts = ref<Record<string, DictItemRow[]>>({
   app_source: [],
   app_charge_mode: [],
   app_visibility_scope: [],
+  app_client_type: [],
 })
 
 const fallbackLabels: Record<string, Record<string, string>> = {
@@ -78,6 +79,20 @@ const fallbackLabels: Record<string, Record<string, string>> = {
     TENANT: '租户可用',
     GLOBAL: '全局可见',
   },
+  app_client_type: {
+    PC_WEB: 'PC Web',
+    API_ONLY: 'API Only',
+    H5: 'H5',
+    IOS: 'iOS',
+    ANDROID: 'Android',
+    HARMONYOS: '鸿蒙',
+    WINDOWS: 'Windows',
+    MACOS: 'macOS',
+    MINIAPP: '小程序',
+    WECHAT: '企业微信',
+    DINGTALK: '钉钉',
+    FEISHU: '飞书',
+  },
 }
 
 const appTypeOrder = ['SYSTEM_APP', 'BUSINESS_APP', 'ABILITY_APP', 'API_APP', 'CONNECTOR_APP', 'AI_APP', 'SUITE_APP']
@@ -101,20 +116,35 @@ const communicationModeOptions = [
   { key: 'GATEWAY_PROXY', label: '网关代理' },
 ]
 
-const chargeModeHints: Record<string, string> = {
-  FREE: '免费代表不产生应用收费，但仍可受套餐、授权、租户范围控制。',
-  SUBSCRIPTION: '订阅制只声明商业模型，订阅周期和价格后续在套餐或计费配置中维护；买断可作为永久订阅周期处理。',
-  USAGE_BASED: '按量收费表示按调用量、账号数、数据量等计费，计量项和单价后续配置。',
-  MIXED: '组合收费表示免费、订阅、按量等模型可组合，具体组合规则后续在计费配置中维护。',
-  NON_SELLABLE: '非售卖表示不作为商品对租户出售，通常用于系统底座、内置能力或内部治理场景，不等同于免费。',
-}
+const fallbackClientOptions = [
+  { key: 'PC_WEB', label: 'PC Web' },
+  { key: 'API_ONLY', label: 'API Only' },
+  { key: 'H5', label: 'H5' },
+  { key: 'IOS', label: 'iOS' },
+  { key: 'ANDROID', label: 'Android' },
+  { key: 'HARMONYOS', label: '鸿蒙' },
+  { key: 'WINDOWS', label: 'Windows' },
+  { key: 'MACOS', label: 'macOS' },
+  { key: 'MINIAPP', label: '小程序' },
+  { key: 'WECHAT', label: '企业微信' },
+  { key: 'DINGTALK', label: '钉钉' },
+  { key: 'FEISHU', label: '飞书' },
+]
 
 const trialPolicyOptions = [
   { value: '不支持试用', label: '不支持试用', hint: '租户必须通过套餐包含、应用中心开通或邀请码开通获得应用。' },
-  { value: '7 天', label: '支持试用：7 天', hint: '租户获得并开通应用后开始计算 7 天。' },
-  { value: '15 天', label: '支持试用：15 天', hint: '租户获得并开通应用后开始计算 15 天。' },
-  { value: '30 天', label: '支持试用：30 天', hint: '租户获得并开通应用后开始计算 30 天。' },
-  { value: '不限期', label: '支持试用：不限期', hint: '租户获得并开通应用后进入不限期试用，后续仍可通过授权或套餐收口。' },
+  { value: '不限期', label: '不限期', hint: '租户获得并开通应用后进入不限期试用，后续仍可通过授权或套餐收口。' },
+  { value: '7 天', label: '7 天', hint: '租户获得并开通应用后开始计算 7 天。' },
+  { value: '15 天', label: '15 天', hint: '租户获得并开通应用后开始计算 15 天。' },
+  { value: '30 天', label: '30 天', hint: '租户获得并开通应用后开始计算 30 天。' },
+  { value: 'CUSTOM', label: '自定义', hint: '自定义试用时间，适合灰度、试点或合同约定周期。' },
+]
+
+const customTrialPolicyValue = 'CUSTOM'
+const trialEligibleChargeModes = new Set(['SUBSCRIPTION', 'USAGE_BASED', 'MIXED'])
+const trialTransitionRules = [
+  { title: '试用期间付费', content: '立即转入付费状态，并从付费成功时开始计时。' },
+  { title: '试用期结束未付费', content: '自动终止试用，不继续保留试用权益。' },
 ]
 
 const loading = ref(false)
@@ -129,6 +159,10 @@ const route = useRoute()
 const createDialogVisible = ref(false)
 const editDialogVisible = ref(false)
 const detailDialogVisible = ref(false)
+const createMode = ref<'manual' | 'manifest'>('manual')
+const manifestFileInputRef = ref<HTMLInputElement | null>(null)
+const manifestFileName = ref('')
+const manifestImportSummary = ref('')
 const saving = ref(false)
 const detailLoading = ref(false)
 const detailApp = ref<AppCenterApp | null>(null)
@@ -153,18 +187,6 @@ const tenantPickerVisible = ref(false)
 const tenantPickerTarget = ref<'create' | 'edit'>('create')
 const tenantPickerKeyword = ref('')
 const tenantPickerDraftIds = ref<string[]>([])
-const createForm = ref<AppCenterCreatePayload>(newCreateForm())
-const createStep = ref('basic')
-const createScrollRef = ref<HTMLElement | null>(null)
-const createBodyScrolling = ref(false)
-const createDraft = ref(newCreateDraft())
-const editAppId = ref<number | null>(null)
-const editAppSnapshot = ref<AppCenterApp | null>(null)
-const editForm = ref<AppCenterUpdatePayload>(newEditForm())
-const editStep = ref('basic')
-const editScrollRef = ref<HTMLElement | null>(null)
-const editBodyScrolling = ref(false)
-const editDraft = ref(newEditDraft())
 let createBodyScrollTimer: number | undefined
 let editBodyScrollTimer: number | undefined
 let ownerSearchTimer: number | undefined
@@ -183,6 +205,40 @@ const statusFilterOptions = computed(() => [
 ])
 
 const chargeModeOptions = computed(() => dictOptions('app_charge_mode').filter((item) => item.value !== 'BUYOUT'))
+
+const commercialModeOptions = computed(() =>
+  chargeModeOptions.value.map((item) => ({
+    ...item,
+    description: commercialModeDescription(item.value),
+  })),
+)
+
+const commercialKindOptions = [
+  { value: 'FREE', label: '免费', description: '租户可免费获得，不配置试用期。' },
+  { value: 'PAID', label: '收费', description: '需要选择收费模式，可配置是否包含试用。' },
+  { value: 'NON_SELLABLE', label: '非售卖', description: '平台内置或治理能力，不作为商品售卖。' },
+]
+
+const paidChargeModeOptions = computed(() => commercialModeOptions.value.filter((item) => chargeModeAllowsTrial(item.value)))
+
+const clientTypeOptions = computed(() => {
+  const rows = dictOptions('app_client_type')
+  if (rows.length === 0) return fallbackClientOptions
+  return rows.map((item) => ({ key: item.value, label: item.label }))
+})
+
+const createForm = ref<AppCenterCreatePayload>(newCreateForm())
+const createStep = ref('basic')
+const createScrollRef = ref<HTMLElement | null>(null)
+const createBodyScrolling = ref(false)
+const createDraft = ref(newCreateDraft())
+const editAppId = ref<number | null>(null)
+const editAppSnapshot = ref<AppCenterApp | null>(null)
+const editForm = ref<AppCenterUpdatePayload>(newEditForm())
+const editStep = ref('basic')
+const editScrollRef = ref<HTMLElement | null>(null)
+const editBodyScrolling = ref(false)
+const editDraft = ref(newEditDraft())
 
 const statusSelectValue = computed({
   get: () => (statusFilter.value.includes(',') ? '' : statusFilter.value),
@@ -218,39 +274,32 @@ const tenantOptionsHasMore = computed(() => tenantOptions.value.length < tenantO
 const createSteps = [
   { key: 'basic', title: '基础信息', hint: 'app_code、类型、部署' },
   { key: 'visibility', title: '可见范围', hint: '全部租户、指定租户' },
-  { key: 'commercial', title: '商业策略', hint: '收费模型、试用' },
+  { key: 'commercial', title: '收费策略', hint: '免费、收费、非售卖' },
   { key: 'clients', title: '客户端', hint: 'PC Web、API、移动端' },
-  { key: 'assets', title: '入口/API/权限', hint: '应用资产草稿' },
-  { key: 'review', title: '确认创建', hint: '生成应用主档' },
 ]
 
 const selectedCreateClients = computed(() => {
   return createDraft.value.clients.filter((item) => item.checked).map((item) => item.label)
 })
-const selectedCreateAssets = computed(() => {
-  return createDraft.value.assets.filter((item) => item.checked).map((item) => item.label)
-})
+function commercialStepCompleted(draft: { commercial_kind?: string; paid_charge_mode?: string; trial_days: string; trial_custom_time?: string }) {
+  if (!draft.commercial_kind) return false
+  if (draft.commercial_kind !== 'PAID') return true
+  return Boolean(draft.paid_charge_mode && resolvedTrialPolicy(draft))
+}
 const createStepCompletion = computed<Record<string, boolean>>(() => ({
   basic: Boolean(createForm.value.app_code.trim() && createForm.value.app_name.trim()),
   visibility: Boolean(createDraft.value.visibility_mode),
-  commercial: Boolean(createForm.value.charge_mode && createDraft.value.trial_days),
+  commercial: commercialStepCompleted(createDraft.value),
   clients: selectedCreateClients.value.length > 0,
-  assets: selectedCreateAssets.value.length > 0,
-  review: Boolean(createForm.value.app_code.trim() && createForm.value.app_name.trim()),
 }))
 const selectedEditClients = computed(() => {
   return editDraft.value.clients.filter((item) => item.checked).map((item) => item.label)
 })
-const selectedEditAssets = computed(() => {
-  return editDraft.value.assets.filter((item) => item.checked).map((item) => item.label)
-})
 const editStepCompletion = computed<Record<string, boolean>>(() => ({
   basic: Boolean(editForm.value.app_name.trim()),
   visibility: Boolean(editDraft.value.visibility_mode),
-  commercial: Boolean(editForm.value.charge_mode && editDraft.value.trial_days),
+  commercial: commercialStepCompleted(editDraft.value),
   clients: selectedEditClients.value.length > 0,
-  assets: selectedEditAssets.value.length > 0,
-  review: Boolean(editForm.value.app_name.trim()),
 }))
 
 const groupedApps = computed(() => {
@@ -354,17 +403,75 @@ function labelOf(code: keyof typeof dicts.value, value: string | null | undefine
   return row?.label || fallbackLabels[code]?.[value] || value
 }
 
-function chargeModeHint(value: string | null | undefined) {
-  return value ? chargeModeHints[value] || '这里只声明收费模型，具体费用规则后续在计费配置中维护。' : '请选择应用的商业收费模型。'
+function commercialModeDescription(value: string) {
+  switch (value) {
+    case 'FREE':
+      return '免费开放，不配置试用期。'
+    case 'SUBSCRIPTION':
+      return '按周期订阅，可配置试用。'
+    case 'USAGE_BASED':
+      return '按调用量或资源用量计费。'
+    case 'MIXED':
+      return '订阅制与按量收费的组合。'
+    case 'NON_SELLABLE':
+      return '平台内置或治理能力，不作为商品售卖。'
+    default:
+      return '只声明商业模式，价格后续配置。'
+  }
+}
+
+function chargeModeAllowsTrial(chargeMode: string | null | undefined) {
+  return trialEligibleChargeModes.has(String(chargeMode || ''))
 }
 
 function trialPolicyLabel(value: string | null | undefined) {
   if (!value) return '未选择'
-  return trialPolicyOptions.find((item) => item.value === value)?.label || value
+  const option = trialPolicyOptions.find((item) => item.value === value)
+  if (!option) return value
+  return option.value === customTrialPolicyValue ? '自定义' : option.label
 }
 
-function trialPolicyHint(value: string | null | undefined) {
-  return trialPolicyOptions.find((item) => item.value === value)?.hint || '请选择是否支持试用以及试用周期。'
+function isPresetTrialPolicy(value: string | null | undefined) {
+  return Boolean(value && trialPolicyOptions.some((item) => item.value === value && item.value !== customTrialPolicyValue))
+}
+
+function customTrialTimeFrom(value: string | null | undefined) {
+  if (!value || isPresetTrialPolicy(value)) return ''
+  return value.trim()
+}
+
+function resolvedTrialPolicy(draft: { trial_days: string; trial_custom_time?: string }) {
+  if (draft.trial_days === customTrialPolicyValue) return (draft.trial_custom_time || '').trim()
+  return draft.trial_days
+}
+
+function trialPolicyForSubmit(chargeMode: string | null | undefined, draft: { trial_days: string; trial_custom_time?: string }) {
+  if (!chargeModeAllowsTrial(chargeMode)) return '不支持试用'
+  return resolvedTrialPolicy(draft)
+}
+
+function commercialKindFromChargeMode(chargeMode: string | null | undefined) {
+  if (chargeMode === 'NON_SELLABLE') return 'NON_SELLABLE'
+  if (chargeModeAllowsTrial(chargeMode)) return 'PAID'
+  return 'FREE'
+}
+
+function chargeModeForSubmit(currentChargeMode: string | null | undefined, draft: { commercial_kind?: string; paid_charge_mode?: string }) {
+  if (draft.commercial_kind === 'NON_SELLABLE') return 'NON_SELLABLE'
+  if (draft.commercial_kind === 'PAID') return draft.paid_charge_mode || ''
+  if (draft.commercial_kind === 'FREE') return 'FREE'
+  if (currentChargeMode === 'NON_SELLABLE') return 'NON_SELLABLE'
+  return 'FREE'
+}
+
+function chooseCreateCommercialKind(kind: string) {
+  createDraft.value.commercial_kind = kind
+  if (kind === 'PAID' && !createDraft.value.paid_charge_mode) createDraft.value.paid_charge_mode = 'SUBSCRIPTION'
+}
+
+function chooseEditCommercialKind(kind: string) {
+  editDraft.value.commercial_kind = kind
+  if (kind === 'PAID' && !editDraft.value.paid_charge_mode) editDraft.value.paid_charge_mode = 'SUBSCRIPTION'
 }
 
 function trialStartRuleFor(policy: string | null | undefined) {
@@ -415,32 +522,19 @@ function newCreateDraft() {
   return {
     visibility_mode: '',
     visible_tenants: '',
+    commercial_kind: '',
+    paid_charge_mode: '',
     trial_days: '',
+    trial_custom_time: '',
     trial_start_rule: '',
     communication_modes: communicationModeOptions.map((item) => ({
       ...item,
       checked: item.key === 'PLATFORM_API',
     })),
-    clients: [
-      { key: 'PC_WEB', label: 'PC Web', checked: true },
-      { key: 'API_ONLY', label: 'API Only', checked: true },
-      { key: 'H5', label: 'H5', checked: false },
-      { key: 'IOS', label: 'iOS', checked: false },
-      { key: 'ANDROID', label: 'Android', checked: false },
-      { key: 'HARMONYOS', label: '鸿蒙', checked: false },
-      { key: 'WINDOWS', label: 'Windows', checked: false },
-      { key: 'MACOS', label: 'macOS', checked: false },
-      { key: 'MINIAPP', label: '小程序', checked: false },
-      { key: 'WEWORK_DINGTALK', label: '企微 / 钉钉 / 飞书', checked: false },
-    ],
-    assets: [
-      { key: 'entry_dashboard', label: '创建应用工作台入口', checked: true },
-      { key: 'entry_manage', label: '创建管理列表入口', checked: true },
-      { key: 'api_query', label: '创建查询 API 草稿', checked: true },
-      { key: 'permission_view', label: '创建查看权限点', checked: true },
-      { key: 'permission_manage', label: '创建管理权限点', checked: false },
-      { key: 'package_resource', label: '生成套餐资源草稿', checked: true },
-    ],
+    clients: clientTypeOptions.value.map((item) => ({
+      ...item,
+      checked: false,
+    })),
   }
 }
 
@@ -455,15 +549,14 @@ function newEditDraft(app?: AppCenterApp | null) {
     })),
     visibility_mode: app?.visibility_mode || (app?.visibility_scope === 'GLOBAL' ? 'ALL_TENANTS' : 'SPECIFIED_TENANTS'),
     visible_tenants: app?.visible_tenants || (app?.visibility_scope === 'GLOBAL' ? '全部租户' : '按租户可见范围控制'),
-    trial_days: app?.trial_policy || draft.trial_days,
+    commercial_kind: app?.charge_mode ? commercialKindFromChargeMode(app.charge_mode) : draft.commercial_kind,
+    paid_charge_mode: app?.charge_mode && chargeModeAllowsTrial(app.charge_mode) ? app.charge_mode : draft.paid_charge_mode,
+    trial_days: app?.trial_policy ? (isPresetTrialPolicy(app.trial_policy) ? app.trial_policy : customTrialPolicyValue) : draft.trial_days,
+    trial_custom_time: customTrialTimeFrom(app?.trial_policy),
     trial_start_rule: app?.trial_start_rule || trialStartRuleFor(app?.trial_policy || draft.trial_days) || '',
     clients: draft.clients.map((item) => ({
       ...item,
-      checked: clientCodes.size > 0 ? clientCodes.has(item.key) : item.key === 'PC_WEB' || item.key === 'API_ONLY' || (app?.app_type === 'CONNECTOR_APP' && item.key === 'WEWORK_DINGTALK'),
-    })),
-    assets: draft.assets.map((item) => ({
-      ...item,
-      checked: app?.asset_config ? app.asset_config.split(',').includes(item.key) : item.checked,
+      checked: clientCodes.size > 0 ? clientCodes.has(item.key) : item.key === 'PC_WEB' || item.key === 'API_ONLY' || (app?.app_type === 'CONNECTOR_APP' && ['WECHAT', 'DINGTALK', 'FEISHU'].includes(item.key)),
     })),
   }
 }
@@ -518,6 +611,163 @@ function trimNullable(value: string | null | undefined) {
 
 function checkedKeys(items: Array<{ key: string; checked: boolean }>) {
   return items.filter((item) => item.checked).map((item) => item.key).join(',')
+}
+
+async function downloadManifestTemplate() {
+  try {
+    const blob = await downloadAppManifestTemplate()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'app.manifest.yaml'
+    link.click()
+    URL.revokeObjectURL(url)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : 'Manifest 模板下载失败')
+  }
+}
+
+function triggerManifestImport() {
+  manifestFileInputRef.value?.click()
+}
+
+function manifestValue(source: Record<string, unknown>, paths: string[]) {
+  for (const path of paths) {
+    const value = path.split('.').reduce<unknown>((current, key) => {
+      if (!current || typeof current !== 'object') return undefined
+      return (current as Record<string, unknown>)[key]
+    }, source)
+    if (value !== undefined && value !== null && value !== '') return value
+  }
+  return undefined
+}
+
+function manifestString(source: Record<string, unknown>, paths: string[]) {
+  const value = manifestValue(source, paths)
+  return value === undefined ? '' : String(value).trim()
+}
+
+function manifestArray(source: Record<string, unknown>, paths: string[]) {
+  const value = manifestValue(source, paths)
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (typeof item === 'object' && item) {
+          const row = item as Record<string, unknown>
+          return row.client_code || row.code || row.key || row.name
+        }
+        return item
+      })
+      .map((item) => String(item || '').trim())
+      .filter(Boolean)
+  }
+  if (typeof value === 'string') {
+    return value.split(/[，,\s]+/).map((item) => item.trim()).filter(Boolean)
+  }
+  return []
+}
+
+function allowedValue(value: string, allowed: string[]) {
+  const normalized = value.trim().toUpperCase()
+  return allowed.includes(normalized) ? normalized : ''
+}
+
+function applyManifestToCreateForm(manifest: Record<string, unknown>, fileName: string) {
+  const rawChargeMode = manifestString(manifest, ['charge_mode', 'billing_mode', 'app.billing_mode', 'app.charge_policy', 'commercial.charge_mode', 'billing.charge_mode'])
+  const chargeMode = allowedValue(rawChargeMode, ['FREE', 'SUBSCRIPTION', 'USAGE_BASED', 'MIXED', 'NON_SELLABLE'])
+  const rawVisibilityMode = manifestString(manifest, ['visibility_mode', 'visibility.mode'])
+  const rawVisibilityScope = manifestString(manifest, ['visibility_scope', 'app.visibility_scope', 'visibility.scope'])
+  const visibilityMode = allowedValue(rawVisibilityMode, ['ALL_TENANTS', 'SPECIFIED_TENANTS'])
+    || (allowedValue(rawVisibilityScope, ['GLOBAL', 'TENANT']) === 'GLOBAL' ? 'ALL_TENANTS' : '')
+  const rawDeploymentMode = manifestString(manifest, ['deployment_mode', 'app.deployment_mode', 'deployment.mode'])
+  const deploymentMode = allowedValue(rawDeploymentMode, ['MERGED', 'STANDALONE'])
+  const rawAppType = manifestString(manifest, ['app_type', 'app.app_type', 'type', 'application.type'])
+  const appType = allowedValue(rawAppType, appTypeOrder)
+  const trialPolicy = manifestString(manifest, ['trial_policy', 'trial.policy', 'commercial.trial_policy', 'billing.trial_policy'])
+  const communicationModes = new Set(manifestArray(manifest, ['communication_modes', 'deployment.communication_modes']).map((item) => item.toUpperCase()))
+  const clientCodes = new Set(manifestArray(manifest, ['clients', 'client_codes']).map((item) => item.toUpperCase()))
+
+  createForm.value = {
+    ...createForm.value,
+    app_code: manifestString(manifest, ['app_code', 'app.app_code', 'code', 'application.code']) || createForm.value.app_code,
+    app_name: manifestString(manifest, ['app_name', 'app.app_name', 'name', 'application.name']) || createForm.value.app_name,
+    icon: manifestString(manifest, ['icon', 'app.icon', 'application.icon']) || createForm.value.icon,
+    app_type: appType || createForm.value.app_type,
+    deployment_mode: deploymentMode || createForm.value.deployment_mode || 'MERGED',
+    charge_mode: chargeMode || createForm.value.charge_mode,
+    version: manifestString(manifest, ['version', 'app.version', 'application.version']) || createForm.value.version,
+    description: manifestString(manifest, ['description', 'app.description', 'application.description']) || createForm.value.description,
+    detail_description: manifestString(manifest, ['detail_description', 'detail', 'application.detail_description']) || createForm.value.detail_description,
+    sort_order: Number(manifestString(manifest, ['sort_order', 'application.sort_order']) || createForm.value.sort_order || 0),
+  }
+  createDraft.value.visibility_mode = visibilityMode || createDraft.value.visibility_mode || 'ALL_TENANTS'
+  createDraft.value.commercial_kind = chargeMode ? commercialKindFromChargeMode(chargeMode) : createDraft.value.commercial_kind
+  createDraft.value.paid_charge_mode = chargeModeAllowsTrial(chargeMode) ? chargeMode : createDraft.value.paid_charge_mode
+  if (trialPolicy) {
+    createDraft.value.trial_days = isPresetTrialPolicy(trialPolicy) ? trialPolicy : customTrialPolicyValue
+    createDraft.value.trial_custom_time = isPresetTrialPolicy(trialPolicy) ? '' : trialPolicy
+  } else if (chargeModeAllowsTrial(chargeMode) && !createDraft.value.trial_days) {
+    createDraft.value.trial_days = '不支持试用'
+  }
+  if (communicationModes.size) {
+    createDraft.value.communication_modes = createDraft.value.communication_modes.map((item) => ({
+      ...item,
+      checked: communicationModes.has(item.key),
+    }))
+  }
+  if (clientCodes.size) {
+    createDraft.value.clients = createDraft.value.clients.map((item) => ({
+      ...item,
+      checked: clientCodes.has(item.key),
+    }))
+  }
+  manifestFileName.value = fileName
+  manifestImportSummary.value = 'Manifest 已解析并回填到表单，可继续修改后创建。'
+  createMode.value = 'manifest'
+  createStep.value = 'basic'
+  nextTick(() => createScrollRef.value?.scrollTo({ top: 0 }))
+}
+
+function backendManifestToCreateSource(result: AppManifestParseResult) {
+  const chargeMode = result.charge_policy === 'FREE' || result.charge_policy === 'NON_SELLABLE'
+    ? result.charge_policy
+    : result.billing_mode
+  return {
+    app: {
+      app_code: result.app_code,
+      app_name: result.app_name,
+      app_type: result.app_type,
+      source: result.source,
+      status: result.status,
+      deployment_mode: result.deployment_mode,
+      visibility_scope: result.visibility_scope,
+      charge_policy: chargeMode,
+    },
+    clients: result.client_codes,
+  }
+}
+
+async function handleManifestFileChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  try {
+    const result = await parseAppManifestFile(file)
+    if (!result.valid || !result.importable) {
+      const blocker = result.blockers?.[0] || 'Manifest 当前不能作为新建导入'
+      manifestFileName.value = file.name
+      manifestImportSummary.value = blocker
+      createMode.value = 'manifest'
+      ElMessage.error(blocker)
+      return
+    }
+    applyManifestToCreateForm(backendManifestToCreateSource(result), file.name)
+    manifestImportSummary.value = `后端已解析：菜单 ${result.counts.menus}、权限 ${result.counts.permissions}、API ${result.counts.apis}、套餐功能 ${result.counts.package_features}、配额 ${result.counts.quotas}。`
+    ElMessage.success('Manifest 已由后端解析')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? `Manifest 解析失败：${error.message}` : 'Manifest 解析失败')
+  }
 }
 
 function parseCsv(value: string | null | undefined) {
@@ -772,6 +1022,9 @@ function openCreateDialog() {
   createOwnerIds.value = []
   createTenantIds.value = []
   createDraft.value = newCreateDraft()
+  createMode.value = 'manual'
+  manifestFileName.value = ''
+  manifestImportSummary.value = ''
   createStep.value = 'basic'
   createDialogVisible.value = true
   void loadOwnerUsers()
@@ -840,6 +1093,8 @@ function handleEditScroll() {
 }
 
 async function saveCreateDialog() {
+  const chargeMode = chargeModeForSubmit(createForm.value.charge_mode, createDraft.value)
+  const trialPolicy = trialPolicyForSubmit(chargeMode, createDraft.value)
   const payload: AppCenterCreatePayload = {
     ...createForm.value,
     app_code: createForm.value.app_code.trim(),
@@ -851,14 +1106,15 @@ async function saveCreateDialog() {
     description: trimNullable(createForm.value.description),
     detail_description: trimNullable(createForm.value.detail_description),
     deployment_mode: createForm.value.deployment_mode,
+    charge_mode: chargeMode,
     communication_modes: createForm.value.deployment_mode === 'STANDALONE' ? trimNullable(checkedKeys(createDraft.value.communication_modes)) : null,
     visibility_scope: visibilityScopeFromMode(createDraft.value.visibility_mode),
     visibility_mode: trimNullable(createDraft.value.visibility_mode),
     visible_tenants: createDraft.value.visibility_mode === 'SPECIFIED_TENANTS' ? trimNullable(tenantNames(createTenantIds.value) || createDraft.value.visible_tenants) : null,
     open_method: null,
-    trial_policy: trimNullable(createDraft.value.trial_days),
-    trial_start_rule: trialStartRuleFor(createDraft.value.trial_days),
-    asset_config: trimNullable(checkedKeys(createDraft.value.assets)),
+    trial_policy: trimNullable(trialPolicy),
+    trial_start_rule: trialStartRuleFor(trialPolicy),
+    asset_config: null,
     doc_config: null,
     release_channel: null,
     release_note: null,
@@ -877,8 +1133,25 @@ async function saveCreateDialog() {
     ElMessage.error('请选择可见范围')
     return
   }
-  if (!payload.charge_mode || !createDraft.value.trial_days) {
-    ElMessage.error('请选择收费模型和试用策略')
+  if (!createDraft.value.commercial_kind) {
+    ElMessage.error('请选择免费、收费或非售卖')
+    return
+  }
+  if (createDraft.value.commercial_kind === 'PAID' && (!createDraft.value.paid_charge_mode || !resolvedTrialPolicy(createDraft.value))) {
+    ElMessage.error('请选择收费模式和试用策略')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确认创建应用主档「${payload.app_name}」？创建后将生成应用身份，并保存当前客户端、可见范围和收费策略。`,
+      '创建应用主档',
+      {
+        confirmButtonText: '确认创建',
+        cancelButtonText: '再检查一下',
+        type: 'warning',
+      },
+    )
+  } catch {
     return
   }
   saving.value = true
@@ -915,8 +1188,11 @@ function openEditDialog(app: AppCenterApp) {
 
 async function saveEditDialog() {
   if (!editAppId.value) return
+  const chargeMode = chargeModeForSubmit(editForm.value.charge_mode, editDraft.value)
+  const trialPolicy = trialPolicyForSubmit(chargeMode, editDraft.value)
   const payload = normalizeUpdatePayload({
     ...editForm.value,
+    charge_mode: chargeMode,
     owner: ownerNames(editOwnerIds.value),
     owner_user_ids: editOwnerIds.value.join(','),
     communication_modes: editForm.value.deployment_mode === 'STANDALONE' ? checkedKeys(editDraft.value.communication_modes) : null,
@@ -924,17 +1200,20 @@ async function saveEditDialog() {
     visibility_mode: editDraft.value.visibility_mode,
     visible_tenants: editDraft.value.visibility_mode === 'SPECIFIED_TENANTS' ? tenantNames(editTenantIds.value) || editDraft.value.visible_tenants : null,
     open_method: null,
-    trial_policy: editDraft.value.trial_days,
-    trial_start_rule: trialStartRuleFor(editDraft.value.trial_days),
-    asset_config: checkedKeys(editDraft.value.assets),
+    trial_policy: trialPolicy,
+    trial_start_rule: trialStartRuleFor(trialPolicy),
     clients: draftClients(editDraft.value.clients),
   })
   if (!payload.app_name) {
     ElMessage.error('请填写应用名称')
     return
   }
-  if (!editDraft.value.visibility_mode || !payload.charge_mode || !editDraft.value.trial_days) {
-    ElMessage.error('请选择可见范围、收费模型和试用策略')
+  if (!editDraft.value.visibility_mode || !editDraft.value.commercial_kind) {
+    ElMessage.error('请选择可见范围和收费策略')
+    return
+  }
+  if (editDraft.value.commercial_kind === 'PAID' && (!editDraft.value.paid_charge_mode || !resolvedTrialPolicy(editDraft.value))) {
+    ElMessage.error('请选择收费模式和试用策略')
     return
   }
   saving.value = true
@@ -1124,6 +1403,10 @@ watch(tenantPickerKeyword, () => {
               </button>
             </div>
             <div class="app-center-toolbar__actions">
+              <button class="app-btn" type="button" @click="downloadManifestTemplate">
+                <el-icon :size="15"><Download /></el-icon>
+                Manifest 格式文件
+              </button>
               <button class="app-btn app-btn--primary" type="button" @click="openCreateDialog">
                 <el-icon :size="15"><Plus /></el-icon>
                 新增应用
@@ -1244,6 +1527,27 @@ watch(tenantPickerKeyword, () => {
         </aside>
 
         <section ref="createScrollRef" class="app-create-body" :class="{ 'is-scrolling': createBodyScrolling }" @scroll="handleCreateScroll">
+          <div class="app-create-mode-panel">
+            <div class="app-create-mode-panel__head">
+              <strong>创建方式</strong>
+              <span>{{ createMode === 'manifest' ? '已从 Manifest 回填，可继续修改。' : '手工填写应用主档。' }}</span>
+            </div>
+            <div class="app-create-mode-switch">
+              <button type="button" :class="{ 'is-active': createMode === 'manual' }" @click="createMode = 'manual'">
+                手工填写
+              </button>
+              <button type="button" :class="{ 'is-active': createMode === 'manifest' }" @click="triggerManifestImport">
+                <el-icon :size="15"><Upload /></el-icon>
+                选择 Manifest 文件解析
+              </button>
+            </div>
+            <input ref="manifestFileInputRef" class="app-manifest-input" type="file" accept=".json,.yaml,.yml,application/json,application/x-yaml,text/yaml" @change="handleManifestFileChange" />
+            <p v-if="manifestFileName" class="app-create-mode-panel__result">
+              <strong>{{ manifestFileName }}</strong>
+              <span>{{ manifestImportSummary }}</span>
+            </p>
+          </div>
+
           <div id="create-section-basic" class="app-create-panel">
             <div class="app-create-panel__head">
               <div>
@@ -1344,50 +1648,86 @@ watch(tenantPickerKeyword, () => {
           <div id="create-section-commercial" class="app-create-panel">
             <div class="app-create-panel__head">
               <div>
-                <h3>商业策略</h3>
-                <p>只定义收费模型和试用策略。开通途径由租户应用开通记录承接。</p>
+                <h3>收费策略</h3>
+                <p>先区分免费、收费和非售卖；收费应用再声明收费模式和试用规则。</p>
               </div>
             </div>
             <div class="app-policy-layout">
 
               <section class="app-policy-block">
                 <header>
-                  <strong>收费模型</strong>
-                  <span>这里只声明商业模型，周期、价格、计量项和组合规则后续在套餐或计费配置中维护。</span>
+                  <strong>收费类型</strong>
+                  <span>先判断应用是否售卖。免费和非售卖不配置试用期。</span>
                 </header>
-                <div class="app-form app-form--embedded">
-                  <label>
-                    <span>收费模型</span>
-                    <select v-model="createForm.charge_mode">
-                      <option value="">请选择收费模型</option>
-                      <option v-for="item in chargeModeOptions" :key="item.value" :value="item.value">
-                        {{ item.label }}
-                      </option>
-                    </select>
-                    <em class="app-policy-help">{{ chargeModeHint(createForm.charge_mode) }}</em>
-                  </label>
+                <div class="app-choice-grid app-choice-grid--three">
+                  <button
+                    v-for="item in commercialKindOptions"
+                    :key="item.value"
+                    type="button"
+                    :class="{ 'is-active': createDraft.commercial_kind === item.value }"
+                    @click="chooseCreateCommercialKind(item.value)"
+                  >
+                    <strong>{{ item.label }}</strong>
+                    <span>{{ item.description }}</span>
+                  </button>
                 </div>
               </section>
 
-              <section class="app-policy-block">
+              <section v-if="createDraft.commercial_kind === 'PAID'" class="app-policy-block">
                 <header>
-                  <strong>试用策略</strong>
-                  <span>只定义是否支持试用以及试用周期。</span>
+                  <strong>收费模式</strong>
+                  <span>收费应用继续声明计费方式，价格、周期和计量项后续在套餐或计费配置中维护。</span>
                 </header>
-                <div class="app-form app-form--embedded">
-                  <label>
-                    <span>是否支持试用</span>
-                    <select v-model="createDraft.trial_days">
-                      <option value="">请选择试用策略</option>
-                      <option v-for="item in trialPolicyOptions" :key="item.value" :value="item.value">
-                        {{ item.label }}
-                      </option>
-                    </select>
-                    <em class="app-policy-help">{{ trialPolicyHint(createDraft.trial_days) }}</em>
-                  </label>
-                  <div class="app-policy-fixed app-form__full">
-                    <span>试用开始</span>
-                    <strong>租户获得并开通应用时开始</strong>
+                <div class="app-choice-grid app-choice-grid--three">
+                  <button
+                    v-for="item in paidChargeModeOptions"
+                    :key="item.value"
+                    type="button"
+                    :class="{ 'is-active': createDraft.paid_charge_mode === item.value }"
+                    @click="createDraft.paid_charge_mode = item.value"
+                  >
+                    <strong>{{ item.label }}</strong>
+                    <span>{{ item.description }}</span>
+                  </button>
+                </div>
+              </section>
+
+              <section v-if="createDraft.commercial_kind === 'PAID'" class="app-policy-block">
+                <span class="app-policy-alert" tabindex="0" aria-label="试用开始时间说明">
+                  !
+                  <em>试用开始：租户获得并开通应用时开始</em>
+                </span>
+                <header>
+                  <strong>是否允许试用</strong>
+                  <span>收费应用可选择不试用，也可声明试用周期。</span>
+                </header>
+                <div class="app-policy-rules">
+                  <div v-for="rule in trialTransitionRules" :key="rule.title">
+                    <strong>{{ rule.title }}</strong>
+                    <span>{{ rule.content }}</span>
+                  </div>
+                </div>
+                <div class="app-form app-form--embedded app-form--policy">
+                  <div class="app-form__full">
+                    <span class="app-field-title">使用策略</span>
+                    <div class="app-choice-grid app-choice-grid--policy">
+                      <button
+                        v-for="item in trialPolicyOptions"
+                        :key="item.value"
+                        type="button"
+                        class="app-choice-card"
+                        :class="{ 'is-active': createDraft.trial_days === item.value, 'app-choice-card--custom': item.value === customTrialPolicyValue }"
+                        @click="createDraft.trial_days = item.value"
+                      >
+                        <strong>{{ item.label }}</strong>
+                        <input
+                          v-if="item.value === customTrialPolicyValue && createDraft.trial_days === customTrialPolicyValue"
+                          v-model="createDraft.trial_custom_time"
+                          placeholder="45 天 / 3 个月"
+                          @click.stop
+                        />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </section>
@@ -1412,8 +1752,8 @@ watch(tenantPickerKeyword, () => {
           <div id="create-section-clients" class="app-create-panel">
             <div class="app-create-panel__head">
               <div>
-                <h3>客户端草稿</h3>
-                <p>先明确应用支持的客户端形态。后续实现会保存到应用客户端表，并和租户权益联动。</p>
+                <h3>客户端配置</h3>
+                <p>声明应用支持的客户端形态，保存后进入应用客户端表，并作为后续租户权益联动依据。</p>
               </div>
             </div>
             <div class="app-create-checks">
@@ -1424,68 +1764,6 @@ watch(tenantPickerKeyword, () => {
             </div>
           </div>
 
-          <div id="create-section-assets" class="app-create-panel">
-            <div class="app-create-panel__head">
-              <div>
-                <h3>入口、API、权限草稿</h3>
-                <p>手工创建阶段先生成资产草稿。真实代码应用后续通过 Manifest 装载补齐。</p>
-              </div>
-            </div>
-            <div class="app-create-checks">
-              <label v-for="asset in createDraft.assets" :key="asset.key">
-                <input v-model="asset.checked" type="checkbox" />
-                <span>{{ asset.label }}</span>
-              </label>
-            </div>
-            <div class="app-create-note">
-              <strong>建议默认生成：</strong>
-              <span>应用访问权限、PC Web 工作台入口、查询 API 草稿和套餐资源草稿。</span>
-            </div>
-          </div>
-
-          <div id="create-section-review" class="app-create-panel app-create-panel--review">
-            <div class="app-create-panel__head">
-              <div>
-                <h3>确认创建</h3>
-                <p>确认后保存应用主档并进入立项状态，版本、进度和文档由项目管理应用同步。</p>
-              </div>
-              <span>立项</span>
-            </div>
-            <div class="app-create-review">
-              <div>
-                <span>应用</span>
-                <strong>{{ createForm.app_name || '未填写' }}</strong>
-              </div>
-              <div>
-                <span>app_code</span>
-                <strong>{{ createForm.app_code || '未填写' }}</strong>
-              </div>
-              <div>
-                <span>可见范围</span>
-                <strong>{{ createDraft.visibility_mode === 'ALL_TENANTS' ? '全部租户' : createDraft.visibility_mode === 'SPECIFIED_TENANTS' ? '指定租户' : '未选择' }}</strong>
-              </div>
-              <div>
-                <span>收费模型</span>
-                <strong>{{ labelOf('app_charge_mode', createForm.charge_mode) }}</strong>
-              </div>
-              <div>
-                <span>试用策略</span>
-                <strong>{{ trialPolicyLabel(createDraft.trial_days) }}</strong>
-              </div>
-              <div>
-                <span>创建后状态</span>
-                <strong>{{ labelOf('app_status', createForm.status) }}</strong>
-              </div>
-              <div>
-                <span>客户端草稿</span>
-                <strong>{{ selectedCreateClients.join(' / ') || '未选择' }}</strong>
-              </div>
-              <div>
-                <span>资产草稿</span>
-                <strong>{{ selectedCreateAssets.length }} 项</strong>
-              </div>
-            </div>
-          </div>
         </section>
       </div>
     </NeuroAgentDialog>
@@ -1627,50 +1905,86 @@ watch(tenantPickerKeyword, () => {
           <div id="edit-section-commercial" class="app-create-panel">
             <div class="app-create-panel__head">
               <div>
-                <h3>商业策略</h3>
-                <p>只维护收费模型和试用策略。开通途径由租户应用开通记录承接。</p>
+                <h3>收费策略</h3>
+                <p>先区分免费、收费和非售卖；收费应用再声明收费模式和试用规则。</p>
               </div>
             </div>
             <div class="app-policy-layout">
 
               <section class="app-policy-block">
                 <header>
-                  <strong>收费模型</strong>
-                  <span>这里只声明商业模型，周期、价格、计量项和组合规则后续在套餐或计费配置中维护。</span>
+                  <strong>收费类型</strong>
+                  <span>先判断应用是否售卖。免费和非售卖不配置试用期。</span>
                 </header>
-                <div class="app-form app-form--embedded">
-                  <label>
-                    <span>收费模型</span>
-                    <select v-model="editForm.charge_mode">
-                      <option value="">请选择收费模型</option>
-                      <option v-for="item in chargeModeOptions" :key="item.value" :value="item.value">
-                        {{ item.label }}
-                      </option>
-                    </select>
-                    <em class="app-policy-help">{{ chargeModeHint(editForm.charge_mode) }}</em>
-                  </label>
+                <div class="app-choice-grid app-choice-grid--three">
+                  <button
+                    v-for="item in commercialKindOptions"
+                    :key="item.value"
+                    type="button"
+                    :class="{ 'is-active': editDraft.commercial_kind === item.value }"
+                    @click="chooseEditCommercialKind(item.value)"
+                  >
+                    <strong>{{ item.label }}</strong>
+                    <span>{{ item.description }}</span>
+                  </button>
                 </div>
               </section>
 
-              <section class="app-policy-block">
+              <section v-if="editDraft.commercial_kind === 'PAID'" class="app-policy-block">
                 <header>
-                  <strong>试用策略</strong>
-                  <span>只定义是否支持试用以及试用周期。</span>
+                  <strong>收费模式</strong>
+                  <span>收费应用继续声明计费方式，价格、周期和计量项后续在套餐或计费配置中维护。</span>
                 </header>
-                <div class="app-form app-form--embedded">
-                  <label>
-                    <span>是否支持试用</span>
-                    <select v-model="editDraft.trial_days">
-                      <option value="">请选择试用策略</option>
-                      <option v-for="item in trialPolicyOptions" :key="item.value" :value="item.value">
-                        {{ item.label }}
-                      </option>
-                    </select>
-                    <em class="app-policy-help">{{ trialPolicyHint(editDraft.trial_days) }}</em>
-                  </label>
-                  <div class="app-policy-fixed app-form__full">
-                    <span>试用开始</span>
-                    <strong>租户获得并开通应用时开始</strong>
+                <div class="app-choice-grid app-choice-grid--three">
+                  <button
+                    v-for="item in paidChargeModeOptions"
+                    :key="item.value"
+                    type="button"
+                    :class="{ 'is-active': editDraft.paid_charge_mode === item.value }"
+                    @click="editDraft.paid_charge_mode = item.value"
+                  >
+                    <strong>{{ item.label }}</strong>
+                    <span>{{ item.description }}</span>
+                  </button>
+                </div>
+              </section>
+
+              <section v-if="editDraft.commercial_kind === 'PAID'" class="app-policy-block">
+                <span class="app-policy-alert" tabindex="0" aria-label="试用开始时间说明">
+                  !
+                  <em>试用开始：租户获得并开通应用时开始</em>
+                </span>
+                <header>
+                  <strong>是否允许试用</strong>
+                  <span>收费应用可选择不试用，也可声明试用周期。</span>
+                </header>
+                <div class="app-policy-rules">
+                  <div v-for="rule in trialTransitionRules" :key="rule.title">
+                    <strong>{{ rule.title }}</strong>
+                    <span>{{ rule.content }}</span>
+                  </div>
+                </div>
+                <div class="app-form app-form--embedded app-form--policy">
+                  <div class="app-form__full">
+                    <span class="app-field-title">使用策略</span>
+                    <div class="app-choice-grid app-choice-grid--policy">
+                      <button
+                        v-for="item in trialPolicyOptions"
+                        :key="item.value"
+                        type="button"
+                        class="app-choice-card"
+                        :class="{ 'is-active': editDraft.trial_days === item.value, 'app-choice-card--custom': item.value === customTrialPolicyValue }"
+                        @click="editDraft.trial_days = item.value"
+                      >
+                        <strong>{{ item.label }}</strong>
+                        <input
+                          v-if="item.value === customTrialPolicyValue && editDraft.trial_days === customTrialPolicyValue"
+                          v-model="editDraft.trial_custom_time"
+                          placeholder="45 天 / 3 个月"
+                          @click.stop
+                        />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </section>
@@ -1695,8 +2009,8 @@ watch(tenantPickerKeyword, () => {
           <div id="edit-section-clients" class="app-create-panel">
             <div class="app-create-panel__head">
               <div>
-                <h3>客户端草稿</h3>
-                <p>维护应用支持的访问形态。当前先作为 UI 草稿，后续接应用客户端表和租户权益。</p>
+                <h3>客户端配置</h3>
+                <p>维护应用支持的访问形态，保存后同步到应用客户端表，并作为后续租户权益联动依据。</p>
               </div>
             </div>
             <div class="app-create-checks">
@@ -1707,68 +2021,6 @@ watch(tenantPickerKeyword, () => {
             </div>
           </div>
 
-          <div id="edit-section-assets" class="app-create-panel">
-            <div class="app-create-panel__head">
-              <div>
-                <h3>入口、API、权限草稿</h3>
-                <p>编辑应用资产规划，辅助后续 Manifest 装载、菜单权限同步和套餐资源挂载。</p>
-              </div>
-            </div>
-            <div class="app-create-checks">
-              <label v-for="asset in editDraft.assets" :key="asset.key">
-                <input v-model="asset.checked" type="checkbox" />
-                <span>{{ asset.label }}</span>
-              </label>
-            </div>
-            <div class="app-create-note">
-              <strong>保存说明：</strong>
-              <span>当前版本保存主档字段；资产草稿用于明确后续落库与装载边界。</span>
-            </div>
-          </div>
-
-          <div id="edit-section-review" class="app-create-panel app-create-panel--review">
-            <div class="app-create-panel__head">
-              <div>
-                <h3>确认保存</h3>
-                <p>保存后只更新应用主档；版本、进度和文档由项目管理应用同步。</p>
-              </div>
-              <span>主档保存</span>
-            </div>
-            <div class="app-create-review">
-              <div>
-                <span>应用</span>
-                <strong>{{ editForm.app_name || '未填写' }}</strong>
-              </div>
-              <div>
-                <span>app_code</span>
-                <strong>{{ editAppSnapshot?.app_code || '—' }}</strong>
-              </div>
-              <div>
-                <span>可见范围</span>
-                <strong>{{ editDraft.visibility_mode === 'ALL_TENANTS' ? '全部租户' : editDraft.visibility_mode === 'SPECIFIED_TENANTS' ? '指定租户' : '未选择' }}</strong>
-              </div>
-              <div>
-                <span>收费模型</span>
-                <strong>{{ labelOf('app_charge_mode', editForm.charge_mode) }}</strong>
-              </div>
-              <div>
-                <span>试用策略</span>
-                <strong>{{ trialPolicyLabel(editDraft.trial_days) }}</strong>
-              </div>
-              <div>
-                <span>客户端草稿</span>
-                <strong>{{ selectedEditClients.join(' / ') || '未选择' }}</strong>
-              </div>
-              <div>
-                <span>资产草稿</span>
-                <strong>{{ selectedEditAssets.length }} 项</strong>
-              </div>
-              <div>
-                <span>当前同步版本</span>
-                <strong>{{ editAppSnapshot?.version || '—' }}</strong>
-              </div>
-            </div>
-          </div>
         </section>
       </div>
     </NeuroAgentDialog>
@@ -1967,7 +2219,7 @@ watch(tenantPickerKeyword, () => {
             </div>
             <div>
               <strong>API</strong>
-              <span>查询 API 草稿、状态控制 API、主档维护 API</span>
+              <span>查询 API、状态控制 API、主档维护 API</span>
             </div>
             <div>
               <strong>权限</strong>
@@ -2650,6 +2902,75 @@ watch(tenantPickerKeyword, () => {
   background: color-mix(in srgb, var(--neuro-border) 80%, transparent);
 }
 
+.app-create-mode-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--neuro-primary) 24%, var(--neuro-border));
+  border-radius: var(--neuro-radius-md);
+  background: color-mix(in srgb, var(--neuro-surface-2) 40%, transparent);
+}
+
+.app-create-mode-panel__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--neuro-text-secondary);
+  font-size: 13px;
+}
+
+.app-create-mode-panel__head strong {
+  color: var(--neuro-text);
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.app-create-mode-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.app-create-mode-switch button {
+  min-width: 0;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--neuro-border) 82%, transparent);
+  border-radius: var(--neuro-radius-sm);
+  background: var(--neuro-surface);
+  color: var(--neuro-text-secondary);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.app-create-mode-switch button.is-active {
+  border-color: color-mix(in srgb, var(--neuro-primary) 68%, transparent);
+  background: color-mix(in srgb, var(--neuro-primary) 12%, var(--neuro-surface));
+  color: var(--neuro-text);
+}
+
+.app-manifest-input {
+  display: none;
+}
+
+.app-create-mode-panel__result {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 2px solid color-mix(in srgb, var(--neuro-primary) 58%, transparent);
+  color: var(--neuro-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.app-create-mode-panel__result strong {
+  display: block;
+  color: var(--neuro-text);
+}
+
 .app-create-panel {
   min-width: 0;
   display: flex;
@@ -2723,6 +3044,7 @@ watch(tenantPickerKeyword, () => {
 }
 
 .app-policy-block {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -2751,8 +3073,106 @@ watch(tenantPickerKeyword, () => {
 }
 
 .app-policy-block header span {
+  max-width: calc(100% - 44px);
   color: var(--neuro-text-secondary);
   line-height: 1.5;
+}
+
+.app-policy-alert {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--neuro-primary) 48%, var(--neuro-border));
+  background: color-mix(in srgb, var(--neuro-primary) 12%, var(--neuro-surface));
+  color: var(--neuro-primary);
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1;
+  cursor: help;
+}
+
+.app-policy-alert:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--neuro-primary) 16%, transparent);
+}
+
+.app-policy-alert em {
+  position: absolute;
+  top: 50%;
+  right: 30px;
+  width: max-content;
+  max-width: 280px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--neuro-primary) 38%, var(--neuro-border));
+  border-radius: var(--neuro-radius-sm);
+  background: color-mix(in srgb, var(--neuro-elevated) 96%, var(--neuro-surface));
+  box-shadow: var(--neuro-shadow-md);
+  color: var(--neuro-text);
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1.5;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%) translateX(4px);
+  transition:
+    opacity var(--shell-t-fast) var(--shell-ease-standard),
+    transform var(--shell-t-fast) var(--shell-ease-standard);
+  z-index: 5;
+}
+
+.app-policy-alert em::after {
+  position: absolute;
+  top: 50%;
+  right: -6px;
+  width: 10px;
+  height: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--neuro-primary) 38%, var(--neuro-border));
+  border-right: 1px solid color-mix(in srgb, var(--neuro-primary) 38%, var(--neuro-border));
+  background: color-mix(in srgb, var(--neuro-elevated) 96%, var(--neuro-surface));
+  content: '';
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.app-policy-alert:hover em,
+.app-policy-alert:focus-visible em {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
+
+.app-policy-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: -2px;
+  padding: 8px 0 8px 12px;
+  border-left: 2px solid color-mix(in srgb, var(--neuro-primary) 34%, var(--neuro-border));
+}
+
+.app-policy-rules div {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+}
+
+.app-policy-rules strong {
+  color: color-mix(in srgb, var(--neuro-text) 86%, var(--neuro-primary));
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.app-policy-rules span {
+  color: var(--neuro-text-secondary);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .app-policy-block label {
@@ -2797,12 +3217,18 @@ watch(tenantPickerKeyword, () => {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.app-choice-grid--policy {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .app-choice-grid button {
+  position: relative;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 5px;
-  padding: 12px;
+  min-height: 72px;
+  padding: 15px 14px;
   border: 1px solid color-mix(in srgb, var(--neuro-border) 82%, transparent);
   border-radius: var(--neuro-radius-sm);
   background: var(--neuro-surface);
@@ -2847,8 +3273,46 @@ watch(tenantPickerKeyword, () => {
   line-height: 1.45;
 }
 
+.app-choice-card--custom input {
+  width: 100%;
+  height: 28px;
+  min-width: 0;
+  margin-top: 1px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--neuro-text);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.app-choice-card--custom input::placeholder {
+  color: var(--neuro-text-secondary);
+  font-weight: 700;
+}
+
+.app-choice-card--custom input:focus {
+  outline: none;
+  border: 0;
+  box-shadow: none;
+}
+
 .app-form--embedded {
   gap: 14px 18px;
+}
+
+.app-form--policy {
+  grid-template-columns: 1fr;
+}
+
+.app-field-title {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--neuro-text);
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .app-policy-help {

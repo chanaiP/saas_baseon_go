@@ -144,6 +144,9 @@ func openAPISpec() gin.H {
 			"/api/auth/switchable-tenants":                    gin.H{"get": api("auth", "可切换主体")},
 			"/api/apps":                                       gin.H{"get": api("apps", "应用列表"), "post": api("apps", "创建应用")},
 			"/api/apps/stats":                                 gin.H{"get": api("apps", "应用统计")},
+			"/api/apps/manifest/template":                     gin.H{"get": api("apps", "Manifest 模板")},
+			"/api/apps/manifest/parse":                        gin.H{"post": api("apps", "解析 Manifest")},
+			"/api/apps/manifest/scan":                         gin.H{"post": api("apps", "扫描 Manifest")},
 			"/api/apps/{id}":                                  gin.H{"get": api("apps", "应用详情"), "put": api("apps", "编辑应用")},
 			"/api/apps/{id}/status":                           gin.H{"patch": api("apps", "启停应用")},
 			"/api/batch/companies/export":                     gin.H{"get": api("batch", "公司导出")},
@@ -300,6 +303,9 @@ func withOpenAPISchemas(spec gin.H) gin.H {
 	setOpenAPIOperation(paths, "/api/apps", "get", "", "#/components/schemas/AppPage")
 	setOpenAPIOperation(paths, "/api/apps", "post", "#/components/schemas/ObjectData", "#/components/schemas/App")
 	setOpenAPIOperation(paths, "/api/apps/stats", "get", "", "#/components/schemas/AppStats")
+	setOpenAPIOperation(paths, "/api/apps/manifest/template", "get", "", "#/components/schemas/ObjectData")
+	setOpenAPIOperation(paths, "/api/apps/manifest/parse", "post", "#/components/schemas/ObjectData", "#/components/schemas/ObjectData")
+	setOpenAPIOperation(paths, "/api/apps/manifest/scan", "post", "#/components/schemas/ObjectData", "#/components/schemas/ObjectData")
 	setOpenAPIOperation(paths, "/api/apps/{id}", "get", "", "#/components/schemas/App")
 	setOpenAPIOperation(paths, "/api/apps/{id}", "put", "#/components/schemas/ObjectData", "#/components/schemas/App")
 	setOpenAPIOperation(paths, "/api/apps/{id}/status", "patch", "#/components/schemas/ObjectData", "#/components/schemas/App")

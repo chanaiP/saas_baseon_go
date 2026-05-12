@@ -20,6 +20,7 @@
 - `frontend/src/`：Vue3 前端代码，API 在 `api/`，页面在 `views/`，组件在 `components/`，路由在 `router/`。
 - `docs/`：原项目文档已复制并更新为当前 Go 技术架构，最终交接见 `docs/FINAL_PARITY_REPORT.md`。
 - `docs/tech_design/应用中心接入强制规则.md`：应用 `app_code`、Manifest、独立目录、菜单/权限/套餐同步和装载门禁。
+- `docs/tech_design/独立部署应用接入约束.md`：`deployment_mode=STANDALONE` 应用的 Manifest、外部鉴权、通讯模式、Webhook、数据同步和套餐外订阅门禁。
 - `docs/tech_design/应用中心.md`：应用中心当前页面、数据模型、统计口径和菜单权限边界。
 - `internal/infrastructure/persistence/postgres/schema/current_schema.sql`：当前 PostgreSQL schema baseline。
 - `internal/infrastructure/persistence/postgres/migrations/`：后续增量迁移 SQL。
@@ -60,11 +61,15 @@ AI 工具拿到代码后，如需构建可运行环境，优先按以下入口�
 
 新增应用或业务模块前，必须先阅读 `docs/tech_design/应用中心接入强制规则.md`。新应用必须声明全局唯一 `app_code`、Manifest、独立后端目录 `internal/apps/{app_slug}` 和前端目录 `frontend/src/apps/{app_code}`；`系统管理`、`系统监控` 也必须作为内置应用登记并拥有自己的 `app_code`。
 
+如果应用声明 `deployment_mode=STANDALONE`，必须同时阅读并遵守 `docs/tech_design/独立部署应用接入约束.md`。独立部署应用不得直接读写底座数据库、Redis、文件目录或内部表结构；必须通过 Manifest、开放 API、应用凭证、scope、Webhook 签名或网关代理接入底座。
+
 新增可操作功能时的链路：**应用定义 / Manifest 装载（app_code） → 菜单与权限定义 → 套餐功能映射 → 租户菜单（含覆盖） → 角色权限**。不要只改页面或只绑角色；后端权限码、套餐能力、租户菜单覆盖和角色权限必须保持一致。
 
 应用装载必须按 `app_code` 同步生成或更新底座菜单、角色权限资源、API 权限矩阵、套餐中心功能点/配额和租户菜单入口。Manifest、目录结构、权限、菜单、套餐、API 或 `app_code` 任一项不符合规范时，必须拒绝装载，不允许生成半成品数据。
 
-菜单管理生成的能力进入套餐时，必须始终保持应用 -> 目录 -> 菜单 -> 操作树；seed、服务重启或 Manifest 重装载不得覆盖人工移出套餐、租户覆盖、套餐配置和角色授权。
+套餐中心功能点必须由 Manifest 的 `package_features` 声明，配额必须由 Manifest 的 `quotas` 声明。菜单自动生成套餐功能点只允许作为历史兼容兜底；新增应用、内置应用和后续业务模块不得依赖菜单自动生成作为标准来源。
+
+能力进入套餐时，必须始终保持应用 -> 目录 -> 菜单 -> 操作树；seed、服务重启或 Manifest 重装载不得覆盖人工移出套餐、租户覆盖、套餐配置和角色授权。
 
 修改代码前先理解现有结构，优先复用已有模式。
 

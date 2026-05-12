@@ -3,6 +3,8 @@ package services
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/glebarez/sqlite"
@@ -197,6 +199,116 @@ func TestAppCenterUpdateStatusPersistsManualAppStatus(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, "ONLINE", updated.Status)
+}
+
+func TestAppCenterParseManifestReturnsAssetSummary(t *testing.T) {
+	db := newAppCenterTestDB(t)
+	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
+
+	service := NewAppService(repositories.NewAppRepository(db))
+	result, err := service.ParseManifestContent(context.Background(), 1, "crm.manifest.yaml", []byte(`
+manifest_version: "1.0"
+fragment_role: main
+app:
+  app_code: crm-suite
+  app_name: 客户管理
+  app_type: BUSINESS_APP
+  source: MANIFEST
+  status: INITIATED
+  deployment_mode: MERGED
+  visibility_scope: TENANT
+  charge_policy: PAID
+  billing_mode: SUBSCRIPTION
+  package_policy: IN_PACKAGE
+clients:
+  - PC_WEB
+menus:
+  - code: crm_list
+    name: 客户列表
+    path: /crm
+    include_in_package: true
+package_features:
+  - feature_code: crm_manage
+    feature_name: 客户管理
+    feature_type: MENU
+    include_in_package: true
+quotas:
+  - quota_code: max_customers
+    quota_name: 客户数
+    quota_type: STATIC
+    unit: COUNT
+`))
+
+	require.NoError(t, err)
+	require.True(t, result.Valid)
+	require.True(t, result.Importable)
+	require.Equal(t, "crm-suite", result.AppCode)
+	require.Equal(t, "客户管理", result.AppName)
+	require.Equal(t, 1, result.Counts.Clients)
+	require.Equal(t, 1, result.Counts.Menus)
+	require.Equal(t, 1, result.Counts.PackageFeatures)
+	require.Equal(t, 1, result.Counts.Quotas)
+	require.NotEmpty(t, result.ManifestHash)
+}
+
+func TestAppCenterParseManifestBlocksExistingAppCodeForNewImport(t *testing.T) {
+	db := newAppCenterTestDB(t)
+	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
+	require.NoError(t, db.Create(&models.SysApp{AppCode: "app-center", AppName: "应用中心", AppType: "SYSTEM_APP", Source: "BUILTIN", Status: "ONLINE", ChargeMode: "NON_SELLABLE", VisibilityScope: "PLATFORM_ONLY", IsBuiltin: true, IsPlatformOnly: true}).Error)
+
+	service := NewAppService(repositories.NewAppRepository(db))
+	result, err := service.ParseManifestContent(context.Background(), 1, "app.manifest.yaml", []byte(`
+manifest_version: "1.0"
+fragment_role: main
+app:
+  app_code: app-center
+  app_name: 应用中心
+  app_type: SYSTEM_APP
+  source: BUILTIN
+  status: ONLINE
+  package_policy: NON_SELLABLE
+clients:
+  - PC_WEB
+package_features: []
+`))
+
+	require.NoError(t, err)
+	require.True(t, result.Exists)
+	require.False(t, result.Importable)
+	require.False(t, result.Valid)
+	require.Contains(t, result.Blockers[0], "app_code 已存在")
+}
+
+func TestAppCenterScanManifestsReadsManifestFiles(t *testing.T) {
+	db := newAppCenterTestDB(t)
+	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
+
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "internal/apps/demo"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "internal/apps/demo/app.manifest.yaml"), []byte(`
+manifest_version: "1.0"
+app:
+  app_code: demo-app
+  app_name: 示例应用
+  app_type: BUSINESS_APP
+  package_policy: IN_PACKAGE
+clients:
+  - PC_WEB
+package_features:
+  - feature_code: demo_manage
+    feature_name: 示例应用
+    feature_type: MENU
+    include_in_package: true
+`), 0o644))
+
+	service := NewAppService(repositories.NewAppRepository(db))
+	result, err := service.ScanManifests(context.Background(), 1, root)
+
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Total)
+	require.Equal(t, 1, result.ImportableCount)
+	require.Equal(t, "demo-app", result.Items[0].AppCode)
 }
 
 func newAppCenterTestDB(t *testing.T) *gorm.DB {

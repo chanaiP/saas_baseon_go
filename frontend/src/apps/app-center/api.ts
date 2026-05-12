@@ -1,7 +1,7 @@
 import http, { unwrap } from '@/api/http'
 import type { ApiResponse } from '@/api/types'
 
-import type { AppCenterApp, AppCenterCreatePayload, AppCenterListQuery, AppCenterListResponse, AppCenterStats, AppCenterUpdatePayload } from './types'
+import type { AppCenterApp, AppCenterCreatePayload, AppCenterListQuery, AppCenterListResponse, AppCenterStats, AppCenterUpdatePayload, AppManifestParseResult } from './types'
 
 export async function fetchAppCenterApps(query: AppCenterListQuery = {}) {
   const params: Record<string, string | number> = {
@@ -34,4 +34,17 @@ export async function updateAppCenterApp(id: number, payload: AppCenterUpdatePay
 
 export async function updateAppCenterAppStatus(id: number, status: string) {
   return unwrap(http.patch<ApiResponse<AppCenterApp>>(`/api/apps/${id}/status`, { status }))
+}
+
+export async function downloadAppManifestTemplate() {
+  const response = await http.get('/api/apps/manifest/template', { responseType: 'blob' })
+  return response.data as Blob
+}
+
+export async function parseAppManifestFile(file: File) {
+  const form = new FormData()
+  form.append('file', file)
+  return unwrap(http.post<ApiResponse<AppManifestParseResult>>('/api/apps/manifest/parse', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }))
 }

@@ -250,6 +250,10 @@ func (s *AppService) UpdateAppStatus(ctx context.Context, viewerID uint64, id ui
 	return appToResponse(row, clients), nil
 }
 
+func (s *AppService) CheckPlatformAccess(ctx context.Context, viewerID uint64) error {
+	return s.requirePlatformViewer(ctx, viewerID)
+}
+
 func (s *AppService) requirePlatformViewer(ctx context.Context, viewerID uint64) error {
 	user, err := s.repo.UserByID(ctx, viewerID)
 	if err != nil {

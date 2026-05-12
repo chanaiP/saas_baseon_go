@@ -130,6 +130,7 @@ func OperationName(path string) string {
 		"app:create":                    "应用-新增",
 		"app:edit":                      "应用-编辑",
 		"app:status":                    "应用-启停",
+		"app:load":                      "应用-Manifest 装载",
 		"org:create":                    "组织-新增",
 		"org:edit":                      "组织-编辑",
 		"org:delete":                    "组织-删除",

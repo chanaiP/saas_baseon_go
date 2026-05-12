@@ -1,8 +1,166 @@
-app_code: app-center
-app_name: 应用中心
-app_type: SYSTEM_APP
-source: BUILTIN
-status: ONLINE
-visibility_scope: PLATFORM_ONLY
-backend_dir: internal/apps/app_center
-frontend_dir: frontend/src/apps/app-center
+manifest_version: "1.0"
+fragment_role: main
+app:
+  app_code: app-center
+  app_name: 应用中心
+  app_type: SYSTEM_APP
+  source: BUILTIN
+  status: ONLINE
+  icon: Boxes
+  deployment_mode: MERGED
+  visibility_scope: PLATFORM_ONLY
+  charge_policy: NON_SELLABLE
+  billing_mode: NONE
+  package_policy: NON_SELLABLE
+  version: 0.1.0
+  description: 应用注册、装载规范与平台内置应用治理入口
+  backend_dir: internal/apps/app_center
+  frontend_dir: frontend/src/apps/app-center
+clients:
+  - PC_WEB
+menus:
+  - code: app_list
+    name: 应用列表
+    path: /apps
+    sort_order: 1
+    platform_only: true
+    tenant_visible: false
+    include_in_package: false
+    feature_code: app_list
+    data_perm_mode: NONE
+  - code: app_clients
+    name: 客户端中心
+    path: /apps/clients
+    parent_code: app_list
+    sort_order: 2
+    platform_only: true
+    tenant_visible: false
+    include_in_package: false
+    feature_code: app_clients
+    data_perm_mode: NONE
+  - code: app_tenant_openings
+    name: 租户开通总览
+    path: /apps/tenant-openings
+    parent_code: app_list
+    sort_order: 3
+    platform_only: true
+    tenant_visible: false
+    include_in_package: false
+    feature_code: app_tenant_openings
+    data_perm_mode: NONE
+  - code: app_trial_invites
+    name: 体验邀请总览
+    path: /apps/trial-invites
+    parent_code: app_list
+    sort_order: 4
+    platform_only: true
+    tenant_visible: false
+    include_in_package: false
+    feature_code: app_trial_invites
+    data_perm_mode: NONE
+  - code: app_manifest_loads
+    name: Manifest 装载记录
+    path: /apps/manifests
+    parent_code: app_list
+    sort_order: 5
+    platform_only: true
+    tenant_visible: false
+    include_in_package: false
+    feature_code: app_manifest_loads
+    data_perm_mode: NONE
+  - code: app_audit_logs
+    name: 应用审计日志
+    path: /apps/audit-logs
+    parent_code: app_list
+    sort_order: 6
+    platform_only: true
+    tenant_visible: false
+    include_in_package: false
+    feature_code: app_audit_logs
+    data_perm_mode: NONE
+operations:
+  - code: app_create
+    name: 应用-新增
+    menu_code: app_list
+    permission_code: app:create
+    platform_only: true
+    include_in_package: false
+  - code: app_edit
+    name: 应用-编辑
+    menu_code: app_list
+    permission_code: app:edit
+    platform_only: true
+    include_in_package: false
+  - code: app_status
+    name: 应用-启停
+    menu_code: app_list
+    permission_code: app:status
+    platform_only: true
+    include_in_package: false
+  - code: app_load
+    name: 应用-Manifest 装载
+    menu_code: app_manifest_loads
+    permission_code: app:load
+    platform_only: true
+    include_in_package: false
+permissions:
+  - code: /apps
+    name: 应用列表
+    type: MENU
+    menu_code: app_list
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: app:create
+    name: 应用-新增
+    type: OPERATION
+    menu_code: app_list
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: app:edit
+    name: 应用-编辑
+    type: OPERATION
+    menu_code: app_list
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: app:status
+    name: 应用-启停
+    type: OPERATION
+    menu_code: app_list
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: app:load
+    name: 应用-Manifest 装载
+    type: OPERATION
+    menu_code: app_manifest_loads
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+apis:
+  - method: GET
+    path: /api/apps
+    permission_code: /apps
+  - method: POST
+    path: /api/apps
+    permission_code: app:create
+    audit: true
+  - method: GET
+    path: /api/apps/manifest/template
+    permission_code: /apps
+  - method: POST
+    path: /api/apps/manifest/parse
+    permission_code: app:load
+    audit: true
+  - method: POST
+    path: /api/apps/manifest/scan
+    permission_code: app:load
+    audit: true
+package_features: []
+quotas: []
+documents:
+  - code: app-center-design
+    name: 应用中心设计
+    url: docs/tech_design/应用中心.md

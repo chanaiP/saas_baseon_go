@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -141,6 +142,79 @@ func (h *AppHandler) Stats(c *gin.Context) {
 	response.OK(c, result)
 }
 
+func (h *AppHandler) ManifestTemplate(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	if err := h.service.CheckPlatformAccess(c.Request.Context(), userID); err != nil {
+		writeAppError(c, err)
+		return
+	}
+	c.Header("Content-Disposition", `attachment; filename="app.manifest.yaml"`)
+	c.Data(http.StatusOK, "application/x-yaml; charset=utf-8", []byte(h.service.StandardManifestTemplate()))
+}
+
+func (h *AppHandler) ParseManifest(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "请先登录")
+		return
+	}
+
+	fileName := ""
+	var content []byte
+	if file, err := c.FormFile("file"); err == nil {
+		opened, openErr := file.Open()
+		if openErr != nil {
+			response.Error(c, http.StatusBadRequest, response.CodeBadRequest, "Manifest 文件读取失败")
+			return
+		}
+		defer opened.Close()
+		raw, readErr := io.ReadAll(opened)
+		if readErr != nil {
+			response.Error(c, http.StatusBadRequest, response.CodeBadRequest, "Manifest 文件读取失败")
+			return
+		}
+		fileName = file.Filename
+		content = raw
+	} else {
+		var req dto.ManifestParseRequest
+		if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
+			response.Error(c, http.StatusBadRequest, response.CodeBadRequest, "请上传 Manifest 文件或提供 content")
+			return
+		}
+		fileName = req.FileName
+		content = []byte(req.Content)
+	}
+
+	result, err := h.service.ParseManifestContent(c.Request.Context(), userID, fileName, content)
+	if err != nil {
+		writeAppError(c, err)
+		return
+	}
+	response.OK(c, result)
+}
+
+func (h *AppHandler) ScanManifests(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	var req dto.ManifestScanRequest
+	if c.Request.Body != nil {
+		_ = c.ShouldBindJSON(&req)
+	}
+	result, err := h.service.ScanManifests(c.Request.Context(), userID, req.Root)
+	if err != nil {
+		writeAppError(c, err)
+		return
+	}
+	response.OK(c, result)
+}
+
 func currentUserID(c *gin.Context) (uint64, bool) {
 	raw, ok := c.Get("user_id")
 	if !ok {
@@ -179,7 +253,9 @@ func writeAppError(c *gin.Context, err error) {
 		errors.Is(err, services.ErrInvalidAppCode),
 		errors.Is(err, services.ErrInvalidAppStatus),
 		errors.Is(err, services.ErrBuiltinStatusImmutable),
-		errors.Is(err, services.ErrClientCodeRequired):
+		errors.Is(err, services.ErrClientCodeRequired),
+		errors.Is(err, services.ErrManifestContentRequired),
+		errors.Is(err, services.ErrManifestInvalidFormat):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequest, err.Error())
 	case errors.Is(err, services.ErrAppCodeExists):
 		response.Error(c, http.StatusConflict, response.CodeConflict, "应用编码已存在")

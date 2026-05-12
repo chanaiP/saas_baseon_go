@@ -10,10 +10,11 @@
 2. [当前实现总览](当前实现总览.md)：了解当前代码实现、运行拓扑、核心链路和验证入口。
 3. [总体技术方案](tech_design/总体技术方案.md)：了解整体架构、前后端分层、多租户、权限、套餐、数据权限和安全设计。
 4. [应用中心接入强制规则](tech_design/应用中心接入强制规则.md)：新增应用前必须阅读，确认 `app_code`、Manifest、独立目录、装载同步和拒绝装载门禁。
-5. [应用中心](tech_design/应用中心.md)：了解应用中心当前页面、数据模型、统计口径和菜单权限边界。
-6. [业务开发标准](tech_design/业务开发标准.md)：新增业务模块前必须阅读，确认租户、权限、套餐、配额、审计和测试准入要求。
-7. [模块接入准入清单](tech_design/模块接入准入清单.md)：新增或修改业务能力时逐项检查。
-8. [最终交接报告](FINAL_PARITY_REPORT.md)：查看当前 Go 重建版与原项目的最终对齐状态。
+5. [独立部署应用接入约束](tech_design/独立部署应用接入约束.md)：`deployment_mode=STANDALONE` 应用必须阅读，确认外部鉴权、通讯模式、Webhook、数据同步、套餐外订阅和 AI agent 门禁。
+6. [应用中心](tech_design/应用中心.md)：了解应用中心当前页面、数据模型、统计口径和菜单权限边界。
+7. [业务开发标准](tech_design/业务开发标准.md)：新增业务模块前必须阅读，确认租户、权限、套餐、配额、审计和测试准入要求。
+8. [模块接入准入清单](tech_design/模块接入准入清单.md)：新增或修改业务能力时逐项检查。
+9. [最终交接报告](FINAL_PARITY_REPORT.md)：查看当前 Go 重建版与原项目的最终对齐状态。
 
 ## 当前实现边界
 
@@ -79,13 +80,14 @@
 - [企业级 SaaS Base V0.9 返修 TODO](ENTERPRISE_SAAS_BASE_REPAIR_TODO.md)
 - [企业级 SaaS Base V0.9 最后一轮收口 TODO](ENTERPRISE_SAAS_BASE_FINAL_CLOSURE_TODO.md)
 
-这些文档用于理解整改过程和验收背景；后续开发应以 `README.md`、`CLAUDE.md`、`tech_design/应用中心接入强制规则.md`、`tech_design/应用中心.md`、`tech_design/业务开发标准.md`、`tech_design/模块接入准入清单.md` 和当前代码为准。
+这些文档用于理解整改过程和验收背景；后续开发应以 `README.md`、`AGENTS.md`、`CLAUDE.md`、`tech_design/应用中心接入强制规则.md`、`tech_design/独立部署应用接入约束.md`、`tech_design/应用中心.md`、`tech_design/业务开发标准.md`、`tech_design/模块接入准入清单.md` 和当前代码为准。
 
 ## 文档维护规则
 
 - 改接口时同步更新接口说明、前端 API 调用说明、权限码和测试用例。
 - 改菜单、操作或套餐功能点时，同步更新菜单管理、角色权限、套餐中心和模块接入文档。
 - 改应用、`app_code`、Manifest、应用菜单或装载策略时，同步更新应用中心和应用接入强制规则。
+- 改独立部署应用、外部接入、Webhook、数据同步、应用凭证或网关代理时，同步更新独立部署应用接入约束。
 - 改数据库结构时，同步更新 SQL 设计、schema baseline、migration 和回滚/补偿说明。
 - 改安全策略时，同步更新 `CLAUDE.md` 与 `docs/security`。
 - 文档修改后至少执行 `git diff --check`。

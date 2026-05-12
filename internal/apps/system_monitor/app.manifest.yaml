@@ -1,0 +1,94 @@
+manifest_version: "1.0"
+fragment_role: main
+app:
+  app_code: system-monitor
+  app_name: 系统监控
+  app_type: SYSTEM_APP
+  source: BUILTIN
+  status: ONLINE
+  icon: MonitorCog
+  deployment_mode: MERGED
+  visibility_scope: PLATFORM_ONLY
+  charge_policy: NON_SELLABLE
+  billing_mode: NONE
+  package_policy: NON_SELLABLE
+  version: 0.1.0
+  description: 健康检查、服务状态、缓存和定时任务等运维监控能力
+  backend_dir: internal/apps/system_monitor
+  frontend_dir: frontend/src/apps/system-monitor
+clients:
+  - PC_WEB
+menus:
+  - code: monhealth
+    name: 健康检查
+    path: /monitor/health
+    sort_order: 101
+    platform_only: true
+    tenant_visible: false
+    include_in_package: false
+    feature_code: system_monitor
+    data_perm_mode: NONE
+  - code: monserver
+    name: 服务器信息
+    path: /monitor/server
+    sort_order: 102
+    platform_only: true
+    tenant_visible: false
+    include_in_package: false
+    feature_code: system_monitor
+    data_perm_mode: NONE
+  - code: monjobs
+    name: 定时任务
+    path: /monitor/jobs
+    sort_order: 103
+    platform_only: true
+    tenant_visible: false
+    include_in_package: false
+    feature_code: system_monitor
+    data_perm_mode: NONE
+  - code: monservices
+    name: 服务监控
+    path: /monitor/services
+    sort_order: 104
+    platform_only: true
+    tenant_visible: false
+    include_in_package: false
+    feature_code: system_monitor
+    data_perm_mode: NONE
+  - code: moncache
+    name: 缓存监控
+    path: /monitor/cache
+    sort_order: 105
+    platform_only: true
+    tenant_visible: false
+    include_in_package: false
+    feature_code: system_monitor
+    data_perm_mode: NONE
+  - code: moncachekeys
+    name: 缓存列表
+    path: /monitor/cache-keys
+    sort_order: 106
+    platform_only: true
+    tenant_visible: false
+    include_in_package: false
+    feature_code: system_monitor
+    data_perm_mode: NONE
+operations: []
+permissions:
+  - code: /monitor/health
+    name: 健康检查
+    type: MENU
+    menu_code: monhealth
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+apis:
+  - method: GET
+    path: /api/monitor/health
+    permission_code: /monitor/health
+package_features: []
+quotas: []
+documents:
+  - code: monitor-design
+    name: 系统监控设计
+    url: docs/tech_design/总体技术方案.md

@@ -290,7 +290,7 @@ func seedPermissions(db *gorm.DB, tenantID uint64) ([]models.Permission, error) 
 		{Name: "套餐-配置", Path: "plan:config", Type: 2, PlatformOnly: true, PackageFeature: false, FeatureType: "OPERATION", DataPermMode: "NONE"},
 	}
 	for _, path := range []string{
-		"app:create", "app:edit", "app:status",
+		"app:create", "app:edit", "app:status", "app:load",
 		"org:create", "org:edit", "org:delete",
 		"pos:create", "pos:edit", "pos:delete",
 		"business_unit:create", "business_unit:edit", "business_unit:delete",
@@ -632,6 +632,7 @@ func seedDictionaries(db *gorm.DB, tenantID uint64) error {
 		{"app_source", "应用来源", "应用注册来源", "platform", false, true, []struct{ label, value string }{{"系统内置", "BUILTIN"}, {"手工创建", "MANUAL"}, {"声明文件装载", "MANIFEST"}}},
 		{"app_charge_mode", "应用计费模式", "应用商业化计费模式", "platform", false, true, []struct{ label, value string }{{"免费", "FREE"}, {"订阅制", "SUBSCRIPTION"}, {"按量收费", "USAGE_BASED"}, {"组合收费", "MIXED"}, {"非售卖", "NON_SELLABLE"}}},
 		{"app_visibility_scope", "应用可见范围", "应用中心的可见与装载范围", "platform", false, true, []struct{ label, value string }{{"仅平台", "PLATFORM_ONLY"}, {"租户可用", "TENANT"}, {"全局可见", "GLOBAL"}}},
+		{"app_client_type", "应用客户端类型", "应用中心可选客户端形态", "platform", false, true, []struct{ label, value string }{{"PC Web", "PC_WEB"}, {"API Only", "API_ONLY"}, {"H5", "H5"}, {"iOS", "IOS"}, {"Android", "ANDROID"}, {"鸿蒙", "HARMONYOS"}, {"Windows", "WINDOWS"}, {"macOS", "MACOS"}, {"小程序", "MINIAPP"}, {"企业微信", "WECHAT"}, {"钉钉", "DINGTALK"}, {"飞书", "FEISHU"}}},
 	}
 	for _, item := range dicts {
 		dictType := models.DictType{TenantID: tenantID, Code: item.code, Name: item.name, Remark: &item.remark, Scope: item.scope, TenantEditable: item.tenantEditable, IsPlatformOnly: item.platformOnly}
@@ -794,6 +795,44 @@ func seedBuiltinApps(db *gorm.DB) error {
 			"sort_order":          apps[i].SortOrder,
 			"deleted_at":          nil,
 		}).Error; err != nil {
+			return err
+		}
+	}
+	return seedBuiltinAppClients(db)
+}
+
+func seedBuiltinAppClients(db *gorm.DB) error {
+	type clientSeed struct {
+		appCode    string
+		clientCode string
+		clientName string
+		sortOrder  int
+	}
+	clients := []clientSeed{
+		{appCode: "app-center", clientCode: "PC_WEB", clientName: "PC Web", sortOrder: 1},
+		{appCode: "system-management", clientCode: "PC_WEB", clientName: "PC Web", sortOrder: 1},
+		{appCode: "system-monitor", clientCode: "PC_WEB", clientName: "PC Web", sortOrder: 1},
+		{appCode: "workbench", clientCode: "PC_WEB", clientName: "PC Web", sortOrder: 1},
+		{appCode: "integration-center", clientCode: "PC_WEB", clientName: "PC Web", sortOrder: 1},
+		{appCode: "integration-center", clientCode: "API_ONLY", clientName: "API Only", sortOrder: 2},
+		{appCode: "data-center", clientCode: "PC_WEB", clientName: "PC Web", sortOrder: 1},
+		{appCode: "data-center", clientCode: "API_ONLY", clientName: "API Only", sortOrder: 2},
+	}
+	note := "bootstrap:built-in-client"
+	for _, item := range clients {
+		var app models.SysApp
+		if err := db.Where("app_code = ? AND deleted_at IS NULL", item.appCode).First(&app).Error; err != nil {
+			return err
+		}
+		client := models.SysAppClient{
+			AppID:      app.ID,
+			ClientCode: item.clientCode,
+			ClientName: item.clientName,
+			Enabled:    true,
+			SortOrder:  item.sortOrder,
+			ConfigNote: &note,
+		}
+		if err := db.Where("app_id = ? AND client_code = ? AND deleted_at IS NULL", app.ID, item.clientCode).FirstOrCreate(&client).Error; err != nil {
 			return err
 		}
 	}

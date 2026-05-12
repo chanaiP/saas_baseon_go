@@ -9,6 +9,8 @@
 - 运行、端口、Docker、演示账号：`README.md`
 - AI 项目导航：`AGENTS.md`
 - 总体架构与目录结构：`docs/tech_design/总体技术方案.md`
+- 新增应用、Manifest、套餐功能点来源：`docs/tech_design/应用中心接入强制规则.md`、`docs/tech_design/业务开发标准.md`
+- 独立部署应用：`docs/tech_design/独立部署应用接入约束.md`
 - 数据库初始化与生产 SQL：`README.md`、`cmd/migrate`、`internal/infrastructure/persistence/postgres/schema/current_schema.sql`、`internal/infrastructure/persistence/postgres/migrations/`
 - 系统管理需求/技术/数据库文档：`docs/req_design/`、`docs/tech_design/`、`docs/sql_design/`
 
@@ -63,11 +65,16 @@
 
 - 应用中心是新增应用的上游入口。新增应用必须声明全局唯一 `app_code`、Manifest、独立后端目录 `internal/apps/{app_slug}` 和前端目录 `frontend/src/apps/{app_code}`。
 - `系统管理`、`系统监控` 均必须作为内置应用登记，应用来源为 `BUILTIN`，并分别拥有自己的 `app_code`。
+- 内置应用也必须输出标准 `app.manifest.yaml`，包括 `app-center`、`system-management`、`system-monitor`。
 - 应用装载必须按 `app_code` 同步生成或更新底座菜单、角色权限资源、API 权限矩阵、套餐中心功能点/配额和租户菜单入口。
 - Manifest、目录结构、权限、菜单、套餐、API 或 `app_code` 任一项不符合规范时，必须拒绝装载；不得生成半成品数据、不得静默跳过、不得要求后续手工补录。
 - 菜单管理生成的目录、菜单、操作必须保持三层结构，并能追溯到所属 `app_code`。
 - 平台专属能力不得进入租户套餐功能池；仅主体能力不得作为租户可购买套餐能力。
 - 菜单管理是目录、菜单、操作三层结构来源；应用 Manifest 是应用归属和装载来源；套餐中心只承载租户可购买能力与配额。不得在前端或套餐页维护第二套功能树。
+- 套餐中心功能点必须由 Manifest 的 `package_features` 声明，配额必须由 Manifest 的 `quotas` 声明。菜单自动生成套餐功能点只允许作为历史兼容兜底；新增应用、内置应用和后续业务模块不得依赖菜单自动生成作为标准来源。
+- `include_in_package=false` 的能力不得进入套餐中心；如果后续需要售卖，应走套餐外订阅、应用单独订阅或明确的非售卖治理。
+- 如果应用声明 `deployment_mode=STANDALONE`，必须读取并遵守 `docs/tech_design/独立部署应用接入约束.md`。独立部署应用不得直接读写底座数据库、Redis、文件目录或内部表结构，不得复用底座内部 JWT secret、数据库账号或生产连接串。
+- 独立部署应用必须通过 Manifest、开放 API、应用凭证、scope、Webhook 签名、数据同步幂等键或网关代理接入底座；没有通讯模式、应用凭证、租户上下文、幂等键和审计点时，不得实现外部调用、回调或同步任务。
 - 服务重启、seed 重跑、Manifest 重装载不得覆盖人工移出套餐中心、租户覆盖、套餐列配置或角色授权。
 - 统一使用 `permission` 作为权限来源，覆盖 menu、operation、API、data scope。权限标识必须稳定，并与前端一致。
 - 租户菜单运行时按：平台专属过滤 -> 套餐功能过滤 -> 角色权限过滤 -> 租户覆盖 计算最终结果。

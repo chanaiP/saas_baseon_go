@@ -102,6 +102,8 @@ func optionalRouteByMethodPath() map[string]bool {
 func operationPermissionByRoute() map[string]string {
 	return map[string]string{
 		"POST /api/apps":                                "app:create",
+		"POST /api/apps/manifest/parse":                 "app:load",
+		"POST /api/apps/manifest/scan":                  "app:load",
 		"PUT /api/apps/:id":                             "app:edit",
 		"PATCH /api/apps/:id/status":                    "app:status",
 		"PUT /api/tenant/branding":                      "brand:edit",
@@ -195,6 +197,7 @@ func menuPermissionByRoute() map[string]string {
 		"/api/tenants/:id/quota-check/:quota_code":      "/tenants",
 		"/api/apps":                            "/apps",
 		"/api/apps/stats":                      "/apps",
+		"/api/apps/manifest/template":          "/apps",
 		"/api/apps/:id":                        "/apps",
 		"/api/plans":                           "/plans",
 		"/api/plans/matrix":                    "/plans",

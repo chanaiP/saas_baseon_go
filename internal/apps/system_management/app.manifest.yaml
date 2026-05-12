@@ -1,0 +1,365 @@
+manifest_version: "1.0"
+fragment_role: main
+app:
+  app_code: system-management
+  app_name: 系统管理
+  app_type: SYSTEM_APP
+  source: BUILTIN
+  status: ONLINE
+  icon: Settings
+  deployment_mode: MERGED
+  visibility_scope: PLATFORM_ONLY
+  charge_policy: NON_SELLABLE
+  billing_mode: NONE
+  package_policy: MIXED
+  version: 0.1.0
+  description: 用户、角色、菜单、字典、参数、主体和套餐等基础治理能力
+  backend_dir: internal/apps/system_management
+  frontend_dir: frontend/src/apps/system-management
+clients:
+  - PC_WEB
+menus:
+  - code: tenant_manage
+    name: 主体管理
+    path: /tenants
+    sort_order: 2
+    platform_only: true
+    tenant_visible: false
+    include_in_package: false
+    feature_code: tenant_manage
+    data_perm_mode: NONE
+  - code: plan_manage
+    name: 套餐中心
+    path: /plans
+    sort_order: 3
+    platform_only: true
+    tenant_visible: false
+    include_in_package: false
+    feature_code: plan_manage
+    data_perm_mode: NONE
+  - code: org_manage
+    name: 组织架构
+    path: /organization
+    sort_order: 4
+    tenant_visible: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: org_manage
+    data_perm_mode: ORG
+  - code: position_manage
+    name: 岗位管理
+    path: /positions
+    sort_order: 5
+    tenant_visible: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: position_manage
+    data_perm_mode: ORG
+  - code: business_unit_manage
+    name: 业务单元
+    path: /business-units
+    sort_order: 6
+    tenant_visible: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: business_unit_manage
+    data_perm_mode: BU
+  - code: user_manage
+    name: 用户管理
+    path: /users
+    sort_order: 7
+    tenant_visible: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: user_manage
+    data_perm_mode: ORG
+  - code: role_manage
+    name: 角色权限
+    path: /roles
+    sort_order: 8
+    tenant_visible: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: role_manage
+    data_perm_mode: ORG
+  - code: menu_manage
+    name: 菜单管理
+    path: /menus
+    sort_order: 9
+    tenant_visible: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: menu_manage
+    data_perm_mode: NONE
+  - code: dict_manage
+    name: 数据字典
+    path: /dict
+    sort_order: 10
+    tenant_visible: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: dict_manage
+    data_perm_mode: ORG
+  - code: param_manage
+    name: 参数管理
+    path: /params
+    sort_order: 11
+    tenant_visible: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: param_manage
+    data_perm_mode: ORG
+  - code: audit_log
+    name: 操作日志
+    path: /audit-logs
+    sort_order: 12
+    tenant_visible: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: audit_log
+    data_perm_mode: ORG
+  - code: login_log
+    name: 登录日志
+    path: /login-logs
+    sort_order: 13
+    tenant_visible: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: login_log
+    data_perm_mode: ORG
+operations:
+  - code: menu_edit
+    name: 菜单-编辑
+    menu_code: menu_manage
+    permission_code: menu:edit
+    include_in_package: true
+    feature_code: button_menu_edit
+  - code: dict_item_create
+    name: 字典项-新增
+    menu_code: dict_manage
+    permission_code: dict_item:create
+    include_in_package: true
+    feature_code: button_dict_item_create
+  - code: dict_item_edit
+    name: 字典项-编辑
+    menu_code: dict_manage
+    permission_code: dict_item:edit
+    include_in_package: true
+    feature_code: button_dict_item_edit
+  - code: dict_item_delete
+    name: 字典项-删除
+    menu_code: dict_manage
+    permission_code: dict_item:delete
+    include_in_package: true
+    feature_code: button_dict_item_delete
+  - code: brand_edit
+    name: 品牌-维护
+    permission_code: brand:edit
+    include_in_package: true
+    feature_code: brand_config
+permissions:
+  - code: /users
+    name: 用户管理
+    type: MENU
+    menu_code: user_manage
+    include_in_package: true
+    data_perm_mode: ORG
+  - code: /roles
+    name: 角色权限
+    type: MENU
+    menu_code: role_manage
+    include_in_package: true
+    data_perm_mode: ORG
+  - code: menu:edit
+    name: 菜单-编辑
+    type: OPERATION
+    menu_code: menu_manage
+    include_in_package: true
+    data_perm_mode: NONE
+  - code: brand:edit
+    name: 品牌-维护
+    type: CONFIG
+    include_in_package: true
+    data_perm_mode: NONE
+apis:
+  - method: GET
+    path: /api/users
+    permission_code: /users
+  - method: GET
+    path: /api/roles
+    permission_code: /roles
+  - method: PUT
+    path: /api/permissions/menu-package-feature/{id}
+    permission_code: menu:package_feature
+    audit: true
+package_features:
+  - feature_code: user_manage
+    feature_name: 用户管理
+    feature_type: MENU
+    source_code: /users
+    package_policy: IN_PACKAGE
+    include_in_package: true
+    description: 用户列表、创建、编辑、删除与重置密码等
+  - feature_code: org_manage
+    feature_name: 组织管理
+    feature_type: MENU
+    source_code: /organization
+    package_policy: IN_PACKAGE
+    include_in_package: true
+    description: 公司、部门管理
+  - feature_code: position_manage
+    feature_name: 岗位管理
+    feature_type: MENU
+    source_code: /positions
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: role_manage
+    feature_name: 角色权限
+    feature_type: MENU
+    source_code: /roles
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: menu_manage
+    feature_name: 菜单管理
+    feature_type: MENU
+    source_code: /menus
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: button_menu_edit
+    feature_name: 菜单-编辑
+    feature_type: OPERATION
+    parent_code: menu_manage
+    source_code: menu:edit
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: dict_manage
+    feature_name: 数据字典
+    feature_type: MENU
+    source_code: /dict
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: button_dict_item_create
+    feature_name: 字典项-新增
+    feature_type: OPERATION
+    parent_code: dict_manage
+    source_code: dict_item:create
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: button_dict_item_edit
+    feature_name: 字典项-编辑
+    feature_type: OPERATION
+    parent_code: dict_manage
+    source_code: dict_item:edit
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: button_dict_item_delete
+    feature_name: 字典项-删除
+    feature_type: OPERATION
+    parent_code: dict_manage
+    source_code: dict_item:delete
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: param_manage
+    feature_name: 系统参数
+    feature_type: MENU
+    source_code: /params
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: business_unit_manage
+    feature_name: 业务单元
+    feature_type: MENU
+    source_code: /business-units
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: login_log
+    feature_name: 登录日志
+    feature_type: MENU
+    source_code: /login-logs
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: audit_log
+    feature_name: 操作审计
+    feature_type: MENU
+    source_code: /audit-logs
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: import_data
+    feature_name: 数据导入
+    feature_type: SERVICE
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: export_data
+    feature_name: 数据导出
+    feature_type: SERVICE
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: file_manage
+    feature_name: 文件管理
+    feature_type: SERVICE
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: brand_config
+    feature_name: 品牌配置
+    feature_type: CONFIG
+    source_code: brand:edit
+    package_policy: IN_PACKAGE
+    include_in_package: true
+quotas:
+  - quota_code: max_users
+    quota_name: 最大用户数
+    quota_type: STATIC
+    unit: COUNT
+    period_type: NONE
+    include_in_package: true
+  - quota_code: max_companies
+    quota_name: 最大公司数
+    quota_type: STATIC
+    unit: COUNT
+    period_type: NONE
+    include_in_package: true
+  - quota_code: max_departments
+    quota_name: 最大部门数
+    quota_type: STATIC
+    unit: COUNT
+    period_type: NONE
+    include_in_package: true
+  - quota_code: max_business_units
+    quota_name: 最大业务单元数
+    quota_type: STATIC
+    unit: COUNT
+    period_type: NONE
+    include_in_package: true
+  - quota_code: max_roles
+    quota_name: 最大角色数
+    quota_type: STATIC
+    unit: COUNT
+    period_type: NONE
+    include_in_package: true
+  - quota_code: max_storage_gb
+    quota_name: 存储空间
+    quota_type: STATIC
+    unit: GB
+    period_type: NONE
+    include_in_package: true
+  - quota_code: max_file_size_mb
+    quota_name: 单文件大小
+    quota_type: STATIC
+    unit: MB
+    period_type: NONE
+    include_in_package: true
+  - quota_code: daily_import_times
+    quota_name: 每日导入次数
+    quota_type: DYNAMIC
+    unit: TIMES
+    period_type: DAY
+    include_in_package: true
+  - quota_code: daily_export_times
+    quota_name: 每日导出次数
+    quota_type: DYNAMIC
+    unit: TIMES
+    period_type: DAY
+    include_in_package: true
+documents:
+  - code: business-standard
+    name: 业务开发标准
+    url: docs/tech_design/业务开发标准.md

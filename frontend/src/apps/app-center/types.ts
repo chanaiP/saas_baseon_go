@@ -64,6 +64,40 @@ export interface AppCenterStats {
   audit_logs: number
 }
 
+export interface AppManifestParseResult {
+  file_name: string
+  file_path?: string
+  manifest_hash: string
+  manifest_version: string
+  fragment_role: string
+  app_code: string
+  app_name: string
+  app_type: string
+  source: string
+  status: string
+  deployment_mode: string
+  visibility_scope: string
+  charge_policy: string
+  billing_mode: string
+  package_policy: string
+  client_codes: string[]
+  exists: boolean
+  importable: boolean
+  valid: boolean
+  blockers: string[]
+  warnings: string[]
+  counts: {
+    clients: number
+    menus: number
+    operations: number
+    permissions: number
+    apis: number
+    package_features: number
+    quotas: number
+    documents: number
+  }
+}
+
 export interface AppCenterListQuery {
   skip?: number
   limit?: number

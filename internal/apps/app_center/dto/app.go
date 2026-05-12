@@ -144,3 +144,55 @@ type AppStatsResponse struct {
 	ManifestLoads  int64 `json:"manifest_loads"`
 	AuditLogs      int64 `json:"audit_logs"`
 }
+
+type ManifestParseRequest struct {
+	FileName string `json:"file_name"`
+	Content  string `json:"content"`
+}
+
+type ManifestScanRequest struct {
+	Root string `json:"root"`
+}
+
+type ManifestScanResponse struct {
+	Items           []ManifestParseResponse `json:"items"`
+	Total           int                     `json:"total"`
+	ImportableCount int                     `json:"importable_count"`
+	BlockedCount    int                     `json:"blocked_count"`
+}
+
+type ManifestParseResponse struct {
+	FileName        string              `json:"file_name"`
+	FilePath        string              `json:"file_path,omitempty"`
+	ManifestHash    string              `json:"manifest_hash"`
+	ManifestVersion string              `json:"manifest_version"`
+	FragmentRole    string              `json:"fragment_role"`
+	AppCode         string              `json:"app_code"`
+	AppName         string              `json:"app_name"`
+	AppType         string              `json:"app_type"`
+	Source          string              `json:"source"`
+	Status          string              `json:"status"`
+	DeploymentMode  string              `json:"deployment_mode"`
+	VisibilityScope string              `json:"visibility_scope"`
+	ChargePolicy    string              `json:"charge_policy"`
+	BillingMode     string              `json:"billing_mode"`
+	PackagePolicy   string              `json:"package_policy"`
+	ClientCodes     []string            `json:"client_codes"`
+	Exists          bool                `json:"exists"`
+	Importable      bool                `json:"importable"`
+	Valid           bool                `json:"valid"`
+	Blockers        []string            `json:"blockers"`
+	Warnings        []string            `json:"warnings"`
+	Counts          ManifestAssetCounts `json:"counts"`
+}
+
+type ManifestAssetCounts struct {
+	Clients         int `json:"clients"`
+	Menus           int `json:"menus"`
+	Operations      int `json:"operations"`
+	Permissions     int `json:"permissions"`
+	APIs            int `json:"apis"`
+	PackageFeatures int `json:"package_features"`
+	Quotas          int `json:"quotas"`
+	Documents       int `json:"documents"`
+}
