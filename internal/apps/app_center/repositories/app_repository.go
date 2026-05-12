@@ -19,6 +19,10 @@ func NewAppRepository(db *gorm.DB) *AppRepository {
 	return &AppRepository{db: db}
 }
 
+func (r *AppRepository) DB() *gorm.DB {
+	return r.db
+}
+
 func (r *AppRepository) List(ctx context.Context, req dto.AppListRequest) ([]models.SysApp, int64, error) {
 	query := r.db.WithContext(ctx).Model(&models.SysApp{}).Where("deleted_at IS NULL")
 	if keyword := strings.TrimSpace(req.Keyword); keyword != "" {

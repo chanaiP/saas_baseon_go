@@ -311,6 +311,118 @@ package_features:
 	require.Equal(t, "demo-app", result.Items[0].AppCode)
 }
 
+func TestAppCenterLoadManifestCreatesAssetsAndPackageCenter(t *testing.T) {
+	db := newAppCenterTestDB(t)
+	require.NoError(t, db.Create(&models.Tenant{ID: 1, Code: "platform", Name: "平台主体", IsPlatform: true, Status: 1}).Error)
+	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
+
+	manifest := `manifest_version: "1.0"
+fragment_role: main
+app:
+  app_code: ops-console
+  app_name: 运营控制台
+  app_type: BUSINESS_APP
+  source: MANIFEST
+  status: INITIATED
+  deployment_mode: MERGED
+  visibility_scope: TENANT
+  charge_policy: PAID
+  billing_mode: SUBSCRIPTION
+  package_policy: IN_PACKAGE
+clients:
+  - PC_WEB
+menus:
+  - code: ops_dashboard
+    name: 运营看板
+    path: /ops/dashboard
+    sort_order: 10
+    tenant_visible: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ops_dashboard
+operations:
+  - code: ops_export
+    name: 导出看板
+    menu_code: ops_dashboard
+    permission_code: ops:export
+    include_in_package: true
+    feature_code: button_ops_export
+permissions:
+  - code: ops:read
+    name: 查看运营数据
+    type: OPERATION
+    menu_code: ops_dashboard
+    include_in_package: true
+apis:
+  - method: GET
+    path: /api/ops/dashboard
+    permission_code: ops:read
+package_features:
+  - feature_code: ops_dashboard
+    feature_name: 运营看板
+    feature_type: MENU
+    source_code: ops_dashboard
+    include_in_package: true
+  - feature_code: button_ops_export
+    feature_name: 导出看板
+    feature_type: OPERATION
+    parent_code: ops_dashboard
+    source_code: ops:export
+    include_in_package: true
+quotas:
+  - quota_code: max_ops_exports
+    quota_name: 导出次数
+    quota_type: PERIODIC
+    unit: COUNT
+    period_type: MONTH
+    include_in_package: true
+`
+	service := NewAppService(repositories.NewAppRepository(db))
+	diff, err := service.DiffManifest(context.Background(), 1, "app.manifest.yaml", "", []byte(manifest))
+	require.NoError(t, err)
+	require.True(t, diff.Loadable)
+	require.Equal(t, "CREATE", diff.Mode)
+	require.Greater(t, diff.Summary.Create, 0)
+
+	loaded, err := service.LoadManifest(context.Background(), 1, dto.ManifestLoadRequest{
+		FileName:   "app.manifest.yaml",
+		Content:    manifest,
+		SourceType: "UPLOAD",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "SUCCESS", loaded.Status)
+	require.NotZero(t, loaded.LoadID)
+
+	var app models.SysApp
+	require.NoError(t, db.Where("app_code = ?", "ops-console").First(&app).Error)
+	require.Equal(t, "运营控制台", app.AppName)
+	require.NotNil(t, app.ManifestHash)
+
+	var client models.SysAppClient
+	require.NoError(t, db.Where("app_id = ? AND client_code = ?", app.ID, "PC_WEB").First(&client).Error)
+	require.Equal(t, "PC Web", client.ClientName)
+
+	var menu models.SysAppEntry
+	require.NoError(t, db.Where("app_code = ? AND resource_code = ?", "ops-console", "ops_dashboard").First(&menu).Error)
+	require.True(t, menu.IncludeInPackage)
+
+	var api models.SysAppAPI
+	require.NoError(t, db.Where("app_code = ? AND method = ? AND path = ?", "ops-console", "GET", "/api/ops/dashboard").First(&api).Error)
+	require.Equal(t, "ops:read", *api.PermissionCode)
+
+	var permission models.Permission
+	require.NoError(t, db.Where("tenant_id = ? AND path = ?", uint64(1), "/ops/dashboard").First(&permission).Error)
+	require.Equal(t, "ops-console", permission.AppCode)
+
+	var feature models.SaasFeature
+	require.NoError(t, db.Where("feature_code = ?", "ops_dashboard").First(&feature).Error)
+	require.Equal(t, "ops-console", feature.AppCode)
+
+	var quota models.SaasQuota
+	require.NoError(t, db.Where("quota_code = ?", "max_ops_exports").First(&quota).Error)
+	require.Equal(t, "导出次数", quota.QuotaName)
+}
+
 func newAppCenterTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
@@ -319,6 +431,17 @@ func newAppCenterTestDB(t *testing.T) *gorm.DB {
 		&models.AppUser{},
 		&models.SysApp{},
 		&models.SysAppClient{},
+		&models.SysAppManifestLoad{},
+		&models.SysAppManifestFile{},
+		&models.SysAppEntry{},
+		&models.SysAppAPI{},
+		&models.SysAppPermission{},
+		&models.SysAppPackageFeature{},
+		&models.SysAppQuota{},
+		&models.Permission{},
+		&models.SaasFeature{},
+		&models.SaasQuota{},
+		&models.Tenant{},
 		&models.DictType{},
 		&models.DictItem{},
 		&models.TenantSubscription{},

@@ -146,6 +146,8 @@ func openAPISpec() gin.H {
 			"/api/apps/stats":                                 gin.H{"get": api("apps", "应用统计")},
 			"/api/apps/manifest/template":                     gin.H{"get": api("apps", "Manifest 模板")},
 			"/api/apps/manifest/parse":                        gin.H{"post": api("apps", "解析 Manifest")},
+			"/api/apps/manifest/diff":                         gin.H{"post": api("apps", "Manifest 差异预检")},
+			"/api/apps/manifest/load":                         gin.H{"post": api("apps", "装载 Manifest")},
 			"/api/apps/manifest/scan":                         gin.H{"post": api("apps", "扫描 Manifest")},
 			"/api/apps/{id}":                                  gin.H{"get": api("apps", "应用详情"), "put": api("apps", "编辑应用")},
 			"/api/apps/{id}/status":                           gin.H{"patch": api("apps", "启停应用")},

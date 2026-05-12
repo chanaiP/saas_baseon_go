@@ -103,6 +103,8 @@ func operationPermissionByRoute() map[string]string {
 	return map[string]string{
 		"POST /api/apps":                                "app:create",
 		"POST /api/apps/manifest/parse":                 "app:load",
+		"POST /api/apps/manifest/diff":                  "app:load",
+		"POST /api/apps/manifest/load":                  "app:load",
 		"POST /api/apps/manifest/scan":                  "app:load",
 		"PUT /api/apps/:id":                             "app:edit",
 		"PATCH /api/apps/:id/status":                    "app:status",

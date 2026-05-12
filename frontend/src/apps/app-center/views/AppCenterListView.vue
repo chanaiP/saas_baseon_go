@@ -13,8 +13,8 @@ import { formatDateTimeChina } from '@/utils/datetime'
 import NeuroAgentDialog from '@/views/components/NeuroAgentDialog.vue'
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
-import { createAppCenterApp, downloadAppManifestTemplate, fetchAppCenterApp, fetchAppCenterApps, fetchAppCenterStats, parseAppManifestFile, updateAppCenterApp, updateAppCenterAppStatus } from '../api'
-import type { AppCenterApp, AppCenterClient, AppCenterCreatePayload, AppCenterStats, AppCenterUpdatePayload, AppManifestParseResult } from '../types'
+import { createAppCenterApp, diffAppManifestFile, downloadAppManifestTemplate, fetchAppCenterApp, fetchAppCenterApps, fetchAppCenterStats, loadAppManifestFile, updateAppCenterApp, updateAppCenterAppStatus } from '../api'
+import type { AppCenterApp, AppCenterClient, AppCenterCreatePayload, AppCenterStats, AppCenterUpdatePayload, AppManifestDiffResult, AppManifestParseResult } from '../types'
 
 const emptyStats: AppCenterStats = {
   total: 0,
@@ -163,6 +163,9 @@ const createMode = ref<'manual' | 'manifest'>('manual')
 const manifestFileInputRef = ref<HTMLInputElement | null>(null)
 const manifestFileName = ref('')
 const manifestImportSummary = ref('')
+const manifestSelectedFile = ref<File | null>(null)
+const manifestDiff = ref<AppManifestDiffResult | null>(null)
+const manifestLoading = ref(false)
 const saving = ref(false)
 const detailLoading = ref(false)
 const detailApp = ref<AppCenterApp | null>(null)
@@ -506,6 +509,9 @@ function newCreateForm(): AppCenterCreatePayload {
     app_type: '',
     deployment_mode: '',
     communication_modes: null,
+    health_check_url: '',
+    api_base_url: '',
+    webhook_url: '',
     status: 'INITIATED',
     charge_mode: '',
     visibility_scope: 'TENANT',
@@ -566,6 +572,11 @@ function newEditForm(): AppCenterUpdatePayload {
     app_name: '',
     icon: '',
     app_type: 'BUSINESS_APP',
+    deployment_mode: 'MERGED',
+    communication_modes: null,
+    health_check_url: '',
+    api_base_url: '',
+    webhook_url: '',
     charge_mode: '',
     visibility_scope: 'TENANT',
     owner: '',
@@ -584,6 +595,9 @@ function appToEditForm(app: AppCenterApp): AppCenterUpdatePayload {
     app_type: app.app_type,
     deployment_mode: app.deployment_mode || 'MERGED',
     communication_modes: app.communication_modes || null,
+    health_check_url: app.health_check_url || '',
+    api_base_url: app.api_base_url || '',
+    webhook_url: app.webhook_url || '',
     charge_mode: app.charge_mode,
     visibility_scope: app.visibility_scope,
     owner: app.owner || '',
@@ -753,20 +767,59 @@ async function handleManifestFileChange(event: Event) {
   input.value = ''
   if (!file) return
   try {
-    const result = await parseAppManifestFile(file)
-    if (!result.valid || !result.importable) {
-      const blocker = result.blockers?.[0] || 'Manifest 当前不能作为新建导入'
+    const diff = await diffAppManifestFile(file)
+    const result = diff.parse
+    manifestSelectedFile.value = file
+    manifestDiff.value = diff
+    manifestFileName.value = file.name
+    createMode.value = 'manifest'
+    if (!diff.loadable) {
+      const blocker = diff.blockers?.[0] || result.blockers?.[0] || 'Manifest 当前存在冲突，不能装载'
       manifestFileName.value = file.name
       manifestImportSummary.value = blocker
-      createMode.value = 'manifest'
       ElMessage.error(blocker)
       return
     }
     applyManifestToCreateForm(backendManifestToCreateSource(result), file.name)
-    manifestImportSummary.value = `后端已解析：菜单 ${result.counts.menus}、权限 ${result.counts.permissions}、API ${result.counts.apis}、套餐功能 ${result.counts.package_features}、配额 ${result.counts.quotas}。`
-    ElMessage.success('Manifest 已由后端解析')
+    manifestImportSummary.value = `已预检：新增 ${diff.summary.create}、更新 ${diff.summary.update}、不变 ${diff.summary.no_change}、冲突 ${diff.summary.conflict}。`
+    ElMessage.success(diff.mode === 'SYNC' ? 'Manifest 已预检，可同步装载' : 'Manifest 已预检并回填表单')
   } catch (error) {
-    ElMessage.error(error instanceof Error ? `Manifest 解析失败：${error.message}` : 'Manifest 解析失败')
+    ElMessage.error(error instanceof Error ? `Manifest 预检失败：${error.message}` : 'Manifest 预检失败')
+  }
+}
+
+async function loadSelectedManifest() {
+  if (!manifestSelectedFile.value || !manifestDiff.value) {
+    ElMessage.warning('请先选择 Manifest 文件')
+    return
+  }
+  if (!manifestDiff.value.loadable) {
+    ElMessage.error(manifestDiff.value.blockers?.[0] || 'Manifest 当前存在阻断项')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确认装载 Manifest「${manifestDiff.value.parse.app_name}」？将同步应用主档、客户端、菜单、权限、API、套餐功能点和配额。`,
+      manifestDiff.value.mode === 'SYNC' ? '同步 Manifest' : '导入 Manifest',
+      {
+        confirmButtonText: '确认装载',
+        cancelButtonText: '取消',
+        type: 'warning',
+      },
+    )
+  } catch {
+    return
+  }
+  manifestLoading.value = true
+  try {
+    const result = await loadAppManifestFile(manifestSelectedFile.value)
+    ElMessage.success(`Manifest 已装载：${result.app_code}`)
+    manifestImportSummary.value = `已装载：新增 ${result.summary.create}、更新 ${result.summary.update}、不变 ${result.summary.no_change}。`
+    await loadApps()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : 'Manifest 装载失败')
+  } finally {
+    manifestLoading.value = false
   }
 }
 
@@ -1004,6 +1057,9 @@ function normalizeUpdatePayload(value: AppCenterUpdatePayload): AppCenterUpdateP
     detail_description: trimNullable(value.detail_description),
     deployment_mode: value.deployment_mode || 'MERGED',
     communication_modes: value.deployment_mode === 'STANDALONE' ? trimNullable(value.communication_modes) : null,
+    health_check_url: value.deployment_mode === 'STANDALONE' ? trimNullable(value.health_check_url) : null,
+    api_base_url: value.deployment_mode === 'STANDALONE' ? trimNullable(value.api_base_url) : null,
+    webhook_url: value.deployment_mode === 'STANDALONE' ? trimNullable(value.webhook_url) : null,
     visibility_mode: trimNullable(value.visibility_mode),
     visible_tenants: trimNullable(value.visible_tenants),
     open_method: trimNullable(value.open_method),
@@ -1025,6 +1081,8 @@ function openCreateDialog() {
   createMode.value = 'manual'
   manifestFileName.value = ''
   manifestImportSummary.value = ''
+  manifestSelectedFile.value = null
+  manifestDiff.value = null
   createStep.value = 'basic'
   createDialogVisible.value = true
   void loadOwnerUsers()
@@ -1108,6 +1166,9 @@ async function saveCreateDialog() {
     deployment_mode: createForm.value.deployment_mode,
     charge_mode: chargeMode,
     communication_modes: createForm.value.deployment_mode === 'STANDALONE' ? trimNullable(checkedKeys(createDraft.value.communication_modes)) : null,
+    health_check_url: createForm.value.deployment_mode === 'STANDALONE' ? trimNullable(createForm.value.health_check_url) : null,
+    api_base_url: createForm.value.deployment_mode === 'STANDALONE' ? trimNullable(createForm.value.api_base_url) : null,
+    webhook_url: createForm.value.deployment_mode === 'STANDALONE' ? trimNullable(createForm.value.webhook_url) : null,
     visibility_scope: visibilityScopeFromMode(createDraft.value.visibility_mode),
     visibility_mode: trimNullable(createDraft.value.visibility_mode),
     visible_tenants: createDraft.value.visibility_mode === 'SPECIFIED_TENANTS' ? trimNullable(tenantNames(createTenantIds.value) || createDraft.value.visible_tenants) : null,
@@ -1546,6 +1607,31 @@ watch(tenantPickerKeyword, () => {
               <strong>{{ manifestFileName }}</strong>
               <span>{{ manifestImportSummary }}</span>
             </p>
+            <div v-if="manifestDiff" class="app-manifest-diff">
+              <div class="app-manifest-diff__head">
+                <span>{{ manifestDiff.mode === 'SYNC' ? '同步预检' : '导入预检' }}</span>
+                <strong :class="{ 'is-blocked': !manifestDiff.loadable }">
+                  {{ manifestDiff.loadable ? '可装载' : '存在阻断' }}
+                </strong>
+              </div>
+              <div class="app-manifest-diff__stats">
+                <span>新增 {{ manifestDiff.summary.create }}</span>
+                <span>更新 {{ manifestDiff.summary.update }}</span>
+                <span>不变 {{ manifestDiff.summary.no_change }}</span>
+                <span>冲突 {{ manifestDiff.summary.conflict }}</span>
+              </div>
+              <ul v-if="manifestDiff.changes.length" class="app-manifest-diff__changes">
+                <li v-for="change in manifestDiff.changes.slice(0, 6)" :key="`${change.resource_type}-${change.resource_code}`" :class="`is-${change.action.toLowerCase()}`">
+                  <b>{{ change.action }}</b>
+                  <span>{{ change.resource_type }} / {{ change.resource_code }}</span>
+                  <em>{{ change.message }}</em>
+                </li>
+              </ul>
+              <button class="app-btn app-btn--primary app-manifest-diff__load" type="button" :disabled="manifestLoading || !manifestDiff.loadable" @click="loadSelectedManifest">
+                <el-icon :size="15"><Upload /></el-icon>
+                {{ manifestDiff.mode === 'SYNC' ? '同步装载 Manifest' : '导入装载 Manifest' }}
+              </button>
+            </div>
           </div>
 
           <div id="create-section-basic" class="app-create-panel">
@@ -1745,6 +1831,20 @@ watch(tenantPickerKeyword, () => {
               <label v-for="mode in createDraft.communication_modes" :key="mode.key">
                 <input v-model="mode.checked" type="checkbox" />
                 <span>{{ mode.label }}</span>
+              </label>
+            </div>
+            <div class="app-form app-form--embedded">
+              <label>
+                <span>健康检查地址</span>
+                <input v-model="createForm.health_check_url" placeholder="https://app.example.com/health" />
+              </label>
+              <label>
+                <span>API 基础地址</span>
+                <input v-model="createForm.api_base_url" placeholder="https://app.example.com/api" />
+              </label>
+              <label>
+                <span>Webhook 地址</span>
+                <input v-model="createForm.webhook_url" placeholder="https://app.example.com/webhook" />
               </label>
             </div>
           </div>
@@ -2004,6 +2104,20 @@ watch(tenantPickerKeyword, () => {
                 <span>{{ mode.label }}</span>
               </label>
             </div>
+            <div class="app-form app-form--embedded">
+              <label>
+                <span>健康检查地址</span>
+                <input v-model="editForm.health_check_url" placeholder="https://app.example.com/health" />
+              </label>
+              <label>
+                <span>API 基础地址</span>
+                <input v-model="editForm.api_base_url" placeholder="https://app.example.com/api" />
+              </label>
+              <label>
+                <span>Webhook 地址</span>
+                <input v-model="editForm.webhook_url" placeholder="https://app.example.com/webhook" />
+              </label>
+            </div>
           </div>
 
           <div id="edit-section-clients" class="app-create-panel">
@@ -2173,7 +2287,16 @@ watch(tenantPickerKeyword, () => {
             <div><span>来源</span><strong>{{ labelOf('app_source', detailApp.source) }}</strong></div>
             <div><span>负责人</span><strong>{{ detailApp.owner || '—' }}</strong></div>
             <div><span>版本</span><strong>{{ detailApp.version || '—' }}</strong></div>
+            <div><span>Manifest 版本</span><strong>{{ detailApp.manifest_version || '—' }}</strong></div>
+            <div><span>最近同步</span><strong>{{ detailApp.last_manifest_synced_at ? formatDateTimeChina(detailApp.last_manifest_synced_at) : '—' }}</strong></div>
+            <div><span>健康检查</span><strong>{{ detailApp.health_check_url || '—' }}</strong></div>
+            <div><span>API 地址</span><strong>{{ detailApp.api_base_url || '—' }}</strong></div>
+            <div><span>Webhook</span><strong>{{ detailApp.webhook_url || '—' }}</strong></div>
             <div><span>内置应用</span><strong>{{ detailApp.is_builtin ? '是' : '否' }}</strong></div>
+            <div class="app-detail-fields__full">
+              <span>Manifest Hash</span>
+              <p>{{ detailApp.manifest_hash || '—' }}</p>
+            </div>
             <div class="app-detail-fields__full">
               <span>应用详细介绍</span>
               <p class="app-detail-rich">{{ detailApp.detail_description || '—' }}</p>
@@ -2969,6 +3092,93 @@ watch(tenantPickerKeyword, () => {
 .app-create-mode-panel__result strong {
   display: block;
   color: var(--neuro-text);
+}
+
+.app-manifest-diff {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--neuro-border) 82%, transparent);
+  border-radius: var(--neuro-radius-sm);
+  background: color-mix(in srgb, var(--neuro-surface) 68%, transparent);
+}
+
+.app-manifest-diff__head,
+.app-manifest-diff__stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.app-manifest-diff__head {
+  justify-content: space-between;
+  color: var(--neuro-text-secondary);
+  font-size: 13px;
+}
+
+.app-manifest-diff__head strong {
+  color: var(--neuro-primary);
+}
+
+.app-manifest-diff__head strong.is-blocked {
+  color: #f97373;
+}
+
+.app-manifest-diff__stats span {
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--neuro-surface-2) 70%, transparent);
+  color: var(--neuro-text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.app-manifest-diff__changes {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-manifest-diff__changes li {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr) minmax(120px, 0.7fr);
+  gap: 8px;
+  align-items: center;
+  min-height: 30px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--neuro-surface-2) 42%, transparent);
+  color: var(--neuro-text-secondary);
+  font-size: 12px;
+}
+
+.app-manifest-diff__changes b {
+  color: var(--neuro-text);
+  font-size: 11px;
+}
+
+.app-manifest-diff__changes span,
+.app-manifest-diff__changes em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-manifest-diff__changes em {
+  font-style: normal;
+}
+
+.app-manifest-diff__changes li.is-conflict b {
+  color: #f97373;
+}
+
+.app-manifest-diff__load {
+  align-self: flex-end;
 }
 
 .app-create-panel {

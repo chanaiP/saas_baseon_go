@@ -163,8 +163,43 @@ func (h *AppHandler) ParseManifest(c *gin.Context) {
 		return
 	}
 
-	fileName := ""
-	var content []byte
+	fileName, _, content, ok := readManifestPayload(c)
+	if !ok {
+		return
+	}
+	result, err := h.service.ParseManifestContent(c.Request.Context(), userID, fileName, content)
+	if err != nil {
+		writeAppError(c, err)
+		return
+	}
+	response.OK(c, result)
+}
+
+func (h *AppHandler) DiffManifest(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	fileName, filePath, content, ok := readManifestPayload(c)
+	if !ok {
+		return
+	}
+	result, err := h.service.DiffManifest(c.Request.Context(), userID, fileName, filePath, content)
+	if err != nil {
+		writeAppError(c, err)
+		return
+	}
+	response.OK(c, result)
+}
+
+func (h *AppHandler) LoadManifest(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	var req dto.ManifestLoadRequest
 	if file, err := c.FormFile("file"); err == nil {
 		opened, openErr := file.Open()
 		if openErr != nil {
@@ -177,19 +212,14 @@ func (h *AppHandler) ParseManifest(c *gin.Context) {
 			response.Error(c, http.StatusBadRequest, response.CodeBadRequest, "Manifest 文件读取失败")
 			return
 		}
-		fileName = file.Filename
-		content = raw
-	} else {
-		var req dto.ManifestParseRequest
-		if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
-			response.Error(c, http.StatusBadRequest, response.CodeBadRequest, "请上传 Manifest 文件或提供 content")
-			return
-		}
-		fileName = req.FileName
-		content = []byte(req.Content)
+		req.FileName = file.Filename
+		req.Content = string(raw)
+		req.SourceType = c.DefaultPostForm("source_type", "UPLOAD")
+	} else if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequest, "请上传 Manifest 文件或提供 content")
+		return
 	}
-
-	result, err := h.service.ParseManifestContent(c.Request.Context(), userID, fileName, content)
+	result, err := h.service.LoadManifest(c.Request.Context(), userID, req)
 	if err != nil {
 		writeAppError(c, err)
 		return
@@ -213,6 +243,29 @@ func (h *AppHandler) ScanManifests(c *gin.Context) {
 		return
 	}
 	response.OK(c, result)
+}
+
+func readManifestPayload(c *gin.Context) (string, string, []byte, bool) {
+	if file, err := c.FormFile("file"); err == nil {
+		opened, openErr := file.Open()
+		if openErr != nil {
+			response.Error(c, http.StatusBadRequest, response.CodeBadRequest, "Manifest 文件读取失败")
+			return "", "", nil, false
+		}
+		defer opened.Close()
+		raw, readErr := io.ReadAll(opened)
+		if readErr != nil {
+			response.Error(c, http.StatusBadRequest, response.CodeBadRequest, "Manifest 文件读取失败")
+			return "", "", nil, false
+		}
+		return file.Filename, "", raw, true
+	}
+	var req dto.ManifestLoadRequest
+	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequest, "请上传 Manifest 文件或提供 content")
+		return "", "", nil, false
+	}
+	return req.FileName, req.FilePath, []byte(req.Content), true
 }
 
 func currentUserID(c *gin.Context) (uint64, bool) {
@@ -255,7 +308,8 @@ func writeAppError(c *gin.Context, err error) {
 		errors.Is(err, services.ErrBuiltinStatusImmutable),
 		errors.Is(err, services.ErrClientCodeRequired),
 		errors.Is(err, services.ErrManifestContentRequired),
-		errors.Is(err, services.ErrManifestInvalidFormat):
+		errors.Is(err, services.ErrManifestInvalidFormat),
+		errors.Is(err, services.ErrManifestLoadBlocked):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequest, err.Error())
 	case errors.Is(err, services.ErrAppCodeExists):
 		response.Error(c, http.StatusConflict, response.CodeConflict, "应用编码已存在")

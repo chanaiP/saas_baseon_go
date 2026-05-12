@@ -29,6 +29,8 @@ func TestRequiredPermissionForOperationRoutes(t *testing.T) {
 	require.Equal(t, "app:edit", requiredPermission("PUT", "/api/apps/:id"))
 	require.Equal(t, "app:status", requiredPermission("PATCH", "/api/apps/:id/status"))
 	require.Equal(t, "app:load", requiredPermission("POST", "/api/apps/manifest/parse"))
+	require.Equal(t, "app:load", requiredPermission("POST", "/api/apps/manifest/diff"))
+	require.Equal(t, "app:load", requiredPermission("POST", "/api/apps/manifest/load"))
 	require.Equal(t, "app:load", requiredPermission("POST", "/api/apps/manifest/scan"))
 }
 

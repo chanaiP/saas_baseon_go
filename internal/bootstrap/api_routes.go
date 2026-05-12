@@ -31,6 +31,8 @@ func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHan
 		api.GET("/apps/stats", appHandler.Stats)
 		api.GET("/apps/manifest/template", appHandler.ManifestTemplate)
 		api.POST("/apps/manifest/parse", appHandler.ParseManifest)
+		api.POST("/apps/manifest/diff", appHandler.DiffManifest)
+		api.POST("/apps/manifest/load", appHandler.LoadManifest)
 		api.POST("/apps/manifest/scan", appHandler.ScanManifests)
 		api.GET("/apps/:id", appHandler.Detail)
 		api.POST("/apps", appHandler.Create)

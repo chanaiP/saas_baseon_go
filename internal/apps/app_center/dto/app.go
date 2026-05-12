@@ -35,6 +35,9 @@ type AppCreateRequest struct {
 	DocConfig       *string            `json:"doc_config"`
 	ReleaseChannel  *string            `json:"release_channel"`
 	ReleaseNote     *string            `json:"release_note"`
+	HealthCheckURL  *string            `json:"health_check_url"`
+	APIBaseURL      *string            `json:"api_base_url"`
+	WebhookURL      *string            `json:"webhook_url"`
 	SortOrder       int                `json:"sort_order"`
 	Clients         []AppClientRequest `json:"clients"`
 }
@@ -61,6 +64,9 @@ type AppUpdateRequest struct {
 	DocConfig       *string            `json:"doc_config"`
 	ReleaseChannel  *string            `json:"release_channel"`
 	ReleaseNote     *string            `json:"release_note"`
+	HealthCheckURL  *string            `json:"health_check_url"`
+	APIBaseURL      *string            `json:"api_base_url"`
+	WebhookURL      *string            `json:"webhook_url"`
 	SortOrder       int                `json:"sort_order"`
 	Clients         []AppClientRequest `json:"clients"`
 }
@@ -78,37 +84,43 @@ type AppClientRequest struct {
 }
 
 type AppResponse struct {
-	ID              uint64              `json:"id"`
-	AppCode         string              `json:"app_code"`
-	AppName         string              `json:"app_name"`
-	Icon            *string             `json:"icon"`
-	AppType         string              `json:"app_type"`
-	Source          string              `json:"source"`
-	Status          string              `json:"status"`
-	ChargeMode      string              `json:"charge_mode"`
-	VisibilityScope string              `json:"visibility_scope"`
-	Owner           *string             `json:"owner"`
-	OwnerUserIDs    *string             `json:"owner_user_ids"`
-	Version         *string             `json:"version"`
-	Description     *string             `json:"description"`
-	DetailDesc      *string             `json:"detail_description"`
-	DeploymentMode  string              `json:"deployment_mode"`
-	CommModes       *string             `json:"communication_modes"`
-	VisibilityMode  *string             `json:"visibility_mode"`
-	VisibleTenants  *string             `json:"visible_tenants"`
-	OpenMethod      *string             `json:"open_method"`
-	TrialPolicy     *string             `json:"trial_policy"`
-	TrialStartRule  *string             `json:"trial_start_rule"`
-	AssetConfig     *string             `json:"asset_config"`
-	DocConfig       *string             `json:"doc_config"`
-	ReleaseChannel  *string             `json:"release_channel"`
-	ReleaseNote     *string             `json:"release_note"`
-	IsBuiltin       bool                `json:"is_builtin"`
-	IsPlatformOnly  bool                `json:"is_platform_only"`
-	SortOrder       int                 `json:"sort_order"`
-	CreatedAt       time.Time           `json:"created_at"`
-	UpdatedAt       time.Time           `json:"updated_at"`
-	Clients         []AppClientResponse `json:"clients"`
+	ID               uint64              `json:"id"`
+	AppCode          string              `json:"app_code"`
+	AppName          string              `json:"app_name"`
+	Icon             *string             `json:"icon"`
+	AppType          string              `json:"app_type"`
+	Source           string              `json:"source"`
+	Status           string              `json:"status"`
+	ChargeMode       string              `json:"charge_mode"`
+	VisibilityScope  string              `json:"visibility_scope"`
+	Owner            *string             `json:"owner"`
+	OwnerUserIDs     *string             `json:"owner_user_ids"`
+	Version          *string             `json:"version"`
+	Description      *string             `json:"description"`
+	DetailDesc       *string             `json:"detail_description"`
+	DeploymentMode   string              `json:"deployment_mode"`
+	CommModes        *string             `json:"communication_modes"`
+	VisibilityMode   *string             `json:"visibility_mode"`
+	VisibleTenants   *string             `json:"visible_tenants"`
+	OpenMethod       *string             `json:"open_method"`
+	TrialPolicy      *string             `json:"trial_policy"`
+	TrialStartRule   *string             `json:"trial_start_rule"`
+	AssetConfig      *string             `json:"asset_config"`
+	DocConfig        *string             `json:"doc_config"`
+	ReleaseChannel   *string             `json:"release_channel"`
+	ReleaseNote      *string             `json:"release_note"`
+	HealthCheckURL   *string             `json:"health_check_url"`
+	APIBaseURL       *string             `json:"api_base_url"`
+	WebhookURL       *string             `json:"webhook_url"`
+	ManifestHash     *string             `json:"manifest_hash"`
+	ManifestVersion  *string             `json:"manifest_version"`
+	LastManifestSync *time.Time          `json:"last_manifest_synced_at"`
+	IsBuiltin        bool                `json:"is_builtin"`
+	IsPlatformOnly   bool                `json:"is_platform_only"`
+	SortOrder        int                 `json:"sort_order"`
+	CreatedAt        time.Time           `json:"created_at"`
+	UpdatedAt        time.Time           `json:"updated_at"`
+	Clients          []AppClientResponse `json:"clients"`
 }
 
 type AppClientResponse struct {
@@ -150,6 +162,13 @@ type ManifestParseRequest struct {
 	Content  string `json:"content"`
 }
 
+type ManifestLoadRequest struct {
+	FileName   string `json:"file_name"`
+	FilePath   string `json:"file_path"`
+	Content    string `json:"content"`
+	SourceType string `json:"source_type"`
+}
+
 type ManifestScanRequest struct {
 	Root string `json:"root"`
 }
@@ -184,6 +203,41 @@ type ManifestParseResponse struct {
 	Blockers        []string            `json:"blockers"`
 	Warnings        []string            `json:"warnings"`
 	Counts          ManifestAssetCounts `json:"counts"`
+}
+
+type ManifestDiffResponse struct {
+	Parse    ManifestParseResponse `json:"parse"`
+	Mode     string                `json:"mode"`
+	Loadable bool                  `json:"loadable"`
+	Summary  ManifestDiffSummary   `json:"summary"`
+	Changes  []ManifestDiffChange  `json:"changes"`
+	Blockers []string              `json:"blockers"`
+	Warnings []string              `json:"warnings"`
+}
+
+type ManifestDiffSummary struct {
+	Create   int `json:"create"`
+	Update   int `json:"update"`
+	NoChange int `json:"no_change"`
+	Disable  int `json:"disable"`
+	Conflict int `json:"conflict"`
+}
+
+type ManifestDiffChange struct {
+	ResourceType string `json:"resource_type"`
+	ResourceCode string `json:"resource_code"`
+	Name         string `json:"name"`
+	Action       string `json:"action"`
+	Severity     string `json:"severity"`
+	Message      string `json:"message"`
+}
+
+type ManifestLoadResponse struct {
+	LoadID  uint64               `json:"load_id"`
+	AppCode string               `json:"app_code"`
+	Status  string               `json:"status"`
+	Summary ManifestDiffSummary  `json:"summary"`
+	Diff    ManifestDiffResponse `json:"diff"`
 }
 
 type ManifestAssetCounts struct {

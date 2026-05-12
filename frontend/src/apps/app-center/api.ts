@@ -1,7 +1,7 @@
 import http, { unwrap } from '@/api/http'
 import type { ApiResponse } from '@/api/types'
 
-import type { AppCenterApp, AppCenterCreatePayload, AppCenterListQuery, AppCenterListResponse, AppCenterStats, AppCenterUpdatePayload, AppManifestParseResult } from './types'
+import type { AppCenterApp, AppCenterCreatePayload, AppCenterListQuery, AppCenterListResponse, AppCenterStats, AppCenterUpdatePayload, AppManifestDiffResult, AppManifestLoadResult, AppManifestParseResult } from './types'
 
 export async function fetchAppCenterApps(query: AppCenterListQuery = {}) {
   const params: Record<string, string | number> = {
@@ -45,6 +45,23 @@ export async function parseAppManifestFile(file: File) {
   const form = new FormData()
   form.append('file', file)
   return unwrap(http.post<ApiResponse<AppManifestParseResult>>('/api/apps/manifest/parse', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }))
+}
+
+export async function diffAppManifestFile(file: File) {
+  const form = new FormData()
+  form.append('file', file)
+  return unwrap(http.post<ApiResponse<AppManifestDiffResult>>('/api/apps/manifest/diff', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }))
+}
+
+export async function loadAppManifestFile(file: File) {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('source_type', 'UPLOAD')
+  return unwrap(http.post<ApiResponse<AppManifestLoadResult>>('/api/apps/manifest/load', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
   }))
 }

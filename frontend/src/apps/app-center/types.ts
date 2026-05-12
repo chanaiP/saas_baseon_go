@@ -24,6 +24,12 @@ export interface AppCenterApp {
   doc_config?: string | null
   release_channel?: string | null
   release_note?: string | null
+  health_check_url?: string | null
+  api_base_url?: string | null
+  webhook_url?: string | null
+  manifest_hash?: string | null
+  manifest_version?: string | null
+  last_manifest_synced_at?: string | null
   is_builtin: boolean
   is_platform_only: boolean
   sort_order: number
@@ -98,6 +104,41 @@ export interface AppManifestParseResult {
   }
 }
 
+export interface AppManifestDiffSummary {
+  create: number
+  update: number
+  no_change: number
+  disable: number
+  conflict: number
+}
+
+export interface AppManifestDiffChange {
+  resource_type: string
+  resource_code: string
+  name: string
+  action: 'CREATE' | 'UPDATE' | 'NO_CHANGE' | 'DISABLE' | 'CONFLICT'
+  severity: 'INFO' | 'WARN' | 'ERROR'
+  message: string
+}
+
+export interface AppManifestDiffResult {
+  parse: AppManifestParseResult
+  mode: 'CREATE' | 'SYNC'
+  loadable: boolean
+  summary: AppManifestDiffSummary
+  changes: AppManifestDiffChange[]
+  blockers: string[]
+  warnings: string[]
+}
+
+export interface AppManifestLoadResult {
+  load_id: number
+  app_code: string
+  status: string
+  summary: AppManifestDiffSummary
+  diff: AppManifestDiffResult
+}
+
 export interface AppCenterListQuery {
   skip?: number
   limit?: number
@@ -131,6 +172,9 @@ export interface AppCenterCreatePayload {
   doc_config?: string | null
   release_channel?: string | null
   release_note?: string | null
+  health_check_url?: string | null
+  api_base_url?: string | null
+  webhook_url?: string | null
   sort_order: number
   clients?: AppCenterClient[]
 }
@@ -157,6 +201,9 @@ export interface AppCenterUpdatePayload {
   doc_config?: string | null
   release_channel?: string | null
   release_note?: string | null
+  health_check_url?: string | null
+  api_base_url?: string | null
+  webhook_url?: string | null
   sort_order: number
   clients?: AppCenterClient[]
 }
