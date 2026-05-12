@@ -3,42 +3,19 @@ defineOptions({ name: 'AppCenterListView' })
 
 import { Box, Grid, Monitor, Plus, Refresh, Search, Setting } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { fetchDictItemsByCode, type DictItemRow } from '@/api/dict'
+import { fetchTenants, type Tenant } from '@/api/tenant'
+import { fetchUsers, type UserRow } from '@/api/user'
 import { formatDateTimeChina } from '@/utils/datetime'
 import NeuroAgentDialog from '@/views/components/NeuroAgentDialog.vue'
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
 import { createAppCenterApp, fetchAppCenterApp, fetchAppCenterApps, fetchAppCenterStats, updateAppCenterApp, updateAppCenterAppStatus } from '../api'
-import type { AppCenterApp, AppCenterCreatePayload, AppCenterStats, AppCenterUpdatePayload } from '../types'
+import type { AppCenterApp, AppCenterClient, AppCenterCreatePayload, AppCenterStats, AppCenterUpdatePayload } from '../types'
 
-const loading = ref(false)
-const apps = ref<AppCenterApp[]>([])
-const total = ref(0)
-const keyword = ref('')
-const typeFilter = ref('')
-const statusFilter = ref('')
-const sourceFilter = ref('')
-const activeSection = ref('apps')
-const route = useRoute()
-const createDialogVisible = ref(false)
-const editDialogVisible = ref(false)
-const detailDialogVisible = ref(false)
-const saving = ref(false)
-const detailLoading = ref(false)
-const detailApp = ref<AppCenterApp | null>(null)
-const createForm = ref<AppCenterCreatePayload>(newCreateForm())
-const createStep = ref('basic')
-const createScrollRef = ref<HTMLElement | null>(null)
-const createDraft = ref(newCreateDraft())
-const editAppId = ref<number | null>(null)
-const editAppSnapshot = ref<AppCenterApp | null>(null)
-const editForm = ref<AppCenterUpdatePayload>(newEditForm())
-const editStep = ref('basic')
-const editScrollRef = ref<HTMLElement | null>(null)
-const editDraft = ref(newEditDraft())
 const emptyStats: AppCenterStats = {
   total: 0,
   online: 0,
@@ -65,17 +42,17 @@ const dicts = ref<Record<string, DictItemRow[]>>({
 
 const fallbackLabels: Record<string, Record<string, string>> = {
   app_type: {
-    SYSTEM_APP: '系统内置型',
-    ABILITY_APP: '业务中台型',
-    BUSINESS_APP: '独立业务型',
-    SUITE_APP: '组合套件型',
-    CONNECTOR_APP: '连接器型',
-    CLIENT_APP: '客户端型',
-    AI_APP: 'AI / Agent 型',
-    API_APP: 'API 能力型',
+    SYSTEM_APP: '系统底座',
+    BUSINESS_APP: '业务系统',
+    ABILITY_APP: '业务中台',
+    API_APP: 'API 应用',
+    CONNECTOR_APP: '连接器',
+    AI_APP: 'AI / Agent',
+    SUITE_APP: '组合套件',
   },
   app_status: {
-    DRAFT: '草稿',
+    INITIATED: '立项',
+    DRAFT: '立项',
     PLANNED: '规划中',
     DEVELOPING: '开发中',
     BETA: 'Beta',
@@ -91,9 +68,9 @@ const fallbackLabels: Record<string, Record<string, string>> = {
   app_charge_mode: {
     FREE: '免费',
     SUBSCRIPTION: '订阅制',
-    BUYOUT: '买断制',
+    BUYOUT: '订阅制',
     USAGE_BASED: '按量收费',
-    MIXED: '组合计费',
+    MIXED: '组合收费',
     NON_SELLABLE: '非售卖',
   },
   app_visibility_scope: {
@@ -102,6 +79,96 @@ const fallbackLabels: Record<string, Record<string, string>> = {
     GLOBAL: '全局可见',
   },
 }
+
+const appTypeOrder = ['SYSTEM_APP', 'BUSINESS_APP', 'ABILITY_APP', 'API_APP', 'CONNECTOR_APP', 'AI_APP', 'SUITE_APP']
+
+const appTypeOptions = computed(() => {
+  const order = new Map(appTypeOrder.map((value, index) => [value, index]))
+  return dictOptions('app_type')
+    .filter((item) => item.value !== 'CLIENT_APP')
+    .sort((a, b) => (order.get(a.value) ?? 99) - (order.get(b.value) ?? 99))
+})
+
+const deploymentModeOptions = [
+  { label: '合并部署', value: 'MERGED' },
+  { label: '独立部署', value: 'STANDALONE' },
+]
+
+const communicationModeOptions = [
+  { key: 'PLATFORM_API', label: '平台 API' },
+  { key: 'WEBHOOK', label: 'Webhook' },
+  { key: 'DATA_SYNC', label: '数据同步' },
+  { key: 'GATEWAY_PROXY', label: '网关代理' },
+]
+
+const chargeModeHints: Record<string, string> = {
+  FREE: '免费代表不产生应用收费，但仍可受套餐、授权、租户范围控制。',
+  SUBSCRIPTION: '订阅制只声明商业模型，订阅周期和价格后续在套餐或计费配置中维护；买断可作为永久订阅周期处理。',
+  USAGE_BASED: '按量收费表示按调用量、账号数、数据量等计费，计量项和单价后续配置。',
+  MIXED: '组合收费表示免费、订阅、按量等模型可组合，具体组合规则后续在计费配置中维护。',
+  NON_SELLABLE: '非售卖表示不作为商品对租户出售，通常用于系统底座、内置能力或内部治理场景，不等同于免费。',
+}
+
+const trialPolicyOptions = [
+  { value: '不支持试用', label: '不支持试用', hint: '租户必须通过套餐包含、应用中心开通或邀请码开通获得应用。' },
+  { value: '7 天', label: '支持试用：7 天', hint: '租户获得并开通应用后开始计算 7 天。' },
+  { value: '15 天', label: '支持试用：15 天', hint: '租户获得并开通应用后开始计算 15 天。' },
+  { value: '30 天', label: '支持试用：30 天', hint: '租户获得并开通应用后开始计算 30 天。' },
+  { value: '不限期', label: '支持试用：不限期', hint: '租户获得并开通应用后进入不限期试用，后续仍可通过授权或套餐收口。' },
+]
+
+const loading = ref(false)
+const apps = ref<AppCenterApp[]>([])
+const total = ref(0)
+const keyword = ref('')
+const typeFilter = ref('')
+const statusFilter = ref('')
+const sourceFilter = ref('')
+const activeSection = ref('apps')
+const route = useRoute()
+const createDialogVisible = ref(false)
+const editDialogVisible = ref(false)
+const detailDialogVisible = ref(false)
+const saving = ref(false)
+const detailLoading = ref(false)
+const detailApp = ref<AppCenterApp | null>(null)
+const pickerPageSize = 10
+const ownerUsers = ref<UserRow[]>([])
+const ownerUsersLoading = ref(false)
+const ownerUsersTotal = ref(0)
+const ownerUsersSkip = ref(0)
+const createOwnerIds = ref<string[]>([])
+const editOwnerIds = ref<string[]>([])
+const ownerPickerVisible = ref(false)
+const ownerPickerTarget = ref<'create' | 'edit'>('create')
+const ownerPickerKeyword = ref('')
+const ownerPickerDraftIds = ref<string[]>([])
+const tenantOptions = ref<Tenant[]>([])
+const tenantOptionsLoading = ref(false)
+const tenantOptionsTotal = ref(0)
+const tenantOptionsSkip = ref(0)
+const createTenantIds = ref<string[]>([])
+const editTenantIds = ref<string[]>([])
+const tenantPickerVisible = ref(false)
+const tenantPickerTarget = ref<'create' | 'edit'>('create')
+const tenantPickerKeyword = ref('')
+const tenantPickerDraftIds = ref<string[]>([])
+const createForm = ref<AppCenterCreatePayload>(newCreateForm())
+const createStep = ref('basic')
+const createScrollRef = ref<HTMLElement | null>(null)
+const createBodyScrolling = ref(false)
+const createDraft = ref(newCreateDraft())
+const editAppId = ref<number | null>(null)
+const editAppSnapshot = ref<AppCenterApp | null>(null)
+const editForm = ref<AppCenterUpdatePayload>(newEditForm())
+const editStep = ref('basic')
+const editScrollRef = ref<HTMLElement | null>(null)
+const editBodyScrolling = ref(false)
+const editDraft = ref(newEditDraft())
+let createBodyScrollTimer: number | undefined
+let editBodyScrollTimer: number | undefined
+let ownerSearchTimer: number | undefined
+let tenantSearchTimer: number | undefined
 
 const statCards = computed(() => [
   { label: '所有应用', value: stats.value.total, status: '', tone: 'default', hint: '全部应用' },
@@ -112,16 +179,48 @@ const statCards = computed(() => [
 ])
 
 const statusFilterOptions = computed(() => [
-  { label: '规划开发中', value: 'PLANNED,DEVELOPING' },
   ...dictOptions('app_status'),
 ])
 
+const chargeModeOptions = computed(() => dictOptions('app_charge_mode').filter((item) => item.value !== 'BUYOUT'))
+
+const statusSelectValue = computed({
+  get: () => (statusFilter.value.includes(',') ? '' : statusFilter.value),
+  set: (value: string) => {
+    statusFilter.value = value
+  },
+})
+
+const filteredOwnerUsers = computed(() => {
+  const kw = ownerPickerKeyword.value.trim().toLowerCase()
+  if (!kw) return ownerUsers.value
+  return ownerUsers.value.filter((user) => {
+    return [user.name, user.employee_no, user.phone, user.email]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(kw))
+  })
+})
+
+const ownerUsersHasMore = computed(() => ownerUsers.value.length < ownerUsersTotal.value)
+
+const filteredTenantOptions = computed(() => {
+  const kw = tenantPickerKeyword.value.trim().toLowerCase()
+  if (!kw) return tenantOptions.value
+  return tenantOptions.value.filter((tenant) => {
+    return [tenant.name, tenant.code, tenant.contact_name, tenant.contact_phone]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(kw))
+  })
+})
+
+const tenantOptionsHasMore = computed(() => tenantOptions.value.length < tenantOptionsTotal.value)
+
 const createSteps = [
-  { key: 'basic', title: '基础信息', hint: 'app_code、类型、状态' },
-  { key: 'access', title: '可见与开通', hint: '范围、收费、试用' },
+  { key: 'basic', title: '基础信息', hint: 'app_code、类型、部署' },
+  { key: 'visibility', title: '可见范围', hint: '全部租户、指定租户' },
+  { key: 'commercial', title: '商业策略', hint: '收费模型、试用' },
   { key: 'clients', title: '客户端', hint: 'PC Web、API、移动端' },
   { key: 'assets', title: '入口/API/权限', hint: '应用资产草稿' },
-  { key: 'docs', title: '文档与版本', hint: '知识资产骨架' },
   { key: 'review', title: '确认创建', hint: '生成应用主档' },
 ]
 
@@ -131,15 +230,12 @@ const selectedCreateClients = computed(() => {
 const selectedCreateAssets = computed(() => {
   return createDraft.value.assets.filter((item) => item.checked).map((item) => item.label)
 })
-const selectedCreateDocs = computed(() => {
-  return createDraft.value.docs.filter((item) => item.checked).map((item) => item.label)
-})
 const createStepCompletion = computed<Record<string, boolean>>(() => ({
   basic: Boolean(createForm.value.app_code.trim() && createForm.value.app_name.trim()),
-  access: Boolean(createForm.value.visibility_scope && createForm.value.charge_mode && createDraft.value.visibility_mode),
+  visibility: Boolean(createDraft.value.visibility_mode),
+  commercial: Boolean(createForm.value.charge_mode && createDraft.value.trial_days),
   clients: selectedCreateClients.value.length > 0,
   assets: selectedCreateAssets.value.length > 0,
-  docs: Boolean(createDraft.value.version_no.trim() && createDraft.value.release_note.trim() && selectedCreateDocs.value.length > 0),
   review: Boolean(createForm.value.app_code.trim() && createForm.value.app_name.trim()),
 }))
 const selectedEditClients = computed(() => {
@@ -148,20 +244,17 @@ const selectedEditClients = computed(() => {
 const selectedEditAssets = computed(() => {
   return editDraft.value.assets.filter((item) => item.checked).map((item) => item.label)
 })
-const selectedEditDocs = computed(() => {
-  return editDraft.value.docs.filter((item) => item.checked).map((item) => item.label)
-})
 const editStepCompletion = computed<Record<string, boolean>>(() => ({
   basic: Boolean(editForm.value.app_name.trim()),
-  access: Boolean(editForm.value.visibility_scope && editForm.value.charge_mode && editDraft.value.visibility_mode),
+  visibility: Boolean(editDraft.value.visibility_mode),
+  commercial: Boolean(editForm.value.charge_mode && editDraft.value.trial_days),
   clients: selectedEditClients.value.length > 0,
   assets: selectedEditAssets.value.length > 0,
-  docs: Boolean(String(editForm.value.version || '').trim() && editDraft.value.release_note.trim() && selectedEditDocs.value.length > 0),
   review: Boolean(editForm.value.app_name.trim()),
 }))
 
 const groupedApps = computed(() => {
-  const order = new Map(dictOptions('app_type').map((item, index) => [item.value, index]))
+  const order = new Map(appTypeOptions.value.map((item, index) => [item.value, index]))
   const groups = new Map<string, AppCenterApp[]>()
   apps.value.forEach((app) => {
     const key = app.app_type || 'UNKNOWN'
@@ -198,7 +291,7 @@ const directoryItems = computed(() => [
     key: 'clients',
     label: '客户端中心',
     count: stats.value.client_apps,
-    description: '类型为客户端型的应用数量。',
+    description: '已登记的应用客户端形态数量。',
   },
   {
     key: 'openings',
@@ -261,12 +354,29 @@ function labelOf(code: keyof typeof dicts.value, value: string | null | undefine
   return row?.label || fallbackLabels[code]?.[value] || value
 }
 
+function chargeModeHint(value: string | null | undefined) {
+  return value ? chargeModeHints[value] || '这里只声明收费模型，具体费用规则后续在计费配置中维护。' : '请选择应用的商业收费模型。'
+}
+
+function trialPolicyLabel(value: string | null | undefined) {
+  if (!value) return '未选择'
+  return trialPolicyOptions.find((item) => item.value === value)?.label || value
+}
+
+function trialPolicyHint(value: string | null | undefined) {
+  return trialPolicyOptions.find((item) => item.value === value)?.hint || '请选择是否支持试用以及试用周期。'
+}
+
+function trialStartRuleFor(policy: string | null | undefined) {
+  return policy && policy !== '不支持试用' ? '获得并开通时开始' : null
+}
+
 function statusClass(status: string) {
   return {
     'app-status--online': status === 'ONLINE',
     'app-status--developing': status === 'DEVELOPING' || status === 'BETA',
     'app-status--disabled': status === 'DISABLED' || status === 'ARCHIVED',
-    'app-status--draft': status === 'DRAFT' || status === 'PLANNED',
+    'app-status--draft': status === 'INITIATED' || status === 'DRAFT' || status === 'PLANNED',
   }
 }
 
@@ -286,31 +396,38 @@ function newCreateForm(): AppCenterCreatePayload {
     app_code: '',
     app_name: '',
     icon: '',
-    app_type: 'BUSINESS_APP',
-    status: 'DRAFT',
-    charge_mode: 'SUBSCRIPTION',
-    visibility_scope: 'PLATFORM_ONLY',
+    app_type: '',
+    deployment_mode: '',
+    communication_modes: null,
+    status: 'INITIATED',
+    charge_mode: '',
+    visibility_scope: 'TENANT',
     owner: '',
-    version: '0.1.0',
+    owner_user_ids: '',
+    version: '',
     description: '',
+    detail_description: '',
     sort_order: 0,
   }
 }
 
 function newCreateDraft() {
   return {
-    app_position: 'BUSINESS_SCENARIO',
-    visibility_mode: 'SPECIFIED_TENANTS',
-    visible_tenants: '租户 A、租户 B、演示主体',
-    open_method: 'INVITE_CODE,ADMIN_GRANT',
-    trial_days: '不限期',
-    trial_start_rule: '首次安装时开始',
+    visibility_mode: '',
+    visible_tenants: '',
+    trial_days: '',
+    trial_start_rule: '',
+    communication_modes: communicationModeOptions.map((item) => ({
+      ...item,
+      checked: item.key === 'PLATFORM_API',
+    })),
     clients: [
       { key: 'PC_WEB', label: 'PC Web', checked: true },
       { key: 'API_ONLY', label: 'API Only', checked: true },
       { key: 'H5', label: 'H5', checked: false },
       { key: 'IOS', label: 'iOS', checked: false },
       { key: 'ANDROID', label: 'Android', checked: false },
+      { key: 'HARMONYOS', label: '鸿蒙', checked: false },
       { key: 'WINDOWS', label: 'Windows', checked: false },
       { key: 'MACOS', label: 'macOS', checked: false },
       { key: 'MINIAPP', label: '小程序', checked: false },
@@ -324,31 +441,29 @@ function newCreateDraft() {
       { key: 'permission_manage', label: '创建管理权限点', checked: false },
       { key: 'package_resource', label: '生成套餐资源草稿', checked: true },
     ],
-    version_no: '0.1.0',
-    release_channel: 'DEV',
-    release_note: '创建应用草稿，建立基础信息、客户端、入口、权限、文档与初始版本骨架。',
-    docs: [
-      { key: 'prd', label: '需求文档占位', checked: true },
-      { key: 'design', label: '技术设计占位', checked: true },
-      { key: 'api_doc', label: 'API 文档占位', checked: true },
-      { key: 'manual', label: '操作手册占位', checked: true },
-      { key: 'ai_trace', label: 'AI 生成来源记录', checked: true },
-      { key: 'release_note', label: '版本发布说明', checked: true },
-    ],
   }
 }
 
 function newEditDraft(app?: AppCenterApp | null) {
   const draft = newCreateDraft()
+  const clientCodes = new Set((app?.clients || []).filter((item) => item.enabled !== false).map((item) => item.client_code))
   return {
     ...draft,
-    visibility_mode: app?.visibility_scope === 'GLOBAL' ? 'ALL_TENANTS' : 'SPECIFIED_TENANTS',
-    visible_tenants: app?.visibility_scope === 'GLOBAL' ? '全部租户' : '按租户、套餐或平台授权控制',
-    trial_days: app?.charge_mode === 'FREE' ? '不限期' : '待配置',
-    release_note: app?.version ? `维护 ${app.version} 版本信息，补齐文档、客户端和应用资产配置。` : '维护应用主档、客户端、入口、权限、文档与版本骨架。',
+    communication_modes: draft.communication_modes.map((item) => ({
+      ...item,
+      checked: app?.communication_modes ? app.communication_modes.split(',').includes(item.key) : item.checked,
+    })),
+    visibility_mode: app?.visibility_mode || (app?.visibility_scope === 'GLOBAL' ? 'ALL_TENANTS' : 'SPECIFIED_TENANTS'),
+    visible_tenants: app?.visible_tenants || (app?.visibility_scope === 'GLOBAL' ? '全部租户' : '按租户可见范围控制'),
+    trial_days: app?.trial_policy || draft.trial_days,
+    trial_start_rule: app?.trial_start_rule || trialStartRuleFor(app?.trial_policy || draft.trial_days) || '',
     clients: draft.clients.map((item) => ({
       ...item,
-      checked: item.key === 'PC_WEB' || item.key === 'API_ONLY' || (app?.app_type === 'CLIENT_APP' && item.key === 'H5') || (app?.app_type === 'CONNECTOR_APP' && item.key === 'WEWORK_DINGTALK'),
+      checked: clientCodes.size > 0 ? clientCodes.has(item.key) : item.key === 'PC_WEB' || item.key === 'API_ONLY' || (app?.app_type === 'CONNECTOR_APP' && item.key === 'WEWORK_DINGTALK'),
+    })),
+    assets: draft.assets.map((item) => ({
+      ...item,
+      checked: app?.asset_config ? app.asset_config.split(',').includes(item.key) : item.checked,
     })),
   }
 }
@@ -358,11 +473,13 @@ function newEditForm(): AppCenterUpdatePayload {
     app_name: '',
     icon: '',
     app_type: 'BUSINESS_APP',
-    charge_mode: 'SUBSCRIPTION',
-    visibility_scope: 'PLATFORM_ONLY',
+    charge_mode: '',
+    visibility_scope: 'TENANT',
     owner: '',
+    owner_user_ids: '',
     version: '',
     description: '',
+    detail_description: '',
     sort_order: 0,
   }
 }
@@ -372,11 +489,24 @@ function appToEditForm(app: AppCenterApp): AppCenterUpdatePayload {
     app_name: app.app_name,
     icon: app.icon || '',
     app_type: app.app_type,
+    deployment_mode: app.deployment_mode || 'MERGED',
+    communication_modes: app.communication_modes || null,
     charge_mode: app.charge_mode,
     visibility_scope: app.visibility_scope,
     owner: app.owner || '',
+    owner_user_ids: app.owner_user_ids || '',
     version: app.version || '',
     description: app.description || '',
+    detail_description: app.detail_description || '',
+    visibility_mode: app.visibility_mode || '',
+    visible_tenants: app.visible_tenants || '',
+    open_method: app.open_method || '',
+    trial_policy: app.trial_policy || '',
+    trial_start_rule: app.trial_start_rule || '',
+    asset_config: app.asset_config || '',
+    doc_config: app.doc_config || '',
+    release_channel: app.release_channel || '',
+    release_note: app.release_note || '',
     sort_order: app.sort_order,
   }
 }
@@ -386,23 +516,266 @@ function trimNullable(value: string | null | undefined) {
   return trimmed || null
 }
 
+function checkedKeys(items: Array<{ key: string; checked: boolean }>) {
+  return items.filter((item) => item.checked).map((item) => item.key).join(',')
+}
+
+function parseCsv(value: string | null | undefined) {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function parseOwnerIDs(value: string | null | undefined) {
+  return parseCsv(value)
+}
+
+function ownerNames(ids: string[]) {
+  const names = ids
+    .map((id) => ownerUsers.value.find((user) => String(user.id) === id)?.name)
+    .filter((name): name is string => Boolean(name))
+  return names.join(', ')
+}
+
+function ownerSelectLabel(ids: string[]) {
+  if (ids.length === 0) return ''
+  return ownerNames(ids) || `已选择 ${ids.length} 人`
+}
+
+async function loadOwnerUsers(reset = false) {
+  if (ownerUsersLoading.value) return
+  if (!reset && ownerUsers.value.length > 0 && !ownerUsersHasMore.value) return
+  if (reset) {
+    ownerUsers.value = []
+    ownerUsersSkip.value = 0
+    ownerUsersTotal.value = 0
+  }
+  ownerUsersLoading.value = true
+  try {
+    const result = await fetchUsers({
+      skip: ownerUsersSkip.value,
+      limit: pickerPageSize,
+      status: 1,
+      keyword: ownerPickerKeyword.value.trim() || undefined,
+    })
+    const items = result.items || []
+    ownerUsers.value = reset ? items : [...ownerUsers.value, ...items]
+    ownerUsersSkip.value += items.length
+    ownerUsersTotal.value = result.total ?? ownerUsers.value.length
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '成员列表加载失败')
+  } finally {
+    ownerUsersLoading.value = false
+  }
+}
+
+function openOwnerPicker(target: 'create' | 'edit') {
+  ownerPickerTarget.value = target
+  ownerPickerDraftIds.value = [...(target === 'create' ? createOwnerIds.value : editOwnerIds.value)]
+  ownerPickerKeyword.value = ''
+  ownerPickerVisible.value = true
+  void loadOwnerUsers(true)
+}
+
+function closeOwnerPicker() {
+  ownerPickerVisible.value = false
+}
+
+function isOwnerDraftSelected(id: number | string) {
+  return ownerPickerDraftIds.value.includes(String(id))
+}
+
+function toggleOwnerDraft(id: number | string) {
+  const value = String(id)
+  ownerPickerDraftIds.value = isOwnerDraftSelected(value)
+    ? ownerPickerDraftIds.value.filter((item) => item !== value)
+    : [...ownerPickerDraftIds.value, value]
+}
+
+function removeOwner(target: 'create' | 'edit', id: string) {
+  const current = target === 'create' ? createOwnerIds : editOwnerIds
+  current.value = current.value.filter((item) => item !== id)
+}
+
+function confirmOwnerPicker() {
+  if (ownerPickerTarget.value === 'create') {
+    createOwnerIds.value = [...ownerPickerDraftIds.value]
+  } else {
+    editOwnerIds.value = [...ownerPickerDraftIds.value]
+  }
+  ownerPickerVisible.value = false
+}
+
+function handleOwnerPickerScroll(event: Event) {
+  const target = event.currentTarget as HTMLElement
+  if (target.scrollTop + target.clientHeight >= target.scrollHeight - 24) {
+    void loadOwnerUsers()
+  }
+}
+
+function parseTenantNames(value: string | null | undefined) {
+  return String(value || '')
+    .split(/[，,]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function tenantNames(ids: string[]) {
+  const names = ids
+    .map((id) => tenantOptions.value.find((tenant) => String(tenant.id) === id)?.name)
+    .filter((name): name is string => Boolean(name))
+  return names.join(', ')
+}
+
+function tenantSelectLabel(ids: string[]) {
+  if (ids.length === 0) return ''
+  return tenantNames(ids) || `已选择 ${ids.length} 个租户`
+}
+
+async function loadTenantOptions(reset = false) {
+  if (tenantOptionsLoading.value) return
+  if (!reset && tenantOptions.value.length > 0 && !tenantOptionsHasMore.value) return
+  if (reset) {
+    tenantOptions.value = []
+    tenantOptionsSkip.value = 0
+    tenantOptionsTotal.value = 0
+  }
+  tenantOptionsLoading.value = true
+  try {
+    const result = await fetchTenants(tenantOptionsSkip.value, pickerPageSize)
+    const items = result.items || []
+    tenantOptions.value = reset ? items : [...tenantOptions.value, ...items]
+    tenantOptionsSkip.value += items.length
+    tenantOptionsTotal.value = result.total ?? tenantOptions.value.length
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '租户列表加载失败')
+  } finally {
+    tenantOptionsLoading.value = false
+  }
+}
+
+function resolveTenantIdsFromNames(value: string | null | undefined) {
+  const tokens = parseTenantNames(value)
+  if (tokens.length === 0) return []
+  return tenantOptions.value
+    .filter((tenant) => tokens.includes(tenant.name) || tokens.includes(tenant.code) || tokens.includes(String(tenant.id)))
+    .map((tenant) => String(tenant.id))
+}
+
+function openTenantPicker(target: 'create' | 'edit') {
+  tenantPickerTarget.value = target
+  tenantPickerDraftIds.value = [...(target === 'create' ? createTenantIds.value : editTenantIds.value)]
+  tenantPickerKeyword.value = ''
+  tenantPickerVisible.value = true
+  void loadTenantOptions(true)
+}
+
+function closeTenantPicker() {
+  tenantPickerVisible.value = false
+}
+
+function isTenantDraftSelected(id: number | string) {
+  return tenantPickerDraftIds.value.includes(String(id))
+}
+
+function toggleTenantDraft(id: number | string) {
+  const value = String(id)
+  tenantPickerDraftIds.value = isTenantDraftSelected(value)
+    ? tenantPickerDraftIds.value.filter((item) => item !== value)
+    : [...tenantPickerDraftIds.value, value]
+}
+
+function removeTenant(target: 'create' | 'edit', id: string) {
+  const current = target === 'create' ? createTenantIds : editTenantIds
+  current.value = current.value.filter((item) => item !== id)
+  if (target === 'create') {
+    createDraft.value.visible_tenants = tenantNames(createTenantIds.value)
+  } else {
+    editDraft.value.visible_tenants = tenantNames(editTenantIds.value)
+  }
+}
+
+function confirmTenantPicker() {
+  if (tenantPickerTarget.value === 'create') {
+    createTenantIds.value = [...tenantPickerDraftIds.value]
+    createDraft.value.visible_tenants = tenantNames(createTenantIds.value)
+  } else {
+    editTenantIds.value = [...tenantPickerDraftIds.value]
+    editDraft.value.visible_tenants = tenantNames(editTenantIds.value)
+  }
+  tenantPickerVisible.value = false
+}
+
+function handleTenantPickerScroll(event: Event) {
+  const target = event.currentTarget as HTMLElement
+  if (target.scrollTop + target.clientHeight >= target.scrollHeight - 24) {
+    void loadTenantOptions()
+  }
+}
+
+function deploymentModeLabel(value: string | null | undefined) {
+  return deploymentModeOptions.find((item) => item.value === (value || 'MERGED'))?.label || value || '合并部署'
+}
+
+function communicationModesLabel(value: string | null | undefined) {
+  const keys = String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+  if (keys.length === 0) return '内部调用'
+  return keys.map((key) => communicationModeOptions.find((item) => item.key === key)?.label || key).join(' / ')
+}
+
+function visibilityScopeFromMode(mode: string | null | undefined) {
+  return mode === 'ALL_TENANTS' ? 'GLOBAL' : 'TENANT'
+}
+
+function draftClients(items: Array<{ key: string; label: string; checked: boolean }>): AppCenterClient[] {
+  return items
+    .filter((item) => item.checked)
+    .map((item, index) => ({
+      client_code: item.key,
+      client_name: item.label,
+      enabled: true,
+      sort_order: index + 1,
+    }))
+}
+
 function normalizeUpdatePayload(value: AppCenterUpdatePayload): AppCenterUpdatePayload {
   return {
     ...value,
     app_name: value.app_name.trim(),
     icon: trimNullable(value.icon),
     owner: trimNullable(value.owner),
+    owner_user_ids: trimNullable(value.owner_user_ids),
     version: trimNullable(value.version),
     description: trimNullable(value.description),
+    detail_description: trimNullable(value.detail_description),
+    deployment_mode: value.deployment_mode || 'MERGED',
+    communication_modes: value.deployment_mode === 'STANDALONE' ? trimNullable(value.communication_modes) : null,
+    visibility_mode: trimNullable(value.visibility_mode),
+    visible_tenants: trimNullable(value.visible_tenants),
+    open_method: trimNullable(value.open_method),
+    trial_policy: trimNullable(value.trial_policy),
+    trial_start_rule: trimNullable(value.trial_start_rule),
+    asset_config: trimNullable(value.asset_config),
+    doc_config: trimNullable(value.doc_config),
+    release_channel: trimNullable(value.release_channel),
+    release_note: trimNullable(value.release_note),
     sort_order: Number(value.sort_order || 0),
   }
 }
 
 function openCreateDialog() {
   createForm.value = newCreateForm()
+  createOwnerIds.value = []
+  createTenantIds.value = []
   createDraft.value = newCreateDraft()
   createStep.value = 'basic'
   createDialogVisible.value = true
+  void loadOwnerUsers()
+  void loadTenantOptions()
   nextTick(() => {
     createScrollRef.value?.scrollTo({ top: 0 })
   })
@@ -420,6 +793,11 @@ async function setCreateStep(step: string) {
 }
 
 function handleCreateScroll() {
+  createBodyScrolling.value = true
+  if (createBodyScrollTimer) window.clearTimeout(createBodyScrollTimer)
+  createBodyScrollTimer = window.setTimeout(() => {
+    createBodyScrolling.value = false
+  }, 700)
   const container = createScrollRef.value
   if (!container) return
   let current = createSteps[0]?.key || 'basic'
@@ -444,6 +822,11 @@ async function setEditStep(step: string) {
 }
 
 function handleEditScroll() {
+  editBodyScrolling.value = true
+  if (editBodyScrollTimer) window.clearTimeout(editBodyScrollTimer)
+  editBodyScrollTimer = window.setTimeout(() => {
+    editBodyScrolling.value = false
+  }, 700)
   const container = editScrollRef.value
   if (!container) return
   let current = createSteps[0]?.key || 'basic'
@@ -462,13 +845,40 @@ async function saveCreateDialog() {
     app_code: createForm.value.app_code.trim(),
     app_name: createForm.value.app_name.trim(),
     icon: trimNullable(createForm.value.icon),
-    owner: trimNullable(createForm.value.owner),
-    version: trimNullable(createDraft.value.version_no) || trimNullable(createForm.value.version),
+    owner: trimNullable(ownerNames(createOwnerIds.value)),
+    owner_user_ids: trimNullable(createOwnerIds.value.join(',')),
+    version: trimNullable(createForm.value.version),
     description: trimNullable(createForm.value.description),
+    detail_description: trimNullable(createForm.value.detail_description),
+    deployment_mode: createForm.value.deployment_mode,
+    communication_modes: createForm.value.deployment_mode === 'STANDALONE' ? trimNullable(checkedKeys(createDraft.value.communication_modes)) : null,
+    visibility_scope: visibilityScopeFromMode(createDraft.value.visibility_mode),
+    visibility_mode: trimNullable(createDraft.value.visibility_mode),
+    visible_tenants: createDraft.value.visibility_mode === 'SPECIFIED_TENANTS' ? trimNullable(tenantNames(createTenantIds.value) || createDraft.value.visible_tenants) : null,
+    open_method: null,
+    trial_policy: trimNullable(createDraft.value.trial_days),
+    trial_start_rule: trialStartRuleFor(createDraft.value.trial_days),
+    asset_config: trimNullable(checkedKeys(createDraft.value.assets)),
+    doc_config: null,
+    release_channel: null,
+    release_note: null,
     sort_order: Number(createForm.value.sort_order || 0),
+    clients: draftClients(createDraft.value.clients),
   }
   if (!payload.app_code || !payload.app_name) {
     ElMessage.error('请填写应用编码和应用名称')
+    return
+  }
+  if (!payload.app_type || !payload.deployment_mode) {
+    ElMessage.error('请选择应用类型和部署方式')
+    return
+  }
+  if (!createDraft.value.visibility_mode) {
+    ElMessage.error('请选择可见范围')
+    return
+  }
+  if (!payload.charge_mode || !createDraft.value.trial_days) {
+    ElMessage.error('请选择收费模型和试用策略')
     return
   }
   saving.value = true
@@ -489,9 +899,15 @@ function openEditDialog(app: AppCenterApp) {
   editAppId.value = app.id
   editAppSnapshot.value = app
   editForm.value = appToEditForm(app)
+  editOwnerIds.value = parseOwnerIDs(app.owner_user_ids)
   editDraft.value = newEditDraft(app)
+  editTenantIds.value = resolveTenantIdsFromNames(app.visible_tenants)
   editStep.value = 'basic'
   editDialogVisible.value = true
+  void loadOwnerUsers()
+  void loadTenantOptions().then(() => {
+    editTenantIds.value = resolveTenantIdsFromNames(app.visible_tenants)
+  })
   nextTick(() => {
     editScrollRef.value?.scrollTo({ top: 0 })
   })
@@ -499,9 +915,26 @@ function openEditDialog(app: AppCenterApp) {
 
 async function saveEditDialog() {
   if (!editAppId.value) return
-  const payload = normalizeUpdatePayload(editForm.value)
+  const payload = normalizeUpdatePayload({
+    ...editForm.value,
+    owner: ownerNames(editOwnerIds.value),
+    owner_user_ids: editOwnerIds.value.join(','),
+    communication_modes: editForm.value.deployment_mode === 'STANDALONE' ? checkedKeys(editDraft.value.communication_modes) : null,
+    visibility_scope: visibilityScopeFromMode(editDraft.value.visibility_mode),
+    visibility_mode: editDraft.value.visibility_mode,
+    visible_tenants: editDraft.value.visibility_mode === 'SPECIFIED_TENANTS' ? tenantNames(editTenantIds.value) || editDraft.value.visible_tenants : null,
+    open_method: null,
+    trial_policy: editDraft.value.trial_days,
+    trial_start_rule: trialStartRuleFor(editDraft.value.trial_days),
+    asset_config: checkedKeys(editDraft.value.assets),
+    clients: draftClients(editDraft.value.clients),
+  })
   if (!payload.app_name) {
     ElMessage.error('请填写应用名称')
+    return
+  }
+  if (!editDraft.value.visibility_mode || !payload.charge_mode || !editDraft.value.trial_days) {
+    ElMessage.error('请选择可见范围、收费模型和试用策略')
     return
   }
   saving.value = true
@@ -603,19 +1036,42 @@ onMounted(async () => {
   await loadApps()
 })
 
+onUnmounted(() => {
+  if (createBodyScrollTimer) window.clearTimeout(createBodyScrollTimer)
+  if (editBodyScrollTimer) window.clearTimeout(editBodyScrollTimer)
+  if (ownerSearchTimer) window.clearTimeout(ownerSearchTimer)
+  if (tenantSearchTimer) window.clearTimeout(tenantSearchTimer)
+})
+
 watch(
   () => route.path,
   (path) => {
     activeSection.value = sectionFromPath(path)
   },
 )
+
+watch(ownerPickerKeyword, () => {
+  if (!ownerPickerVisible.value) return
+  if (ownerSearchTimer) window.clearTimeout(ownerSearchTimer)
+  ownerSearchTimer = window.setTimeout(() => {
+    void loadOwnerUsers(true)
+  }, 220)
+})
+
+watch(tenantPickerKeyword, () => {
+  if (!tenantPickerVisible.value) return
+  if (tenantSearchTimer) window.clearTimeout(tenantSearchTimer)
+  tenantSearchTimer = window.setTimeout(() => {
+    void loadTenantOptions(true)
+  }, 220)
+})
 </script>
 
 <template>
   <NeuroAgentPageShell class="app-center-page" :show-hero="activeSection === 'apps'">
     <template #title>应用中心</template>
     <template #subtitle>
-      统一注册、装载、订阅、安装、授权、计费、文档、版本和运行治理。
+      统一注册、装载、订阅、安装、授权、计费和运行治理；版本、进度与文档由项目管理应用同步。
     </template>
     <template #actions>
       <button
@@ -643,11 +1099,11 @@ watch(
               </div>
               <select v-model="typeFilter" aria-label="应用类型">
                 <option value="">全部类型</option>
-                <option v-for="item in dictOptions('app_type')" :key="item.value" :value="item.value">
+                <option v-for="item in appTypeOptions" :key="item.value" :value="item.value">
                   {{ item.label }}
                 </option>
               </select>
-              <select v-model="statusFilter" aria-label="应用状态">
+              <select v-model="statusSelectValue" aria-label="应用状态">
                 <option value="">全部状态</option>
                 <option v-for="item in statusFilterOptions" :key="item.value" :value="item.value">
                   {{ item.label }}
@@ -787,7 +1243,7 @@ watch(
           </button>
         </aside>
 
-        <section ref="createScrollRef" class="app-create-body" @scroll="handleCreateScroll">
+        <section ref="createScrollRef" class="app-create-body" :class="{ 'is-scrolling': createBodyScrolling }" @scroll="handleCreateScroll">
           <div id="create-section-basic" class="app-create-panel">
             <div class="app-create-panel__head">
               <div>
@@ -799,119 +1255,156 @@ watch(
             <div class="app-form">
               <label>
                 <span>应用编码</span>
-                <input v-model="createForm.app_code" placeholder="例如 ai-project-manager，只允许小写字母、数字、中横线" />
+                <input v-model="createForm.app_code" placeholder="只允许小写字母、数字、中横线" />
               </label>
               <label>
                 <span>应用名称</span>
                 <input v-model="createForm.app_name" placeholder="请输入应用名称" />
               </label>
+              <label class="app-form__full">
+                <span>一句话介绍</span>
+                <input v-model="createForm.description" maxlength="120" placeholder="用于应用列表卡片，例如：统一管理客户、商机与跟进任务" />
+              </label>
               <label>
                 <span>应用类型</span>
                 <select v-model="createForm.app_type">
-                  <option v-for="item in dictOptions('app_type')" :key="item.value" :value="item.value">
+                  <option value="">请选择应用类型</option>
+                  <option v-for="item in appTypeOptions" :key="item.value" :value="item.value">
                     {{ item.label }}
                   </option>
                 </select>
               </label>
               <label>
-                <span>应用定位</span>
-                <select v-model="createDraft.app_position">
-                  <option value="PLATFORM_BUILTIN">平台内置</option>
-                  <option value="COMMON_CAPABILITY">公共能力 / 业务中台</option>
-                  <option value="BUSINESS_SCENARIO">业务场景</option>
-                  <option value="AI_AGENT">AI / Agent</option>
-                  <option value="INTEGRATION_CONNECTOR">集成连接</option>
-                </select>
-              </label>
-              <label>
-                <span>状态</span>
-                <select v-model="createForm.status">
-                  <option v-for="item in dictOptions('app_status')" :key="item.value" :value="item.value">
+                <span>部署方式</span>
+                <select v-model="createForm.deployment_mode">
+                  <option value="">请选择部署方式</option>
+                  <option v-for="item in deploymentModeOptions" :key="item.value" :value="item.value">
                     {{ item.label }}
                   </option>
                 </select>
               </label>
               <label>
                 <span>负责人</span>
-                <input v-model="createForm.owner" placeholder="负责人，选填" />
-              </label>
-              <label>
-                <span>图标</span>
-                <input v-model="createForm.icon" placeholder="图标名或标识，选填" />
-              </label>
-              <label>
-                <span>排序</span>
-                <input v-model.number="createForm.sort_order" type="number" min="0" step="1" />
+                <div class="app-owner-select" role="button" tabindex="0" @click="openOwnerPicker('create')" @keydown.enter.prevent="openOwnerPicker('create')">
+                  <span v-if="createOwnerIds.length" class="app-owner-select__chips">
+                    <button v-for="id in createOwnerIds" :key="id" type="button" @click.stop="removeOwner('create', id)">
+                      {{ ownerSelectLabel([id]) || id }} ×
+                    </button>
+                  </span>
+                  <span v-else class="is-placeholder">选择成员，可多选</span>
+                  <em>{{ ownerUsersLoading ? '加载中' : '选择' }}</em>
+                </div>
               </label>
               <label class="app-form__full">
-                <span>应用介绍</span>
-                <textarea v-model="createForm.description" placeholder="说明应用定位、边界、主要用户和核心能力"></textarea>
+                <span>应用详细介绍</span>
+                <textarea v-model="createForm.detail_description" class="app-form__rich" placeholder="可填写较完整的应用背景、边界、核心能力和使用说明，支持后续接入富文本内容"></textarea>
               </label>
             </div>
           </div>
 
-          <div id="create-section-access" class="app-create-panel">
+          <div id="create-section-visibility" class="app-create-panel">
             <div class="app-create-panel__head">
               <div>
-                <h3>可见范围、开通与收费</h3>
-                <p>可见范围最终只分为全部租户和指定租户。当前主档保存仍兼容现有后端可见范围字段。</p>
+                <h3>可见范围</h3>
+                <p>只决定哪些租户能看到并申请开通该应用，不承载收费和试用规则。</p>
               </div>
             </div>
-            <div class="app-form">
-              <label>
-                <span>当前后端可见范围</span>
-                <select v-model="createForm.visibility_scope">
-                  <option v-for="item in dictOptions('app_visibility_scope')" :key="item.value" :value="item.value">
-                    {{ item.label }}
-                  </option>
-                </select>
-              </label>
-              <label>
-                <span>V1 可见范围草稿</span>
-                <select v-model="createDraft.visibility_mode">
-                  <option value="ALL_TENANTS">全部租户</option>
-                  <option value="SPECIFIED_TENANTS">指定租户</option>
-                </select>
-              </label>
-              <label class="app-form__full">
-                <span>指定租户草稿</span>
-                <input v-model="createDraft.visible_tenants" placeholder="选择或记录指定租户，后续落库到可见租户关系表" />
-              </label>
-              <label>
-                <span>开通方式草稿</span>
-                <select v-model="createDraft.open_method">
-                  <option value="PACKAGE,DIRECT_SUBSCRIBE">套餐开通 / 套餐外订阅</option>
-                  <option value="INVITE_CODE,ADMIN_GRANT">邀请码 / 平台授权</option>
-                  <option value="TRIAL">免费试用</option>
-                  <option value="BUYOUT">一次性买断</option>
-                </select>
-              </label>
-              <label>
-                <span>收费方式</span>
-                <select v-model="createForm.charge_mode">
-                  <option v-for="item in dictOptions('app_charge_mode')" :key="item.value" :value="item.value">
-                    {{ item.label }}
-                  </option>
-                </select>
-              </label>
-              <label>
-                <span>免费使用时间草稿</span>
-                <select v-model="createDraft.trial_days">
-                  <option>不支持试用</option>
-                  <option>7 天</option>
-                  <option>15 天</option>
-                  <option>30 天</option>
-                  <option>不限期</option>
-                </select>
-              </label>
-              <label>
-                <span>试用开始规则草稿</span>
-                <select v-model="createDraft.trial_start_rule">
-                  <option>首次安装时开始</option>
-                  <option>首次启用时开始</option>
-                  <option>邀请码接受时开始</option>
-                  <option>平台管理员手动开始</option>
-                </select>
+            <div class="app-policy-layout">
+              <section class="app-policy-block">
+                <header>
+                  <strong>可见范围</strong>
+                  <span>控制租户是否能看到并申请开通该应用。</span>
+                </header>
+                <div class="app-choice-grid">
+                  <button type="button" :class="{ 'is-active': createDraft.visibility_mode === 'ALL_TENANTS' }" @click="createDraft.visibility_mode = 'ALL_TENANTS'">
+                    <strong>全部租户</strong>
+                    <span>所有租户都可见，仍需按套餐或授权开通。</span>
+                  </button>
+                  <button type="button" :class="{ 'is-active': createDraft.visibility_mode === 'SPECIFIED_TENANTS' }" @click="createDraft.visibility_mode = 'SPECIFIED_TENANTS'">
+                    <strong>指定租户</strong>
+                    <span>只对指定租户可见，适合试点、定制或灰度。</span>
+                  </button>
+                </div>
+                <label v-if="createDraft.visibility_mode === 'SPECIFIED_TENANTS'">
+                  <span>指定租户</span>
+                  <div class="app-owner-select" role="button" tabindex="0" @click="openTenantPicker('create')" @keydown.enter.prevent="openTenantPicker('create')">
+                    <span v-if="createTenantIds.length" class="app-owner-select__chips">
+                      <button v-for="id in createTenantIds" :key="id" type="button" @click.stop="removeTenant('create', id)">
+                        {{ tenantSelectLabel([id]) || id }} ×
+                      </button>
+                    </span>
+                    <span v-else class="is-placeholder">选择租户，可多选</span>
+                    <em>{{ tenantOptionsLoading ? '加载中' : '选择' }}</em>
+                  </div>
+                </label>
+              </section>
+            </div>
+          </div>
+
+          <div id="create-section-commercial" class="app-create-panel">
+            <div class="app-create-panel__head">
+              <div>
+                <h3>商业策略</h3>
+                <p>只定义收费模型和试用策略。开通途径由租户应用开通记录承接。</p>
+              </div>
+            </div>
+            <div class="app-policy-layout">
+
+              <section class="app-policy-block">
+                <header>
+                  <strong>收费模型</strong>
+                  <span>这里只声明商业模型，周期、价格、计量项和组合规则后续在套餐或计费配置中维护。</span>
+                </header>
+                <div class="app-form app-form--embedded">
+                  <label>
+                    <span>收费模型</span>
+                    <select v-model="createForm.charge_mode">
+                      <option value="">请选择收费模型</option>
+                      <option v-for="item in chargeModeOptions" :key="item.value" :value="item.value">
+                        {{ item.label }}
+                      </option>
+                    </select>
+                    <em class="app-policy-help">{{ chargeModeHint(createForm.charge_mode) }}</em>
+                  </label>
+                </div>
+              </section>
+
+              <section class="app-policy-block">
+                <header>
+                  <strong>试用策略</strong>
+                  <span>只定义是否支持试用以及试用周期。</span>
+                </header>
+                <div class="app-form app-form--embedded">
+                  <label>
+                    <span>是否支持试用</span>
+                    <select v-model="createDraft.trial_days">
+                      <option value="">请选择试用策略</option>
+                      <option v-for="item in trialPolicyOptions" :key="item.value" :value="item.value">
+                        {{ item.label }}
+                      </option>
+                    </select>
+                    <em class="app-policy-help">{{ trialPolicyHint(createDraft.trial_days) }}</em>
+                  </label>
+                  <div class="app-policy-fixed app-form__full">
+                    <span>试用开始</span>
+                    <strong>租户获得并开通应用时开始</strong>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+
+          <div v-if="createForm.deployment_mode === 'STANDALONE'" class="app-create-panel">
+            <div class="app-create-panel__head">
+              <div>
+                <h3>独立部署通讯</h3>
+                <p>仅独立部署应用需要登记和底座之间的通讯方式。</p>
+              </div>
+            </div>
+            <div class="app-create-checks app-create-checks--compact">
+              <label v-for="mode in createDraft.communication_modes" :key="mode.key">
+                <input v-model="mode.checked" type="checkbox" />
+                <span>{{ mode.label }}</span>
               </label>
             </div>
           </div>
@@ -950,47 +1443,13 @@ watch(
             </div>
           </div>
 
-          <div id="create-section-docs" class="app-create-panel">
-            <div class="app-create-panel__head">
-              <div>
-                <h3>文档池与初始版本</h3>
-                <p>创建应用时就建立知识资产骨架，避免只有菜单没有需求和设计依据。</p>
-              </div>
-            </div>
-            <div class="app-form">
-              <label>
-                <span>初始版本</span>
-                <input v-model="createDraft.version_no" placeholder="例如 0.1.0" />
-              </label>
-              <label>
-                <span>版本渠道</span>
-                <select v-model="createDraft.release_channel">
-                  <option value="DEV">开发版 DEV</option>
-                  <option value="INTERNAL_TEST">内测版 INTERNAL_TEST</option>
-                  <option value="BETA">Beta BETA</option>
-                  <option value="STABLE">正式版 STABLE</option>
-                </select>
-              </label>
-              <label class="app-form__full">
-                <span>初始发布说明</span>
-                <textarea v-model="createDraft.release_note" placeholder="记录创建原因、初始范围和后续补齐计划"></textarea>
-              </label>
-            </div>
-            <div class="app-create-checks">
-              <label v-for="doc in createDraft.docs" :key="doc.key">
-                <input v-model="doc.checked" type="checkbox" />
-                <span>{{ doc.label }}</span>
-              </label>
-            </div>
-          </div>
-
           <div id="create-section-review" class="app-create-panel app-create-panel--review">
             <div class="app-create-panel__head">
               <div>
                 <h3>确认创建</h3>
-                <p>确认后当前版本先保存应用主档，其他应用资产作为后续实现和详情页完善项。</p>
+                <p>确认后保存应用主档并进入立项状态，版本、进度和文档由项目管理应用同步。</p>
               </div>
-              <span>草稿</span>
+              <span>立项</span>
             </div>
             <div class="app-create-review">
               <div>
@@ -1003,11 +1462,19 @@ watch(
               </div>
               <div>
                 <span>可见范围</span>
-                <strong>{{ createDraft.visibility_mode === 'ALL_TENANTS' ? '全部租户' : '指定租户' }}</strong>
+                <strong>{{ createDraft.visibility_mode === 'ALL_TENANTS' ? '全部租户' : createDraft.visibility_mode === 'SPECIFIED_TENANTS' ? '指定租户' : '未选择' }}</strong>
               </div>
               <div>
-                <span>收费方式</span>
+                <span>收费模型</span>
                 <strong>{{ labelOf('app_charge_mode', createForm.charge_mode) }}</strong>
+              </div>
+              <div>
+                <span>试用策略</span>
+                <strong>{{ trialPolicyLabel(createDraft.trial_days) }}</strong>
+              </div>
+              <div>
+                <span>创建后状态</span>
+                <strong>{{ labelOf('app_status', createForm.status) }}</strong>
               </div>
               <div>
                 <span>客户端草稿</span>
@@ -1016,14 +1483,6 @@ watch(
               <div>
                 <span>资产草稿</span>
                 <strong>{{ selectedCreateAssets.length }} 项</strong>
-              </div>
-              <div>
-                <span>文档草稿</span>
-                <strong>{{ selectedCreateDocs.length }} 项</strong>
-              </div>
-              <div>
-                <span>初始版本</span>
-                <strong>{{ createDraft.version_no }} / {{ createDraft.release_channel }}</strong>
               </div>
             </div>
           </div>
@@ -1061,7 +1520,7 @@ watch(
           </button>
         </aside>
 
-        <section ref="editScrollRef" class="app-create-body" @scroll="handleEditScroll">
+        <section ref="editScrollRef" class="app-create-body" :class="{ 'is-scrolling': editBodyScrolling }" @scroll="handleEditScroll">
           <div id="edit-section-basic" class="app-create-panel">
             <div class="app-create-panel__head">
               <div>
@@ -1076,107 +1535,159 @@ watch(
                 <input :value="editAppSnapshot?.app_code || '—'" disabled />
               </label>
               <label>
-                <span>当前状态</span>
-                <input :value="editAppSnapshot ? labelOf('app_status', editAppSnapshot.status) : '—'" disabled />
-              </label>
-              <label>
                 <span>应用名称</span>
                 <input v-model="editForm.app_name" placeholder="请输入应用名称" />
+              </label>
+              <label class="app-form__full">
+                <span>一句话介绍</span>
+                <input v-model="editForm.description" maxlength="120" placeholder="用于应用列表卡片，例如：统一管理客户、商机与跟进任务" />
               </label>
               <label>
                 <span>应用类型</span>
                 <select v-model="editForm.app_type">
-                  <option v-for="item in dictOptions('app_type')" :key="item.value" :value="item.value">
+                  <option v-for="item in appTypeOptions" :key="item.value" :value="item.value">
+                    {{ item.label }}
+                  </option>
+                </select>
+              </label>
+              <label>
+                <span>部署方式</span>
+                <select v-model="editForm.deployment_mode">
+                  <option v-for="item in deploymentModeOptions" :key="item.value" :value="item.value">
                     {{ item.label }}
                   </option>
                 </select>
               </label>
               <label>
                 <span>负责人</span>
-                <input v-model="editForm.owner" placeholder="负责人，选填" />
+                <div class="app-owner-select" role="button" tabindex="0" @click="openOwnerPicker('edit')" @keydown.enter.prevent="openOwnerPicker('edit')">
+                  <span v-if="editOwnerIds.length" class="app-owner-select__chips">
+                    <button v-for="id in editOwnerIds" :key="id" type="button" @click.stop="removeOwner('edit', id)">
+                      {{ ownerSelectLabel([id]) || id }} ×
+                    </button>
+                  </span>
+                  <span v-else class="is-placeholder">选择成员，可多选</span>
+                  <em>{{ ownerUsersLoading ? '加载中' : '选择' }}</em>
+                </div>
               </label>
               <label>
                 <span>图标</span>
                 <input v-model="editForm.icon" placeholder="图标名或标识，选填" />
               </label>
               <label>
-                <span>排序</span>
-                <input v-model.number="editForm.sort_order" type="number" min="0" step="1" />
-              </label>
-              <label>
                 <span>来源</span>
                 <input :value="editAppSnapshot ? labelOf('app_source', editAppSnapshot.source) : '—'" disabled />
               </label>
               <label class="app-form__full">
-                <span>应用介绍</span>
-                <textarea v-model="editForm.description" placeholder="说明应用定位、边界、主要用户和核心能力"></textarea>
+                <span>应用详细介绍</span>
+                <textarea v-model="editForm.detail_description" class="app-form__rich" placeholder="可填写较完整的应用背景、边界、核心能力和使用说明，支持后续接入富文本内容"></textarea>
               </label>
             </div>
           </div>
 
-          <div id="edit-section-access" class="app-create-panel">
+          <div id="edit-section-visibility" class="app-create-panel">
             <div class="app-create-panel__head">
               <div>
-                <h3>可见范围、开通与收费</h3>
-                <p>当前可保存可见范围与收费方式；V1 口径先作为编辑草稿，后续接租户可见关系和订阅策略。</p>
+                <h3>可见范围</h3>
+                <p>只维护哪些租户能看到并申请开通该应用，不承载收费和试用规则。</p>
               </div>
             </div>
-            <div class="app-form">
-              <label>
-                <span>当前后端可见范围</span>
-                <select v-model="editForm.visibility_scope">
-                  <option v-for="item in dictOptions('app_visibility_scope')" :key="item.value" :value="item.value">
-                    {{ item.label }}
-                  </option>
-                </select>
-              </label>
-              <label>
-                <span>V1 可见范围草稿</span>
-                <select v-model="editDraft.visibility_mode">
-                  <option value="ALL_TENANTS">全部租户</option>
-                  <option value="SPECIFIED_TENANTS">指定租户</option>
-                </select>
-              </label>
-              <label class="app-form__full">
-                <span>指定租户草稿</span>
-                <input v-model="editDraft.visible_tenants" placeholder="选择或记录指定租户，后续落库到可见租户关系表" />
-              </label>
-              <label>
-                <span>开通方式草稿</span>
-                <select v-model="editDraft.open_method">
-                  <option value="PACKAGE,DIRECT_SUBSCRIBE">套餐开通 / 套餐外订阅</option>
-                  <option value="INVITE_CODE,ADMIN_GRANT">邀请码 / 平台授权</option>
-                  <option value="TRIAL">免费试用</option>
-                  <option value="BUYOUT">一次性买断</option>
-                </select>
-              </label>
-              <label>
-                <span>收费方式</span>
-                <select v-model="editForm.charge_mode">
-                  <option v-for="item in dictOptions('app_charge_mode')" :key="item.value" :value="item.value">
-                    {{ item.label }}
-                  </option>
-                </select>
-              </label>
-              <label>
-                <span>免费使用时间草稿</span>
-                <select v-model="editDraft.trial_days">
-                  <option>不支持试用</option>
-                  <option>7 天</option>
-                  <option>15 天</option>
-                  <option>30 天</option>
-                  <option>不限期</option>
-                  <option>待配置</option>
-                </select>
-              </label>
-              <label>
-                <span>试用开始规则草稿</span>
-                <select v-model="editDraft.trial_start_rule">
-                  <option>首次安装时开始</option>
-                  <option>首次启用时开始</option>
-                  <option>邀请码接受时开始</option>
-                  <option>平台管理员手动开始</option>
-                </select>
+            <div class="app-policy-layout">
+              <section class="app-policy-block">
+                <header>
+                  <strong>可见范围</strong>
+                  <span>控制租户是否能看到并申请开通该应用。</span>
+                </header>
+                <div class="app-choice-grid">
+                  <button type="button" :class="{ 'is-active': editDraft.visibility_mode === 'ALL_TENANTS' }" @click="editDraft.visibility_mode = 'ALL_TENANTS'">
+                    <strong>全部租户</strong>
+                    <span>所有租户都可见，仍需按套餐或授权开通。</span>
+                  </button>
+                  <button type="button" :class="{ 'is-active': editDraft.visibility_mode === 'SPECIFIED_TENANTS' }" @click="editDraft.visibility_mode = 'SPECIFIED_TENANTS'">
+                    <strong>指定租户</strong>
+                    <span>只对指定租户可见，适合试点、定制或灰度。</span>
+                  </button>
+                </div>
+                <label v-if="editDraft.visibility_mode === 'SPECIFIED_TENANTS'">
+                  <span>指定租户</span>
+                  <div class="app-owner-select" role="button" tabindex="0" @click="openTenantPicker('edit')" @keydown.enter.prevent="openTenantPicker('edit')">
+                    <span v-if="editTenantIds.length" class="app-owner-select__chips">
+                      <button v-for="id in editTenantIds" :key="id" type="button" @click.stop="removeTenant('edit', id)">
+                        {{ tenantSelectLabel([id]) || id }} ×
+                      </button>
+                    </span>
+                    <span v-else class="is-placeholder">选择租户，可多选</span>
+                    <em>{{ tenantOptionsLoading ? '加载中' : '选择' }}</em>
+                  </div>
+                </label>
+              </section>
+            </div>
+          </div>
+
+          <div id="edit-section-commercial" class="app-create-panel">
+            <div class="app-create-panel__head">
+              <div>
+                <h3>商业策略</h3>
+                <p>只维护收费模型和试用策略。开通途径由租户应用开通记录承接。</p>
+              </div>
+            </div>
+            <div class="app-policy-layout">
+
+              <section class="app-policy-block">
+                <header>
+                  <strong>收费模型</strong>
+                  <span>这里只声明商业模型，周期、价格、计量项和组合规则后续在套餐或计费配置中维护。</span>
+                </header>
+                <div class="app-form app-form--embedded">
+                  <label>
+                    <span>收费模型</span>
+                    <select v-model="editForm.charge_mode">
+                      <option value="">请选择收费模型</option>
+                      <option v-for="item in chargeModeOptions" :key="item.value" :value="item.value">
+                        {{ item.label }}
+                      </option>
+                    </select>
+                    <em class="app-policy-help">{{ chargeModeHint(editForm.charge_mode) }}</em>
+                  </label>
+                </div>
+              </section>
+
+              <section class="app-policy-block">
+                <header>
+                  <strong>试用策略</strong>
+                  <span>只定义是否支持试用以及试用周期。</span>
+                </header>
+                <div class="app-form app-form--embedded">
+                  <label>
+                    <span>是否支持试用</span>
+                    <select v-model="editDraft.trial_days">
+                      <option value="">请选择试用策略</option>
+                      <option v-for="item in trialPolicyOptions" :key="item.value" :value="item.value">
+                        {{ item.label }}
+                      </option>
+                    </select>
+                    <em class="app-policy-help">{{ trialPolicyHint(editDraft.trial_days) }}</em>
+                  </label>
+                  <div class="app-policy-fixed app-form__full">
+                    <span>试用开始</span>
+                    <strong>租户获得并开通应用时开始</strong>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+
+          <div v-if="editForm.deployment_mode === 'STANDALONE'" class="app-create-panel">
+            <div class="app-create-panel__head">
+              <div>
+                <h3>独立部署通讯</h3>
+                <p>仅独立部署应用需要登记和底座之间的通讯方式。</p>
+              </div>
+            </div>
+            <div class="app-create-checks app-create-checks--compact">
+              <label v-for="mode in editDraft.communication_modes" :key="mode.key">
+                <input v-model="mode.checked" type="checkbox" />
+                <span>{{ mode.label }}</span>
               </label>
             </div>
           </div>
@@ -1215,45 +1726,11 @@ watch(
             </div>
           </div>
 
-          <div id="edit-section-docs" class="app-create-panel">
-            <div class="app-create-panel__head">
-              <div>
-                <h3>文档池与版本</h3>
-                <p>维护当前版本、发布说明和文档骨架，方便后续接入应用文档池和版本历史。</p>
-              </div>
-            </div>
-            <div class="app-form">
-              <label>
-                <span>版本</span>
-                <input v-model="editForm.version" placeholder="例如 0.1.0" />
-              </label>
-              <label>
-                <span>版本渠道</span>
-                <select v-model="editDraft.release_channel">
-                  <option value="DEV">开发版 DEV</option>
-                  <option value="INTERNAL_TEST">内测版 INTERNAL_TEST</option>
-                  <option value="BETA">Beta BETA</option>
-                  <option value="STABLE">正式版 STABLE</option>
-                </select>
-              </label>
-              <label class="app-form__full">
-                <span>版本说明草稿</span>
-                <textarea v-model="editDraft.release_note" placeholder="记录本次维护原因、版本范围和后续补齐计划"></textarea>
-              </label>
-            </div>
-            <div class="app-create-checks">
-              <label v-for="doc in editDraft.docs" :key="doc.key">
-                <input v-model="doc.checked" type="checkbox" />
-                <span>{{ doc.label }}</span>
-              </label>
-            </div>
-          </div>
-
           <div id="edit-section-review" class="app-create-panel app-create-panel--review">
             <div class="app-create-panel__head">
               <div>
                 <h3>确认保存</h3>
-                <p>保存后会更新应用主档；客户端、资产和文档草稿保留为后续实现范围。</p>
+                <p>保存后只更新应用主档；版本、进度和文档由项目管理应用同步。</p>
               </div>
               <span>主档保存</span>
             </div>
@@ -1268,11 +1745,15 @@ watch(
               </div>
               <div>
                 <span>可见范围</span>
-                <strong>{{ editDraft.visibility_mode === 'ALL_TENANTS' ? '全部租户' : '指定租户' }}</strong>
+                <strong>{{ editDraft.visibility_mode === 'ALL_TENANTS' ? '全部租户' : editDraft.visibility_mode === 'SPECIFIED_TENANTS' ? '指定租户' : '未选择' }}</strong>
               </div>
               <div>
-                <span>收费方式</span>
+                <span>收费模型</span>
                 <strong>{{ labelOf('app_charge_mode', editForm.charge_mode) }}</strong>
+              </div>
+              <div>
+                <span>试用策略</span>
+                <strong>{{ trialPolicyLabel(editDraft.trial_days) }}</strong>
               </div>
               <div>
                 <span>客户端草稿</span>
@@ -1283,18 +1764,116 @@ watch(
                 <strong>{{ selectedEditAssets.length }} 项</strong>
               </div>
               <div>
-                <span>文档草稿</span>
-                <strong>{{ selectedEditDocs.length }} 项</strong>
-              </div>
-              <div>
-                <span>版本</span>
-                <strong>{{ editForm.version || '—' }} / {{ editDraft.release_channel }}</strong>
+                <span>当前同步版本</span>
+                <strong>{{ editAppSnapshot?.version || '—' }}</strong>
               </div>
             </div>
           </div>
         </section>
       </div>
     </NeuroAgentDialog>
+
+    <Teleport to="body">
+      <div
+        v-if="ownerPickerVisible"
+        class="app-owner-picker-backdrop"
+        @click.self="closeOwnerPicker"
+        @wheel.prevent.stop
+        @touchmove.prevent.stop
+      >
+        <section class="app-owner-picker" @click.stop @wheel.stop @touchmove.stop>
+          <header class="app-owner-picker__head">
+            <div>
+              <h3>选择负责人</h3>
+              <p>从成员管理中选择，可多选。</p>
+            </div>
+            <button type="button" aria-label="关闭" @click="closeOwnerPicker">×</button>
+          </header>
+          <div class="app-owner-picker__search">
+            <Search class="app-owner-picker__search-icon" />
+            <input v-model="ownerPickerKeyword" autofocus placeholder="搜索姓名、工号、手机号或邮箱" />
+          </div>
+          <div class="app-owner-picker__list" @scroll="handleOwnerPickerScroll">
+            <button
+              v-for="user in filteredOwnerUsers"
+              :key="user.id"
+              class="app-owner-picker__item"
+              :class="{ 'is-selected': isOwnerDraftSelected(user.id) }"
+              type="button"
+              @click="toggleOwnerDraft(user.id)"
+            >
+              <i>{{ isOwnerDraftSelected(user.id) ? '✓' : '' }}</i>
+              <span>
+                <strong>{{ user.name }}</strong>
+                <em>{{ user.employee_no }}{{ user.phone ? ` / ${user.phone}` : '' }}</em>
+              </span>
+            </button>
+            <div v-if="ownerUsersLoading" class="app-owner-picker__empty">成员加载中...</div>
+            <div v-else-if="filteredOwnerUsers.length === 0" class="app-owner-picker__empty">没有匹配的成员</div>
+            <div v-else-if="ownerUsersHasMore" class="app-owner-picker__more">向下滚动加载更多</div>
+          </div>
+          <footer class="app-owner-picker__foot">
+            <span>已选择 {{ ownerPickerDraftIds.length }} 人</span>
+            <div>
+              <button v-if="ownerPickerDraftIds.length" type="button" class="app-owner-picker__ghost" @click="ownerPickerDraftIds = []">清空</button>
+              <button type="button" class="app-owner-picker__ghost" @click="closeOwnerPicker">取消</button>
+              <button type="button" class="app-owner-picker__primary" @click="confirmOwnerPicker">确认选择</button>
+            </div>
+          </footer>
+        </section>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div
+        v-if="tenantPickerVisible"
+        class="app-owner-picker-backdrop"
+        @click.self="closeTenantPicker"
+        @wheel.prevent.stop
+        @touchmove.prevent.stop
+      >
+        <section class="app-owner-picker" @click.stop @wheel.stop @touchmove.stop>
+          <header class="app-owner-picker__head">
+            <div>
+              <h3>选择租户</h3>
+              <p>选择可见范围内的租户，可多选。</p>
+            </div>
+            <button type="button" aria-label="关闭" @click="closeTenantPicker">×</button>
+          </header>
+          <div class="app-owner-picker__search">
+            <Search class="app-owner-picker__search-icon" />
+            <input v-model="tenantPickerKeyword" autofocus placeholder="搜索租户名称、编码或联系人" />
+          </div>
+          <div class="app-owner-picker__list" @scroll="handleTenantPickerScroll">
+            <button
+              v-for="tenant in filteredTenantOptions"
+              :key="tenant.id"
+              class="app-owner-picker__item"
+              :class="{ 'is-selected': isTenantDraftSelected(tenant.id) }"
+              type="button"
+              @click="toggleTenantDraft(tenant.id)"
+            >
+              <i>{{ isTenantDraftSelected(tenant.id) ? '✓' : '' }}</i>
+              <span>
+                <strong>{{ tenant.name }}</strong>
+                <em>{{ tenant.code }}{{ tenant.plan_name ? ` / ${tenant.plan_name}` : '' }}</em>
+              </span>
+            </button>
+            <div v-if="tenantOptionsLoading" class="app-owner-picker__empty">租户加载中...</div>
+            <div v-else-if="filteredTenantOptions.length === 0" class="app-owner-picker__empty">没有匹配的租户</div>
+            <div v-else-if="tenantOptionsHasMore" class="app-owner-picker__more">向下滚动加载更多</div>
+          </div>
+          <footer class="app-owner-picker__foot">
+            <span>已选择 {{ tenantPickerDraftIds.length }} 个租户</span>
+            <div>
+              <button v-if="tenantPickerDraftIds.length" type="button" class="app-owner-picker__ghost" @click="tenantPickerDraftIds = []">清空</button>
+              <button type="button" class="app-owner-picker__ghost" @click="closeTenantPicker">取消</button>
+              <button type="button" class="app-owner-picker__primary" @click="confirmTenantPicker">确认选择</button>
+            </div>
+          </footer>
+        </section>
+      </div>
+    </Teleport>
 
     <NeuroAgentDialog
       v-model="detailDialogVisible"
@@ -1316,7 +1895,7 @@ watch(
             <div>
               <h3>{{ detailApp.app_name }}</h3>
               <code>{{ detailApp.app_code }}</code>
-              <p>{{ detailApp.description || '暂无应用说明，可在编辑应用中补充业务定位、边界与主要使用人群。' }}</p>
+              <p>{{ detailApp.description || '暂无一句话介绍，可在编辑应用中补充列表卡片说明。' }}</p>
             </div>
           </div>
           <div class="app-detail-hero__meta">
@@ -1337,26 +1916,31 @@ watch(
             <div><span>应用编码</span><strong>{{ detailApp.app_code }}</strong></div>
             <div><span>应用名称</span><strong>{{ detailApp.app_name }}</strong></div>
             <div><span>应用类型</span><strong>{{ labelOf('app_type', detailApp.app_type) }}</strong></div>
+            <div><span>部署方式</span><strong>{{ deploymentModeLabel(detailApp.deployment_mode) }}</strong></div>
+            <div><span>通讯方式</span><strong>{{ communicationModesLabel(detailApp.communication_modes) }}</strong></div>
             <div><span>来源</span><strong>{{ labelOf('app_source', detailApp.source) }}</strong></div>
             <div><span>负责人</span><strong>{{ detailApp.owner || '—' }}</strong></div>
             <div><span>版本</span><strong>{{ detailApp.version || '—' }}</strong></div>
-            <div><span>排序</span><strong>{{ detailApp.sort_order }}</strong></div>
             <div><span>内置应用</span><strong>{{ detailApp.is_builtin ? '是' : '否' }}</strong></div>
+            <div class="app-detail-fields__full">
+              <span>应用详细介绍</span>
+              <p class="app-detail-rich">{{ detailApp.detail_description || '—' }}</p>
+            </div>
           </div>
         </section>
 
         <section class="app-detail-section">
           <div class="app-detail-section__head">
-            <h4>可见、开通与收费</h4>
+            <h4>可见、收费与试用</h4>
             <span>租户权益</span>
           </div>
           <div class="app-detail-fields">
             <div><span>当前可见范围</span><strong>{{ labelOf('app_visibility_scope', detailApp.visibility_scope) }}</strong></div>
-            <div><span>V1 可见口径</span><strong>{{ detailApp.visibility_scope === 'GLOBAL' ? '全部租户' : '指定租户 / 平台控制' }}</strong></div>
-            <div><span>收费方式</span><strong>{{ labelOf('app_charge_mode', detailApp.charge_mode) }}</strong></div>
+            <div><span>V1 可见口径</span><strong>{{ detailApp.visibility_mode || (detailApp.visibility_scope === 'GLOBAL' ? '全部租户' : '指定租户 / 平台控制') }}</strong></div>
+            <div><span>收费模型</span><strong>{{ labelOf('app_charge_mode', detailApp.charge_mode) }}</strong></div>
             <div><span>平台专属</span><strong>{{ detailApp.is_platform_only ? '是' : '否' }}</strong></div>
-            <div><span>开通方式</span><strong>套餐开通 / 平台授权 / 试用邀请</strong></div>
-            <div><span>免费试用</span><strong>{{ detailApp.charge_mode === 'FREE' ? '不限期' : '待配置' }}</strong></div>
+            <div><span>试用策略</span><strong>{{ trialPolicyLabel(detailApp.trial_policy) }}</strong></div>
+            <div><span>试用开始</span><strong>{{ detailApp.trial_start_rule || (detailApp.trial_policy && detailApp.trial_policy !== '不支持试用' ? '获得并开通时开始' : '—') }}</strong></div>
           </div>
         </section>
 
@@ -1366,10 +1950,8 @@ watch(
             <span>访问形态</span>
           </div>
           <div class="app-detail-tags">
-            <span>PC Web</span>
-            <span>API Only</span>
-            <span :class="{ 'is-muted': detailApp.app_type !== 'CLIENT_APP' }">H5 / 移动端待配置</span>
-            <span :class="{ 'is-muted': detailApp.app_type !== 'CONNECTOR_APP' }">企微 / 钉钉 / 飞书待配置</span>
+            <span v-for="client in detailApp.clients || []" :key="client.client_code" :class="{ 'is-muted': client.enabled === false }">{{ client.client_name }}</span>
+            <span v-if="!(detailApp.clients || []).length" class="is-muted">待配置客户端</span>
           </div>
         </section>
 
@@ -1381,7 +1963,7 @@ watch(
           <div class="app-detail-assets">
             <div>
               <strong>入口</strong>
-              <span>工作台入口、管理列表入口、详情入口</span>
+              <span>{{ detailApp.asset_config || '工作台入口、管理列表入口、详情入口' }}</span>
             </div>
             <div>
               <strong>API</strong>
@@ -1393,21 +1975,21 @@ watch(
             </div>
             <div>
               <strong>套餐资源</strong>
-              <span>基础访问能力、客户端能力、试用与开通能力待落库</span>
+              <span>基础访问能力、客户端能力、试用与开通能力待配置</span>
             </div>
           </div>
         </section>
 
         <section class="app-detail-section">
           <div class="app-detail-section__head">
-            <h4>文档、版本与审计</h4>
-            <span>治理信息</span>
+            <h4>项目同步信息</h4>
+            <span>项目管理</span>
           </div>
           <div class="app-detail-fields">
-            <div><span>需求文档</span><strong>待接入文档池</strong></div>
-            <div><span>技术设计</span><strong>待接入文档池</strong></div>
-            <div><span>操作手册</span><strong>待接入文档池</strong></div>
-            <div><span>AI 生成记录</span><strong>待接入审计链路</strong></div>
+            <div><span>同步版本</span><strong>{{ detailApp.version || '待项目管理同步' }}</strong></div>
+            <div><span>发布渠道</span><strong>{{ detailApp.release_channel || '待项目管理同步' }}</strong></div>
+            <div><span>文档入口</span><strong>{{ detailApp.doc_config || '待项目管理同步' }}</strong></div>
+            <div><span>版本说明</span><strong>{{ detailApp.release_note || '待项目管理同步' }}</strong></div>
             <div><span>创建时间</span><strong>{{ formatDateTimeChina(detailApp.created_at) }}</strong></div>
             <div><span>更新时间</span><strong>{{ formatDateTimeChina(detailApp.updated_at) }}</strong></div>
           </div>
@@ -1508,9 +2090,13 @@ watch(
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px;
-  border-radius: var(--neuro-radius-lg);
-  background: color-mix(in srgb, var(--neuro-surface-2) 72%, transparent);
+  padding: 14px 20px 12px;
+  border-radius: 0;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--neuro-background) 22%, transparent) 0%,
+    transparent 72%
+  );
 }
 
 .app-center-toolbar__filters,
@@ -1533,21 +2119,30 @@ watch(
 
 .app-center-search,
 .app-center-toolbar__filters select {
-  height: 36px;
+  height: 34px;
   min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--neuro-border) 84%, transparent);
-  border-radius: var(--neuro-radius-sm);
-  background: color-mix(in srgb, var(--neuro-surface) 92%, transparent);
+  border: 1px solid rgba(45, 55, 72, 0.6);
+  border-radius: var(--neuro-radius-md);
+  background: rgba(255, 255, 255, 0.04);
   color: var(--neuro-text);
-  font-size: 14px;
+  font-size: 13px;
+  box-shadow: none;
+  transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
 }
 
 .app-center-search {
-  flex: 0 0 210px;
+  flex: 0 0 360px;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 0 12px;
+}
+
+.app-center-search:focus-within,
+.app-center-toolbar__filters select:focus {
+  border-color: rgba(0, 245, 212, 0.4);
+  box-shadow: 0 0 0 3px rgba(0, 245, 212, 0.08);
+  outline: none;
 }
 
 .app-center-search input {
@@ -1557,21 +2152,30 @@ watch(
   outline: 0;
   background: transparent;
   color: var(--neuro-text);
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .app-center-search input::placeholder {
   color: var(--neuro-text-muted);
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .app-center-toolbar__filters select {
-  flex: 0 0 142px;
-  padding: 0 10px;
+  flex: 0 0 148px;
+  padding: 0 28px 0 10px;
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #94a3b8 50%),
+    linear-gradient(135deg, #94a3b8 50%, transparent 50%);
+  background-position:
+    calc(100% - 16px) 13px,
+    calc(100% - 10px) 13px;
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
 }
 
 .app-btn {
-  height: 36px;
+  height: 34px;
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
@@ -1579,7 +2183,7 @@ watch(
   gap: 6px;
   padding: 0 14px;
   border: 1px solid color-mix(in srgb, var(--neuro-border) 90%, transparent);
-  border-radius: var(--neuro-radius-sm);
+  border-radius: var(--neuro-radius-md);
   background: color-mix(in srgb, var(--neuro-surface) 84%, transparent);
   color: var(--neuro-text);
   cursor: pointer;
@@ -1588,7 +2192,7 @@ watch(
 
 .app-btn--primary {
   border-color: transparent;
-  background: linear-gradient(135deg, var(--neuro-primary), var(--neuro-accent));
+  background: linear-gradient(135deg, #00d4aa 0%, #7c3aed 100%);
   color: #051616;
   font-weight: 700;
 }
@@ -1660,6 +2264,7 @@ watch(
 }
 
 .app-card {
+  position: relative;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -1671,6 +2276,31 @@ watch(
     linear-gradient(180deg, color-mix(in srgb, var(--neuro-surface-2) 72%, transparent), transparent 68%),
     color-mix(in srgb, var(--neuro-surface) 90%, transparent);
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--neuro-primary) 38%, transparent);
+  transition:
+    border-color var(--shell-t-fast) var(--shell-ease-standard),
+    background var(--shell-t-fast) var(--shell-ease-standard),
+    box-shadow var(--shell-t-fast) var(--shell-ease-standard),
+    transform var(--shell-t-fast) var(--shell-ease-standard);
+}
+
+.app-card:hover {
+  border-color: color-mix(in srgb, var(--neuro-primary) 58%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--neuro-primary) 10%, transparent), transparent 70%),
+    linear-gradient(180deg, color-mix(in srgb, var(--neuro-surface-2) 84%, transparent), transparent 68%),
+    color-mix(in srgb, var(--neuro-surface) 96%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--neuro-primary) 58%, transparent),
+    0 18px 44px color-mix(in srgb, #000 18%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--neuro-primary) 12%, transparent);
+  transform: translateY(-2px);
+}
+
+.app-card:focus-within {
+  border-color: color-mix(in srgb, var(--neuro-primary) 62%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--neuro-primary) 58%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--neuro-primary) 10%, transparent);
 }
 
 .app-card--disabled {
@@ -1695,6 +2325,16 @@ watch(
   border-radius: 16px;
   background: color-mix(in srgb, var(--neuro-primary) 16%, transparent);
   color: var(--neuro-primary);
+  transition:
+    border-color var(--shell-t-fast) var(--shell-ease-standard),
+    background var(--shell-t-fast) var(--shell-ease-standard),
+    transform var(--shell-t-fast) var(--shell-ease-standard);
+}
+
+.app-card:hover .app-card__icon {
+  border-color: color-mix(in srgb, var(--neuro-primary) 54%, transparent);
+  background: color-mix(in srgb, var(--neuro-primary) 22%, transparent);
+  transform: translateY(-1px);
 }
 
 .app-card__icon span {
@@ -1987,6 +2627,7 @@ watch(
   padding: 2px 8px 10px 0;
   scroll-behavior: smooth;
   scroll-padding-top: 4px;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -2002,6 +2643,10 @@ watch(
 
 .app-create-body::-webkit-scrollbar-thumb {
   border-radius: 999px;
+  background: transparent;
+}
+
+.app-create-body.is-scrolling::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--neuro-border) 80%, transparent);
 }
 
@@ -2009,7 +2654,7 @@ watch(
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
   padding: 20px;
   border: 1px solid color-mix(in srgb, var(--neuro-border) 80%, transparent);
   border-radius: var(--neuro-radius-md);
@@ -2023,10 +2668,29 @@ watch(
 }
 
 .app-create-panel__head {
+  position: relative;
   display: flex;
   justify-content: space-between;
   gap: 14px;
   align-items: flex-start;
+  margin: -20px -20px 2px;
+  padding: 18px 20px 16px 24px;
+  border-bottom: 1px solid color-mix(in srgb, var(--neuro-border) 88%, transparent);
+  border-radius: var(--neuro-radius-md) var(--neuro-radius-md) 0 0;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--neuro-primary) 18%, var(--neuro-surface)), color-mix(in srgb, var(--neuro-primary) 10%, var(--neuro-bg)));
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--neuro-primary) 10%, transparent);
+}
+
+.app-create-panel__head::before {
+  content: "";
+  position: absolute;
+  left: 12px;
+  top: 18px;
+  bottom: 18px;
+  width: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--neuro-primary) 78%, transparent);
 }
 
 .app-create-panel__head h3 {
@@ -2052,10 +2716,188 @@ watch(
   font-weight: 900;
 }
 
+.app-policy-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.app-policy-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--neuro-border) 76%, transparent);
+  border-radius: var(--neuro-radius-sm);
+  background: color-mix(in srgb, var(--neuro-surface-2) 34%, transparent);
+}
+
+.app-policy-block *,
+.app-policy-block *::before,
+.app-policy-block *::after {
+  box-sizing: border-box;
+}
+
+.app-policy-block header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.app-policy-block header strong {
+  color: var(--neuro-text);
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.app-policy-block header span {
+  color: var(--neuro-text-secondary);
+  line-height: 1.5;
+}
+
+.app-policy-block label {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.app-policy-block label > span {
+  color: var(--neuro-text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.app-policy-block input {
+  width: 100%;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--neuro-border) 88%, transparent);
+  border-radius: var(--neuro-radius-sm);
+  background: var(--neuro-surface);
+  color: var(--neuro-text);
+  font: inherit;
+}
+
+.app-policy-block input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--neuro-primary) 54%, var(--neuro-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--neuro-primary) 10%, transparent);
+}
+
+.app-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.app-choice-grid--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.app-choice-grid button {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--neuro-border) 82%, transparent);
+  border-radius: var(--neuro-radius-sm);
+  background: var(--neuro-surface);
+  color: var(--neuro-text-secondary);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--shell-t-fast) var(--shell-ease-standard),
+    background var(--shell-t-fast) var(--shell-ease-standard),
+    box-shadow var(--shell-t-fast) var(--shell-ease-standard),
+    transform var(--shell-t-fast) var(--shell-ease-standard);
+}
+
+.app-choice-grid button:hover {
+  border-color: color-mix(in srgb, var(--neuro-primary) 42%, var(--neuro-border));
+  background: color-mix(in srgb, var(--neuro-primary) 5%, var(--neuro-surface));
+  transform: translateY(-1px);
+}
+
+.app-choice-grid button:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--neuro-primary) 58%, var(--neuro-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--neuro-primary) 10%, transparent);
+}
+
+.app-choice-grid button.is-active {
+  border-color: color-mix(in srgb, var(--neuro-primary) 70%, transparent);
+  background: color-mix(in srgb, var(--neuro-primary) 13%, var(--neuro-surface));
+}
+
+.app-choice-grid button.is-active:hover {
+  border-color: color-mix(in srgb, var(--neuro-primary) 82%, transparent);
+  background: color-mix(in srgb, var(--neuro-primary) 18%, var(--neuro-surface));
+}
+
+.app-choice-grid strong {
+  color: var(--neuro-text);
+  font-weight: 900;
+}
+
+.app-choice-grid span {
+  line-height: 1.45;
+}
+
+.app-form--embedded {
+  gap: 14px 18px;
+}
+
+.app-policy-help {
+  display: block;
+  color: var(--neuro-text-secondary);
+  font-size: 13px;
+  font-style: normal;
+  line-height: 1.5;
+}
+
+.app-policy-fixed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px dashed color-mix(in srgb, var(--neuro-primary) 38%, var(--neuro-border));
+  border-radius: var(--neuro-radius-sm);
+  background: color-mix(in srgb, var(--neuro-primary) 8%, var(--neuro-surface));
+}
+
+.app-policy-fixed span {
+  color: var(--neuro-text-secondary);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.app-policy-fixed strong {
+  color: var(--neuro-text);
+  font-size: 14px;
+}
+
 .app-create-checks {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+}
+
+.app-form__label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--neuro-text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.app-create-checks--compact {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .app-create-checks label {
@@ -2161,11 +3003,40 @@ watch(
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  border: 1px solid color-mix(in srgb, var(--neuro-border) 84%, transparent);
+  border: 1px solid color-mix(in srgb, var(--neuro-border) 88%, transparent);
   border-radius: var(--neuro-radius-sm);
-  background: color-mix(in srgb, var(--neuro-surface) 92%, transparent);
+  background: var(--neuro-surface);
   color: var(--neuro-text);
   font: inherit;
+  transition:
+    border-color var(--shell-t-fast) var(--shell-ease-standard),
+    background var(--shell-t-fast) var(--shell-ease-standard),
+    box-shadow var(--shell-t-fast) var(--shell-ease-standard);
+}
+
+.app-form input::placeholder,
+.app-form textarea::placeholder {
+  color: color-mix(in srgb, var(--neuro-text-secondary) 76%, transparent);
+}
+
+.app-form input:hover,
+.app-form select:hover,
+.app-form textarea:hover {
+  border-color: color-mix(in srgb, var(--neuro-primary) 34%, var(--neuro-border));
+  background: color-mix(in srgb, var(--neuro-primary) 5%, var(--neuro-surface));
+}
+
+.app-form input:focus,
+.app-form select:focus,
+.app-form textarea:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--neuro-primary) 54%, var(--neuro-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--neuro-primary) 10%, transparent);
+}
+
+.app-form input:disabled {
+  color: var(--neuro-text-secondary);
+  background: color-mix(in srgb, var(--neuro-surface) 86%, var(--neuro-background));
 }
 
 .app-form input,
@@ -2180,31 +3051,359 @@ watch(
   resize: vertical;
 }
 
+.app-form textarea.app-form__rich {
+  min-height: 150px;
+}
+
 .app-form__full {
   grid-column: 1 / -1;
+}
+
+.app-owner-select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 12px;
+  border: 1px solid color-mix(in srgb, var(--neuro-border) 88%, transparent);
+  border-radius: var(--neuro-radius-sm);
+  background: var(--neuro-surface);
+  color: var(--neuro-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--shell-t-fast) var(--shell-ease-standard),
+    background var(--shell-t-fast) var(--shell-ease-standard),
+    box-shadow var(--shell-t-fast) var(--shell-ease-standard);
+}
+
+.app-owner-select:hover {
+  border-color: color-mix(in srgb, var(--neuro-primary) 34%, var(--neuro-border));
+  background: color-mix(in srgb, var(--neuro-primary) 5%, var(--neuro-surface));
+}
+
+.app-owner-select:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--neuro-primary) 54%, var(--neuro-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--neuro-primary) 10%, transparent);
+}
+
+.app-owner-select > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-owner-select > span.is-placeholder {
+  color: color-mix(in srgb, var(--neuro-text-secondary) 76%, transparent);
+}
+
+.app-owner-select > em {
+  flex: 0 0 auto;
+  color: var(--neuro-primary);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.app-owner-select__chips {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.app-owner-select__chips button {
+  max-width: 180px;
+  min-width: 0;
+  min-height: 28px;
+  padding: 3px 10px;
+  border: 1px solid color-mix(in srgb, var(--neuro-primary) 34%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--neuro-primary) 12%, transparent);
+  color: var(--neuro-primary);
+  font-size: 12px;
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.app-owner-select__chips button:hover {
+  border-color: color-mix(in srgb, var(--neuro-primary) 62%, transparent);
+  background: color-mix(in srgb, var(--neuro-primary) 18%, transparent);
+}
+
+.app-owner-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10030;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, #020617 62%, transparent);
+  backdrop-filter: blur(6px);
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+.app-owner-picker {
+  width: min(560px, calc(100vw - 48px));
+  max-height: min(680px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--neuro-border) 90%, transparent);
+  border-radius: var(--neuro-radius-md);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--neuro-primary) 9%, transparent), transparent 32%),
+    var(--neuro-surface);
+  box-shadow: 0 26px 80px color-mix(in srgb, #000 42%, transparent);
+  overscroll-behavior: contain;
+  touch-action: auto;
+  font-size: 14px;
+}
+
+.app-owner-picker *,
+.app-owner-picker *::before,
+.app-owner-picker *::after {
+  box-sizing: border-box;
+}
+
+.app-owner-picker__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px 13px;
+  border-bottom: 1px solid color-mix(in srgb, var(--neuro-border) 80%, transparent);
+}
+
+.app-owner-picker__head h3 {
+  margin: 0 0 4px;
+  color: var(--neuro-text);
+  font-size: 17px;
+  line-height: 1.35;
+}
+
+.app-owner-picker__head p {
+  margin: 0;
+  color: var(--neuro-text-secondary);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.app-owner-picker__head button {
+  width: 32px;
+  height: 32px;
+  border: 1px solid color-mix(in srgb, var(--neuro-border) 80%, transparent);
+  border-radius: var(--neuro-radius-sm);
+  background: color-mix(in srgb, var(--neuro-surface-2) 78%, transparent);
+  color: var(--neuro-text-secondary);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.app-owner-picker__search {
+  position: relative;
+  padding: 13px 20px 12px;
+}
+
+.app-owner-picker__search-icon {
+  position: absolute;
+  left: 34px;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translateY(-50%);
+  color: var(--neuro-text-secondary);
+}
+
+.app-owner-picker__search input {
+  width: 100%;
+  max-width: 100%;
+  height: 38px;
+  padding: 0 12px 0 36px;
+  border: 1px solid color-mix(in srgb, var(--neuro-border) 88%, transparent);
+  border-radius: var(--neuro-radius-sm);
+  background: var(--neuro-surface);
+  color: var(--neuro-text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.app-owner-picker__search input::placeholder {
+  color: color-mix(in srgb, var(--neuro-text-secondary) 76%, transparent);
+}
+
+.app-owner-picker__search input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--neuro-primary) 54%, var(--neuro-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--neuro-primary) 10%, transparent);
+}
+
+.app-owner-picker__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 180px;
+  max-height: 360px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 20px 16px;
+}
+
+.app-owner-picker__list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.app-owner-picker__list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.app-owner-picker__list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: transparent;
+}
+
+.app-owner-picker__list:hover::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--neuro-border) 80%, transparent);
+}
+
+.app-owner-picker__item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--neuro-border) 80%, transparent);
+  border-radius: var(--neuro-radius-sm);
+  background: var(--neuro-surface);
+  color: var(--neuro-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.app-owner-picker__item.is-selected {
+  border-color: color-mix(in srgb, var(--neuro-primary) 62%, transparent);
+  background: color-mix(in srgb, var(--neuro-primary) 14%, var(--neuro-surface));
+}
+
+.app-owner-picker__item i {
+  flex: 0 0 auto;
+  width: 21px;
+  height: 21px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--neuro-primary) 38%, var(--neuro-border));
+  border-radius: 999px;
+  color: var(--neuro-primary);
+  font-style: normal;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.app-owner-picker__item span {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.app-owner-picker__item strong,
+.app-owner-picker__item em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-owner-picker__item strong {
+  color: var(--neuro-text);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.app-owner-picker__item em {
+  color: var(--neuro-text-secondary);
+  font-style: normal;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.app-owner-picker__empty {
+  padding: 34px 12px;
+  text-align: center;
+  color: var(--neuro-text-secondary);
+  font-size: 14px;
+}
+
+.app-owner-picker__more {
+  padding: 4px 0 2px;
+  text-align: center;
+  color: var(--neuro-text-secondary);
+  font-size: 12px;
+}
+
+.app-owner-picker__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 20px 16px;
+  border-top: 1px solid color-mix(in srgb, var(--neuro-border) 80%, transparent);
+}
+
+.app-owner-picker__foot > span {
+  color: var(--neuro-text-secondary);
+  font-size: 13px;
+}
+
+.app-owner-picker__foot > div {
+  display: flex;
+  gap: 8px;
+}
+
+.app-owner-picker__ghost,
+.app-owner-picker__primary {
+  min-height: 34px;
+  padding: 0 13px;
+  border-radius: var(--neuro-radius-sm);
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.app-owner-picker__ghost {
+  border: 1px solid color-mix(in srgb, var(--neuro-border) 82%, transparent);
+  background: color-mix(in srgb, var(--neuro-surface-2) 72%, transparent);
+  color: var(--neuro-text-secondary);
+}
+
+.app-owner-picker__primary {
+  border: 0;
+  background: var(--neuro-gradient-primary);
+  color: #04111d;
 }
 
 .app-detail {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  height: calc(86vh - 150px);
   min-height: 0;
-  overflow-y: auto;
-  padding-right: 8px;
-}
-
-.app-detail::-webkit-scrollbar {
-  width: 8px;
-}
-
-.app-detail::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.app-detail::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--neuro-border) 80%, transparent);
 }
 
 .app-detail-hero {
@@ -2309,6 +3508,10 @@ watch(
   background: color-mix(in srgb, var(--neuro-surface) 84%, transparent);
 }
 
+.app-detail-fields__full {
+  grid-column: 1 / -1;
+}
+
 .app-detail-fields span,
 .app-detail-assets span {
   color: var(--neuro-text-secondary);
@@ -2321,6 +3524,14 @@ watch(
   min-width: 0;
   color: var(--neuro-text);
   line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.app-detail-rich {
+  margin: 0;
+  color: var(--neuro-text);
+  line-height: 1.7;
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 

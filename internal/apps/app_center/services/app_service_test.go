@@ -40,11 +40,13 @@ func TestAppCenterListReturnsBuiltinAppsForPlatformAdmin(t *testing.T) {
 func TestAppCenterStatsUsesProductionTables(t *testing.T) {
 	db := newAppCenterTestDB(t)
 	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
-	require.NoError(t, db.Create(&models.SysApp{AppCode: "client", AppName: "客户端", AppType: "CLIENT_APP", Source: "MANIFEST", Status: "ONLINE", ChargeMode: "FREE", VisibilityScope: "TENANT"}).Error)
+	require.NoError(t, db.Create(&models.SysApp{ID: 100, AppCode: "client", AppName: "客户端形态应用", AppType: "BUSINESS_APP", Source: "MANIFEST", Status: "ONLINE", ChargeMode: "FREE", VisibilityScope: "TENANT", DeploymentMode: "MERGED"}).Error)
+	require.NoError(t, db.Create(&models.SysAppClient{AppID: 100, ClientCode: "PC_WEB", ClientName: "PC Web", Enabled: true, SortOrder: 1}).Error)
+	require.NoError(t, db.Create(&models.SysAppClient{AppID: 100, ClientCode: "HARMONYOS", ClientName: "鸿蒙", Enabled: true, SortOrder: 2}).Error)
 	require.NoError(t, db.Create(&models.SysApp{AppCode: "planned-app", AppName: "规划应用", AppType: "BUSINESS_APP", Source: "MANUAL", Status: "PLANNED", ChargeMode: "SUBSCRIPTION", VisibilityScope: "TENANT"}).Error)
 	require.NoError(t, db.Create(&models.SysApp{AppCode: "developing-app", AppName: "开发应用", AppType: "BUSINESS_APP", Source: "MANUAL", Status: "DEVELOPING", ChargeMode: "SUBSCRIPTION", VisibilityScope: "TENANT"}).Error)
 	require.NoError(t, db.Create(&models.DictType{ID: 10, TenantID: 1, Code: "app_type", Name: "应用类型", Scope: "platform"}).Error)
-	require.NoError(t, db.Create(&models.DictItem{TenantID: 1, DictTypeID: 10, Label: "客户端型", Value: "CLIENT_APP", Enabled: true}).Error)
+	require.NoError(t, db.Create(&models.DictItem{TenantID: 1, DictTypeID: 10, Label: "业务系统", Value: "BUSINESS_APP", Enabled: true}).Error)
 	require.NoError(t, db.Create(&models.TenantSubscription{TenantID: 2, PlanID: 1, SubscriptionStatus: "TRIAL"}).Error)
 	require.NoError(t, db.Create(&models.AuditLog{Module: "app_center", Action: "load", Summary: "装载应用"}).Error)
 
@@ -87,21 +89,51 @@ func TestAppCenterCreatePersistsManualApp(t *testing.T) {
 		AppCode:         "crm-suite",
 		AppName:         "客户管理",
 		AppType:         "BUSINESS_APP",
-		Status:          "DRAFT",
+		DeploymentMode:  "STANDALONE",
+		CommModes:       stringPtr("PLATFORM_API,WEBHOOK"),
+		Status:          "INITIATED",
 		ChargeMode:      "SUBSCRIPTION",
 		VisibilityScope: "TENANT",
+		Owner:           stringPtr("平台架构组, 产品负责人"),
+		OwnerUserIDs:    stringPtr("1,2"),
+		VisibilityMode:  stringPtr("SPECIFIED_TENANTS"),
+		VisibleTenants:  stringPtr("演示主体"),
+		OpenMethod:      stringPtr("ADMIN_GRANT"),
+		TrialPolicy:     stringPtr("14 天"),
+		TrialStartRule:  stringPtr("首次安装时开始"),
+		ReleaseChannel:  stringPtr("DEV"),
+		ReleaseNote:     stringPtr("创建应用主档"),
+		Description:     stringPtr("面向销售团队的客户经营入口"),
+		DetailDesc:      stringPtr("<p>管理客户、商机、跟进与经营数据。</p>"),
+		Clients: []dto.AppClientRequest{
+			{ClientCode: "pc_web", ClientName: "PC Web", Enabled: true, SortOrder: 1},
+			{ClientCode: "api_only", ClientName: "API Only", Enabled: true, SortOrder: 2},
+		},
 	})
 
 	require.NoError(t, err)
 	require.NotZero(t, created.ID)
 	require.Equal(t, "crm-suite", created.AppCode)
 	require.Equal(t, "MANUAL", created.Source)
+	require.Equal(t, "INITIATED", created.Status)
+	require.Equal(t, "STANDALONE", created.DeploymentMode)
+	require.Equal(t, "PLATFORM_API,WEBHOOK", *created.CommModes)
+	require.Equal(t, "1,2", *created.OwnerUserIDs)
+	require.Equal(t, "面向销售团队的客户经营入口", *created.Description)
+	require.Equal(t, "<p>管理客户、商机、跟进与经营数据。</p>", *created.DetailDesc)
 	require.False(t, created.IsBuiltin)
 	require.False(t, created.IsPlatformOnly)
+	require.Len(t, created.Clients, 2)
+	require.Equal(t, "PC_WEB", created.Clients[0].ClientCode)
 
 	detail, err := service.GetApp(context.Background(), 1, created.ID)
 	require.NoError(t, err)
 	require.Equal(t, created.AppCode, detail.AppCode)
+	require.Equal(t, "STANDALONE", detail.DeploymentMode)
+	require.Equal(t, "PLATFORM_API,WEBHOOK", *detail.CommModes)
+	require.Equal(t, "演示主体", *detail.VisibleTenants)
+	require.Equal(t, "<p>管理客户、商机、跟进与经营数据。</p>", *detail.DetailDesc)
+	require.Len(t, detail.Clients, 2)
 }
 
 func TestAppCenterCreateRejectsDuplicateCode(t *testing.T) {
@@ -118,7 +150,7 @@ func TestAppCenterCreateRejectsDuplicateCode(t *testing.T) {
 func TestAppCenterUpdatePersistsBasicFields(t *testing.T) {
 	db := newAppCenterTestDB(t)
 	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
-	require.NoError(t, db.Create(&models.SysApp{ID: 10, AppCode: "crm-suite", AppName: "客户管理", AppType: "BUSINESS_APP", Source: "MANUAL", Status: "DRAFT", ChargeMode: "SUBSCRIPTION", VisibilityScope: "PLATFORM_ONLY", IsPlatformOnly: true}).Error)
+	require.NoError(t, db.Create(&models.SysApp{ID: 10, AppCode: "crm-suite", AppName: "客户管理", AppType: "BUSINESS_APP", Source: "MANUAL", Status: "INITIATED", ChargeMode: "SUBSCRIPTION", VisibilityScope: "PLATFORM_ONLY", IsPlatformOnly: true}).Error)
 
 	service := NewAppService(repositories.NewAppRepository(db))
 	updated, err := service.UpdateApp(context.Background(), 1, 10, dto.AppUpdateRequest{
@@ -127,6 +159,10 @@ func TestAppCenterUpdatePersistsBasicFields(t *testing.T) {
 		ChargeMode:      "FREE",
 		VisibilityScope: "TENANT",
 		SortOrder:       8,
+		ReleaseNote:     stringPtr("更新应用配置"),
+		Clients: []dto.AppClientRequest{
+			{ClientCode: "H5", ClientName: "H5", Enabled: true, SortOrder: 1},
+		},
 	})
 
 	require.NoError(t, err)
@@ -135,6 +171,9 @@ func TestAppCenterUpdatePersistsBasicFields(t *testing.T) {
 	require.Equal(t, "SUITE_APP", updated.AppType)
 	require.False(t, updated.IsPlatformOnly)
 	require.Equal(t, 8, updated.SortOrder)
+	require.Equal(t, "更新应用配置", *updated.ReleaseNote)
+	require.Len(t, updated.Clients, 1)
+	require.Equal(t, "H5", updated.Clients[0].ClientCode)
 }
 
 func TestAppCenterUpdateStatusRejectsDisablingBuiltinApps(t *testing.T) {
@@ -151,7 +190,7 @@ func TestAppCenterUpdateStatusRejectsDisablingBuiltinApps(t *testing.T) {
 func TestAppCenterUpdateStatusPersistsManualAppStatus(t *testing.T) {
 	db := newAppCenterTestDB(t)
 	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
-	require.NoError(t, db.Create(&models.SysApp{ID: 10, AppCode: "crm-suite", AppName: "客户管理", AppType: "BUSINESS_APP", Source: "MANUAL", Status: "DRAFT", ChargeMode: "SUBSCRIPTION", VisibilityScope: "TENANT"}).Error)
+	require.NoError(t, db.Create(&models.SysApp{ID: 10, AppCode: "crm-suite", AppName: "客户管理", AppType: "BUSINESS_APP", Source: "MANUAL", Status: "INITIATED", ChargeMode: "SUBSCRIPTION", VisibilityScope: "TENANT"}).Error)
 
 	service := NewAppService(repositories.NewAppRepository(db))
 	updated, err := service.UpdateAppStatus(context.Background(), 1, 10, dto.AppStatusRequest{Status: "ONLINE"})
@@ -167,10 +206,15 @@ func newAppCenterTestDB(t *testing.T) *gorm.DB {
 	require.NoError(t, db.AutoMigrate(
 		&models.AppUser{},
 		&models.SysApp{},
+		&models.SysAppClient{},
 		&models.DictType{},
 		&models.DictItem{},
 		&models.TenantSubscription{},
 		&models.AuditLog{},
 	))
 	return db
+}
+
+func stringPtr(value string) *string {
+	return &value
 }

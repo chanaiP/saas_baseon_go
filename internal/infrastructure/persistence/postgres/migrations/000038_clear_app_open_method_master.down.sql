@@ -1,0 +1,2 @@
+-- open_method is no longer maintained on the app master.
+-- Historical values cannot be restored safely.

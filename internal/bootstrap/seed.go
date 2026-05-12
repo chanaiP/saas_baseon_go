@@ -627,10 +627,10 @@ func seedDictionaries(db *gorm.DB, tenantID uint64) error {
 		{"org_node_type", "组织节点类型", "组织节点类型", "platform", true, false, []struct{ label, value string }{{"集团", "group"}, {"公司", "company"}, {"部门", "department"}, {"门店", "store"}, {"仓库", "warehouse"}, {"项目组", "project_team"}}},
 		{"business_unit_type", "业务单元类型", "业务单元类型", "platform", true, false, []struct{ label, value string }{{"区域", "REGION"}, {"门店", "STORE"}, {"公司", "COMPANY"}, {"项目", "PROJECT"}, {"仓库", "WAREHOUSE"}, {"活动", "CAMPAIGN"}, {"自定义", "CUSTOM"}}},
 		{"quota_unit", "配额单位", "套餐配额值的展示单位", "platform", false, true, []struct{ label, value string }{{"数量", "COUNT"}, {"MB", "MB"}, {"GB", "GB"}, {"次", "TIMES"}, {"个", "ITEM"}}},
-		{"app_type", "应用类型", "应用中心的应用分类", "platform", false, true, []struct{ label, value string }{{"系统内置型", "SYSTEM_APP"}, {"业务中台型", "ABILITY_APP"}, {"独立业务型", "BUSINESS_APP"}, {"组合套件型", "SUITE_APP"}, {"连接器型", "CONNECTOR_APP"}, {"客户端型", "CLIENT_APP"}, {"AI / Agent 型", "AI_APP"}, {"API 能力型", "API_APP"}}},
-		{"app_status", "应用状态", "应用中心的生命周期状态", "platform", false, true, []struct{ label, value string }{{"草稿", "DRAFT"}, {"规划中", "PLANNED"}, {"开发中", "DEVELOPING"}, {"Beta", "BETA"}, {"已上线", "ONLINE"}, {"已停用", "DISABLED"}, {"已归档", "ARCHIVED"}}},
+		{"app_type", "应用类型", "应用中心的应用分类", "platform", false, true, []struct{ label, value string }{{"系统底座", "SYSTEM_APP"}, {"业务系统", "BUSINESS_APP"}, {"业务中台", "ABILITY_APP"}, {"API 应用", "API_APP"}, {"连接器", "CONNECTOR_APP"}, {"AI / Agent", "AI_APP"}, {"组合套件", "SUITE_APP"}}},
+		{"app_status", "应用状态", "应用中心的生命周期状态", "platform", false, true, []struct{ label, value string }{{"立项", "INITIATED"}, {"规划中", "PLANNED"}, {"开发中", "DEVELOPING"}, {"Beta", "BETA"}, {"已上线", "ONLINE"}, {"已停用", "DISABLED"}, {"已归档", "ARCHIVED"}}},
 		{"app_source", "应用来源", "应用注册来源", "platform", false, true, []struct{ label, value string }{{"系统内置", "BUILTIN"}, {"手工创建", "MANUAL"}, {"声明文件装载", "MANIFEST"}}},
-		{"app_charge_mode", "应用计费模式", "应用商业化计费模式", "platform", false, true, []struct{ label, value string }{{"免费", "FREE"}, {"订阅制", "SUBSCRIPTION"}, {"买断制", "BUYOUT"}, {"按量收费", "USAGE_BASED"}, {"组合计费", "MIXED"}, {"非售卖", "NON_SELLABLE"}}},
+		{"app_charge_mode", "应用计费模式", "应用商业化计费模式", "platform", false, true, []struct{ label, value string }{{"免费", "FREE"}, {"订阅制", "SUBSCRIPTION"}, {"按量收费", "USAGE_BASED"}, {"组合收费", "MIXED"}, {"非售卖", "NON_SELLABLE"}}},
 		{"app_visibility_scope", "应用可见范围", "应用中心的可见与装载范围", "platform", false, true, []struct{ label, value string }{{"仅平台", "PLATFORM_ONLY"}, {"租户可用", "TENANT"}, {"全局可见", "GLOBAL"}}},
 	}
 	for _, item := range dicts {
@@ -653,6 +653,14 @@ func seedDictionaries(db *gorm.DB, tenantID uint64) error {
 			if err := db.Where("dict_type_id = ? AND value = ?", dictType.ID, option.value).FirstOrCreate(&dictItem).Error; err != nil {
 				return err
 			}
+			if err := db.Model(&dictItem).Updates(map[string]interface{}{
+				"label":      option.label,
+				"sort_order": i + 1,
+				"enabled":    true,
+				"deleted_at": nil,
+			}).Error; err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -669,6 +677,7 @@ func seedBuiltinApps(db *gorm.DB) error {
 			Status:          "ONLINE",
 			ChargeMode:      "NON_SELLABLE",
 			VisibilityScope: "PLATFORM_ONLY",
+			DeploymentMode:  "MERGED",
 			Owner:           stringPtr("平台架构组"),
 			Version:         stringPtr("0.1.0"),
 			Description:     stringPtr("应用注册、装载规范与平台内置应用治理入口"),
@@ -685,6 +694,7 @@ func seedBuiltinApps(db *gorm.DB) error {
 			Status:          "ONLINE",
 			ChargeMode:      "NON_SELLABLE",
 			VisibilityScope: "PLATFORM_ONLY",
+			DeploymentMode:  "MERGED",
 			Owner:           stringPtr("平台架构组"),
 			Version:         stringPtr("0.1.0"),
 			Description:     stringPtr("用户、角色、菜单、字典、参数等基础治理能力"),
@@ -701,6 +711,7 @@ func seedBuiltinApps(db *gorm.DB) error {
 			Status:          "ONLINE",
 			ChargeMode:      "NON_SELLABLE",
 			VisibilityScope: "PLATFORM_ONLY",
+			DeploymentMode:  "MERGED",
 			Owner:           stringPtr("平台运维组"),
 			Version:         stringPtr("0.1.0"),
 			Description:     stringPtr("健康检查、服务状态、缓存和定时任务等运维监控能力"),
@@ -717,6 +728,7 @@ func seedBuiltinApps(db *gorm.DB) error {
 			Status:          "PLANNED",
 			ChargeMode:      "NON_SELLABLE",
 			VisibilityScope: "PLATFORM_ONLY",
+			DeploymentMode:  "MERGED",
 			Owner:           stringPtr("平台产品组"),
 			Version:         stringPtr("0.1.0"),
 			Description:     stringPtr("平台与租户用户的统一工作入口、待办与概览能力"),
@@ -733,6 +745,7 @@ func seedBuiltinApps(db *gorm.DB) error {
 			Status:          "PLANNED",
 			ChargeMode:      "SUBSCRIPTION",
 			VisibilityScope: "TENANT",
+			DeploymentMode:  "MERGED",
 			Owner:           stringPtr("平台集成组"),
 			Version:         stringPtr("0.1.0"),
 			Description:     stringPtr("第三方系统、开放 API、Webhook、OAuth 与外部连接器的统一接入中心"),
@@ -749,6 +762,7 @@ func seedBuiltinApps(db *gorm.DB) error {
 			Status:          "PLANNED",
 			ChargeMode:      "SUBSCRIPTION",
 			VisibilityScope: "TENANT",
+			DeploymentMode:  "MERGED",
 			Owner:           stringPtr("数据产品组"),
 			Version:         stringPtr("0.1.0"),
 			Description:     stringPtr("跨应用数据资产、指标、报表、经营预警与数据看板能力中心"),
@@ -763,20 +777,22 @@ func seedBuiltinApps(db *gorm.DB) error {
 			return err
 		}
 		if err := db.Model(&row).Updates(map[string]interface{}{
-			"app_name":         apps[i].AppName,
-			"icon":             apps[i].Icon,
-			"app_type":         apps[i].AppType,
-			"source":           apps[i].Source,
-			"status":           apps[i].Status,
-			"charge_mode":      apps[i].ChargeMode,
-			"visibility_scope": apps[i].VisibilityScope,
-			"owner":            apps[i].Owner,
-			"version":          apps[i].Version,
-			"description":      apps[i].Description,
-			"is_builtin":       apps[i].IsBuiltin,
-			"is_platform_only": apps[i].IsPlatformOnly,
-			"sort_order":       apps[i].SortOrder,
-			"deleted_at":       nil,
+			"app_name":            apps[i].AppName,
+			"icon":                apps[i].Icon,
+			"app_type":            apps[i].AppType,
+			"source":              apps[i].Source,
+			"status":              apps[i].Status,
+			"charge_mode":         apps[i].ChargeMode,
+			"visibility_scope":    apps[i].VisibilityScope,
+			"deployment_mode":     apps[i].DeploymentMode,
+			"communication_modes": apps[i].CommModes,
+			"owner":               apps[i].Owner,
+			"version":             apps[i].Version,
+			"description":         apps[i].Description,
+			"is_builtin":          apps[i].IsBuiltin,
+			"is_platform_only":    apps[i].IsPlatformOnly,
+			"sort_order":          apps[i].SortOrder,
+			"deleted_at":          nil,
 		}).Error; err != nil {
 			return err
 		}

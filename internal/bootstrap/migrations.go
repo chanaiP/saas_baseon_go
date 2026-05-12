@@ -66,11 +66,14 @@ func RunMigrations(dsn, repoRoot string) error {
 		if err := markMigrationApplied(db, baselineMigrationVersion, checksumFile(schemaPath)); err != nil {
 			return err
 		}
-		for _, file := range files {
-			if err := markMigrationApplied(db, file.Version, file.Checksum); err != nil {
-				return err
+		applied[baselineMigrationVersion] = checksumFile(schemaPath)
+		if empty {
+			for _, file := range files {
+				if err := markMigrationApplied(db, file.Version, file.Checksum); err != nil {
+					return err
+				}
+				applied[file.Version] = file.Checksum
 			}
-			applied[file.Version] = file.Checksum
 		}
 	}
 

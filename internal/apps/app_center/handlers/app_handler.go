@@ -178,7 +178,8 @@ func writeAppError(c *gin.Context, err error) {
 		errors.Is(err, services.ErrAppNameRequired),
 		errors.Is(err, services.ErrInvalidAppCode),
 		errors.Is(err, services.ErrInvalidAppStatus),
-		errors.Is(err, services.ErrBuiltinStatusImmutable):
+		errors.Is(err, services.ErrBuiltinStatusImmutable),
+		errors.Is(err, services.ErrClientCodeRequired):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequest, err.Error())
 	case errors.Is(err, services.ErrAppCodeExists):
 		response.Error(c, http.StatusConflict, response.CodeConflict, "应用编码已存在")

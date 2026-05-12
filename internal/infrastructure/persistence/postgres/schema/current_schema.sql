@@ -2396,8 +2396,21 @@ CREATE TABLE IF NOT EXISTS public.sys_app (
     charge_mode character varying(32) DEFAULT 'NON_SELLABLE'::character varying NOT NULL,
     visibility_scope character varying(32) DEFAULT 'PLATFORM_ONLY'::character varying NOT NULL,
     owner character varying(100),
+    owner_user_ids text,
     version character varying(64),
     description character varying(500),
+    detail_description text,
+    deployment_mode character varying(32) DEFAULT 'MERGED'::character varying NOT NULL,
+    communication_modes text,
+    visibility_mode character varying(64),
+    visible_tenants text,
+    open_method character varying(200),
+    trial_policy character varying(100),
+    trial_start_rule character varying(100),
+    asset_config text,
+    doc_config text,
+    release_channel character varying(32),
+    release_note text,
     is_builtin boolean DEFAULT false NOT NULL,
     is_platform_only boolean DEFAULT true NOT NULL,
     sort_order integer DEFAULT 0 NOT NULL,
@@ -2409,10 +2422,29 @@ CREATE TABLE IF NOT EXISTS public.sys_app (
 );
 
 
+CREATE TABLE IF NOT EXISTS public.sys_app_client (
+    id bigserial NOT NULL,
+    app_id bigint NOT NULL,
+    client_code character varying(64) NOT NULL,
+    client_name character varying(100) NOT NULL,
+    enabled boolean DEFAULT true NOT NULL,
+    sort_order integer DEFAULT 0 NOT NULL,
+    config_note character varying(500),
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone,
+    CONSTRAINT sys_app_client_pkey PRIMARY KEY (id),
+    CONSTRAINT fk_sys_app_client_app FOREIGN KEY (app_id) REFERENCES public.sys_app(id)
+);
+
+
 CREATE INDEX IF NOT EXISTS idx_sys_app_type_deleted ON public.sys_app USING btree (app_type, deleted_at);
 CREATE INDEX IF NOT EXISTS idx_sys_app_status_deleted ON public.sys_app USING btree (status, deleted_at);
 CREATE INDEX IF NOT EXISTS idx_sys_app_source_deleted ON public.sys_app USING btree (source, deleted_at);
 CREATE INDEX IF NOT EXISTS idx_sys_app_builtin_deleted ON public.sys_app USING btree (is_builtin, deleted_at);
+CREATE INDEX IF NOT EXISTS idx_sys_app_deployment_mode_deleted ON public.sys_app USING btree (deployment_mode, deleted_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sys_app_client_app_code ON public.sys_app_client USING btree (app_id, client_code) WHERE (deleted_at IS NULL);
+CREATE INDEX IF NOT EXISTS idx_sys_app_client_app_enabled ON public.sys_app_client USING btree (app_id, enabled, deleted_at);
 
 
 --

@@ -684,10 +684,13 @@
             <input value="" placeholder="搜索应用名称、app_code" />
             <select aria-label="应用类型">
               <option>全部类型</option>
-              <option>系统应用</option>
-              <option>能力应用</option>
-              <option>AI 应用</option>
-              <option>集成应用</option>
+              <option>系统底座</option>
+              <option>业务系统</option>
+              <option>业务中台</option>
+              <option>API 应用</option>
+              <option>连接器</option>
+              <option>AI / Agent</option>
+              <option>组合套件</option>
             </select>
             <select aria-label="可见范围">
               <option>全部可见范围</option>
@@ -715,7 +718,7 @@
               </div>
             </div>
             <div class="badge-row">
-              <span class="badge green">能力应用</span>
+              <span class="badge green">业务中台</span>
               <span class="badge blue">全部租户</span>
               <span class="badge amber">订阅制</span>
             </div>
@@ -791,16 +794,17 @@
           <div class="section-head">
             <div>
               <h2>应用分类</h2>
-              <p class="muted">第一版建议先复用数据字典：应用类型、应用定位、应用状态、客户端类型、收费方式。</p>
+              <p class="muted">第一版建议先复用数据字典：应用类型、应用状态、客户端类型、收费方式。</p>
             </div>
             <button class="btn primary" type="button">维护字典</button>
           </div>
           <table class="table">
             <thead><tr><th>字典</th><th>用途</th><th>示例</th><th>状态</th></tr></thead>
             <tbody>
-              <tr><td>APP_TYPE</td><td>应用类型</td><td>系统应用、能力应用、AI 应用、集成应用</td><td><span class="badge green">必做</span></td></tr>
-              <tr><td>APP_POSITION</td><td>应用定位</td><td>平台内置、公共能力、业务场景、AI / Agent</td><td><span class="badge green">必做</span></td></tr>
-              <tr><td>CLIENT_TYPE</td><td>客户端类型</td><td>PC Web、H5、iOS、Android、API Only</td><td><span class="badge green">必做</span></td></tr>
+              <tr><td>APP_TYPE</td><td>应用类型</td><td>系统底座、业务系统、业务中台、API 应用、连接器、AI / Agent、组合套件</td><td><span class="badge green">必做</span></td></tr>
+              <tr><td>DEPLOYMENT_MODE</td><td>部署方式</td><td>合并部署、独立部署</td><td><span class="badge green">必做</span></td></tr>
+              <tr><td>COMMUNICATION_MODE</td><td>独立部署通讯方式</td><td>平台 API、Webhook、数据同步、网关代理</td><td><span class="badge green">必做</span></td></tr>
+              <tr><td>CLIENT_TYPE</td><td>客户端类型</td><td>PC Web、H5、iOS、Android、鸿蒙、API Only</td><td><span class="badge green">必做</span></td></tr>
               <tr><td>APP_CHARGE_MODE</td><td>收费方式</td><td>免费、订阅制、一次性买断、按量收费</td><td><span class="badge green">必做</span></td></tr>
             </tbody>
           </table>
@@ -840,10 +844,10 @@
             <div class="two-col">
               <div class="card">
                 <h3>应用概览</h3>
-                <p class="muted small" style="margin-top:8px;">应用详情不是单弹窗，而是应用资产工作台。这里固定展示基本信息、定位、来源、当前版本和运行状态。</p>
+                <p class="muted small" style="margin-top:8px;">应用详情不是单弹窗，而是应用资产工作台。这里固定展示基本信息、类型、来源、当前版本和运行状态。</p>
                 <div class="kv-grid" style="margin-top:12px;">
-                  <div class="kv"><span>应用类型</span><strong>能力应用</strong></div>
-                  <div class="kv"><span>应用定位</span><strong>公共能力 / 业务中台</strong></div>
+                  <div class="kv"><span>应用类型</span><strong>业务中台</strong></div>
+                  <div class="kv"><span>部署方式</span><strong>合并部署</strong></div>
                   <div class="kv"><span>来源</span><strong>Manifest 装载</strong></div>
                   <div class="kv"><span>负责人</span><strong>平台产品组</strong></div>
                 </div>
@@ -1014,14 +1018,14 @@
       <header class="drawer-head">
         <div>
           <h2>创建应用</h2>
-          <p class="muted">手工创建不只是登记名称，还要一次性明确应用定位、可见租户、开通收费、客户端、入口/API/权限、文档和初始版本。</p>
+          <p class="muted">手工创建不只是登记名称，还要一次性明确应用类型、可见租户、开通收费、客户端、入口/API/权限、文档和初始版本。</p>
         </div>
         <button class="btn" type="button" id="close-create">关闭</button>
       </header>
 
       <div class="drawer-body">
         <nav class="wizard-steps" aria-label="创建步骤">
-          <button class="wizard-step is-active" data-create-step="basic"><i>1</i><span><strong>基础信息</strong><span>app_code、类型、定位</span></span></button>
+          <button class="wizard-step is-active" data-create-step="basic"><i>1</i><span><strong>基础信息</strong><span>app_code、类型、状态</span></span></button>
           <button class="wizard-step" data-create-step="access"><i>2</i><span><strong>可见与开通</strong><span>租户范围、试用、收费</span></span></button>
           <button class="wizard-step" data-create-step="clients"><i>3</i><span><strong>客户端</strong><span>PC、移动端、API Only</span></span></button>
           <button class="wizard-step" data-create-step="assets"><i>4</i><span><strong>入口/API/权限</strong><span>运行资产模板</span></span></button>
@@ -1050,21 +1054,31 @@
               <div class="field">
                 <label>应用类型</label>
                 <select>
-                  <option>业务应用 BUSINESS_APP</option>
-                  <option>能力应用 ABILITY_APP</option>
-                  <option>AI 应用 AI_APP</option>
-                  <option>系统应用 SYSTEM_APP</option>
-                </select>
-              </div>
-              <div class="field">
-                <label>应用定位</label>
-                <select>
-                  <option>业务场景 BUSINESS_SCENARIO</option>
-                  <option>公共能力 / 业务中台 COMMON_CAPABILITY</option>
-                  <option>AI / Agent AI_AGENT</option>
-                  <option>平台内置 PLATFORM_BUILTIN</option>
-                </select>
-              </div>
+                  <option>业务系统 BUSINESS_APP</option>
+	                  <option>业务中台 ABILITY_APP</option>
+	                  <option>API 应用 API_APP</option>
+	                  <option>连接器 CONNECTOR_APP</option>
+	                  <option>AI / Agent AI_APP</option>
+	                  <option>组合套件 SUITE_APP</option>
+	                  <option>系统底座 SYSTEM_APP</option>
+	                </select>
+	              </div>
+	              <div class="field">
+	                <label>部署方式</label>
+	                <select>
+	                  <option>合并部署 MERGED</option>
+	                  <option>独立部署 STANDALONE</option>
+	                </select>
+	              </div>
+	              <div class="field">
+	                <label>通讯方式</label>
+	                <select>
+	                  <option>平台 API PLATFORM_API</option>
+	                  <option>Webhook WEBHOOK</option>
+	                  <option>数据同步 DATA_SYNC</option>
+	                  <option>网关代理 GATEWAY_PROXY</option>
+	                </select>
+	              </div>
               <div class="field">
                 <label>应用来源</label>
                 <select>

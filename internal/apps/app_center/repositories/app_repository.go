@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"strings"
+	"time"
 
 	"saas_baseon_go/internal/apps/app_center/dto"
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
@@ -66,18 +67,31 @@ func (r *AppRepository) GetByCode(ctx context.Context, appCode string) (models.S
 }
 
 func (r *AppRepository) Create(ctx context.Context, row *models.SysApp) error {
-	desiredPlatformOnly := row.IsPlatformOnly
-	if err := r.db.WithContext(ctx).Create(row).Error; err != nil {
-		return err
-	}
-	if !desiredPlatformOnly {
-		row.IsPlatformOnly = false
-		return r.db.WithContext(ctx).
-			Model(&models.SysApp{}).
-			Where("id = ?", row.ID).
-			Update("is_platform_only", false).Error
-	}
-	return nil
+	return r.CreateWithClients(ctx, row, nil)
+}
+
+func (r *AppRepository) CreateWithClients(ctx context.Context, row *models.SysApp, clients []models.SysAppClient) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		desiredPlatformOnly := row.IsPlatformOnly
+		if err := tx.Create(row).Error; err != nil {
+			return err
+		}
+		if !desiredPlatformOnly {
+			row.IsPlatformOnly = false
+			if err := tx.Model(&models.SysApp{}).
+				Where("id = ?", row.ID).
+				Update("is_platform_only", false).Error; err != nil {
+				return err
+			}
+		}
+		for i := range clients {
+			clients[i].AppID = row.ID
+			if err := tx.Create(&clients[i]).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (r *AppRepository) Update(ctx context.Context, row *models.SysApp, updates map[string]interface{}) error {
@@ -88,6 +102,37 @@ func (r *AppRepository) Update(ctx context.Context, row *models.SysApp, updates 
 		return err
 	}
 	return r.db.WithContext(ctx).Where("id = ? AND deleted_at IS NULL", row.ID).First(row).Error
+}
+
+func (r *AppRepository) UpdateWithClients(ctx context.Context, row *models.SysApp, updates map[string]interface{}, clients []models.SysAppClient) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(row).
+			Where("id = ? AND deleted_at IS NULL", row.ID).
+			Updates(updates).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&models.SysAppClient{}).
+			Where("app_id = ? AND deleted_at IS NULL", row.ID).
+			Update("deleted_at", time.Now()).Error; err != nil {
+			return err
+		}
+		for i := range clients {
+			clients[i].AppID = row.ID
+			if err := tx.Create(&clients[i]).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Where("id = ? AND deleted_at IS NULL", row.ID).First(row).Error
+	})
+}
+
+func (r *AppRepository) ClientsByAppID(ctx context.Context, appID uint64) ([]models.SysAppClient, error) {
+	var rows []models.SysAppClient
+	err := r.db.WithContext(ctx).
+		Where("app_id = ? AND deleted_at IS NULL", appID).
+		Order("sort_order ASC, id ASC").
+		Find(&rows).Error
+	return rows, err
 }
 
 func (r *AppRepository) Stats(ctx context.Context) (dto.AppStatsResponse, error) {
@@ -125,8 +170,12 @@ func (r *AppRepository) Stats(ctx context.Context) (dto.AppStatsResponse, error)
 	if err != nil {
 		return dto.AppStatsResponse{}, err
 	}
-	clientApps, err := countApps("app_type = ?", "CLIENT_APP")
-	if err != nil {
+	var clientApps int64
+	if err := r.db.WithContext(ctx).
+		Model(&models.SysAppClient{}).
+		Where("deleted_at IS NULL AND enabled = ?", true).
+		Distinct("app_id").
+		Count(&clientApps).Error; err != nil {
 		return dto.AppStatsResponse{}, err
 	}
 	manifestLoads, err := countApps("source = ?", "MANIFEST")

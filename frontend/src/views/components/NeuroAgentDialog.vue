@@ -5,6 +5,8 @@
       class="nm-dialog-backdrop"
       :class="{ 'is-visible': modelValue }"
       @click="handleOverlayClick"
+      @wheel.prevent.stop
+      @touchmove.prevent.stop
     >
       <!-- Dialog card -->
       <div
@@ -15,6 +17,8 @@
         ]"
         :style="{ width: customWidth, height: customHeight }"
         @click.stop
+        @wheel.stop
+        @touchmove.stop
       >
         <!-- Accent line -->
         <div class="nm-dialog__accent"></div>
@@ -41,7 +45,7 @@
         </header>
 
         <!-- Body -->
-        <div class="nm-dialog__body">
+        <div class="nm-dialog__body" :class="{ 'is-scrolling': bodyScrolling }" @scroll="handleBodyScroll">
           <slot></slot>
           <slot name="content"></slot>
         </div>
@@ -86,7 +90,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch, onMounted, onUnmounted } from 'vue'
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 
 interface Props {
   modelValue: boolean
@@ -139,6 +143,8 @@ const sizeMap: Record<string, { w: string; h: string }> = {
 const resolvedSize = computed(() => (props.size in sizeMap ? props.size : 'medium'))
 const customWidth = computed(() => props.width || sizeMap[resolvedSize.value]?.w)
 const customHeight = computed(() => props.height || sizeMap[resolvedSize.value]?.h)
+const bodyScrolling = ref(false)
+let scrollTimer: number | undefined
 
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
@@ -180,10 +186,19 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
+function handleBodyScroll() {
+  bodyScrolling.value = true
+  if (scrollTimer) window.clearTimeout(scrollTimer)
+  scrollTimer = window.setTimeout(() => {
+    bodyScrolling.value = false
+  }, 700)
+}
+
 onMounted(() => window.addEventListener('keydown', onKeydown))
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
   document.body.style.overflow = ''
+  if (scrollTimer) window.clearTimeout(scrollTimer)
 })
 
 watch(() => props.modelValue, (v) => {
@@ -205,6 +220,8 @@ watch(() => props.modelValue, (v) => {
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.25s ease, visibility 0.25s ease;
+  overscroll-behavior: none;
+  touch-action: none;
 }
 
 .nm-dialog-backdrop.is-visible {
@@ -232,6 +249,8 @@ watch(() => props.modelValue, (v) => {
   opacity: 0;
   transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
               opacity 0.25s ease;
+  overscroll-behavior: contain;
+  touch-action: auto;
 }
 
 .dark .nm-dialog {
@@ -342,6 +361,7 @@ watch(() => props.modelValue, (v) => {
   color: #475569;
   font-size: 14px;
   line-height: 1.7;
+  overscroll-behavior: contain;
 }
 
 .dark .nm-dialog__body {
@@ -357,11 +377,19 @@ watch(() => props.modelValue, (v) => {
 }
 
 .nm-dialog__body::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
+  background: transparent;
   border-radius: 3px;
 }
 
+.nm-dialog__body.is-scrolling::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+}
+
 .dark .nm-dialog__body::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
+.dark .nm-dialog__body.is-scrolling::-webkit-scrollbar-thumb {
   background: rgba(45, 55, 72, 0.6);
 }
 

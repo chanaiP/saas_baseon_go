@@ -12,53 +12,115 @@ type AppListRequest struct {
 }
 
 type AppCreateRequest struct {
-	AppCode         string  `json:"app_code"`
-	AppName         string  `json:"app_name"`
-	Icon            *string `json:"icon"`
-	AppType         string  `json:"app_type"`
-	Status          string  `json:"status"`
-	ChargeMode      string  `json:"charge_mode"`
-	VisibilityScope string  `json:"visibility_scope"`
-	Owner           *string `json:"owner"`
-	Version         *string `json:"version"`
-	Description     *string `json:"description"`
-	SortOrder       int     `json:"sort_order"`
+	AppCode         string             `json:"app_code"`
+	AppName         string             `json:"app_name"`
+	Icon            *string            `json:"icon"`
+	AppType         string             `json:"app_type"`
+	Status          string             `json:"status"`
+	ChargeMode      string             `json:"charge_mode"`
+	VisibilityScope string             `json:"visibility_scope"`
+	Owner           *string            `json:"owner"`
+	OwnerUserIDs    *string            `json:"owner_user_ids"`
+	Version         *string            `json:"version"`
+	Description     *string            `json:"description"`
+	DetailDesc      *string            `json:"detail_description"`
+	DeploymentMode  string             `json:"deployment_mode"`
+	CommModes       *string            `json:"communication_modes"`
+	VisibilityMode  *string            `json:"visibility_mode"`
+	VisibleTenants  *string            `json:"visible_tenants"`
+	OpenMethod      *string            `json:"open_method"`
+	TrialPolicy     *string            `json:"trial_policy"`
+	TrialStartRule  *string            `json:"trial_start_rule"`
+	AssetConfig     *string            `json:"asset_config"`
+	DocConfig       *string            `json:"doc_config"`
+	ReleaseChannel  *string            `json:"release_channel"`
+	ReleaseNote     *string            `json:"release_note"`
+	SortOrder       int                `json:"sort_order"`
+	Clients         []AppClientRequest `json:"clients"`
 }
 
 type AppUpdateRequest struct {
-	AppName         string  `json:"app_name"`
-	Icon            *string `json:"icon"`
-	AppType         string  `json:"app_type"`
-	ChargeMode      string  `json:"charge_mode"`
-	VisibilityScope string  `json:"visibility_scope"`
-	Owner           *string `json:"owner"`
-	Version         *string `json:"version"`
-	Description     *string `json:"description"`
-	SortOrder       int     `json:"sort_order"`
+	AppName         string             `json:"app_name"`
+	Icon            *string            `json:"icon"`
+	AppType         string             `json:"app_type"`
+	ChargeMode      string             `json:"charge_mode"`
+	VisibilityScope string             `json:"visibility_scope"`
+	Owner           *string            `json:"owner"`
+	OwnerUserIDs    *string            `json:"owner_user_ids"`
+	Version         *string            `json:"version"`
+	Description     *string            `json:"description"`
+	DetailDesc      *string            `json:"detail_description"`
+	DeploymentMode  string             `json:"deployment_mode"`
+	CommModes       *string            `json:"communication_modes"`
+	VisibilityMode  *string            `json:"visibility_mode"`
+	VisibleTenants  *string            `json:"visible_tenants"`
+	OpenMethod      *string            `json:"open_method"`
+	TrialPolicy     *string            `json:"trial_policy"`
+	TrialStartRule  *string            `json:"trial_start_rule"`
+	AssetConfig     *string            `json:"asset_config"`
+	DocConfig       *string            `json:"doc_config"`
+	ReleaseChannel  *string            `json:"release_channel"`
+	ReleaseNote     *string            `json:"release_note"`
+	SortOrder       int                `json:"sort_order"`
+	Clients         []AppClientRequest `json:"clients"`
 }
 
 type AppStatusRequest struct {
 	Status string `json:"status"`
 }
 
+type AppClientRequest struct {
+	ClientCode string  `json:"client_code"`
+	ClientName string  `json:"client_name"`
+	Enabled    bool    `json:"enabled"`
+	SortOrder  int     `json:"sort_order"`
+	ConfigNote *string `json:"config_note"`
+}
+
 type AppResponse struct {
-	ID              uint64    `json:"id"`
-	AppCode         string    `json:"app_code"`
-	AppName         string    `json:"app_name"`
-	Icon            *string   `json:"icon"`
-	AppType         string    `json:"app_type"`
-	Source          string    `json:"source"`
-	Status          string    `json:"status"`
-	ChargeMode      string    `json:"charge_mode"`
-	VisibilityScope string    `json:"visibility_scope"`
-	Owner           *string   `json:"owner"`
-	Version         *string   `json:"version"`
-	Description     *string   `json:"description"`
-	IsBuiltin       bool      `json:"is_builtin"`
-	IsPlatformOnly  bool      `json:"is_platform_only"`
-	SortOrder       int       `json:"sort_order"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID              uint64              `json:"id"`
+	AppCode         string              `json:"app_code"`
+	AppName         string              `json:"app_name"`
+	Icon            *string             `json:"icon"`
+	AppType         string              `json:"app_type"`
+	Source          string              `json:"source"`
+	Status          string              `json:"status"`
+	ChargeMode      string              `json:"charge_mode"`
+	VisibilityScope string              `json:"visibility_scope"`
+	Owner           *string             `json:"owner"`
+	OwnerUserIDs    *string             `json:"owner_user_ids"`
+	Version         *string             `json:"version"`
+	Description     *string             `json:"description"`
+	DetailDesc      *string             `json:"detail_description"`
+	DeploymentMode  string              `json:"deployment_mode"`
+	CommModes       *string             `json:"communication_modes"`
+	VisibilityMode  *string             `json:"visibility_mode"`
+	VisibleTenants  *string             `json:"visible_tenants"`
+	OpenMethod      *string             `json:"open_method"`
+	TrialPolicy     *string             `json:"trial_policy"`
+	TrialStartRule  *string             `json:"trial_start_rule"`
+	AssetConfig     *string             `json:"asset_config"`
+	DocConfig       *string             `json:"doc_config"`
+	ReleaseChannel  *string             `json:"release_channel"`
+	ReleaseNote     *string             `json:"release_note"`
+	IsBuiltin       bool                `json:"is_builtin"`
+	IsPlatformOnly  bool                `json:"is_platform_only"`
+	SortOrder       int                 `json:"sort_order"`
+	CreatedAt       time.Time           `json:"created_at"`
+	UpdatedAt       time.Time           `json:"updated_at"`
+	Clients         []AppClientResponse `json:"clients"`
+}
+
+type AppClientResponse struct {
+	ID         uint64    `json:"id"`
+	AppID      uint64    `json:"app_id"`
+	ClientCode string    `json:"client_code"`
+	ClientName string    `json:"client_name"`
+	Enabled    bool      `json:"enabled"`
+	SortOrder  int       `json:"sort_order"`
+	ConfigNote *string   `json:"config_note"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 type AppListResponse struct {

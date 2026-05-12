@@ -9,13 +9,37 @@ export interface AppCenterApp {
   charge_mode: string
   visibility_scope: string
   owner?: string | null
+  owner_user_ids?: string | null
   version?: string | null
   description?: string | null
+  detail_description?: string | null
+  deployment_mode: string
+  communication_modes?: string | null
+  visibility_mode?: string | null
+  visible_tenants?: string | null
+  open_method?: string | null
+  trial_policy?: string | null
+  trial_start_rule?: string | null
+  asset_config?: string | null
+  doc_config?: string | null
+  release_channel?: string | null
+  release_note?: string | null
   is_builtin: boolean
   is_platform_only: boolean
   sort_order: number
   created_at: string
   updated_at: string
+  clients?: AppCenterClient[]
+}
+
+export interface AppCenterClient {
+  id?: number
+  app_id?: number
+  client_code: string
+  client_name: string
+  enabled: boolean
+  sort_order: number
+  config_note?: string | null
 }
 
 export interface AppCenterListResponse {
@@ -58,9 +82,23 @@ export interface AppCenterCreatePayload {
   charge_mode: string
   visibility_scope: string
   owner?: string | null
+  owner_user_ids?: string | null
   version?: string | null
   description?: string | null
+  detail_description?: string | null
+  deployment_mode?: string
+  communication_modes?: string | null
+  visibility_mode?: string | null
+  visible_tenants?: string | null
+  open_method?: string | null
+  trial_policy?: string | null
+  trial_start_rule?: string | null
+  asset_config?: string | null
+  doc_config?: string | null
+  release_channel?: string | null
+  release_note?: string | null
   sort_order: number
+  clients?: AppCenterClient[]
 }
 
 export interface AppCenterUpdatePayload {
@@ -70,7 +108,21 @@ export interface AppCenterUpdatePayload {
   charge_mode: string
   visibility_scope: string
   owner?: string | null
+  owner_user_ids?: string | null
   version?: string | null
   description?: string | null
+  detail_description?: string | null
+  deployment_mode?: string
+  communication_modes?: string | null
+  visibility_mode?: string | null
+  visible_tenants?: string | null
+  open_method?: string | null
+  trial_policy?: string | null
+  trial_start_rule?: string | null
+  asset_config?: string | null
+  doc_config?: string | null
+  release_channel?: string | null
+  release_note?: string | null
   sort_order: number
+  clients?: AppCenterClient[]
 }
