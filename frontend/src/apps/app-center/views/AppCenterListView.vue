@@ -2,7 +2,7 @@
 defineOptions({ name: 'AppCenterListView' })
 
 import { Box, Download, Grid, Monitor, Plus, Refresh, Search, Setting, Upload } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
@@ -169,6 +169,12 @@ const manifestLoading = ref(false)
 const saving = ref(false)
 const detailLoading = ref(false)
 const detailApp = ref<AppCenterApp | null>(null)
+const standardConfirmVisible = ref(false)
+const standardConfirmTitle = ref('操作确认')
+const standardConfirmMessage = ref('')
+const standardConfirmDetail = ref('')
+const standardConfirmText = ref('确认')
+let standardConfirmResolver: ((ok: boolean) => void) | null = null
 const pickerPageSize = 10
 const ownerUsers = ref<UserRow[]>([])
 const ownerUsersLoading = ref(false)
@@ -434,6 +440,17 @@ function trialPolicyLabel(value: string | null | undefined) {
   return option.value === customTrialPolicyValue ? '自定义' : option.label
 }
 
+function commercialKindLabel(chargeMode: string | null | undefined) {
+  const kind = commercialKindFromChargeMode(chargeMode)
+  return commercialKindOptions.find((item) => item.value === kind)?.label || '—'
+}
+
+function visibilityModeLabel(app: AppCenterApp) {
+  if (app.visibility_mode === 'ALL_TENANTS' || app.visibility_scope === 'GLOBAL') return '全部租户'
+  if (app.visibility_mode === 'SPECIFIED_TENANTS') return '指定租户'
+  return '指定租户 / 平台控制'
+}
+
 function isPresetTrialPolicy(value: string | null | undefined) {
   return Boolean(value && trialPolicyOptions.some((item) => item.value === value && item.value !== customTrialPolicyValue))
 }
@@ -627,6 +644,24 @@ function checkedKeys(items: Array<{ key: string; checked: boolean }>) {
   return items.filter((item) => item.checked).map((item) => item.key).join(',')
 }
 
+function openStandardConfirm(options: { title: string; message: string; detail?: string; confirmText?: string }) {
+  standardConfirmTitle.value = options.title
+  standardConfirmMessage.value = options.message
+  standardConfirmDetail.value = options.detail || ''
+  standardConfirmText.value = options.confirmText || '确认'
+  standardConfirmVisible.value = true
+  return new Promise<boolean>((resolve) => {
+    standardConfirmResolver = resolve
+  })
+}
+
+function resolveStandardConfirm(ok: boolean) {
+  standardConfirmVisible.value = false
+  const resolver = standardConfirmResolver
+  standardConfirmResolver = null
+  if (resolver) resolver(ok)
+}
+
 async function downloadManifestTemplate() {
   try {
     const blob = await downloadAppManifestTemplate()
@@ -797,17 +832,13 @@ async function loadSelectedManifest() {
     ElMessage.error(manifestDiff.value.blockers?.[0] || 'Manifest 当前存在阻断项')
     return
   }
-  try {
-    await ElMessageBox.confirm(
-      `确认装载 Manifest「${manifestDiff.value.parse.app_name}」？将同步应用主档、客户端、菜单、权限、API、套餐功能点和配额。`,
-      manifestDiff.value.mode === 'SYNC' ? '同步 Manifest' : '导入 Manifest',
-      {
-        confirmButtonText: '确认装载',
-        cancelButtonText: '取消',
-        type: 'warning',
-      },
-    )
-  } catch {
+  const confirmed = await openStandardConfirm({
+    title: manifestDiff.value.mode === 'SYNC' ? '同步 Manifest' : '导入 Manifest',
+    message: `确认装载 Manifest「${manifestDiff.value.parse.app_name}」？`,
+    detail: '将同步应用主档、客户端、菜单、权限、API、套餐功能点和配额。',
+    confirmText: '确认装载',
+  })
+  if (!confirmed) {
     return
   }
   manifestLoading.value = true
@@ -1202,17 +1233,13 @@ async function saveCreateDialog() {
     ElMessage.error('请选择收费模式和试用策略')
     return
   }
-  try {
-    await ElMessageBox.confirm(
-      `确认创建应用主档「${payload.app_name}」？创建后将生成应用身份，并保存当前客户端、可见范围和收费策略。`,
-      '创建应用主档',
-      {
-        confirmButtonText: '确认创建',
-        cancelButtonText: '再检查一下',
-        type: 'warning',
-      },
-    )
-  } catch {
+  const confirmed = await openStandardConfirm({
+    title: '创建应用主档',
+    message: `确认创建应用主档「${payload.app_name}」？`,
+    detail: '创建后将生成应用身份，并保存当前客户端、可见范围和收费策略。',
+    confirmText: '确认创建',
+  })
+  if (!confirmed) {
     return
   }
   saving.value = true
@@ -1295,18 +1322,19 @@ async function saveEditDialog() {
 async function toggleAppStatus(app: AppCenterApp) {
   const nextStatus = app.status === 'DISABLED' ? 'ONLINE' : 'DISABLED'
   const actionText = nextStatus === 'DISABLED' ? '停用' : '启用'
+  const confirmed = await openStandardConfirm({
+    title: `${actionText}应用`,
+    message: `确认${actionText}「${app.app_name}」？`,
+    detail: nextStatus === 'DISABLED' ? '停用后租户侧将不能继续访问该应用入口。' : '启用后应用将恢复可用状态。',
+    confirmText: actionText,
+  })
+  if (!confirmed) return
   try {
-    await ElMessageBox.confirm(`确认${actionText}「${app.app_name}」？`, `${actionText}应用`, {
-      confirmButtonText: actionText,
-      cancelButtonText: '取消',
-      type: nextStatus === 'DISABLED' ? 'warning' : 'info',
-    })
     const updated = await updateAppCenterAppStatus(app.id, nextStatus)
     ElMessage.success(`应用已${actionText}`)
     await loadApps()
     if (detailApp.value?.id === updated.id) detailApp.value = updated
   } catch (error) {
-    if (error === 'cancel' || error === 'close') return
     ElMessage.error(error instanceof Error ? error.message : `${actionText}应用失败`)
   }
 }
@@ -1948,14 +1976,6 @@ watch(tenantPickerKeyword, () => {
                   <em>{{ ownerUsersLoading ? '加载中' : '选择' }}</em>
                 </div>
               </label>
-              <label>
-                <span>图标</span>
-                <input v-model="editForm.icon" placeholder="图标名或标识，选填" />
-              </label>
-              <label>
-                <span>来源</span>
-                <input :value="editAppSnapshot ? labelOf('app_source', editAppSnapshot.source) : '—'" disabled />
-              </label>
               <label class="app-form__full">
                 <span>应用详细介绍</span>
                 <textarea v-model="editForm.detail_description" class="app-form__rich" placeholder="可填写较完整的应用背景、边界、核心能力和使用说明，支持后续接入富文本内容"></textarea>
@@ -2242,6 +2262,29 @@ watch(tenantPickerKeyword, () => {
     </Teleport>
 
     <NeuroAgentDialog
+      v-model="standardConfirmVisible"
+      :title="standardConfirmTitle"
+      icon="!"
+      size="small"
+      width="520px"
+      :show-close="true"
+      :close-on-overlay-click="false"
+      cancel-text="取消"
+      :confirm-text="standardConfirmText"
+      @confirm="resolveStandardConfirm(true)"
+      @cancel="resolveStandardConfirm(false)"
+      @close="resolveStandardConfirm(false)"
+    >
+      <div class="app-standard-confirm">
+        <i>!</i>
+        <div>
+          <p>{{ standardConfirmMessage }}</p>
+          <span v-if="standardConfirmDetail">{{ standardConfirmDetail }}</span>
+        </div>
+      </div>
+    </NeuroAgentDialog>
+
+    <NeuroAgentDialog
       v-model="detailDialogVisible"
       title="应用详情"
       icon="📦"
@@ -2275,23 +2318,23 @@ watch(tenantPickerKeyword, () => {
 
         <section class="app-detail-section">
           <div class="app-detail-section__head">
-            <h4>应用主档</h4>
-            <span>基础身份</span>
+            <h4>基础信息</h4>
+            <span>主档身份</span>
           </div>
           <div class="app-detail-fields">
             <div><span>应用编码</span><strong>{{ detailApp.app_code }}</strong></div>
             <div><span>应用名称</span><strong>{{ detailApp.app_name }}</strong></div>
+            <div class="app-detail-fields__full">
+              <span>一句话介绍</span>
+              <p>{{ detailApp.description || '—' }}</p>
+            </div>
             <div><span>应用类型</span><strong>{{ labelOf('app_type', detailApp.app_type) }}</strong></div>
             <div><span>部署方式</span><strong>{{ deploymentModeLabel(detailApp.deployment_mode) }}</strong></div>
-            <div><span>通讯方式</span><strong>{{ communicationModesLabel(detailApp.communication_modes) }}</strong></div>
-            <div><span>来源</span><strong>{{ labelOf('app_source', detailApp.source) }}</strong></div>
             <div><span>负责人</span><strong>{{ detailApp.owner || '—' }}</strong></div>
             <div><span>版本</span><strong>{{ detailApp.version || '—' }}</strong></div>
             <div><span>Manifest 版本</span><strong>{{ detailApp.manifest_version || '—' }}</strong></div>
             <div><span>最近同步</span><strong>{{ detailApp.last_manifest_synced_at ? formatDateTimeChina(detailApp.last_manifest_synced_at) : '—' }}</strong></div>
-            <div><span>健康检查</span><strong>{{ detailApp.health_check_url || '—' }}</strong></div>
-            <div><span>API 地址</span><strong>{{ detailApp.api_base_url || '—' }}</strong></div>
-            <div><span>Webhook</span><strong>{{ detailApp.webhook_url || '—' }}</strong></div>
+            <div><span>来源</span><strong>{{ labelOf('app_source', detailApp.source) }}</strong></div>
             <div><span>内置应用</span><strong>{{ detailApp.is_builtin ? '是' : '否' }}</strong></div>
             <div class="app-detail-fields__full">
               <span>Manifest Hash</span>
@@ -2306,22 +2349,46 @@ watch(tenantPickerKeyword, () => {
 
         <section class="app-detail-section">
           <div class="app-detail-section__head">
-            <h4>可见、收费与试用</h4>
-            <span>租户权益</span>
+            <h4>可见范围</h4>
+            <span>租户可见性</span>
           </div>
           <div class="app-detail-fields">
-            <div><span>当前可见范围</span><strong>{{ labelOf('app_visibility_scope', detailApp.visibility_scope) }}</strong></div>
-            <div><span>V1 可见口径</span><strong>{{ detailApp.visibility_mode || (detailApp.visibility_scope === 'GLOBAL' ? '全部租户' : '指定租户 / 平台控制') }}</strong></div>
-            <div><span>收费模型</span><strong>{{ labelOf('app_charge_mode', detailApp.charge_mode) }}</strong></div>
+            <div><span>可见范围</span><strong>{{ visibilityModeLabel(detailApp) }}</strong></div>
+            <div><span>主档范围</span><strong>{{ labelOf('app_visibility_scope', detailApp.visibility_scope) }}</strong></div>
+            <div><span>指定租户</span><strong>{{ detailApp.visible_tenants || '—' }}</strong></div>
             <div><span>平台专属</span><strong>{{ detailApp.is_platform_only ? '是' : '否' }}</strong></div>
-            <div><span>试用策略</span><strong>{{ trialPolicyLabel(detailApp.trial_policy) }}</strong></div>
-            <div><span>试用开始</span><strong>{{ detailApp.trial_start_rule || (detailApp.trial_policy && detailApp.trial_policy !== '不支持试用' ? '获得并开通时开始' : '—') }}</strong></div>
           </div>
         </section>
 
         <section class="app-detail-section">
           <div class="app-detail-section__head">
-            <h4>客户端</h4>
+            <h4>收费策略</h4>
+            <span>免费、收费、非售卖</span>
+          </div>
+          <div class="app-detail-fields">
+            <div><span>收费类型</span><strong>{{ commercialKindLabel(detailApp.charge_mode) }}</strong></div>
+            <div><span>收费模式</span><strong>{{ commercialKindFromChargeMode(detailApp.charge_mode) === 'PAID' ? labelOf('app_charge_mode', detailApp.charge_mode) : '—' }}</strong></div>
+            <div><span>试用策略</span><strong>{{ trialPolicyLabel(detailApp.trial_policy) }}</strong></div>
+            <div><span>试用开始</span><strong>{{ detailApp.trial_start_rule || (detailApp.trial_policy && detailApp.trial_policy !== '不支持试用' ? '获得并开通时开始' : '—') }}</strong></div>
+          </div>
+        </section>
+
+        <section v-if="detailApp.deployment_mode === 'STANDALONE'" class="app-detail-section">
+          <div class="app-detail-section__head">
+            <h4>独立部署通讯</h4>
+            <span>通讯与地址</span>
+          </div>
+          <div class="app-detail-fields">
+            <div><span>通讯方式</span><strong>{{ communicationModesLabel(detailApp.communication_modes) }}</strong></div>
+            <div><span>健康检查地址</span><strong>{{ detailApp.health_check_url || '—' }}</strong></div>
+            <div><span>API 基础地址</span><strong>{{ detailApp.api_base_url || '—' }}</strong></div>
+            <div><span>Webhook 地址</span><strong>{{ detailApp.webhook_url || '—' }}</strong></div>
+          </div>
+        </section>
+
+        <section class="app-detail-section">
+          <div class="app-detail-section__head">
+            <h4>客户端配置</h4>
             <span>访问形态</span>
           </div>
           <div class="app-detail-tags">
@@ -4228,6 +4295,42 @@ watch(tenantPickerKeyword, () => {
   border-color: color-mix(in srgb, var(--neuro-border) 76%, transparent);
   background: color-mix(in srgb, var(--neuro-surface) 78%, transparent);
   color: var(--neuro-text-secondary);
+}
+
+.app-standard-confirm {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  padding: 6px 2px 2px;
+}
+
+.app-standard-confirm i {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--neuro-warning, #f59e0b) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--neuro-warning, #f59e0b) 48%, transparent);
+  color: var(--neuro-warning, #f59e0b);
+  font-style: normal;
+  font-weight: 950;
+}
+
+.app-standard-confirm p {
+  margin: 0;
+  color: var(--neuro-text);
+  font-size: 15px;
+  font-weight: 850;
+  line-height: 1.55;
+}
+
+.app-standard-confirm span {
+  display: block;
+  margin-top: 8px;
+  color: var(--neuro-text-secondary);
+  line-height: 1.65;
 }
 
 .app-detail-assets {
