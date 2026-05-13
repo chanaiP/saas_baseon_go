@@ -9,6 +9,8 @@ import (
 	"gorm.io/gorm"
 
 	"saas_baseon_go/internal/application/system"
+	aicchandlers "saas_baseon_go/internal/apps/ai_capability_center/handlers"
+	aiccservices "saas_baseon_go/internal/apps/ai_capability_center/services"
 	apphandlers "saas_baseon_go/internal/apps/app_center/handlers"
 	apprepos "saas_baseon_go/internal/apps/app_center/repositories"
 	appservices "saas_baseon_go/internal/apps/app_center/services"
@@ -38,6 +40,8 @@ func NewRouter(cfg Config, db *gorm.DB, redisClient *redis.Client) *gin.Engine {
 	appRepo := apprepos.NewAppRepository(db)
 	appService := appservices.NewAppService(appRepo)
 	appHandler := apphandlers.NewAppHandler(appService)
+	aiCapabilityCenterService := aiccservices.NewService(db)
+	aiCapabilityCenterHandler := aicchandlers.NewHandler(aiCapabilityCenterService)
 
 	router.GET("/health", healthHandler.Check)
 	router.GET("/health/live", healthHandler.Live)
@@ -51,7 +55,7 @@ func NewRouter(cfg Config, db *gorm.DB, redisClient *redis.Client) *gin.Engine {
 		c.String(200, swaggerUIHTML())
 	})
 
-	registerAPIRoutes(router, identityHandler, paramHandler, appHandler)
+	registerAPIRoutes(router, identityHandler, paramHandler, appHandler, aiCapabilityCenterHandler)
 
 	if missing := handlers.UnclassifiedAPIRoutes(router.Routes()); len(missing) > 0 {
 		panic("unclassified API routes: " + strings.Join(missing, ", "))
@@ -122,6 +126,7 @@ func openAPISpec() gin.H {
 		"tags": []gin.H{
 			{"name": "auth", "description": "认证与登录"},
 			{"name": "apps", "description": "应用中心"},
+			{"name": "ai-capability-center", "description": "AI 能力中心"},
 			{"name": "tenants", "description": "主体管理"},
 			{"name": "users", "description": "用户管理"},
 			{"name": "roles", "description": "角色权限"},
@@ -151,6 +156,10 @@ func openAPISpec() gin.H {
 			"/api/apps/manifest/scan":                         gin.H{"post": api("apps", "扫描 Manifest")},
 			"/api/apps/{id}":                                  gin.H{"get": api("apps", "应用详情"), "put": api("apps", "编辑应用")},
 			"/api/apps/{id}/status":                           gin.H{"patch": api("apps", "启停应用")},
+			"/api/ai-capability-center/overview":              gin.H{"get": api("ai-capability-center", "AI 能力中心总览")},
+			"/api/ai-capability-center/{resource}":            gin.H{"get": api("ai-capability-center", "AI 能力中心资源列表"), "post": api("ai-capability-center", "新增 AI 能力中心资源")},
+			"/api/ai-capability-center/{resource}/{id}":       gin.H{"put": api("ai-capability-center", "更新 AI 能力中心资源"), "delete": api("ai-capability-center", "删除 AI 能力中心资源")},
+			"/api/ai-gateway/v1/invoke":                       gin.H{"post": api("ai-capability-center", "AI Gateway 调用")},
 			"/api/batch/companies/export":                     gin.H{"get": api("batch", "公司导出")},
 			"/api/batch/departments/export":                   gin.H{"get": api("batch", "部门导出")},
 			"/api/batch/users/export":                         gin.H{"get": api("batch", "用户导出")},

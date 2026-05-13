@@ -3,11 +3,12 @@ package bootstrap
 import (
 	"github.com/gin-gonic/gin"
 
+	aicchandlers "saas_baseon_go/internal/apps/ai_capability_center/handlers"
 	apphandlers "saas_baseon_go/internal/apps/app_center/handlers"
 	"saas_baseon_go/internal/interfaces/http/handlers"
 )
 
-func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHandler, paramHandler *handlers.ParamHandler, appHandler *apphandlers.AppHandler) {
+func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHandler, paramHandler *handlers.ParamHandler, appHandler *apphandlers.AppHandler, aiCapabilityCenterHandler *aicchandlers.Handler) {
 	api := router.Group("/api")
 	{
 		api.GET("/auth/captcha", identityHandler.Captcha)
@@ -168,5 +169,15 @@ func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHan
 		api.GET("/params", paramHandler.List)
 		api.POST("/params", paramHandler.Create)
 		api.GET("/params/:key", paramHandler.GetByKey)
+
+		ai := api.Group("/ai-capability-center")
+		{
+			ai.GET("/overview", aiCapabilityCenterHandler.Overview)
+			ai.GET("/:resource", aiCapabilityCenterHandler.List)
+			ai.POST("/:resource", aiCapabilityCenterHandler.Create)
+			ai.PUT("/:resource/:id", aiCapabilityCenterHandler.Update)
+			ai.DELETE("/:resource/:id", aiCapabilityCenterHandler.Delete)
+		}
+		api.POST("/ai-gateway/v1/invoke", aiCapabilityCenterHandler.Invoke)
 	}
 }

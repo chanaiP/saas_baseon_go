@@ -253,6 +253,23 @@ quotas:
 	require.NotEmpty(t, result.ManifestHash)
 }
 
+func TestAppCenterParseAICapabilityCenterManifest(t *testing.T) {
+	db := newAppCenterTestDB(t)
+	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "internal", "apps", "ai_capability_center", "app.manifest.yaml"))
+	require.NoError(t, err)
+
+	service := NewAppService(repositories.NewAppRepository(db))
+	result, err := service.ParseManifestContent(context.Background(), 1, "app.manifest.yaml", raw)
+
+	require.NoError(t, err)
+	require.True(t, result.Valid)
+	require.Equal(t, "ai-capability-center", result.AppCode)
+	require.Equal(t, 8, result.Counts.Menus)
+	require.NotEmpty(t, result.ManifestHash)
+}
+
 func TestAppCenterParseManifestBlocksExistingAppCodeForNewImport(t *testing.T) {
 	db := newAppCenterTestDB(t)
 	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)

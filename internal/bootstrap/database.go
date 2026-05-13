@@ -62,6 +62,21 @@ func NewPostgresWithOptions(dsn string, autoMigrate bool) (*gorm.DB, error) {
 			&models.TenantQuotaUsage{},
 			&models.LoginLog{},
 			&models.AuditLog{},
+			&models.AIProvider{},
+			&models.AIProviderAccount{},
+			&models.AIProviderAPI{},
+			&models.AICapability{},
+			&models.AIModel{},
+			&models.AIModelPricePolicy{},
+			&models.AIModelPriceTier{},
+			&models.AIBaseRoute{},
+			&models.AIBaseRouteModel{},
+			&models.AIScenario{},
+			&models.AITenantStrategyPolicy{},
+			&models.AIStrategyQuotaRule{},
+			&models.AIStrategyRateLimitRule{},
+			&models.AIUsageRecord{},
+			&models.AIGatewaySetting{},
 		); err != nil {
 			return nil, err
 		}

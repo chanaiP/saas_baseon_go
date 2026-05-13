@@ -1,0 +1,281 @@
+manifest_version: "1.0"
+fragment_role: main
+app:
+  app_code: ai-capability-center
+  app_name: AI 能力中心
+  app_type: AI_APP
+  source: MANIFEST
+  status: INITIATED
+  icon: BrainCircuit
+  deployment_mode: MERGED
+  communication_modes: []
+  visibility_scope: TENANT
+  charge_policy: PAID
+  billing_mode: SUBSCRIPTION
+  package_policy: IN_PACKAGE
+  version: 0.1.0
+  description: 统一管理 AI 供应商、模型、场景、基础路由、策略、用量和网关配置
+  backend_dir: internal/apps/ai_capability_center
+  frontend_dir: frontend/src/apps/ai-capability-center
+clients:
+  - PC_WEB
+  - API_ONLY
+menus:
+  - code: ai_capability_dashboard
+    name: 总览
+    path: /ai-capability-center
+    sort_order: 80
+    tenant_visible: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_capability_dashboard
+    data_perm_mode: ORG
+  - code: ai_capability_providers
+    name: 供应商
+    path: /ai-capability-center/providers
+    sort_order: 81
+    tenant_visible: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_capability_providers
+    data_perm_mode: ORG
+  - code: ai_capability_models
+    name: 模型目录
+    path: /ai-capability-center/models
+    sort_order: 82
+    tenant_visible: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_capability_models
+    data_perm_mode: ORG
+  - code: ai_capability_scenarios
+    name: AI 场景
+    path: /ai-capability-center/scenarios
+    sort_order: 83
+    tenant_visible: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_capability_scenarios
+    data_perm_mode: ORG
+  - code: ai_capability_routes
+    name: 基础路由
+    path: /ai-capability-center/routes
+    sort_order: 84
+    tenant_visible: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_capability_routes
+    data_perm_mode: ORG
+  - code: ai_capability_usage
+    name: 用量统计
+    path: /ai-capability-center/usage
+    sort_order: 85
+    tenant_visible: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_capability_usage
+    data_perm_mode: ORG
+  - code: ai_capability_strategy
+    name: 策略中心
+    path: /ai-capability-center/strategy
+    sort_order: 86
+    tenant_visible: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_capability_strategy
+    data_perm_mode: ORG
+  - code: ai_capability_settings
+    name: 系统设置
+    path: /ai-capability-center/settings
+    sort_order: 87
+    tenant_visible: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_capability_settings
+    data_perm_mode: ORG
+operations:
+  - code: ai_capability_manage
+    name: AI 能力中心-配置管理
+    menu_code: ai_capability_dashboard
+    permission_code: ai_capability_center:manage
+    include_in_package: true
+    feature_code: button_ai_capability_manage
+  - code: ai_gateway_invoke
+    name: AI Gateway-调用
+    menu_code: ai_capability_scenarios
+    permission_code: ai_gateway:invoke
+    include_in_package: true
+    feature_code: button_ai_gateway_invoke
+permissions:
+  - code: /ai-capability-center
+    name: AI 能力中心
+    type: MENU
+    menu_code: ai_capability_dashboard
+    include_in_package: true
+    data_perm_mode: ORG
+  - code: /ai-capability-center/providers
+    name: 供应商
+    type: MENU
+    menu_code: ai_capability_providers
+    include_in_package: true
+    data_perm_mode: ORG
+  - code: /ai-capability-center/models
+    name: 模型目录
+    type: MENU
+    menu_code: ai_capability_models
+    include_in_package: true
+    data_perm_mode: ORG
+  - code: /ai-capability-center/scenarios
+    name: AI 场景
+    type: MENU
+    menu_code: ai_capability_scenarios
+    include_in_package: true
+    data_perm_mode: ORG
+  - code: /ai-capability-center/routes
+    name: 基础路由
+    type: MENU
+    menu_code: ai_capability_routes
+    include_in_package: true
+    data_perm_mode: ORG
+  - code: /ai-capability-center/usage
+    name: 用量统计
+    type: MENU
+    menu_code: ai_capability_usage
+    include_in_package: true
+    data_perm_mode: ORG
+  - code: /ai-capability-center/strategy
+    name: 策略中心
+    type: MENU
+    menu_code: ai_capability_strategy
+    include_in_package: true
+    data_perm_mode: ORG
+  - code: /ai-capability-center/settings
+    name: 系统设置
+    type: MENU
+    menu_code: ai_capability_settings
+    include_in_package: true
+    data_perm_mode: ORG
+  - code: ai_capability_center:manage
+    name: AI 能力中心-配置管理
+    type: OPERATION
+    menu_code: ai_capability_dashboard
+    include_in_package: true
+    data_perm_mode: ORG
+  - code: ai_gateway:invoke
+    name: AI Gateway-调用
+    type: API
+    menu_code: ai_capability_scenarios
+    include_in_package: true
+    data_perm_mode: ORG
+apis:
+  - method: GET
+    path: /api/ai-capability-center/overview
+    permission_code: /ai-capability-center
+  - method: GET
+    path: /api/ai-capability-center/{resource}
+    permission_code: /ai-capability-center
+  - method: POST
+    path: /api/ai-capability-center/{resource}
+    permission_code: ai_capability_center:manage
+    audit: true
+  - method: PUT
+    path: /api/ai-capability-center/{resource}/{id}
+    permission_code: ai_capability_center:manage
+    audit: true
+  - method: DELETE
+    path: /api/ai-capability-center/{resource}/{id}
+    permission_code: ai_capability_center:manage
+    audit: true
+  - method: POST
+    path: /api/ai-gateway/v1/invoke
+    permission_code: ai_gateway:invoke
+    audit: true
+package_features:
+  - feature_code: ai_capability_dashboard
+    feature_name: 总览
+    feature_type: MENU
+    source_code: /ai-capability-center
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: ai_capability_providers
+    feature_name: 供应商
+    feature_type: MENU
+    parent_code: ai_capability_dashboard
+    source_code: /ai-capability-center/providers
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: ai_capability_models
+    feature_name: 模型目录
+    feature_type: MENU
+    parent_code: ai_capability_dashboard
+    source_code: /ai-capability-center/models
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: ai_capability_scenarios
+    feature_name: AI 场景
+    feature_type: MENU
+    parent_code: ai_capability_dashboard
+    source_code: /ai-capability-center/scenarios
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: ai_capability_routes
+    feature_name: 基础路由
+    feature_type: MENU
+    parent_code: ai_capability_dashboard
+    source_code: /ai-capability-center/routes
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: ai_capability_usage
+    feature_name: 用量统计
+    feature_type: MENU
+    parent_code: ai_capability_dashboard
+    source_code: /ai-capability-center/usage
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: ai_capability_strategy
+    feature_name: 策略中心
+    feature_type: MENU
+    parent_code: ai_capability_dashboard
+    source_code: /ai-capability-center/strategy
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: ai_capability_settings
+    feature_name: 系统设置
+    feature_type: MENU
+    parent_code: ai_capability_dashboard
+    source_code: /ai-capability-center/settings
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: button_ai_capability_manage
+    feature_name: AI 能力中心-配置管理
+    feature_type: OPERATION
+    parent_code: ai_capability_dashboard
+    source_code: ai_capability_center:manage
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: button_ai_gateway_invoke
+    feature_name: AI Gateway-调用
+    feature_type: OPERATION
+    parent_code: ai_capability_scenarios
+    source_code: ai_gateway:invoke
+    package_policy: IN_PACKAGE
+    include_in_package: true
+quotas:
+  - quota_code: ai_gateway_requests_month
+    quota_name: AI Gateway 月调用次数
+    quota_type: PERIOD
+    unit: requests
+    period_type: MONTH
+    include_in_package: true
+    description: 租户每月可调用 AI Gateway 的请求次数
+  - quota_code: ai_platform_points_month
+    quota_name: AI 平台月消费点数
+    quota_type: PERIOD
+    unit: points
+    period_type: MONTH
+    include_in_package: true
+    description: 租户每月可消耗的平台点数或积分
+documents:
+  - code: ai-capability-center-design
+    name: AI 能力中心需求设计
+    url: docs/apps/ai-capability-center.md

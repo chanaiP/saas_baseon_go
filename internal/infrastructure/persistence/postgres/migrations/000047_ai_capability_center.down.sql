@@ -1,0 +1,15 @@
+DROP TABLE IF EXISTS ai_gateway_settings;
+DROP TABLE IF EXISTS ai_usage_records;
+DROP TABLE IF EXISTS ai_strategy_rate_limit_rules;
+DROP TABLE IF EXISTS ai_strategy_quota_rules;
+DROP TABLE IF EXISTS ai_tenant_strategy_policies;
+DROP TABLE IF EXISTS ai_scenarios;
+DROP TABLE IF EXISTS ai_base_route_models;
+DROP TABLE IF EXISTS ai_base_routes;
+DROP TABLE IF EXISTS ai_model_price_tiers;
+DROP TABLE IF EXISTS ai_model_price_policies;
+DROP TABLE IF EXISTS ai_models;
+DROP TABLE IF EXISTS ai_provider_apis;
+DROP TABLE IF EXISTS ai_provider_accounts;
+DROP TABLE IF EXISTS ai_capabilities;
+DROP TABLE IF EXISTS ai_providers;
