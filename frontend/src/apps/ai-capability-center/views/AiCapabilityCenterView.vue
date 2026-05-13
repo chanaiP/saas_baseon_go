@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, Edit, Plus, Refresh, Search, Upload } from '@element-plus/icons-vue'
 
@@ -12,7 +12,6 @@ import type { AiModelImportPayload, AiOverview, AiPage, AiProviderImportPayload,
 defineOptions({ name: 'AiCapabilityCenterView' })
 
 const route = useRoute()
-const router = useRouter()
 
 type FieldConfig = {
   key: string
@@ -333,10 +332,6 @@ async function loadData() {
   } finally {
     loading.value = false
   }
-}
-
-function switchSection(path: string) {
-  if (path !== route.path) router.push(path)
 }
 
 function openCreate() {
@@ -830,12 +825,6 @@ onMounted(loadData)
       <el-button v-if="activeSection.key === 'strategy'" v-permission="'ai_capability_center:manage'" :icon="Upload" @click="strategyImportVisible = true">策略导入</el-button>
       <el-button v-if="canWrite && !['providers', 'models', 'scenarios', 'routes', 'strategy'].includes(activeSection.key)" v-permission="'ai_capability_center:manage'" type="primary" :icon="Plus" @click="openCreate">新增配置</el-button>
     </template>
-
-    <div class="ai-center-tabs">
-      <button v-for="item in sections" :key="item.key" :class="{ active: item.route === route.path }" @click="switchSection(item.route)">
-        {{ item.title }}
-      </button>
-    </div>
 
     <div v-if="activeSection.key === 'dashboard'" class="ai-dashboard" v-loading="loading">
       <el-alert v-if="errorText" :title="errorText" type="error" show-icon />
@@ -1484,29 +1473,6 @@ onMounted(loadData)
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-.ai-center-tabs {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 2px;
-}
-
-.ai-center-tabs button {
-  border: 1px solid var(--neuro-border);
-  background: var(--neuro-surface);
-  color: var(--neuro-text);
-  border-radius: 8px;
-  padding: 8px 12px;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.ai-center-tabs button.active {
-  border-color: var(--neuro-primary);
-  color: var(--neuro-primary);
-  background: color-mix(in srgb, var(--neuro-primary) 10%, var(--neuro-surface));
 }
 
 .ai-dashboard,

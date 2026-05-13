@@ -29,10 +29,11 @@ AI 能力中心是合并部署应用，`app_code=ai-capability-center`。它属�
 - 售卖策略：`NON_SELLABLE`
 - 套餐策略：`NON_SELLABLE`
 - 菜单：总览、供应商、模型目录、AI 场景、基础路由、策略中心、系统设置
+- 导航口径：上述 7 项全部声明为平台左侧菜单，页面内部不再提供页签式二级导航。
 
 ## 权限与应用中心
 
-Manifest 声明平台菜单、配置管理操作和 AI Gateway 调用权限。菜单仅平台可见，`package_features` 和 `quotas` 保持为空，避免进入租户套餐售卖或租户自助开通。
+Manifest 声明平台菜单、配置管理操作和 AI Gateway 调用权限。总览、供应商、模型目录、AI 场景、基础路由、策略中心、系统设置均为独立平台菜单；前端仅根据当前菜单路由渲染对应工作台，不在页面内模拟 tab 切换。菜单仅平台可见，`package_features` 和 `quotas` 保持为空，避免进入租户套餐售卖或租户自助开通。
 
 配置写操作统一写入 SaaS 底座操作日志，`app_code=ai-capability-center`，不创建独立审计表。
 

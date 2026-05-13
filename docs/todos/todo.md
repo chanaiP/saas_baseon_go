@@ -10,6 +10,7 @@
 - [x] 阅读需求设计文档和前端原型，确认 AI 能力中心合并部署形态。
 - [x] 创建并切换分支 `codex/ai-capability-center`。
 - [x] 确认菜单收敛为 7 个：总览、供应商、模型目录、AI 场景、基础路由、策略中心、系统设置。
+- [x] 确认原型左侧栏 7 项全部作为平台左侧菜单声明，前端页面不再用内部 tab 模拟菜单。
 - [x] 删除独立用量统计菜单、路由、套餐功能点和前端入口。
 - [x] 保留 `usage-records` 后端资源，作为总览和 Gateway 调用审计的数据源。
 - [x] 明确应用定位为业务中台平台能力：`PLATFORM_ONLY + NON_SELLABLE + billing_mode=NONE + package_policy=NON_SELLABLE`。
@@ -18,6 +19,7 @@
 
 - [x] 新增 `internal/apps/ai_capability_center/app.manifest.yaml`。
 - [x] 声明 7 个菜单和 AI Gateway 调用权限。
+- [x] 确认 7 个菜单均为平台菜单入口，不作为页面内 tab 或租户后台菜单。
 - [x] 声明配置管理权限 `ai_capability_center:manage`。
 - [x] 声明 API 权限矩阵，不声明套餐功能点和配额。
 - [x] 验证 Manifest 可被应用中心解析。
