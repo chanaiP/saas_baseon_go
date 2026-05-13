@@ -6,8 +6,8 @@ import { Delete, Edit, Plus, Refresh, Search, Upload } from '@element-plus/icons
 
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
-import { createAiResource, deleteAiResource, fetchAiOverview, fetchAiResource, importAiModels, importAiProviders, importAiScenarios, updateAiResource } from '../api'
-import type { AiModelImportPayload, AiOverview, AiPage, AiProviderImportPayload, AiResource, AiScenarioImportPayload, AiSectionConfig } from '../types'
+import { createAiResource, deleteAiResource, fetchAiOverview, fetchAiResource, importAiModels, importAiProviders, importAiRoutes, importAiScenarios, updateAiResource } from '../api'
+import type { AiModelImportPayload, AiOverview, AiPage, AiProviderImportPayload, AiResource, AiRouteImportPayload, AiScenarioImportPayload, AiSectionConfig } from '../types'
 
 defineOptions({ name: 'AiCapabilityCenterView' })
 
@@ -58,6 +58,9 @@ const pricePoliciesPage = ref<AiPage<Record<string, unknown>>>({ items: [], tota
 const priceTiersPage = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 200 })
 const capabilitiesPage = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 200 })
 const baseRoutesPage = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 200 })
+const routeModelsPage = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 200 })
+const allModelsPage = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 200 })
+const scenariosPage = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 200 })
 const tenantStrategiesPage = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 200 })
 const currentPage = computed(() => Math.floor(page.value.skip / Math.max(page.value.limit, 1)) + 1)
 const keyword = ref('')
@@ -74,9 +77,11 @@ const selectedAccountId = ref('')
 const selectedModelId = ref('')
 const selectedPolicyId = ref('')
 const selectedAppCode = ref('')
+const selectedBaseRouteId = ref('')
 const importVisible = ref(false)
 const modelImportVisible = ref(false)
 const scenarioImportVisible = ref(false)
+const routeImportVisible = ref(false)
 const importJson = ref(JSON.stringify({
   providers: [{
     name: 'OpenAI',
@@ -143,6 +148,26 @@ const scenarioImportJson = ref(JSON.stringify({
     version: 'v1.0',
   }],
 }, null, 2))
+const routeImportJson = ref(JSON.stringify({
+  base_routes: [{
+    route_code: 'chat-default',
+    route_name: '对话默认路由',
+    capability_code: 'chat_completion',
+    model_type: 'text',
+    strategy: 'fallback',
+    timeout_ms: 30000,
+    max_retry: 2,
+    route_models: [{
+      provider_code: 'openai',
+      model_code: 'gpt-4.1',
+      role: 'primary',
+      priority: 1,
+      weight: 100,
+      max_retry: 1,
+      timeout_ms: 25000,
+    }],
+  }],
+}, null, 2))
 
 const canWrite = computed(() => Boolean(activeSection.value.resource && activeSection.value.writable))
 const formFields = computed<FieldConfig[]>(() => fieldsForResource(editorResource.value ?? activeSection.value.resource))
@@ -159,6 +184,9 @@ const selectedPolicyTiers = computed(() => priceTiersPage.value.items.filter((it
 const activeProviderName = computed(() => providerRows.value.find((item) => String(item.id || '') === selectedProviderId.value)?.name || '全部供应商')
 const capabilityOptions = computed(() => capabilitiesPage.value.items.map((item) => ({ label: String(item.capability_name || item.capability_code), value: String(item.capability_code || '') })).filter((item) => item.value))
 const baseRouteOptions = computed(() => baseRoutesPage.value.items.map((item) => ({ label: `${item.route_name || item.route_code} · ${item.capability_code || '-'}`, value: String(item.id || '') })).filter((item) => item.value))
+const modelOptions = computed(() => allModelsPage.value.items.map((item) => ({ label: `${item.model_name || item.model_code} · ${item.model_type || '-'}`, value: String(item.id || '') })).filter((item) => item.value))
+const selectedBaseRoute = computed(() => page.value.items.find((item) => String(item.id || '') === selectedBaseRouteId.value))
+const selectedRouteModels = computed(() => routeModelsPage.value.items.filter((item) => String(item.base_route_id || '') === selectedBaseRouteId.value))
 const appGroups = computed(() => {
   const groups = new Map<string, { app_code: string; app_name: string; total: number; active: number }>()
   for (const item of page.value.items) {
@@ -204,6 +232,18 @@ function strategyCount(row: Record<string, unknown>) {
   return tenantStrategiesPage.value.items.filter((item) => String(item.app_code || '') === appCode && String(item.ai_scenario_code || '') === scenarioCode).length
 }
 
+function modelName(modelId: unknown) {
+  const model = allModelsPage.value.items.find((item) => String(item.id || '') === String(modelId || ''))
+  return String(model?.model_name || model?.model_code || modelId || '-')
+}
+
+function routeReferenceCount(routeId: unknown) {
+  const id = String(routeId || '')
+  const scenarios = scenariosPage.value.items.filter((item) => String(item.default_base_route_id || '') === id).length
+  const strategies = tenantStrategiesPage.value.items.filter((item) => String(item.default_base_route_id || '') === id || String(item.override_base_route_id || '') === id).length
+  return scenarios + strategies
+}
+
 async function loadData() {
   loading.value = true
   errorText.value = ''
@@ -229,10 +269,20 @@ async function loadData() {
       reconcileModelSelection()
     }
     if (activeSection.value.key === 'scenarios') {
+      scenariosPage.value = page.value
       capabilitiesPage.value = await fetchAiResource('capabilities', { skip: 0, limit: 200 })
       baseRoutesPage.value = await fetchAiResource('base-routes', { skip: 0, limit: 200 })
       tenantStrategiesPage.value = await fetchAiResource('tenant-strategies', { skip: 0, limit: 200 })
       reconcileScenarioSelection()
+    }
+    if (activeSection.value.key === 'routes') {
+      baseRoutesPage.value = page.value
+      capabilitiesPage.value = await fetchAiResource('capabilities', { skip: 0, limit: 200 })
+      routeModelsPage.value = await fetchAiResource('route-models', { skip: 0, limit: 200 })
+      allModelsPage.value = await fetchAiResource('models', { skip: 0, limit: 200 })
+      scenariosPage.value = await fetchAiResource('scenarios', { skip: 0, limit: 200 })
+      tenantStrategiesPage.value = await fetchAiResource('tenant-strategies', { skip: 0, limit: 200 })
+      reconcileRouteSelection()
     }
   } catch (error) {
     errorText.value = error instanceof Error ? error.message : '数据加载失败'
@@ -295,6 +345,23 @@ function openScenarioCreate() {
   }
   payload.capability_code = capabilityOptions.value[0]?.value || 'chat_completion'
   payload.default_base_route_id = baseRouteOptions.value[0]?.value || ''
+  formModel.value = normalizeEditorRow(payload)
+  editorJson.value = JSON.stringify(formModel.value, null, 2)
+  editorVisible.value = true
+}
+
+function openRouteCreate(resource: AiResource) {
+  editorMode.value = 'create'
+  editorResource.value = resource
+  editingId.value = ''
+  const payload = defaultPayload(resource)
+  if (resource === 'base-routes') {
+    payload.capability_code = capabilityOptions.value[0]?.value || 'chat_completion'
+  }
+  if (resource === 'route-models') {
+    payload.base_route_id = selectedBaseRouteId.value
+    payload.model_id = modelOptions.value[0]?.value || ''
+  }
   formModel.value = normalizeEditorRow(payload)
   editorJson.value = JSON.stringify(formModel.value, null, 2)
   editorVisible.value = true
@@ -391,6 +458,12 @@ function reconcileScenarioSelection() {
   }
 }
 
+function reconcileRouteSelection() {
+  if (!page.value.items.some((item) => String(item.id || '') === selectedBaseRouteId.value)) {
+    selectedBaseRouteId.value = page.value.items[0] ? String(page.value.items[0].id || '') : ''
+  }
+}
+
 async function submitProviderImport() {
   let payload: AiProviderImportPayload
   try {
@@ -433,6 +506,20 @@ async function submitScenarioImport() {
   await loadData()
 }
 
+async function submitRouteImport() {
+  let payload: AiRouteImportPayload
+  try {
+    payload = JSON.parse(routeImportJson.value) as AiRouteImportPayload
+  } catch {
+    ElMessage.error('导入内容不是合法 JSON')
+    return
+  }
+  const result = await importAiRoutes(payload)
+  routeImportVisible.value = false
+  ElMessage.success(`导入完成：基础路由 ${result.base_routes}，模型池 ${result.route_models}`)
+  await loadData()
+}
+
 function defaultPayload(resource?: AiResource): Record<string, unknown> {
   const status = 'active'
   if (resource === 'providers') return { name: '', code: '', type: 'public_cloud', base_url: '', auth_type: 'api_key', status, priority: 80, region: 'CN', qps_limit: 100, monthly_budget: 10000, owner: '' }
@@ -443,6 +530,7 @@ function defaultPayload(resource?: AiResource): Record<string, unknown> {
   if (resource === 'price-tiers') return { price_policy_id: '', tier_name: '', mode: 'sync', resolution: '', quality: '', duration_seconds: 0, aspect_ratio: '', cost_price: 0, sale_price: 0, platform_amount: 0, enabled: true, sort_order: 0 }
   if (resource === 'scenarios') return { app_code: '', app_name: '', ai_scenario_code: '', ai_scenario_name: '', scenario_type: 'text', capability_code: 'text_generation', model_type: 'text', default_base_route_id: '', owner: '', version: 'v1.0', status }
   if (resource === 'base-routes') return { route_code: '', route_name: '', capability_code: 'text_generation', model_type: 'text', strategy: 'fallback', timeout_ms: 30000, max_retry: 2, status }
+  if (resource === 'route-models') return { base_route_id: '', model_id: '', role: 'candidate', priority: 1, weight: 100, max_retry: 0, timeout_ms: 30000, status }
   if (resource === 'tenant-strategies') return { policy_name: '', tenant_scope: 'include', tenant_ids: [], app_code: '', app_name: '', ai_scenario_code: '', ai_scenario_name: '', default_base_route_id: '', override_base_route_id: '', status }
   if (resource === 'settings') return { setting_key: '', setting_value: {}, description: '', status }
   return { status }
@@ -544,11 +632,21 @@ function fieldsForResource(resource?: AiResource): FieldConfig[] {
   if (resource === 'base-routes') return [
     { key: 'route_name', label: '路由名称', required: true },
     { key: 'route_code', label: '路由编码', required: true },
-    { key: 'capability_code', label: '能力编码', required: true },
+    { key: 'capability_code', label: '能力编码', type: 'select', options: capabilityOptions.value, required: true },
     { key: 'model_type', label: '模型类型', type: 'select', options: toOptions(['text', 'embedding', 'image', 'audio', 'rerank']) },
-    { key: 'strategy', label: '策略', type: 'select', options: toOptions(['fallback', 'weighted', 'priority', 'cost_first', 'latency_first']) },
+    { key: 'strategy', label: '策略', type: 'select', options: toOptions(['fixed', 'fallback', 'priority', 'load_balance', 'cost_first', 'quality_first', 'latency_first', 'quota_aware', 'tenant_custom', 'capability_match']) },
     { key: 'timeout_ms', label: '超时时间(ms)', type: 'number' },
     { key: 'max_retry', label: '最大重试', type: 'number' },
+    status,
+  ]
+  if (resource === 'route-models') return [
+    { key: 'base_route_id', label: '基础路由', type: 'select', options: baseRouteOptions.value, required: true },
+    { key: 'model_id', label: '模型', type: 'select', options: modelOptions.value, required: true },
+    { key: 'role', label: '角色', type: 'select', options: toOptions(['primary', 'fallback', 'candidate']), required: true },
+    { key: 'priority', label: '优先级', type: 'number' },
+    { key: 'weight', label: '权重', type: 'number' },
+    { key: 'max_retry', label: '最大重试', type: 'number' },
+    { key: 'timeout_ms', label: '超时时间(ms)', type: 'number' },
     status,
   ]
   if (resource === 'tenant-strategies') return [
@@ -616,7 +714,8 @@ onMounted(loadData)
       <el-button v-if="activeSection.key === 'providers'" v-permission="'ai_capability_center:manage'" :icon="Upload" @click="importVisible = true">整体导入</el-button>
       <el-button v-if="activeSection.key === 'models'" v-permission="'ai_capability_center:manage'" :icon="Upload" @click="modelImportVisible = true">模型导入</el-button>
       <el-button v-if="activeSection.key === 'scenarios'" v-permission="'ai_capability_center:manage'" :icon="Upload" @click="scenarioImportVisible = true">场景导入</el-button>
-      <el-button v-if="canWrite && !['providers', 'models', 'scenarios'].includes(activeSection.key)" v-permission="'ai_capability_center:manage'" type="primary" :icon="Plus" @click="openCreate">新增配置</el-button>
+      <el-button v-if="activeSection.key === 'routes'" v-permission="'ai_capability_center:manage'" :icon="Upload" @click="routeImportVisible = true">路由导入</el-button>
+      <el-button v-if="canWrite && !['providers', 'models', 'scenarios', 'routes'].includes(activeSection.key)" v-permission="'ai_capability_center:manage'" type="primary" :icon="Plus" @click="openCreate">新增配置</el-button>
     </template>
 
     <div class="ai-center-tabs">
@@ -972,6 +1071,96 @@ onMounted(loadData)
       </section>
     </div>
 
+    <div v-else-if="activeSection.key === 'routes'" class="ai-resource ai-route-workbench">
+      <div class="ai-toolbar">
+        <el-input v-model="keyword" clearable placeholder="搜索路由、能力、策略" @keyup.enter="loadData">
+          <template #prefix><el-icon><Search /></el-icon></template>
+        </el-input>
+        <el-button :icon="Search" @click="loadData">查询</el-button>
+        <el-button v-permission="'ai_capability_center:manage'" type="primary" :icon="Plus" @click="openRouteCreate('base-routes')">新增路由</el-button>
+      </div>
+      <el-alert v-if="errorText" :title="errorText" type="error" show-icon />
+
+      <section class="ai-model-shell">
+        <aside class="ai-provider-rail ai-route-rail">
+          <header>
+            <strong>基础路由</strong>
+            <span>{{ page.total }} 条</span>
+          </header>
+          <button
+            v-for="item in page.items"
+            :key="String(item.id)"
+            :class="{ active: String(item.id || '') === selectedBaseRouteId }"
+            @click="selectedBaseRouteId = String(item.id || '')"
+          >
+            <strong>{{ item.route_name }}</strong>
+            <span>{{ item.route_code }} · {{ item.strategy }}</span>
+          </button>
+          <el-empty v-if="!page.items.length" :image-size="72" description="暂无基础路由" />
+        </aside>
+
+        <div class="ai-model-main">
+          <section class="ai-panel ai-route-hero">
+            <header><strong>{{ selectedBaseRoute?.route_name || '基础路由' }}</strong><span>路由只维护模型池与策略，不绑定租户和场景</span></header>
+            <div class="ai-model-stats">
+              <div><span>模型池节点</span><strong>{{ selectedRouteModels.length }}</strong></div>
+              <div><span>引用数</span><strong>{{ routeReferenceCount(selectedBaseRouteId) }}</strong></div>
+              <div><span>策略</span><strong>{{ selectedBaseRoute?.strategy || '-' }}</strong></div>
+            </div>
+          </section>
+
+          <section class="ai-panel">
+            <header>
+              <strong>路由配置</strong>
+              <span>{{ selectedBaseRoute?.capability_code || '-' }} · {{ selectedBaseRoute?.model_type || '-' }}</span>
+            </header>
+            <el-table v-loading="loading" :data="selectedBaseRoute ? [selectedBaseRoute] : []" border class="ai-table" empty-text="请选择基础路由">
+              <el-table-column prop="route_code" label="路由编码" min-width="180" />
+              <el-table-column prop="capability_code" label="能力" width="150" />
+              <el-table-column prop="strategy" label="策略" width="150" />
+              <el-table-column prop="timeout_ms" label="超时(ms)" width="110" />
+              <el-table-column prop="max_retry" label="重试" width="90" />
+              <el-table-column label="状态" width="100">
+                <template #default="{ row }"><el-tag :type="statusType(row.status)">{{ displayCell(row, 'status') }}</el-tag></template>
+              </el-table-column>
+              <el-table-column fixed="right" label="操作" width="150">
+                <template #default="{ row }">
+                  <el-button v-permission="'ai_capability_center:manage'" link type="primary" :icon="Edit" @click="openEdit(row, 'base-routes')">编辑</el-button>
+                  <el-button v-permission="'ai_capability_center:manage'" link type="danger" :icon="Delete" @click="removeRow(row, 'base-routes')">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </section>
+
+          <section class="ai-panel">
+            <header>
+              <strong>模型池</strong>
+              <el-button v-permission="'ai_capability_center:manage'" size="small" type="primary" :icon="Plus" :disabled="!selectedBaseRouteId" @click="openRouteCreate('route-models')">新增节点</el-button>
+            </header>
+            <el-table :data="selectedRouteModels" border class="ai-table" empty-text="当前路由暂无模型池节点">
+              <el-table-column label="模型" min-width="180">
+                <template #default="{ row }">{{ modelName(row.model_id) }}</template>
+              </el-table-column>
+              <el-table-column prop="role" label="角色" width="110" />
+              <el-table-column prop="priority" label="优先级" width="90" />
+              <el-table-column prop="weight" label="权重" width="90" />
+              <el-table-column prop="max_retry" label="重试" width="90" />
+              <el-table-column prop="timeout_ms" label="超时(ms)" width="110" />
+              <el-table-column label="状态" width="100">
+                <template #default="{ row }"><el-tag :type="statusType(row.status)">{{ displayCell(row, 'status') }}</el-tag></template>
+              </el-table-column>
+              <el-table-column fixed="right" label="操作" width="150">
+                <template #default="{ row }">
+                  <el-button v-permission="'ai_capability_center:manage'" link type="primary" :icon="Edit" @click="openEdit(row, 'route-models')">编辑</el-button>
+                  <el-button v-permission="'ai_capability_center:manage'" link type="danger" :icon="Delete" @click="removeRow(row, 'route-models')">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </section>
+        </div>
+      </section>
+    </div>
+
     <div v-else class="ai-resource">
       <div class="ai-toolbar">
         <el-input v-model="keyword" clearable placeholder="搜索当前页面数据" @keyup.enter="loadData">
@@ -1050,6 +1239,15 @@ onMounted(loadData)
       <template #footer>
         <el-button @click="scenarioImportVisible = false">取消</el-button>
         <el-button type="primary" @click="submitScenarioImport">导入</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="routeImportVisible" title="整体导入基础路由和模型池" width="780px">
+      <el-alert title="导入会按 route_code 和 base_route + model + role upsert；能力、模型、权重、优先级无效会整体回滚。" type="info" show-icon />
+      <el-input v-model="routeImportJson" class="json-editor" type="textarea" :rows="18" spellcheck="false" />
+      <template #footer>
+        <el-button @click="routeImportVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitRouteImport">导入</el-button>
       </template>
     </el-dialog>
   </NeuroAgentPageShell>
@@ -1258,6 +1456,12 @@ onMounted(loadData)
 .ai-scenario-hero {
   background:
     linear-gradient(135deg, color-mix(in srgb, #0f766e 16%, transparent), transparent 58%),
+    var(--neuro-surface);
+}
+
+.ai-route-hero {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, #92400e 14%, transparent), transparent 58%),
     var(--neuro-surface);
 }
 

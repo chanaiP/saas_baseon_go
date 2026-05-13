@@ -9,6 +9,8 @@ import type {
   AiProviderImportPayload,
   AiProviderImportResult,
   AiResource,
+  AiRouteImportPayload,
+  AiRouteImportResult,
   AiScenarioImportPayload,
   AiScenarioImportResult,
 } from './types'
@@ -53,4 +55,8 @@ export async function importAiModels(payload: AiModelImportPayload) {
 
 export async function importAiScenarios(payload: AiScenarioImportPayload) {
   return unwrap(http.post<ApiResponse<AiScenarioImportResult>>('/api/ai-capability-center/scenarios/import', payload))
+}
+
+export async function importAiRoutes(payload: AiRouteImportPayload) {
+  return unwrap(http.post<ApiResponse<AiRouteImportResult>>('/api/ai-capability-center/routes/import', payload))
 }

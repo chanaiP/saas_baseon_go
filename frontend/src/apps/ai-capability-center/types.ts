@@ -80,3 +80,13 @@ export interface AiScenarioImportPayload {
 export interface AiScenarioImportResult {
   scenarios: number
 }
+
+export interface AiRouteImportPayload {
+  base_routes?: Array<Record<string, unknown>>
+  route_models?: Array<Record<string, unknown>>
+}
+
+export interface AiRouteImportResult {
+  base_routes: number
+  route_models: number
+}
