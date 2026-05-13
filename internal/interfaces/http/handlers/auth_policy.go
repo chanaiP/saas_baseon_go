@@ -110,6 +110,7 @@ func operationPermissionByRoute() map[string]string {
 		"PATCH /api/apps/:id/status":                      "app:status",
 		"POST /api/ai-capability-center/providers/import": "ai_capability_center:manage",
 		"POST /api/ai-capability-center/models/import":    "ai_capability_center:manage",
+		"POST /api/ai-capability-center/scenarios/import": "ai_capability_center:manage",
 		"POST /api/ai-capability-center/:resource":        "ai_capability_center:manage",
 		"PUT /api/ai-capability-center/:resource/:id":     "ai_capability_center:manage",
 		"DELETE /api/ai-capability-center/:resource/:id":  "ai_capability_center:manage",

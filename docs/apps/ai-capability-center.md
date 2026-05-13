@@ -190,3 +190,28 @@ Manifest 声明平台菜单、配置管理操作和 AI Gateway 调用权限。�
   ]
 }
 ```
+
+## AI 场景批量导入
+
+AI 场景通过 `POST /api/ai-capability-center/scenarios/import` 批量注册或更新。场景唯一键为 `app_code + ai_scenario_code`；导入时会校验能力字典 `capability_code` 存在、默认基础路由 `default_base_route_id` 存在。任一场景引用无效时整批回滚。
+
+```json
+{
+  "scenarios": [
+    {
+      "app_code": "product_center",
+      "app_name": "商品中心",
+      "ai_scenario_code": "product_copy_generate",
+      "ai_scenario_name": "商品文案生成",
+      "scenario_type": "text",
+      "capability_code": "chat_completion",
+      "model_type": "text",
+      "default_base_route_id": "route-uuid",
+      "owner": "商品平台组",
+      "description": "用于商品标题、卖点和详情文案生成",
+      "version": "v1.0",
+      "status": "active"
+    }
+  ]
+}
+```

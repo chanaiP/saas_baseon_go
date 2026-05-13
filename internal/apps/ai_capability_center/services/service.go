@@ -201,6 +201,29 @@ type ModelImportResult struct {
 	PriceTiers    int `json:"price_tiers"`
 }
 
+type ScenarioImportRequest struct {
+	Scenarios []ScenarioImportItem `json:"scenarios"`
+}
+
+type ScenarioImportItem struct {
+	AppCode            string `json:"app_code"`
+	AppName            string `json:"app_name"`
+	AIScenarioCode     string `json:"ai_scenario_code"`
+	AIScenarioName     string `json:"ai_scenario_name"`
+	ScenarioType       string `json:"scenario_type"`
+	CapabilityCode     string `json:"capability_code"`
+	ModelType          string `json:"model_type"`
+	DefaultBaseRouteID string `json:"default_base_route_id"`
+	Owner              string `json:"owner"`
+	Description        string `json:"description"`
+	Version            string `json:"version"`
+	Status             string `json:"status"`
+}
+
+type ScenarioImportResult struct {
+	Scenarios int `json:"scenarios"`
+}
+
 type HealthCheck struct {
 	Name    string `json:"name"`
 	Status  string `json:"status"`
@@ -353,6 +376,28 @@ func (s *Service) ImportModels(ctx context.Context, userID uint64, req ModelImpo
 		return ModelImportResult{}, err
 	}
 	s.Audit(ctx, userID, "ai_model", "import", "整体导入 AI 模型和价格资源", result)
+	return result, nil
+}
+
+func (s *Service) ImportScenarios(ctx context.Context, userID uint64, req ScenarioImportRequest) (ScenarioImportResult, error) {
+	now := time.Now()
+	result := ScenarioImportResult{}
+	if len(req.Scenarios) == 0 {
+		return result, ErrInvalidInput
+	}
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, item := range req.Scenarios {
+			if err := upsertScenarioImport(ctx, tx, item, now); err != nil {
+				return err
+			}
+			result.Scenarios++
+		}
+		return nil
+	})
+	if err != nil {
+		return ScenarioImportResult{}, err
+	}
+	s.Audit(ctx, userID, "ai_scenario", "import", "批量导入 AI 场景", result)
 	return result, nil
 }
 
@@ -1537,6 +1582,49 @@ func loadPolicyIDs(ctx context.Context, tx *gorm.DB, policyIDs map[string]string
 	return nil
 }
 
+func upsertScenarioImport(ctx context.Context, tx *gorm.DB, item ScenarioImportItem, now time.Time) error {
+	row := models.AIScenario{
+		AppCode:            strings.TrimSpace(item.AppCode),
+		AppName:            strings.TrimSpace(item.AppName),
+		AIScenarioCode:     strings.TrimSpace(item.AIScenarioCode),
+		AIScenarioName:     strings.TrimSpace(item.AIScenarioName),
+		ScenarioType:       strings.TrimSpace(item.ScenarioType),
+		CapabilityCode:     strings.TrimSpace(item.CapabilityCode),
+		ModelType:          strings.TrimSpace(item.ModelType),
+		DefaultBaseRouteID: strings.TrimSpace(item.DefaultBaseRouteID),
+		Owner:              strings.TrimSpace(item.Owner),
+		Description:        strings.TrimSpace(item.Description),
+		Version:            defaultString(item.Version, "v1.0"),
+		Status:             defaultString(item.Status, "active"),
+	}
+	if row.AppCode == "" || row.AppName == "" || row.AIScenarioCode == "" || row.AIScenarioName == "" ||
+		row.ScenarioType == "" || row.CapabilityCode == "" || row.ModelType == "" || row.DefaultBaseRouteID == "" {
+		return ErrInvalidInput
+	}
+	if !capabilityExistsTx(ctx, tx, row.CapabilityCode) || !existsTx(ctx, tx, &models.AIBaseRoute{}, row.DefaultBaseRouteID) {
+		return ErrInvalidInput
+	}
+	var existing models.AIScenario
+	err := tx.WithContext(ctx).Where("app_code = ? AND ai_scenario_code = ? AND deleted_at IS NULL", row.AppCode, row.AIScenarioCode).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		row.ID = uuid.NewString()
+		row.CreatedAt = now
+		row.UpdatedAt = now
+		return tx.Create(&row).Error
+	}
+	if err != nil {
+		return err
+	}
+	row.ID = existing.ID
+	row.CreatedAt = existing.CreatedAt
+	row.UpdatedAt = now
+	return tx.Model(&existing).Updates(map[string]interface{}{
+		"app_name": row.AppName, "ai_scenario_name": row.AIScenarioName, "scenario_type": row.ScenarioType,
+		"capability_code": row.CapabilityCode, "model_type": row.ModelType, "default_base_route_id": row.DefaultBaseRouteID,
+		"owner": row.Owner, "description": row.Description, "version": row.Version, "status": row.Status, "updated_at": now,
+	}).Error
+}
+
 func validateProvider(row models.AIProvider) error {
 	if strings.TrimSpace(row.Name) == "" || strings.TrimSpace(row.Code) == "" || strings.TrimSpace(row.BaseURL) == "" {
 		return ErrInvalidInput
@@ -1623,6 +1711,15 @@ func capabilityExistsTx(ctx context.Context, tx *gorm.DB, code string) bool {
 	}
 	var count int64
 	_ = tx.WithContext(ctx).Model(&models.AICapability{}).Where("capability_code = ? AND deleted_at IS NULL", strings.TrimSpace(code)).Count(&count).Error
+	return count > 0
+}
+
+func existsTx(ctx context.Context, tx *gorm.DB, model interface{}, id string) bool {
+	if strings.TrimSpace(id) == "" {
+		return false
+	}
+	var count int64
+	_ = tx.WithContext(ctx).Model(model).Where("id = ? AND deleted_at IS NULL", strings.TrimSpace(id)).Count(&count).Error
 	return count > 0
 }
 

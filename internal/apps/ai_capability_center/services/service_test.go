@@ -336,6 +336,101 @@ func TestImportModelsRollsBackOnInvalidReference(t *testing.T) {
 	require.Equal(t, int64(0), count)
 }
 
+func TestImportScenariosUpsertsAndValidatesReferences(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "chat_completion", "tokens")
+	route := seedBaseRoute(t, db, "route-chat", "chat_completion")
+	service := NewService(db)
+	ctx := context.Background()
+
+	result, err := service.ImportScenarios(ctx, 7, ScenarioImportRequest{
+		Scenarios: []ScenarioImportItem{{
+			AppCode: "product_center", AppName: "商品中心", AIScenarioCode: "copy_gen", AIScenarioName: "商品文案生成",
+			ScenarioType: "text", CapabilityCode: "chat_completion", ModelType: "text", DefaultBaseRouteID: route.ID, Owner: "AI 平台组",
+		}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, ScenarioImportResult{Scenarios: 1}, result)
+
+	var scenario models.AIScenario
+	require.NoError(t, db.Where("app_code = ? AND ai_scenario_code = ? AND deleted_at IS NULL", "product_center", "copy_gen").First(&scenario).Error)
+	require.Equal(t, "商品文案生成", scenario.AIScenarioName)
+	require.Equal(t, route.ID, scenario.DefaultBaseRouteID)
+
+	result, err = service.ImportScenarios(ctx, 7, ScenarioImportRequest{
+		Scenarios: []ScenarioImportItem{{
+			AppCode: "product_center", AppName: "商品中心更新", AIScenarioCode: "copy_gen", AIScenarioName: "商品标题生成",
+			ScenarioType: "text", CapabilityCode: "chat_completion", ModelType: "text", DefaultBaseRouteID: route.ID, Owner: "增长组", Version: "v2.0",
+		}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, ScenarioImportResult{Scenarios: 1}, result)
+
+	var count int64
+	require.NoError(t, db.Model(&models.AIScenario{}).Where("app_code = ? AND ai_scenario_code = ? AND deleted_at IS NULL", "product_center", "copy_gen").Count(&count).Error)
+	require.Equal(t, int64(1), count)
+	require.NoError(t, db.Where("id = ?", scenario.ID).First(&scenario).Error)
+	require.Equal(t, "商品标题生成", scenario.AIScenarioName)
+	require.Equal(t, "增长组", scenario.Owner)
+	require.Equal(t, "v2.0", scenario.Version)
+}
+
+func TestImportScenariosRollsBackOnInvalidReference(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "chat_completion", "tokens")
+	route := seedBaseRoute(t, db, "route-chat", "chat_completion")
+	service := NewService(db)
+	ctx := context.Background()
+
+	_, err := service.ImportScenarios(ctx, 7, ScenarioImportRequest{
+		Scenarios: []ScenarioImportItem{
+			{
+				AppCode: "product_center", AppName: "商品中心", AIScenarioCode: "copy_gen", AIScenarioName: "商品文案生成",
+				ScenarioType: "text", CapabilityCode: "chat_completion", ModelType: "text", DefaultBaseRouteID: route.ID,
+			},
+			{
+				AppCode: "product_center", AppName: "商品中心", AIScenarioCode: "broken", AIScenarioName: "错误场景",
+				ScenarioType: "text", CapabilityCode: "missing", ModelType: "text", DefaultBaseRouteID: route.ID,
+			},
+		},
+	})
+	require.ErrorIs(t, err, ErrInvalidInput)
+
+	var count int64
+	require.NoError(t, db.Model(&models.AIScenario{}).Count(&count).Error)
+	require.Equal(t, int64(0), count)
+}
+
+func TestDeleteScenarioBlocksUsageAndStrategyReferences(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "chat_completion", "tokens")
+	route := seedBaseRoute(t, db, "route-chat", "chat_completion")
+	now := time.Now()
+	scenario := models.AIScenario{
+		ID: "scenario-copy", AppCode: "product_center", AppName: "商品中心", AIScenarioCode: "copy_gen", AIScenarioName: "文案生成",
+		ScenarioType: "text", CapabilityCode: "chat_completion", ModelType: "text", DefaultBaseRouteID: route.ID, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&scenario).Error)
+	record := usageRecord("usage-scenario", "tenant-a", "租户 A", "product_center", "copy_gen", "", 1, 1, 1, 100, "success", now)
+	require.NoError(t, db.Create(&record).Error)
+
+	service := NewService(db)
+	err := service.DeleteResource(context.Background(), 7, "scenarios", scenario.ID)
+	require.ErrorIs(t, err, ErrResourceInUse)
+
+	require.NoError(t, db.Where("request_id = ?", "usage-scenario").Delete(&models.AIUsageRecord{}).Error)
+	strategy := models.AITenantStrategyPolicy{
+		ID: "strategy-copy", PolicyName: "租户覆盖", TenantScope: "all", TenantIDs: []string{}, AppCode: "product_center", AppName: "商品中心",
+		AIScenarioCode: "copy_gen", AIScenarioName: "文案生成", DefaultBaseRouteID: route.ID, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&strategy).Error)
+
+	err = service.DeleteResource(context.Background(), 7, "scenarios", scenario.ID)
+	require.ErrorIs(t, err, ErrResourceInUse)
+}
+
 func newAICapabilityTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
@@ -500,6 +595,41 @@ func newAICapabilityTestDB(t *testing.T) *gorm.DB {
 		updated_at DATETIME NOT NULL,
 		deleted_at DATETIME
 	)`).Error)
+	require.NoError(t, db.Exec(`CREATE TABLE ai_scenarios (
+		id TEXT PRIMARY KEY,
+		app_code TEXT NOT NULL,
+		app_name TEXT NOT NULL,
+		ai_scenario_code TEXT NOT NULL,
+		ai_scenario_name TEXT NOT NULL,
+		scenario_type TEXT NOT NULL,
+		capability_code TEXT NOT NULL,
+		model_type TEXT NOT NULL,
+		default_base_route_id TEXT NOT NULL,
+		owner TEXT,
+		description TEXT,
+		version TEXT,
+		status TEXT NOT NULL DEFAULT 'active',
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL,
+		deleted_at DATETIME
+	)`).Error)
+	require.NoError(t, db.Exec(`CREATE TABLE ai_tenant_strategy_policies (
+		id TEXT PRIMARY KEY,
+		policy_name TEXT NOT NULL,
+		tenant_scope TEXT NOT NULL,
+		tenant_ids TEXT NOT NULL,
+		app_code TEXT NOT NULL,
+		app_name TEXT NOT NULL,
+		ai_scenario_code TEXT NOT NULL,
+		ai_scenario_name TEXT NOT NULL,
+		default_base_route_id TEXT NOT NULL,
+		override_base_route_id TEXT,
+		description TEXT,
+		status TEXT NOT NULL DEFAULT 'active',
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL,
+		deleted_at DATETIME
+	)`).Error)
 	require.NoError(t, db.Exec(`CREATE TABLE ai_usage_records (
 		id TEXT PRIMARY KEY,
 		request_id TEXT NOT NULL UNIQUE,
@@ -546,6 +676,18 @@ func seedCapability(t *testing.T, db *gorm.DB, code, unit string) models.AICapab
 	row := models.AICapability{
 		ID: code, CapabilityCode: code, CapabilityName: code, ScenarioType: "text", ModelType: "text",
 		DefaultBillingUnit: unit, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&row).Error)
+	return row
+}
+
+func seedBaseRoute(t *testing.T, db *gorm.DB, routeCode, capabilityCode string) models.AIBaseRoute {
+	t.Helper()
+	now := time.Now()
+	row := models.AIBaseRoute{
+		ID: "route-" + routeCode, RouteCode: routeCode, RouteName: routeCode, CapabilityCode: capabilityCode,
+		ModelType: "text", Strategy: "fallback", TimeoutMS: 30000, Status: "active",
 		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
 	}
 	require.NoError(t, db.Create(&row).Error)
