@@ -148,6 +148,83 @@ function appCodeForRow(row: MenuNode): string {
   return ''
 }
 
+function bundleMenuNode(bundle: MenuBundle): MenuNode {
+  return {
+    id: `manifest-menu-${bundle.path.replace(/[^a-zA-Z0-9]+/g, '-')}`,
+    type: 'menu',
+    title: bundle.title,
+    path: bundle.path,
+    icon: 'Document',
+    enabled: true,
+    showInAdmin: bundle.show_in_admin !== false,
+    isPlatformOnly: bundle.is_platform_only,
+    dataPermMode: bundle.data_perm_mode,
+    children: (bundle.operations || []).map((op) => ({
+      id: `manifest-op-${op.path.replace(/[^a-zA-Z0-9]+/g, '-')}`,
+      type: 'button',
+      title: op.name,
+      permissionCode: op.path,
+      enabled: true,
+      isPlatformOnly: op.is_platform_only,
+      children: [],
+    })),
+  }
+}
+
+function bundleMenusForApp(appCode: string): MenuNode[] {
+  const bundles = menuBundlesForScope.value
+    .filter((item) => item.app_code === appCode && item.path)
+  const nodes = new Map<string, MenuNode>()
+  for (const bundle of bundles) {
+    nodes.set(bundle.path, bundleMenuNode(bundle))
+  }
+
+  const roots: MenuNode[] = []
+  for (const bundle of bundles) {
+    const node = nodes.get(bundle.path)
+    if (!node) continue
+    const parentPath = bundles
+      .map((item) => item.path)
+      .filter((candidate) => candidate !== bundle.path && bundle.path.startsWith(candidate + '/'))
+      .sort((a, b) => b.length - a.length)[0]
+    const parent = parentPath ? nodes.get(parentPath) : null
+    if (parent) {
+      parent.children = [...(parent.children || []), node]
+    } else {
+      roots.push(node)
+    }
+  }
+  return roots
+}
+
+function mergeBundleMenuNodes(base: MenuNode[], generated: MenuNode[]): MenuNode[] {
+  const result = base.map((node) => ({ ...node, children: mergeBundleMenuNodes(node.children || [], []) }))
+  const byPath = new Map<string, MenuNode>()
+
+  function index(nodes: MenuNode[]) {
+    for (const node of nodes) {
+      if (node.type === 'menu' && node.path) byPath.set(node.path, node)
+      if (node.children?.length) index(node.children)
+    }
+  }
+  index(result)
+
+  function addGenerated(node: MenuNode, siblings: MenuNode[]) {
+    const existing = node.type === 'menu' && node.path ? byPath.get(node.path) : null
+    if (existing) {
+      const existingChildren = existing.children || []
+      for (const child of node.children || []) addGenerated(child, existingChildren)
+      existing.children = existingChildren
+      return
+    }
+    siblings.push(node)
+    if (node.type === 'menu' && node.path) byPath.set(node.path, node)
+  }
+
+  for (const node of generated) addGenerated(node, result)
+  return result
+}
+
 function filterMenuTreeByApp(nodes: MenuNode[], appCode: string): MenuNode[] {
   if (!appCode) return nodes
   const out: MenuNode[] = []
@@ -224,7 +301,11 @@ function filterTenantManageableTree(nodes: MenuNode[]): MenuNode[] {
 }
 
 const displayTree = computed(() => {
-  if (isPlatformAdmin.value) return filterMenuTreeByApp(store.tree, selectedMenuAppCode.value)
+  if (isPlatformAdmin.value) {
+    const appCode = selectedMenuAppCode.value
+    const localTree = filterMenuTreeByApp(store.tree, appCode)
+    return mergeBundleMenuNodes(localTree, bundleMenusForApp(appCode))
+  }
   return filterTenantManageableTree(filterPlatformOnlyMenus(store.tenantTree))
 })
 
