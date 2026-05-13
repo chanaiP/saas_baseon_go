@@ -155,27 +155,34 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	if err := s.EnsureBaseline(ctx); err != nil {
 		return Overview{}, err
 	}
+	now := time.Now()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	trendStart := todayStart.AddDate(0, 0, -6)
 	var calls int64
 	var cost, billing float64
-	today := time.Now().Format("2006-01-02")
 	s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).
 		Select("COALESCE(SUM(calls),0), COALESCE(SUM(cost_amount),0), COALESCE(SUM(billing_amount),0)").
-		Where("called_at >= ?", today).
+		Where("called_at >= ?", todayStart).
 		Row().Scan(&calls, &cost, &billing)
 
 	var successCount int64
 	var totalRecords int64
-	_ = s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).Where("called_at >= ?", today).Count(&totalRecords).Error
-	_ = s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).Where("called_at >= ? AND status = ?", today, "success").Count(&successCount).Error
+	_ = s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).Where("called_at >= ?", todayStart).Count(&totalRecords).Error
+	_ = s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).Where("called_at >= ? AND status = ?", todayStart, "success").Count(&successCount).Error
 	successRate := 100.0
 	if totalRecords > 0 {
 		successRate = float64(successCount) / float64(totalRecords) * 100
 	}
 
 	var p95 int
-	_ = s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).Select("COALESCE(MAX(latency_ms),0)").Where("called_at >= ?", today).Scan(&p95).Error
+	_ = s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).Select("COALESCE(MAX(latency_ms),0)").Where("called_at >= ?", todayStart).Scan(&p95).Error
 	var routeRows []models.AIBaseRoute
 	_ = s.db.WithContext(ctx).Where("deleted_at IS NULL").Order("updated_at desc").Limit(4).Find(&routeRows).Error
+	trend := s.usageTrend(ctx, trendStart, todayStart)
+	costShare := s.modelCostShare(ctx, trendStart)
+	ranking := s.tenantRanking(ctx, trendStart)
+	var tenantCount int64
+	_ = s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).Where("called_at >= ?", trendStart).Distinct("tenant_id").Count(&tenantCount).Error
 
 	return Overview{
 		Metrics: []OverviewMetric{
@@ -185,13 +192,13 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 			{Label: "P95 延迟", Value: fmt.Sprintf("%dms", p95), Trend: "近似值", Tone: "orange"},
 		},
 		TenantMetrics: map[string]interface{}{
-			"service_tenants": 0,
+			"service_tenants": tenantCount,
 			"tenant_revenue":  billing,
 			"tenant_profit":   billing - cost,
 		},
-		UsageTrend:     []UsageTrendPoint{},
-		ModelCostShare: []ModelCostShare{},
-		TenantRanking:  []TenantRankingItem{},
+		UsageTrend:     trend,
+		ModelCostShare: costShare,
+		TenantRanking:  ranking,
 		HealthChecks: []HealthCheck{
 			{Name: "供应商可用状态", Status: "active", Message: "基于供应商启停状态检测"},
 			{Name: "基础路由状态", Status: "active", Message: "启用路由可供 AI 场景绑定"},
@@ -200,6 +207,62 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 		},
 		CoreBaseRoutes: routeRows,
 	}, nil
+}
+
+func (s *Service) usageTrend(ctx context.Context, start, end time.Time) []UsageTrendPoint {
+	points := make([]UsageTrendPoint, 0, 7)
+	byDate := make(map[string]*UsageTrendPoint, 7)
+	for day := start; !day.After(end); day = day.AddDate(0, 0, 1) {
+		key := day.Format("2006-01-02")
+		points = append(points, UsageTrendPoint{Date: key})
+		byDate[key] = &points[len(points)-1]
+	}
+	var rows []UsageTrendPoint
+	_ = s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).
+		Select("TO_CHAR(called_at, 'YYYY-MM-DD') AS date, COALESCE(SUM(calls),0) AS calls, COALESCE(SUM(cost_amount),0) AS cost_amount, COALESCE(SUM(billing_amount),0) AS billing_amount").
+		Where("called_at >= ?", start).
+		Group("TO_CHAR(called_at, 'YYYY-MM-DD')").
+		Order("date asc").
+		Scan(&rows).Error
+	for _, row := range rows {
+		if point, ok := byDate[row.Date]; ok {
+			point.Calls = row.Calls
+			point.CostAmount = row.CostAmount
+			point.BillingAmount = row.BillingAmount
+		}
+	}
+	return points
+}
+
+func (s *Service) modelCostShare(ctx context.Context, start time.Time) []ModelCostShare {
+	var rows []ModelCostShare
+	_ = s.db.WithContext(ctx).Table("ai_usage_records AS u").
+		Select("COALESCE(m.model_type, 'unknown') AS model_type, COALESCE(SUM(u.cost_amount),0) AS cost_amount").
+		Joins("LEFT JOIN ai_models AS m ON m.id = u.model_id").
+		Where("u.called_at >= ?", start).
+		Group("COALESCE(m.model_type, 'unknown')").
+		Order("cost_amount desc").
+		Limit(6).
+		Scan(&rows).Error
+	return rows
+}
+
+func (s *Service) tenantRanking(ctx context.Context, start time.Time) []TenantRankingItem {
+	var rows []TenantRankingItem
+	_ = s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).
+		Select(`tenant_name,
+			COALESCE(SUM(calls),0) AS calls,
+			COALESCE(SUM(cost_amount),0) AS cost_amount,
+			COALESCE(SUM(billing_amount),0) AS billing_amount,
+			COALESCE(SUM(billing_amount - cost_amount),0) AS profit_amount,
+			CASE WHEN COUNT(*) = 0 THEN 100 ELSE SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END)::float / COUNT(*) * 100 END AS success_rate,
+			COUNT(DISTINCT ai_scenario_code) AS scenario_count`).
+		Where("called_at >= ?", start).
+		Group("tenant_name").
+		Order("billing_amount desc").
+		Limit(8).
+		Scan(&rows).Error
+	return rows
 }
 
 func (s *Service) ListProviders(ctx context.Context, skip, limit int, keyword string) (PageResult, error) {
@@ -297,7 +360,8 @@ func (s *Service) ListRateLimitRules(ctx context.Context, skip, limit int, polic
 }
 
 func (s *Service) ListUsageRecords(ctx context.Context, skip, limit int, keyword string) (PageResult, error) {
-	return listRows[models.AIUsageRecord](ctx, s.db, skip, limit, keyword, []string{"tenant_name", "app_name", "ai_scenario_name", "user_name", "usage_detail", "status"})
+	q := keywordQuery(s.db.WithContext(ctx).Model(&models.AIUsageRecord{}), keyword, []string{"tenant_name", "app_name", "ai_scenario_name", "user_name", "usage_detail", "status"})
+	return pageQueryOrder[models.AIUsageRecord](q, skip, limit, "called_at desc")
 }
 
 func (s *Service) ListSettings(ctx context.Context, skip, limit int) (PageResult, error) {
@@ -724,6 +788,11 @@ func (s *Service) DeleteResource(ctx context.Context, userID uint64, resource, i
 
 func listRows[T any](ctx context.Context, db *gorm.DB, skip, limit int, keyword string, columns []string) (PageResult, error) {
 	q := db.WithContext(ctx).Model(new(T)).Where("deleted_at IS NULL")
+	q = keywordQuery(q, keyword, columns)
+	return pageQuery[T](q, skip, limit)
+}
+
+func keywordQuery(q *gorm.DB, keyword string, columns []string) *gorm.DB {
 	if strings.TrimSpace(keyword) != "" && len(columns) > 0 {
 		like := "%" + strings.TrimSpace(keyword) + "%"
 		parts := make([]string, 0, len(columns))
@@ -734,7 +803,7 @@ func listRows[T any](ctx context.Context, db *gorm.DB, skip, limit int, keyword 
 		}
 		q = q.Where(strings.Join(parts, " OR "), args...)
 	}
-	return pageQuery[T](q, skip, limit)
+	return q
 }
 
 func decodePayload(payload map[string]interface{}, target interface{}) error {
@@ -801,6 +870,10 @@ func updateRow[T any](ctx context.Context, s *Service, userID uint64, resource, 
 }
 
 func pageQuery[T any](q *gorm.DB, skip, limit int) (PageResult, error) {
+	return pageQueryOrder[T](q, skip, limit, "updated_at desc")
+}
+
+func pageQueryOrder[T any](q *gorm.DB, skip, limit int, order string) (PageResult, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 20
 	}
@@ -812,7 +885,7 @@ func pageQuery[T any](q *gorm.DB, skip, limit int) (PageResult, error) {
 		return PageResult{}, err
 	}
 	var rows []T
-	if err := q.Order("updated_at desc").Offset(skip).Limit(limit).Find(&rows).Error; err != nil {
+	if err := q.Order(order).Offset(skip).Limit(limit).Find(&rows).Error; err != nil {
 		return PageResult{}, err
 	}
 	return PageResult{Items: rows, Total: total, Skip: skip, Limit: limit}, nil

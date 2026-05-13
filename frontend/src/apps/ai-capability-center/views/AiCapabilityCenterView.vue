@@ -14,6 +14,18 @@ defineOptions({ name: 'AiCapabilityCenterView' })
 const route = useRoute()
 const router = useRouter()
 
+type FieldConfig = {
+  key: string
+  label: string
+  type?: 'text' | 'number' | 'textarea' | 'select' | 'tags' | 'json'
+  options?: Array<{ label: string; value: string }>
+  required?: boolean
+}
+
+function toOptions(values: string[]) {
+  return values.map((value) => ({ label: value, value }))
+}
+
 const sections: AiSectionConfig[] = [
   { key: 'dashboard', title: '总览', route: '/ai-capability-center', description: '平台调用、成本、成功率、租户排行榜和健康检查。', columns: [] },
   { key: 'providers', title: '供应商', route: '/ai-capability-center/providers', resource: 'providers', description: '维护供应商、接入资源、预算、区域和负责人。', writable: true, columns: [
@@ -49,9 +61,11 @@ const errorText = ref('')
 const editorVisible = ref(false)
 const editorMode = ref<'create' | 'edit'>('create')
 const editorJson = ref('{}')
+const formModel = ref<Record<string, unknown>>({})
 const editingId = ref('')
 
 const canWrite = computed(() => Boolean(activeSection.value.resource && activeSection.value.writable))
+const formFields = computed<FieldConfig[]>(() => fieldsForResource(activeSection.value.resource))
 
 function displayCell(row: Record<string, unknown>, key: string) {
   const value = row[key]
@@ -66,6 +80,16 @@ function statusType(value: unknown) {
   if (value === 'warning') return 'warning'
   if (value === 'error' || value === 'failed' || value === 'timeout') return 'danger'
   return 'info'
+}
+
+function numberText(value: unknown) {
+  const numeric = Number(value ?? 0)
+  return Number.isFinite(numeric) ? numeric.toLocaleString('zh-CN') : '0'
+}
+
+function moneyText(value: unknown) {
+  const numeric = Number(value ?? 0)
+  return Number.isFinite(numeric) ? `¥${numeric.toFixed(2)}` : '¥0.00'
 }
 
 async function loadData() {
@@ -95,13 +119,15 @@ function switchSection(path: string) {
 function openCreate() {
   editorMode.value = 'create'
   editingId.value = ''
-  editorJson.value = JSON.stringify(defaultPayload(activeSection.value.resource), null, 2)
+  formModel.value = normalizeEditorRow(defaultPayload(activeSection.value.resource))
+  editorJson.value = JSON.stringify(formModel.value, null, 2)
   editorVisible.value = true
 }
 
 function openEdit(row: Record<string, unknown>) {
   editorMode.value = 'edit'
   editingId.value = String(row.id || '')
+  formModel.value = normalizeEditorRow(row)
   editorJson.value = JSON.stringify(row, null, 2)
   editorVisible.value = true
 }
@@ -110,9 +136,9 @@ async function saveEditor() {
   if (!activeSection.value.resource) return
   let payload: Record<string, unknown>
   try {
-    payload = JSON.parse(editorJson.value) as Record<string, unknown>
+    payload = formFields.value.length ? buildEditorPayload() : JSON.parse(editorJson.value) as Record<string, unknown>
   } catch {
-    ElMessage.error('JSON 格式不合法')
+    ElMessage.error('配置内容格式不合法')
     return
   }
   if (editorMode.value === 'edit' && editingId.value) {
@@ -147,6 +173,104 @@ function defaultPayload(resource?: AiResource): Record<string, unknown> {
   return { status }
 }
 
+function fieldsForResource(resource?: AiResource): FieldConfig[] {
+  const status = { key: 'status', label: '状态', type: 'select', options: toOptions(['active', 'warning', 'inactive', 'draft']), required: true } satisfies FieldConfig
+  if (resource === 'providers') return [
+    { key: 'name', label: '供应商名称', required: true },
+    { key: 'code', label: '供应商编码', required: true },
+    { key: 'type', label: '类型', type: 'select', options: toOptions(['public_cloud', 'private_cloud', 'local', 'proxy']) },
+    { key: 'base_url', label: 'Endpoint', required: true },
+    { key: 'auth_type', label: '鉴权方式', type: 'select', options: toOptions(['api_key', 'oauth2', 'aksk', 'none']) },
+    { key: 'region', label: '区域' },
+    { key: 'owner', label: '负责人' },
+    { key: 'priority', label: '优先级', type: 'number' },
+    { key: 'qps_limit', label: 'QPS 限制', type: 'number' },
+    { key: 'monthly_budget', label: '月预算', type: 'number' },
+    status,
+  ]
+  if (resource === 'models') return [
+    { key: 'provider_id', label: '供应商 ID', required: true },
+    { key: 'model_name', label: '模型名称', required: true },
+    { key: 'model_code', label: '模型编码', required: true },
+    { key: 'model_type', label: '模型类型', type: 'select', options: toOptions(['text', 'embedding', 'image', 'audio', 'rerank']) },
+    { key: 'capabilities', label: '能力标签', type: 'tags' },
+    { key: 'context_window', label: '上下文窗口', type: 'number' },
+    { key: 'unit', label: '计量单位', type: 'select', options: toOptions(['tokens', 'characters', 'images', 'seconds', 'requests']) },
+    { key: 'latency_p95', label: 'P95 延迟', type: 'number' },
+    { key: 'success_rate', label: '成功率', type: 'number' },
+    { key: 'default_for', label: '默认场景', type: 'tags' },
+    status,
+  ]
+  if (resource === 'scenarios') return [
+    { key: 'app_name', label: '应用名称', required: true },
+    { key: 'app_code', label: '应用编码', required: true },
+    { key: 'ai_scenario_name', label: 'AI 场景名称', required: true },
+    { key: 'ai_scenario_code', label: 'AI 场景编码', required: true },
+    { key: 'scenario_type', label: '场景类型', type: 'select', options: toOptions(['text', 'embedding', 'image', 'audio']) },
+    { key: 'capability_code', label: '能力编码', required: true },
+    { key: 'model_type', label: '模型类型', type: 'select', options: toOptions(['text', 'embedding', 'image', 'audio', 'rerank']) },
+    { key: 'default_base_route_id', label: '默认基础路由 ID' },
+    { key: 'owner', label: '负责人' },
+    { key: 'version', label: '版本' },
+    status,
+  ]
+  if (resource === 'base-routes') return [
+    { key: 'route_name', label: '路由名称', required: true },
+    { key: 'route_code', label: '路由编码', required: true },
+    { key: 'capability_code', label: '能力编码', required: true },
+    { key: 'model_type', label: '模型类型', type: 'select', options: toOptions(['text', 'embedding', 'image', 'audio', 'rerank']) },
+    { key: 'strategy', label: '策略', type: 'select', options: toOptions(['fallback', 'weighted', 'priority', 'cost_first', 'latency_first']) },
+    { key: 'timeout_ms', label: '超时时间(ms)', type: 'number' },
+    { key: 'max_retry', label: '最大重试', type: 'number' },
+    status,
+  ]
+  if (resource === 'tenant-strategies') return [
+    { key: 'policy_name', label: '策略名称', required: true },
+    { key: 'tenant_scope', label: '租户范围', type: 'select', options: toOptions(['include', 'exclude', 'all']) },
+    { key: 'tenant_ids', label: '租户 ID', type: 'tags' },
+    { key: 'app_name', label: '应用名称' },
+    { key: 'app_code', label: '应用编码', required: true },
+    { key: 'ai_scenario_name', label: 'AI 场景名称' },
+    { key: 'ai_scenario_code', label: 'AI 场景编码', required: true },
+    { key: 'override_base_route_id', label: '覆盖基础路由 ID' },
+    { key: 'extra_config', label: '扩展配置 JSON', type: 'json' },
+    status,
+  ]
+  if (resource === 'settings') return [
+    { key: 'setting_key', label: '配置项', required: true },
+    { key: 'setting_value', label: '配置值 JSON', type: 'json', required: true },
+    { key: 'description', label: '说明', type: 'textarea' },
+    status,
+  ]
+  return []
+}
+
+function normalizeEditorRow(row: Record<string, unknown>) {
+  const next = { ...row }
+  for (const field of fieldsForResource(activeSection.value.resource)) {
+    if (field.type === 'tags' && !Array.isArray(next[field.key])) {
+      next[field.key] = next[field.key] ? [String(next[field.key])] : []
+    }
+    if (field.type === 'json') {
+      const value = next[field.key]
+      next[field.key] = typeof value === 'string' ? value : JSON.stringify(value ?? {}, null, 2)
+    }
+  }
+  return next
+}
+
+function buildEditorPayload() {
+  const payload: Record<string, unknown> = {}
+  for (const field of formFields.value) {
+    payload[field.key] = formModel.value[field.key]
+    if (field.type === 'json') {
+      const raw = String(payload[field.key] ?? '').trim()
+      payload[field.key] = raw ? JSON.parse(raw) : {}
+    }
+  }
+  return payload
+}
+
 watch(() => route.path, () => {
   page.value.skip = 0
   keyword.value = ''
@@ -162,7 +286,7 @@ onMounted(loadData)
     <template #subtitle>{{ activeSection.description }}</template>
     <template #actions>
       <el-button :icon="Refresh" @click="loadData">刷新</el-button>
-      <el-button v-if="canWrite" type="primary" :icon="Plus" @click="openCreate">新增配置</el-button>
+      <el-button v-if="canWrite" v-permission="'ai_capability_center:manage'" type="primary" :icon="Plus" @click="openCreate">新增配置</el-button>
     </template>
 
     <div class="ai-center-tabs">
@@ -180,6 +304,45 @@ onMounted(loadData)
           <small>{{ metric.trend }}</small>
         </article>
       </div>
+      <section class="ai-panel">
+        <header><strong>7 天用量趋势</strong><span>调用量、成本和销售额聚合</span></header>
+        <el-table :data="overview?.usage_trend || []" border>
+          <el-table-column prop="date" label="日期" min-width="130" />
+          <el-table-column label="调用量" width="120">
+            <template #default="{ row }">{{ numberText(row.calls) }}</template>
+          </el-table-column>
+          <el-table-column label="成本" width="130">
+            <template #default="{ row }">{{ moneyText(row.cost_amount) }}</template>
+          </el-table-column>
+          <el-table-column label="销售额" width="130">
+            <template #default="{ row }">{{ moneyText(row.billing_amount) }}</template>
+          </el-table-column>
+        </el-table>
+      </section>
+      <section class="ai-dashboard-grid">
+        <div class="ai-panel">
+          <header><strong>成本结构</strong><span>按模型类型汇总</span></header>
+          <div class="ai-share-list">
+            <div v-for="item in overview?.model_cost_share || []" :key="String(item.model_type)">
+              <span>{{ item.model_type || 'unknown' }}</span>
+              <strong>{{ moneyText(item.cost_amount) }}</strong>
+            </div>
+            <el-empty v-if="!(overview?.model_cost_share || []).length" :image-size="72" description="暂无成本数据" />
+          </div>
+        </div>
+        <div class="ai-panel">
+          <header><strong>租户排行榜</strong><span>近 7 天销售额排序</span></header>
+          <el-table :data="overview?.tenant_ranking || []" border>
+            <el-table-column prop="tenant_name" label="租户" min-width="140" />
+            <el-table-column label="调用" width="100">
+              <template #default="{ row }">{{ numberText(row.calls) }}</template>
+            </el-table-column>
+            <el-table-column label="利润" width="110">
+              <template #default="{ row }">{{ moneyText(row.profit_amount) }}</template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </section>
       <section class="ai-panel">
         <header><strong>平台健康检查</strong><span>供应商、路由、租户策略和日志写入状态</span></header>
         <div class="ai-health">
@@ -217,8 +380,8 @@ onMounted(loadData)
         </el-table-column>
         <el-table-column v-if="canWrite" fixed="right" label="操作" width="150">
           <template #default="{ row }">
-            <el-button link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
-            <el-button link type="danger" :icon="Delete" @click="removeRow(row)">删除</el-button>
+            <el-button v-permission="'ai_capability_center:manage'" link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
+            <el-button v-permission="'ai_capability_center:manage'" link type="danger" :icon="Delete" @click="removeRow(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -233,8 +396,20 @@ onMounted(loadData)
     </div>
 
     <el-dialog v-model="editorVisible" :title="editorMode === 'create' ? '新增配置' : '编辑配置'" width="720px">
-      <el-alert title="按后端字段提交 JSON；保存后会写入底座操作日志。" type="info" show-icon />
-      <el-input v-model="editorJson" class="json-editor" type="textarea" :rows="18" spellcheck="false" />
+      <el-alert title="按字段提交配置；保存后会写入底座操作日志。" type="info" show-icon />
+      <el-form v-if="formFields.length" class="ai-form" label-position="top">
+        <el-form-item v-for="field in formFields" :key="field.key" :label="field.label" :required="field.required">
+          <el-select v-if="field.type === 'select'" v-model="formModel[field.key]" filterable>
+            <el-option v-for="option in field.options || []" :key="option.value" :label="option.label" :value="option.value" />
+          </el-select>
+          <el-input-number v-else-if="field.type === 'number'" v-model="formModel[field.key]" :min="0" controls-position="right" />
+          <el-input v-else-if="field.type === 'textarea'" v-model="formModel[field.key]" type="textarea" :rows="3" />
+          <el-select v-else-if="field.type === 'tags'" v-model="formModel[field.key]" multiple filterable allow-create default-first-option />
+          <el-input v-else-if="field.type === 'json'" v-model="formModel[field.key]" class="json-editor" type="textarea" :rows="5" spellcheck="false" />
+          <el-input v-else v-model="formModel[field.key]" />
+        </el-form-item>
+      </el-form>
+      <el-input v-else v-model="editorJson" class="json-editor" type="textarea" :rows="18" spellcheck="false" />
       <template #footer>
         <el-button @click="editorVisible = false">取消</el-button>
         <el-button type="primary" @click="saveEditor">保存</el-button>
@@ -308,12 +483,37 @@ onMounted(loadData)
   font-size: 24px;
 }
 
+.ai-dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: 12px;
+}
+
 .ai-panel header {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
+}
+
+.ai-share-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-share-list > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--neuro-border);
+  padding-bottom: 8px;
+}
+
+.ai-share-list > div:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
 }
 
 .ai-health {
@@ -340,6 +540,27 @@ onMounted(loadData)
   justify-content: flex-end;
 }
 
+.ai-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px 14px;
+  margin-top: 12px;
+}
+
+.ai-form :deep(.el-form-item) {
+  margin-bottom: 12px;
+}
+
+.ai-form :deep(.el-select),
+.ai-form :deep(.el-input-number) {
+  width: 100%;
+}
+
+.ai-form :deep(.el-textarea),
+.ai-form :deep(.el-form-item:has(.json-editor)) {
+  grid-column: 1 / -1;
+}
+
 .json-editor {
   margin-top: 12px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -350,6 +571,10 @@ onMounted(loadData)
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .ai-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
   .ai-toolbar {
     align-items: stretch;
     flex-direction: column;
@@ -357,6 +582,10 @@ onMounted(loadData)
 
   .ai-toolbar .el-input {
     max-width: none;
+  }
+
+  .ai-form {
+    grid-template-columns: 1fr;
   }
 }
 </style>
