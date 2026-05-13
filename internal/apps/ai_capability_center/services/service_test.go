@@ -236,6 +236,106 @@ func TestDeleteProviderAccountCascadesAPIsAndBlocksUsageReferences(t *testing.T)
 	require.ErrorIs(t, err, ErrResourceInUse)
 }
 
+func TestImportModelsUpsertsModelPoliciesAndTiers(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "chat_completion", "tokens")
+	seedProvider(t, db, "openai")
+	service := NewService(db)
+	ctx := context.Background()
+	enabled := false
+
+	result, err := service.ImportModels(ctx, 7, ModelImportRequest{
+		Models: []ModelImportModel{{
+			ProviderCode: "openai", ModelCode: "gpt-4.1", ModelName: "GPT 4.1", ModelType: "text",
+			Capabilities: []string{"chat_completion"}, ContextWindow: 128000, Unit: "tokens", SuccessRate: 99.5,
+			PricePolicies: []ModelImportPricePolicy{{
+				FeatureKey: "chat_tokens", FeatureName: "Chat Tokens", ModelType: "text", CapabilityCode: "chat_completion",
+				BillingMode: "tiered", BillingUnit: "tokens", PlatformUnit: "tokens", BaseCostPrice: 0.01, BaseSalePrice: 0.02,
+				Tiers: []ModelImportPriceTier{{
+					TierName: "standard", Mode: "sync", CostPrice: 0.01, SalePrice: 0.02, PlatformAmount: 0.01, Enabled: &enabled, SortOrder: 10,
+				}},
+			}},
+		}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, ModelImportResult{Models: 1, PricePolicies: 1, PriceTiers: 1}, result)
+
+	var provider models.AIProvider
+	require.NoError(t, db.Where("code = ?", "openai").First(&provider).Error)
+	var model models.AIModel
+	require.NoError(t, db.Where("provider_id = ? AND model_code = ? AND deleted_at IS NULL", provider.ID, "gpt-4.1").First(&model).Error)
+	require.Equal(t, "GPT 4.1", model.ModelName)
+	require.Equal(t, 128000, model.ContextWindow)
+	require.Equal(t, []string{"chat_completion"}, model.Capabilities)
+	var policy models.AIModelPricePolicy
+	require.NoError(t, db.Where("model_id = ? AND feature_key = ? AND deleted_at IS NULL", model.ID, "chat_tokens").First(&policy).Error)
+	require.Equal(t, "Chat Tokens", policy.FeatureName)
+	require.InDelta(t, 0.02, policy.BaseSalePrice, 0.0001)
+	var tier models.AIModelPriceTier
+	require.NoError(t, db.Where("price_policy_id = ? AND tier_name = ? AND deleted_at IS NULL", policy.ID, "standard").First(&tier).Error)
+	require.False(t, tier.Enabled)
+	require.Equal(t, 10, tier.SortOrder)
+
+	result, err = service.ImportModels(ctx, 7, ModelImportRequest{
+		Models: []ModelImportModel{{
+			ProviderCode: "openai", ModelCode: "gpt-4.1", ModelName: "GPT 4.1 Turbo", ModelType: "text",
+			Capabilities: []string{"chat_completion"}, ContextWindow: 256000, Unit: "tokens",
+		}},
+		PricePolicies: []ModelImportPricePolicy{{
+			ProviderCode: "openai", ModelCode: "gpt-4.1", FeatureKey: "chat_tokens", FeatureName: "Chat Tokens Updated",
+			ModelType: "text", CapabilityCode: "chat_completion", BillingMode: "tiered", BillingUnit: "tokens", PlatformUnit: "tokens",
+			BaseCostPrice: 0.02, BaseSalePrice: 0.03,
+		}},
+		PriceTiers: []ModelImportPriceTier{{
+			ProviderCode: "openai", ModelCode: "gpt-4.1", FeatureKey: "chat_tokens", TierName: "standard",
+			Mode: "sync", CostPrice: 0.02, SalePrice: 0.03, PlatformAmount: 0.01, SortOrder: 20,
+		}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, ModelImportResult{Models: 1, PricePolicies: 1, PriceTiers: 1}, result)
+
+	var count int64
+	require.NoError(t, db.Model(&models.AIModel{}).Where("provider_id = ? AND model_code = ? AND deleted_at IS NULL", provider.ID, "gpt-4.1").Count(&count).Error)
+	require.Equal(t, int64(1), count)
+	require.NoError(t, db.Model(&models.AIModelPricePolicy{}).Where("model_id = ? AND feature_key = ? AND deleted_at IS NULL", model.ID, "chat_tokens").Count(&count).Error)
+	require.Equal(t, int64(1), count)
+	require.NoError(t, db.Model(&models.AIModelPriceTier{}).Where("price_policy_id = ? AND tier_name = ? AND deleted_at IS NULL", policy.ID, "standard").Count(&count).Error)
+	require.Equal(t, int64(1), count)
+	require.NoError(t, db.Where("id = ?", model.ID).First(&model).Error)
+	require.Equal(t, "GPT 4.1 Turbo", model.ModelName)
+	require.Equal(t, 256000, model.ContextWindow)
+	require.NoError(t, db.Where("id = ?", policy.ID).First(&policy).Error)
+	require.Equal(t, "Chat Tokens Updated", policy.FeatureName)
+	require.InDelta(t, 0.03, policy.BaseSalePrice, 0.0001)
+	require.NoError(t, db.Where("id = ?", tier.ID).First(&tier).Error)
+	require.True(t, tier.Enabled)
+	require.Equal(t, 20, tier.SortOrder)
+}
+
+func TestImportModelsRollsBackOnInvalidReference(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedProvider(t, db, "openai")
+	service := NewService(db)
+	ctx := context.Background()
+
+	_, err := service.ImportModels(ctx, 7, ModelImportRequest{
+		Models: []ModelImportModel{{
+			ProviderCode: "openai", ModelCode: "broken", ModelName: "Broken", ModelType: "text", Capabilities: []string{"chat_completion"},
+		}},
+		PricePolicies: []ModelImportPricePolicy{{
+			ProviderCode: "openai", ModelCode: "broken", FeatureKey: "missing_cap", FeatureName: "Missing Capability",
+			ModelType: "text", CapabilityCode: "missing_capability", BillingMode: "per_unit", BillingUnit: "tokens", PlatformUnit: "tokens",
+		}},
+	})
+	require.ErrorIs(t, err, ErrInvalidInput)
+
+	var count int64
+	require.NoError(t, db.Model(&models.AIModel{}).Where("model_code = ?", "broken").Count(&count).Error)
+	require.Equal(t, int64(0), count)
+	require.NoError(t, db.Model(&models.AIModelPricePolicy{}).Count(&count).Error)
+	require.Equal(t, int64(0), count)
+}
+
 func newAICapabilityTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
@@ -348,6 +448,43 @@ func newAICapabilityTestDB(t *testing.T) *gorm.DB {
 		updated_at DATETIME NOT NULL,
 		deleted_at DATETIME
 	)`).Error)
+	require.NoError(t, db.Exec(`CREATE TABLE ai_model_price_policies (
+		id TEXT PRIMARY KEY,
+		model_id TEXT NOT NULL,
+		feature_key TEXT NOT NULL,
+		feature_name TEXT NOT NULL,
+		model_type TEXT NOT NULL,
+		capability_code TEXT NOT NULL,
+		billing_mode TEXT NOT NULL,
+		billing_unit TEXT NOT NULL,
+		platform_unit TEXT NOT NULL,
+		base_cost_price NUMERIC NOT NULL DEFAULT 0,
+		base_sale_price NUMERIC NOT NULL DEFAULT 0,
+		base_platform_amount NUMERIC NOT NULL DEFAULT 0,
+		currency TEXT NOT NULL DEFAULT 'CNY',
+		status TEXT NOT NULL DEFAULT 'active',
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL,
+		deleted_at DATETIME
+	)`).Error)
+	require.NoError(t, db.Exec(`CREATE TABLE ai_model_price_tiers (
+		id TEXT PRIMARY KEY,
+		price_policy_id TEXT NOT NULL,
+		tier_name TEXT NOT NULL,
+		mode TEXT,
+		resolution TEXT,
+		quality TEXT,
+		duration_seconds INTEGER,
+		aspect_ratio TEXT,
+		cost_price NUMERIC NOT NULL DEFAULT 0,
+		sale_price NUMERIC NOT NULL DEFAULT 0,
+		platform_amount NUMERIC NOT NULL DEFAULT 0,
+		enabled BOOLEAN NOT NULL DEFAULT true,
+		sort_order INTEGER NOT NULL DEFAULT 0,
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL,
+		deleted_at DATETIME
+	)`).Error)
 	require.NoError(t, db.Exec(`CREATE TABLE ai_base_routes (
 		id TEXT PRIMARY KEY,
 		route_code TEXT NOT NULL,
@@ -403,7 +540,19 @@ func newAICapabilityTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-func seedProviderAccountAPI(t *testing.T, db *gorm.DB, providerCode, accountName string) (models.AIProvider, models.AIProviderAccount, models.AIProviderAPI) {
+func seedCapability(t *testing.T, db *gorm.DB, code, unit string) models.AICapability {
+	t.Helper()
+	now := time.Now()
+	row := models.AICapability{
+		ID: code, CapabilityCode: code, CapabilityName: code, ScenarioType: "text", ModelType: "text",
+		DefaultBillingUnit: unit, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&row).Error)
+	return row
+}
+
+func seedProvider(t *testing.T, db *gorm.DB, providerCode string) models.AIProvider {
 	t.Helper()
 	now := time.Now()
 	provider := models.AIProvider{
@@ -412,6 +561,13 @@ func seedProviderAccountAPI(t *testing.T, db *gorm.DB, providerCode, accountName
 		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
 	}
 	require.NoError(t, db.Create(&provider).Error)
+	return provider
+}
+
+func seedProviderAccountAPI(t *testing.T, db *gorm.DB, providerCode, accountName string) (models.AIProvider, models.AIProviderAccount, models.AIProviderAPI) {
+	t.Helper()
+	provider := seedProvider(t, db, providerCode)
+	now := time.Now()
 	account := models.AIProviderAccount{
 		ID: "account-" + providerCode, ProviderID: provider.ID, AccountName: accountName, KeyAlias: "KEY_" + providerCode, Status: "active",
 		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},

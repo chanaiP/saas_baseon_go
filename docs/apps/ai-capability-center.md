@@ -114,3 +114,79 @@ Manifest 声明平台菜单、配置管理操作和 AI Gateway 调用权限。�
 ```
 
 删除供应商时会逻辑删除其接入账号和 API；如果供应商已被模型或用量明细引用则阻断。删除接入账号时会逻辑删除其 API；如果账号已被用量明细引用则阻断。
+
+## 模型和价格整体导入
+
+模型目录支持通过 `POST /api/ai-capability-center/models/import` 一次性导入模型、价格策略和分档价格。导入在单个事务内执行，按供应商 `provider_code` 定位供应商，按 `provider_code + model_code` 幂等 upsert 模型，按 `provider_code + model_code + feature_key` 幂等 upsert 价格策略，按 `provider_code + model_code + feature_key + tier_name` 幂等 upsert 分档价格。
+
+任一供应商、模型或能力字典引用不成立时整体回滚，避免模型和价格配置半导入。
+
+```json
+{
+  "models": [
+    {
+      "provider_code": "openai",
+      "model_code": "gpt-4.1",
+      "model_name": "GPT 4.1",
+      "model_type": "text",
+      "capabilities": ["chat_completion"],
+      "context_window": 128000,
+      "unit": "tokens",
+      "success_rate": 99.5,
+      "price_policies": [
+        {
+          "feature_key": "chat_tokens",
+          "feature_name": "对话 Token",
+          "model_type": "text",
+          "capability_code": "chat_completion",
+          "billing_mode": "tiered",
+          "billing_unit": "tokens",
+          "platform_unit": "tokens",
+          "base_cost_price": 0.01,
+          "base_sale_price": 0.02,
+          "currency": "CNY",
+          "tiers": [
+            {
+              "tier_name": "standard",
+              "mode": "sync",
+              "cost_price": 0.01,
+              "sale_price": 0.02,
+              "platform_amount": 0.01,
+              "enabled": true,
+              "sort_order": 10
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "price_policies": [
+    {
+      "provider_code": "openai",
+      "model_code": "gpt-4.1",
+      "feature_key": "chat_tokens",
+      "feature_name": "对话 Token",
+      "model_type": "text",
+      "capability_code": "chat_completion",
+      "billing_mode": "tiered",
+      "billing_unit": "tokens",
+      "platform_unit": "tokens",
+      "base_cost_price": 0.01,
+      "base_sale_price": 0.02
+    }
+  ],
+  "price_tiers": [
+    {
+      "provider_code": "openai",
+      "model_code": "gpt-4.1",
+      "feature_key": "chat_tokens",
+      "tier_name": "standard",
+      "mode": "sync",
+      "cost_price": 0.01,
+      "sale_price": 0.02,
+      "platform_amount": 0.01,
+      "enabled": true
+    }
+  ]
+}
+```

@@ -138,6 +138,69 @@ type ProviderImportResult struct {
 	APIs      int `json:"apis"`
 }
 
+type ModelImportRequest struct {
+	Models        []ModelImportModel       `json:"models"`
+	PricePolicies []ModelImportPricePolicy `json:"price_policies"`
+	PriceTiers    []ModelImportPriceTier   `json:"price_tiers"`
+}
+
+type ModelImportModel struct {
+	ProviderCode  string                   `json:"provider_code"`
+	ModelCode     string                   `json:"model_code"`
+	ModelName     string                   `json:"model_name"`
+	ModelType     string                   `json:"model_type"`
+	Capabilities  []string                 `json:"capabilities"`
+	ContextWindow int                      `json:"context_window"`
+	Unit          string                   `json:"unit"`
+	LatencyP95    int                      `json:"latency_p95"`
+	SuccessRate   float64                  `json:"success_rate"`
+	Status        string                   `json:"status"`
+	DefaultFor    []string                 `json:"default_for"`
+	Remark        string                   `json:"remark"`
+	PricePolicies []ModelImportPricePolicy `json:"price_policies"`
+}
+
+type ModelImportPricePolicy struct {
+	ProviderCode       string                 `json:"provider_code"`
+	ModelCode          string                 `json:"model_code"`
+	FeatureKey         string                 `json:"feature_key"`
+	FeatureName        string                 `json:"feature_name"`
+	ModelType          string                 `json:"model_type"`
+	CapabilityCode     string                 `json:"capability_code"`
+	BillingMode        string                 `json:"billing_mode"`
+	BillingUnit        string                 `json:"billing_unit"`
+	PlatformUnit       string                 `json:"platform_unit"`
+	BaseCostPrice      float64                `json:"base_cost_price"`
+	BaseSalePrice      float64                `json:"base_sale_price"`
+	BasePlatformAmount float64                `json:"base_platform_amount"`
+	Currency           string                 `json:"currency"`
+	Status             string                 `json:"status"`
+	Tiers              []ModelImportPriceTier `json:"tiers"`
+}
+
+type ModelImportPriceTier struct {
+	ProviderCode    string  `json:"provider_code"`
+	ModelCode       string  `json:"model_code"`
+	FeatureKey      string  `json:"feature_key"`
+	TierName        string  `json:"tier_name"`
+	Mode            string  `json:"mode"`
+	Resolution      string  `json:"resolution"`
+	Quality         string  `json:"quality"`
+	DurationSeconds int     `json:"duration_seconds"`
+	AspectRatio     string  `json:"aspect_ratio"`
+	CostPrice       float64 `json:"cost_price"`
+	SalePrice       float64 `json:"sale_price"`
+	PlatformAmount  float64 `json:"platform_amount"`
+	Enabled         *bool   `json:"enabled"`
+	SortOrder       int     `json:"sort_order"`
+}
+
+type ModelImportResult struct {
+	Models        int `json:"models"`
+	PricePolicies int `json:"price_policies"`
+	PriceTiers    int `json:"price_tiers"`
+}
+
 type HealthCheck struct {
 	Name    string `json:"name"`
 	Status  string `json:"status"`
@@ -212,6 +275,84 @@ func (s *Service) ImportProviders(ctx context.Context, userID uint64, req Provid
 		return ProviderImportResult{}, err
 	}
 	s.Audit(ctx, userID, "ai_provider", "import", "整体导入 AI 供应商资源", result)
+	return result, nil
+}
+
+func (s *Service) ImportModels(ctx context.Context, userID uint64, req ModelImportRequest) (ModelImportResult, error) {
+	now := time.Now()
+	result := ModelImportResult{}
+	if len(req.Models) == 0 && len(req.PricePolicies) == 0 && len(req.PriceTiers) == 0 {
+		return result, ErrInvalidInput
+	}
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		providerIDs := map[string]string{}
+		modelIDs := map[string]string{}
+		policyIDs := map[string]string{}
+		if err := loadProviderIDs(ctx, tx, providerIDs); err != nil {
+			return err
+		}
+		for _, item := range req.Models {
+			model, err := upsertModelImport(ctx, tx, providerIDs, item, now)
+			if err != nil {
+				return err
+			}
+			result.Models++
+			modelIDs[modelKey(item.ProviderCode, model.ModelCode)] = model.ID
+			for _, policy := range item.PricePolicies {
+				policy.ProviderCode = item.ProviderCode
+				policy.ModelCode = model.ModelCode
+				saved, err := upsertModelPricePolicyImport(ctx, tx, modelIDs, policy, now)
+				if err != nil {
+					return err
+				}
+				result.PricePolicies++
+				policyIDs[policyKey(policy.ProviderCode, policy.ModelCode, saved.FeatureKey)] = saved.ID
+				for _, tier := range policy.Tiers {
+					tier.ProviderCode = policy.ProviderCode
+					tier.ModelCode = policy.ModelCode
+					tier.FeatureKey = saved.FeatureKey
+					if err := upsertModelPriceTierImport(ctx, tx, policyIDs, tier, now); err != nil {
+						return err
+					}
+					result.PriceTiers++
+				}
+			}
+		}
+		if err := loadModelIDs(ctx, tx, modelIDs); err != nil {
+			return err
+		}
+		for _, item := range req.PricePolicies {
+			saved, err := upsertModelPricePolicyImport(ctx, tx, modelIDs, item, now)
+			if err != nil {
+				return err
+			}
+			result.PricePolicies++
+			policyIDs[policyKey(item.ProviderCode, item.ModelCode, saved.FeatureKey)] = saved.ID
+			for _, tier := range item.Tiers {
+				tier.ProviderCode = item.ProviderCode
+				tier.ModelCode = item.ModelCode
+				tier.FeatureKey = saved.FeatureKey
+				if err := upsertModelPriceTierImport(ctx, tx, policyIDs, tier, now); err != nil {
+					return err
+				}
+				result.PriceTiers++
+			}
+		}
+		if err := loadPolicyIDs(ctx, tx, policyIDs); err != nil {
+			return err
+		}
+		for _, item := range req.PriceTiers {
+			if err := upsertModelPriceTierImport(ctx, tx, policyIDs, item, now); err != nil {
+				return err
+			}
+			result.PriceTiers++
+		}
+		return nil
+	})
+	if err != nil {
+		return ModelImportResult{}, err
+	}
+	s.Audit(ctx, userID, "ai_model", "import", "整体导入 AI 模型和价格资源", result)
 	return result, nil
 }
 
@@ -1221,6 +1362,181 @@ func loadAccountIDs(ctx context.Context, tx *gorm.DB, accountIDs map[string]stri
 	return nil
 }
 
+func upsertModelImport(ctx context.Context, tx *gorm.DB, providerIDs map[string]string, item ModelImportModel, now time.Time) (models.AIModel, error) {
+	providerCode := strings.TrimSpace(item.ProviderCode)
+	providerID := providerIDs[providerCode]
+	row := models.AIModel{
+		ProviderID:    providerID,
+		ModelCode:     strings.TrimSpace(item.ModelCode),
+		ModelName:     strings.TrimSpace(item.ModelName),
+		ModelType:     strings.TrimSpace(item.ModelType),
+		Capabilities:  item.Capabilities,
+		ContextWindow: item.ContextWindow,
+		Unit:          defaultString(item.Unit, "tokens"),
+		LatencyP95:    item.LatencyP95,
+		SuccessRate:   item.SuccessRate,
+		Status:        defaultString(item.Status, "active"),
+		DefaultFor:    item.DefaultFor,
+		Remark:        strings.TrimSpace(item.Remark),
+	}
+	if providerID == "" || row.ModelCode == "" || row.ModelName == "" || row.ModelType == "" || len(row.Capabilities) == 0 {
+		return models.AIModel{}, ErrInvalidInput
+	}
+	var existing models.AIModel
+	err := tx.WithContext(ctx).Where("provider_id = ? AND model_code = ? AND deleted_at IS NULL", providerID, row.ModelCode).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		row.ID = uuid.NewString()
+		row.CreatedAt = now
+		row.UpdatedAt = now
+		return row, tx.Create(&row).Error
+	}
+	if err != nil {
+		return models.AIModel{}, err
+	}
+	row.ID = existing.ID
+	row.CreatedAt = existing.CreatedAt
+	row.UpdatedAt = now
+	return row, tx.Model(&existing).
+		Select("model_name", "model_type", "capabilities", "context_window", "unit", "latency_p95", "success_rate", "status", "default_for", "remark", "updated_at").
+		Updates(row).Error
+}
+
+func upsertModelPricePolicyImport(ctx context.Context, tx *gorm.DB, modelIDs map[string]string, item ModelImportPricePolicy, now time.Time) (models.AIModelPricePolicy, error) {
+	modelID := modelIDs[modelKey(item.ProviderCode, item.ModelCode)]
+	row := models.AIModelPricePolicy{
+		ModelID:            modelID,
+		FeatureKey:         strings.TrimSpace(item.FeatureKey),
+		FeatureName:        strings.TrimSpace(item.FeatureName),
+		ModelType:          strings.TrimSpace(item.ModelType),
+		CapabilityCode:     strings.TrimSpace(item.CapabilityCode),
+		BillingMode:        defaultString(item.BillingMode, "per_unit"),
+		BillingUnit:        defaultString(item.BillingUnit, "tokens"),
+		PlatformUnit:       defaultString(item.PlatformUnit, defaultString(item.BillingUnit, "tokens")),
+		BaseCostPrice:      item.BaseCostPrice,
+		BaseSalePrice:      item.BaseSalePrice,
+		BasePlatformAmount: item.BasePlatformAmount,
+		Currency:           defaultString(item.Currency, "CNY"),
+		Status:             defaultString(item.Status, "active"),
+	}
+	if modelID == "" || row.FeatureKey == "" || row.FeatureName == "" || row.ModelType == "" || row.CapabilityCode == "" {
+		return models.AIModelPricePolicy{}, ErrInvalidInput
+	}
+	if !capabilityExistsTx(ctx, tx, row.CapabilityCode) {
+		return models.AIModelPricePolicy{}, ErrInvalidInput
+	}
+	var existing models.AIModelPricePolicy
+	err := tx.WithContext(ctx).Where("model_id = ? AND feature_key = ? AND deleted_at IS NULL", modelID, row.FeatureKey).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		row.ID = uuid.NewString()
+		row.CreatedAt = now
+		row.UpdatedAt = now
+		return row, tx.Create(&row).Error
+	}
+	if err != nil {
+		return models.AIModelPricePolicy{}, err
+	}
+	row.ID = existing.ID
+	row.CreatedAt = existing.CreatedAt
+	row.UpdatedAt = now
+	return row, tx.Model(&existing).Updates(map[string]interface{}{
+		"feature_name": row.FeatureName, "model_type": row.ModelType, "capability_code": row.CapabilityCode,
+		"billing_mode": row.BillingMode, "billing_unit": row.BillingUnit, "platform_unit": row.PlatformUnit,
+		"base_cost_price": row.BaseCostPrice, "base_sale_price": row.BaseSalePrice, "base_platform_amount": row.BasePlatformAmount,
+		"currency": row.Currency, "status": row.Status, "updated_at": now,
+	}).Error
+}
+
+func upsertModelPriceTierImport(ctx context.Context, tx *gorm.DB, policyIDs map[string]string, item ModelImportPriceTier, now time.Time) error {
+	policyID := policyIDs[policyKey(item.ProviderCode, item.ModelCode, item.FeatureKey)]
+	enabled := true
+	if item.Enabled != nil {
+		enabled = *item.Enabled
+	}
+	row := models.AIModelPriceTier{
+		PricePolicyID:   policyID,
+		TierName:        strings.TrimSpace(item.TierName),
+		Mode:            strings.TrimSpace(item.Mode),
+		Resolution:      strings.TrimSpace(item.Resolution),
+		Quality:         strings.TrimSpace(item.Quality),
+		DurationSeconds: item.DurationSeconds,
+		AspectRatio:     strings.TrimSpace(item.AspectRatio),
+		CostPrice:       item.CostPrice,
+		SalePrice:       item.SalePrice,
+		PlatformAmount:  item.PlatformAmount,
+		Enabled:         enabled,
+		SortOrder:       item.SortOrder,
+	}
+	if policyID == "" || row.TierName == "" {
+		return ErrInvalidInput
+	}
+	var existing models.AIModelPriceTier
+	err := tx.WithContext(ctx).Where("price_policy_id = ? AND tier_name = ? AND deleted_at IS NULL", policyID, row.TierName).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		row.ID = uuid.NewString()
+		row.CreatedAt = now
+		row.UpdatedAt = now
+		desiredEnabled := row.Enabled
+		if err := tx.Select("*").Create(&row).Error; err != nil {
+			return err
+		}
+		if !desiredEnabled {
+			return tx.Exec("UPDATE ai_model_price_tiers SET enabled = ? WHERE id = ?", false, row.ID).Error
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	row.ID = existing.ID
+	row.CreatedAt = existing.CreatedAt
+	row.UpdatedAt = now
+	return tx.Model(&existing).Updates(map[string]interface{}{
+		"mode": row.Mode, "resolution": row.Resolution, "quality": row.Quality, "duration_seconds": row.DurationSeconds,
+		"aspect_ratio": row.AspectRatio, "cost_price": row.CostPrice, "sale_price": row.SalePrice,
+		"platform_amount": row.PlatformAmount, "enabled": row.Enabled, "sort_order": row.SortOrder, "updated_at": now,
+	}).Error
+}
+
+func loadModelIDs(ctx context.Context, tx *gorm.DB, modelIDs map[string]string) error {
+	var rows []struct {
+		ProviderCode string
+		ModelCode    string
+		ID           string
+	}
+	if err := tx.WithContext(ctx).Table("ai_models AS m").
+		Select("p.code AS provider_code, m.model_code, m.id").
+		Joins("JOIN ai_providers AS p ON p.id = m.provider_id").
+		Where("m.deleted_at IS NULL AND p.deleted_at IS NULL").
+		Scan(&rows).Error; err != nil {
+		return err
+	}
+	for _, row := range rows {
+		modelIDs[modelKey(row.ProviderCode, row.ModelCode)] = row.ID
+	}
+	return nil
+}
+
+func loadPolicyIDs(ctx context.Context, tx *gorm.DB, policyIDs map[string]string) error {
+	var rows []struct {
+		ProviderCode string
+		ModelCode    string
+		FeatureKey   string
+		ID           string
+	}
+	if err := tx.WithContext(ctx).Table("ai_model_price_policies AS pp").
+		Select("p.code AS provider_code, m.model_code, pp.feature_key, pp.id").
+		Joins("JOIN ai_models AS m ON m.id = pp.model_id").
+		Joins("JOIN ai_providers AS p ON p.id = m.provider_id").
+		Where("pp.deleted_at IS NULL AND m.deleted_at IS NULL AND p.deleted_at IS NULL").
+		Scan(&rows).Error; err != nil {
+		return err
+	}
+	for _, row := range rows {
+		policyIDs[policyKey(row.ProviderCode, row.ModelCode, row.FeatureKey)] = row.ID
+	}
+	return nil
+}
+
 func validateProvider(row models.AIProvider) error {
 	if strings.TrimSpace(row.Name) == "" || strings.TrimSpace(row.Code) == "" || strings.TrimSpace(row.BaseURL) == "" {
 		return ErrInvalidInput
@@ -1230,6 +1546,14 @@ func validateProvider(row models.AIProvider) error {
 
 func accountKey(providerCode, accountName string) string {
 	return strings.TrimSpace(providerCode) + "\x00" + strings.TrimSpace(accountName)
+}
+
+func modelKey(providerCode, modelCode string) string {
+	return strings.TrimSpace(providerCode) + "\x00" + strings.TrimSpace(modelCode)
+}
+
+func policyKey(providerCode, modelCode, featureKey string) string {
+	return modelKey(providerCode, modelCode) + "\x00" + strings.TrimSpace(featureKey)
 }
 
 func (s *Service) deleteProviderCascade(ctx context.Context, userID uint64, id string, now time.Time) error {
@@ -1290,6 +1614,15 @@ func (s *Service) capabilityExists(ctx context.Context, code string) bool {
 	}
 	var count int64
 	_ = s.db.WithContext(ctx).Model(&models.AICapability{}).Where("capability_code = ? AND deleted_at IS NULL", code).Count(&count).Error
+	return count > 0
+}
+
+func capabilityExistsTx(ctx context.Context, tx *gorm.DB, code string) bool {
+	if strings.TrimSpace(code) == "" {
+		return false
+	}
+	var count int64
+	_ = tx.WithContext(ctx).Model(&models.AICapability{}).Where("capability_code = ? AND deleted_at IS NULL", strings.TrimSpace(code)).Count(&count).Error
 	return count > 0
 }
 

@@ -158,6 +158,7 @@ func openAPISpec() gin.H {
 			"/api/apps/{id}/status":                           gin.H{"patch": api("apps", "启停应用")},
 			"/api/ai-capability-center/overview":              gin.H{"get": api("ai-capability-center", "AI 能力中心总览")},
 			"/api/ai-capability-center/providers/import":      gin.H{"post": api("ai-capability-center", "整体导入 AI 供应商")},
+			"/api/ai-capability-center/models/import":         gin.H{"post": api("ai-capability-center", "整体导入 AI 模型和价格")},
 			"/api/ai-capability-center/{resource}":            gin.H{"get": api("ai-capability-center", "AI 能力中心资源列表"), "post": api("ai-capability-center", "新增 AI 能力中心资源")},
 			"/api/ai-capability-center/{resource}/{id}":       gin.H{"put": api("ai-capability-center", "更新 AI 能力中心资源"), "delete": api("ai-capability-center", "删除 AI 能力中心资源")},
 			"/api/ai-gateway/v1/invoke":                       gin.H{"post": api("ai-capability-center", "AI Gateway 调用")},
