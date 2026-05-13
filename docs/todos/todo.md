@@ -122,35 +122,35 @@
 
 ## 10. 菜单七：系统设置
 
-- [ ] 后端：能力字典维护接口复核 capability_code/name/type/unit/tier_pricing/status 校验。
-- [ ] 后端：网关参数设置校验默认超时、重试、告警通道、异步用量日志。
-- [ ] 系统设置页拆分 AI 能力字典、网关参数、安全归属三个区域。
-- [ ] 系统设置页能力字典可维护 capability_code/name/type/unit/tier_pricing/status。
-- [ ] 系统设置页网关参数可维护默认超时、重试、告警通道、异步用量日志。
-- [ ] 系统设置页安全归属展示 API Key 加密、Prompt 明文存储关闭、操作日志归属。
-- [ ] 文档：补充系统设置字段说明和安全归属边界。
-- [ ] 测试：补充能力字典和网关设置校验单测。
-- [ ] Review：检查能力字典引用保护、JSON 设置格式、安全信息展示。
+- [x] 后端：能力字典维护接口复核 capability_code/name/type/unit/tier_pricing/status 校验。
+- [x] 后端：网关参数设置校验默认超时、重试、告警通道、异步用量日志。
+- [x] 系统设置页拆分 AI 能力字典、网关参数、安全归属三个区域。
+- [x] 系统设置页能力字典可维护 capability_code/name/type/unit/tier_pricing/status。
+- [x] 系统设置页网关参数可维护默认超时、重试、告警通道、异步用量日志。
+- [x] 系统设置页安全归属展示 API Key 加密、Prompt 明文存储关闭、操作日志归属。
+- [x] 文档：补充系统设置字段说明和安全归属边界。
+- [x] 测试：补充能力字典和网关设置校验单测。
+- [x] Review：检查能力字典引用保护、JSON 设置格式、安全信息展示。
 
 ## 11. 横向能力：AI Gateway 调用链路
 
-- [ ] 后端：Gateway invoke 支持租户策略覆盖默认基础路由。
-- [ ] 后端：Gateway invoke 支持多条配额规则判定，输出判定结果。
-- [ ] 后端：Gateway invoke 支持多条限流规则判定，输出判定结果。
-- [ ] 后端：Gateway invoke 支持按 route strategy 选择模型池模型。
-- [ ] 后端：Gateway invoke 支持价格策略和分档价格匹配。
-- [ ] 后端：Gateway invoke 写入 cost_amount、billing_amount、platform_unit、platform_amount、price_policy_id、price_tier_id、tenant_strategy_id。
-- [ ] 文档：补充 Gateway invoke 策略覆盖、配额限流、价格匹配说明。
-- [ ] 测试：补充 Gateway invoke 策略覆盖、价格匹配、用量写入单测。
-- [ ] Review：检查策略优先级、价格匹配、用量写入是否与需求一致。
+- [x] 后端：Gateway invoke 支持租户策略覆盖默认基础路由。
+- [x] 后端：Gateway invoke 支持多条配额规则判定，输出判定结果。
+- [x] 后端：Gateway invoke 支持多条限流规则判定，输出判定结果。
+- [x] 后端：Gateway invoke 支持按 route strategy 选择模型池模型。
+- [x] 后端：Gateway invoke 支持价格策略和分档价格匹配。
+- [x] 后端：Gateway invoke 写入 cost_amount、billing_amount、platform_unit、platform_amount、price_policy_id、price_tier_id、tenant_strategy_id。
+- [x] 文档：补充 Gateway invoke 策略覆盖、配额限流、价格匹配说明。
+- [x] 测试：补充 Gateway invoke 策略覆盖、价格匹配、用量写入单测。
+- [x] Review：检查策略优先级、价格匹配、用量写入是否与需求一致。
 
 ## 12. 横向能力：审计、权限、装载
 
-- [ ] 后端：写操作审计补 before/after 差异，不只记录 patch。
+- [x] 后端：写操作审计补 before/after 差异，不只记录 patch。
 - [x] 应用中心：每次菜单/权限/API/套餐变更后执行 manifest scan/load 或等价装载验证。
 - [ ] 权限：复核页面按钮、API、manifest 三方一致。
-- [ ] 文档：补充部署与应用装载验证步骤。
-- [ ] 测试：补充 manifest 菜单数量和删除用量统计页断言。
+- [x] 文档：补充部署与应用装载验证步骤。
+- [x] 测试：补充 manifest 菜单数量和删除用量统计页断言。
 - [ ] Review：检查应用中心执行闭环、权限资源归属、套餐功能点口径。
 
 ## 13. 横向能力：页面验收

@@ -222,6 +222,10 @@ const selectedRouteModels = computed(() => routeModelsPage.value.items.filter((i
 const selectedTenantPolicy = computed(() => page.value.items.find((item) => String(item.id || '') === selectedTenantPolicyId.value))
 const selectedQuotaRules = computed(() => quotaRulesPage.value.items.filter((item) => String(item.policy_id || '') === selectedTenantPolicyId.value))
 const selectedRateLimitRules = computed(() => rateLimitRulesPage.value.items.filter((item) => String(item.policy_id || '') === selectedTenantPolicyId.value))
+const gatewayRuntimeSetting = computed(() => page.value.items.find((item) => item.setting_key === 'gateway_runtime'))
+const securitySetting = computed(() => page.value.items.find((item) => item.setting_key === 'security'))
+const gatewayRuntime = computed(() => settingJSON(gatewayRuntimeSetting.value))
+const securityBoundary = computed(() => settingJSON(securitySetting.value))
 const appGroups = computed(() => {
   const groups = new Map<string, { app_code: string; app_name: string; total: number; active: number }>()
   for (const item of page.value.items) {
@@ -259,6 +263,21 @@ function numberText(value: unknown) {
 function moneyText(value: unknown) {
   const numeric = Number(value ?? 0)
   return Number.isFinite(numeric) ? `¥${numeric.toFixed(2)}` : '¥0.00'
+}
+
+function settingJSON(row?: Record<string, unknown>) {
+  const value = row?.setting_value
+  if (!value) return {} as Record<string, unknown>
+  if (typeof value === 'object') return value as Record<string, unknown>
+  try {
+    return JSON.parse(String(value)) as Record<string, unknown>
+  } catch {
+    return {} as Record<string, unknown>
+  }
+}
+
+function boolText(value: unknown) {
+  return value === true ? '开启' : '关闭'
 }
 
 function strategyCount(row: Record<string, unknown>) {
@@ -326,6 +345,9 @@ async function loadData() {
       scenariosPage.value = await fetchAiResource('scenarios', { skip: 0, limit: 200 })
       baseRoutesPage.value = await fetchAiResource('base-routes', { skip: 0, limit: 200 })
       reconcileTenantPolicySelection()
+    }
+    if (activeSection.value.key === 'settings') {
+      capabilitiesPage.value = await fetchAiResource('capabilities', { skip: 0, limit: 200 })
     }
   } catch (error) {
     errorText.value = error instanceof Error ? error.message : '数据加载失败'
@@ -423,6 +445,15 @@ function openStrategyCreate(resource: AiResource) {
     payload.policy_id = selectedTenantPolicyId.value
   }
   formModel.value = normalizeEditorRow(payload)
+  editorJson.value = JSON.stringify(formModel.value, null, 2)
+  editorVisible.value = true
+}
+
+function openSettingsCreate(resource: AiResource) {
+  editorMode.value = 'create'
+  editorResource.value = resource
+  editingId.value = ''
+  formModel.value = normalizeEditorRow(defaultPayload(resource))
   editorJson.value = JSON.stringify(formModel.value, null, 2)
   editorVisible.value = true
 }
@@ -823,7 +854,7 @@ onMounted(loadData)
       <el-button v-if="activeSection.key === 'scenarios'" v-permission="'ai_capability_center:manage'" :icon="Upload" @click="scenarioImportVisible = true">场景导入</el-button>
       <el-button v-if="activeSection.key === 'routes'" v-permission="'ai_capability_center:manage'" :icon="Upload" @click="routeImportVisible = true">路由导入</el-button>
       <el-button v-if="activeSection.key === 'strategy'" v-permission="'ai_capability_center:manage'" :icon="Upload" @click="strategyImportVisible = true">策略导入</el-button>
-      <el-button v-if="canWrite && !['providers', 'models', 'scenarios', 'routes', 'strategy'].includes(activeSection.key)" v-permission="'ai_capability_center:manage'" type="primary" :icon="Plus" @click="openCreate">新增配置</el-button>
+      <el-button v-if="canWrite && !['providers', 'models', 'scenarios', 'routes', 'strategy', 'settings'].includes(activeSection.key)" v-permission="'ai_capability_center:manage'" type="primary" :icon="Plus" @click="openCreate">新增配置</el-button>
     </template>
 
     <div v-if="activeSection.key === 'dashboard'" class="ai-dashboard" v-loading="loading">
@@ -1367,6 +1398,89 @@ onMounted(loadData)
       </section>
     </div>
 
+    <div v-else-if="activeSection.key === 'settings'" class="ai-resource ai-settings-workbench">
+      <div class="ai-toolbar">
+        <el-input v-model="keyword" clearable placeholder="搜索网关参数配置" @keyup.enter="loadData">
+          <template #prefix><el-icon><Search /></el-icon></template>
+        </el-input>
+        <el-button :icon="Search" @click="loadData">查询</el-button>
+        <el-button v-permission="'ai_capability_center:manage'" type="primary" :icon="Plus" @click="openSettingsCreate('capabilities')">新增能力</el-button>
+        <el-button v-permission="'ai_capability_center:manage'" :icon="Plus" @click="openSettingsCreate('settings')">新增参数</el-button>
+      </div>
+      <el-alert v-if="errorText" :title="errorText" type="error" show-icon />
+
+      <section class="ai-settings-grid">
+        <div class="ai-panel">
+          <header><strong>AI 能力字典</strong><span>能力编码、计量单位和分档定价开关是场景与价格策略的基线</span></header>
+          <el-table v-loading="loading" :data="capabilitiesPage.items" border class="ai-table" empty-text="暂无能力字典">
+            <el-table-column prop="capability_name" label="能力" min-width="150" />
+            <el-table-column prop="capability_code" label="编码" min-width="160" />
+            <el-table-column prop="scenario_type" label="场景类型" width="110" />
+            <el-table-column prop="model_type" label="模型类型" width="110" />
+            <el-table-column prop="default_billing_unit" label="计量单位" width="120" />
+            <el-table-column label="分档定价" width="110">
+              <template #default="{ row }">{{ row.supports_tier_pricing ? '支持' : '不支持' }}</template>
+            </el-table-column>
+            <el-table-column label="状态" width="100">
+              <template #default="{ row }"><el-tag :type="statusType(row.status)">{{ displayCell(row, 'status') }}</el-tag></template>
+            </el-table-column>
+            <el-table-column fixed="right" label="操作" width="150">
+              <template #default="{ row }">
+                <el-button v-permission="'ai_capability_center:manage'" link type="primary" :icon="Edit" @click="openEdit(row, 'capabilities')">编辑</el-button>
+                <el-button v-permission="'ai_capability_center:manage'" link type="danger" :icon="Delete" @click="removeRow(row, 'capabilities')">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+
+        <div class="ai-panel">
+          <header><strong>网关参数</strong><span>默认超时、重试、告警通道和异步用量日志</span></header>
+          <div class="ai-settings-metrics">
+            <div><span>默认超时</span><strong>{{ numberText(gatewayRuntime.default_timeout_ms) }}ms</strong></div>
+            <div><span>默认重试</span><strong>{{ numberText(gatewayRuntime.default_max_retry) }}</strong></div>
+            <div><span>异步日志</span><strong>{{ boolText(gatewayRuntime.usage_log_async) }}</strong></div>
+          </div>
+          <el-table :data="page.items" border class="ai-table" empty-text="暂无网关参数">
+            <el-table-column prop="setting_key" label="配置项" width="180" />
+            <el-table-column label="配置值" min-width="260">
+              <template #default="{ row }">{{ displayCell(row, 'setting_value') }}</template>
+            </el-table-column>
+            <el-table-column prop="description" label="说明" min-width="220" />
+            <el-table-column label="状态" width="100">
+              <template #default="{ row }"><el-tag :type="statusType(row.status)">{{ displayCell(row, 'status') }}</el-tag></template>
+            </el-table-column>
+            <el-table-column fixed="right" label="操作" width="150">
+              <template #default="{ row }">
+                <el-button v-permission="'ai_capability_center:manage'" link type="primary" :icon="Edit" @click="openEdit(row, 'settings')">编辑</el-button>
+                <el-button v-permission="'ai_capability_center:manage'" link type="danger" :icon="Delete" @click="removeRow(row, 'settings')">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </section>
+
+      <section class="ai-panel">
+        <header><strong>安全归属</strong><span>平台能力边界，不把密钥、Prompt 和审计责任下放给租户后台</span></header>
+        <div class="ai-security-grid">
+          <div>
+            <span>API Key 加密</span>
+            <strong>{{ securityBoundary.api_key_encryption || 'external-kms-or-env' }}</strong>
+            <small>供应商账号仅回显密钥别名，密文字段不返回前端。</small>
+          </div>
+          <div>
+            <span>Prompt 明文存储</span>
+            <strong>{{ boolText(securityBoundary.prompt_plaintext_storage) }}</strong>
+            <small>Gateway 写入 Prompt Hash，明文不进入平台用量记录。</small>
+          </div>
+          <div>
+            <span>操作日志归属</span>
+            <strong>saas audit_log</strong>
+            <small>配置新增、编辑、删除均归属 app_code=ai-capability-center。</small>
+          </div>
+        </div>
+      </section>
+    </div>
+
     <div v-else class="ai-resource">
       <div class="ai-toolbar">
         <el-input v-model="keyword" clearable placeholder="搜索当前页面数据" @keyup.enter="loadData">
@@ -1687,6 +1801,43 @@ onMounted(loadData)
   gap: 12px;
 }
 
+.ai-settings-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: 12px;
+}
+
+.ai-settings-metrics,
+.ai-security-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.ai-settings-metrics div,
+.ai-security-grid div {
+  border: 1px solid var(--neuro-border);
+  border-radius: 8px;
+  padding: 10px;
+  min-width: 0;
+}
+
+.ai-settings-metrics span,
+.ai-security-grid span,
+.ai-security-grid small {
+  color: var(--neuro-text-muted);
+  display: block;
+  font-size: 12px;
+}
+
+.ai-settings-metrics strong,
+.ai-security-grid strong {
+  display: block;
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+
 .ai-pagination {
   justify-content: flex-end;
 }
@@ -1731,7 +1882,10 @@ onMounted(loadData)
   }
 
   .ai-model-shell,
-  .ai-model-price-grid {
+  .ai-model-price-grid,
+  .ai-settings-grid,
+  .ai-settings-metrics,
+  .ai-security-grid {
     grid-template-columns: 1fr;
   }
 

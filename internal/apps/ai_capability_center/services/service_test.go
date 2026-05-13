@@ -678,6 +678,136 @@ func TestDeleteScenarioBlocksUsageAndStrategyReferences(t *testing.T) {
 	require.ErrorIs(t, err, ErrResourceInUse)
 }
 
+func TestSystemSettingsValidateCapabilityAndGatewayRuntime(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	service := NewService(db)
+	ctx := context.Background()
+
+	_, err := service.CreateResource(ctx, 7, "capabilities", map[string]interface{}{
+		"capability_code":       "image_generation",
+		"capability_name":       "图片生成",
+		"scenario_type":         "image",
+		"model_type":            "image",
+		"default_billing_unit":  "images",
+		"supports_tier_pricing": true,
+		"status":                "active",
+	})
+	require.NoError(t, err)
+
+	_, err = service.CreateResource(ctx, 7, "capabilities", map[string]interface{}{
+		"capability_code": "broken",
+		"capability_name": "Broken",
+	})
+	require.ErrorIs(t, err, ErrInvalidInput)
+
+	created, err := service.CreateResource(ctx, 7, "settings", map[string]interface{}{
+		"setting_key": "gateway_runtime",
+		"setting_value": map[string]interface{}{
+			"default_timeout_ms": 45000,
+			"default_max_retry":  2,
+			"usage_log_async":    true,
+			"alert_channels":     []string{"ops"},
+		},
+		"description": "运行参数",
+		"status":      "active",
+	})
+	require.NoError(t, err)
+	setting := created.(models.AIGatewaySetting)
+	require.JSONEq(t, `{"default_timeout_ms":45000,"default_max_retry":2,"usage_log_async":true,"alert_channels":["ops"]}`, setting.SettingValue)
+
+	_, err = service.UpdateResource(ctx, 7, "settings", setting.ID, map[string]interface{}{
+		"setting_value": map[string]interface{}{
+			"default_timeout_ms": 0,
+			"default_max_retry":  2,
+			"usage_log_async":    true,
+		},
+	})
+	require.ErrorIs(t, err, ErrInvalidInput)
+}
+
+func TestInvokeAppliesTenantStrategyPricingAndUsageRecord(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "chat_completion", "tokens")
+	provider, account, api := seedProviderAccountAPI(t, db, "openai", "prod")
+	model := seedModel(t, db, provider.Code, "gpt-4.1")
+	route := seedBaseRoute(t, db, "route-default", "chat_completion")
+	overrideRoute := seedBaseRoute(t, db, "route-override", "chat_completion")
+	now := time.Now()
+	require.NoError(t, db.Create(&models.AIBaseRouteModel{
+		ID: "route-model-default", BaseRouteID: route.ID, ModelID: model.ID, Role: "primary", Priority: 1, Weight: 80, TimeoutMS: 30000, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+	require.NoError(t, db.Create(&models.AIBaseRouteModel{
+		ID: "route-model-override", BaseRouteID: overrideRoute.ID, ModelID: model.ID, Role: "primary", Priority: 1, Weight: 100, TimeoutMS: 30000, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+	seedScenario(t, db, route.ID)
+	policy := models.AITenantStrategyPolicy{
+		ID: "policy-invoke", PolicyName: "重点租户覆盖", TenantScope: "include", TenantIDs: []string{"tenant-a"},
+		AppCode: "product_center", AppName: "商品中心", AIScenarioCode: "copy_gen", AIScenarioName: "文案生成",
+		DefaultBaseRouteID: route.ID, OverrideBaseRouteID: overrideRoute.ID, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&policy).Error)
+	quota := models.AIStrategyQuotaRule{
+		ID: "quota-invoke", PolicyID: policy.ID, Dimension: "scenario", SubjectCode: "copy_gen", UsageUnit: "tokens",
+		Period: "day", QuotaLimit: 100, WarningThreshold: 80, OverLimitAction: "alert_only", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&quota).Error)
+	rate := models.AIStrategyRateLimitRule{
+		ID: "rate-invoke", PolicyID: policy.ID, Dimension: "user", SubjectCode: "user-a", MinuteLimit: 10, OverLimitAction: "queue", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&rate).Error)
+	pricePolicy := models.AIModelPricePolicy{
+		ID: "price-policy-invoke", ModelID: model.ID, FeatureKey: "chat_tokens", FeatureName: "对话 Token", ModelType: "text",
+		CapabilityCode: "chat_completion", BillingMode: "tiered", BillingUnit: "tokens", PlatformUnit: "tokens",
+		BaseCostPrice: 0.01, BaseSalePrice: 0.03, BasePlatformAmount: 1, Currency: "CNY", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&pricePolicy).Error)
+	tier := models.AIModelPriceTier{
+		ID: "price-tier-invoke", PricePolicyID: pricePolicy.ID, TierName: "standard", Mode: "sync",
+		CostPrice: 0.02, SalePrice: 0.05, PlatformAmount: 1, Enabled: true, SortOrder: 1,
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&tier).Error)
+
+	resp, err := NewService(db).Invoke(context.Background(), InvokeRequest{
+		TenantID: "tenant-a", TenantName: "租户 A", AppCode: "product_center", AppName: "商品中心",
+		AIScenarioCode: "copy_gen", UserID: "user-a", RequestID: "invoke-1",
+		Params: map[string]interface{}{"usage_amount": 10, "mode": "sync"},
+		Input:  map[string]interface{}{"prompt": "hello"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "success", resp.Status)
+	require.Equal(t, overrideRoute.ID, resp.BaseRouteID)
+	require.Equal(t, model.ID, resp.ModelID)
+	require.Equal(t, policy.ID, resp.StrategyID)
+	require.Len(t, resp.Controls["quota_rules"], 1)
+	require.Len(t, resp.Controls["rate_limit_rules"], 1)
+
+	var record models.AIUsageRecord
+	require.NoError(t, db.Where("request_id = ?", "invoke-1").First(&record).Error)
+	require.Equal(t, provider.ID, record.ProviderID)
+	require.Equal(t, account.ID, record.ProviderAccountID)
+	require.Equal(t, api.ID, record.ProviderAPIID)
+	require.Equal(t, overrideRoute.ID, record.BaseRouteID)
+	require.Equal(t, policy.ID, record.TenantStrategyID)
+	require.Equal(t, pricePolicy.ID, record.PricePolicyID)
+	require.Equal(t, tier.ID, record.PriceTierID)
+	require.InDelta(t, 10, record.UsageAmount, 0.0001)
+	require.InDelta(t, 0.2, record.CostAmount, 0.0001)
+	require.InDelta(t, 0.5, record.BillingAmount, 0.0001)
+	require.Equal(t, "tokens", record.PlatformUnit)
+	require.InDelta(t, 10, record.PlatformAmount, 0.0001)
+
+	var updatedQuota models.AIStrategyQuotaRule
+	require.NoError(t, db.Where("id = ?", quota.ID).First(&updatedQuota).Error)
+	require.InDelta(t, 10, updatedQuota.UsedAmount, 0.0001)
+}
+
 func newAICapabilityTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})

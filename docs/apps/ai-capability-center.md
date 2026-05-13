@@ -308,3 +308,37 @@ AI 场景通过 `POST /api/ai-capability-center/scenarios/import` 批量注册�
   ]
 }
 ```
+
+## 系统设置
+
+系统设置页拆成三个平台侧区域：
+
+- AI 能力字典：维护 `capability_code`、`capability_name`、`scenario_type`、`model_type`、`default_billing_unit`、`supports_tier_pricing`、`status`。能力字典被 AI 场景、基础路由和价格策略引用时会阻断删除。
+- 网关参数：维护 `gateway_runtime`、`security` 等 JSON 配置。`gateway_runtime` 必须包含正数 `default_timeout_ms`、非负 `default_max_retry`、布尔 `usage_log_async`，可附加 `alert_channels`。`security` 必须包含布尔 `prompt_plaintext_storage` 和 `api_key_encryption`。
+- 安全归属：页面展示 API Key 加密策略、Prompt 明文存储开关和操作日志归属；供应商账号密文字段不回显，Gateway 用量记录写入 Prompt Hash，不落 Prompt 明文。
+
+配置写入统一校验 JSON 格式；新增、编辑、删除均写入底座 `audit_log`，更新日志包含 `before/after/patch`，便于后续审计追溯。
+
+## AI Gateway 调用链路
+
+`POST /api/ai-gateway/v1/invoke` 的执行闭环：
+
+1. 按 `app_code + ai_scenario_code` 查找启用的 AI 场景。
+2. 按租户策略匹配顺序选择策略：`include` 命中当前租户优先，其次 `all`，再其次未排除当前租户的 `exclude`。
+3. 使用策略的 `override_base_route_id` 覆盖默认基础路由；无覆盖时使用策略默认路由或场景默认路由。
+4. 按基础路由策略选择模型池节点：优先级/主备兜底、权重、质量优先、延迟优先等策略都会参与确定性评分。
+5. 按模型和能力匹配价格策略，并按 `mode/resolution/quality/aspect_ratio/duration_seconds` 尝试命中分档价格。
+6. 按策略下多条配额规则和限流规则判定，响应返回 `controls.quota_rules` 和 `controls.rate_limit_rules` 的判定结果。
+7. 写入 `ai_usage_records`，包含 `tenant_strategy_id`、`base_route_id`、`model_id`、`provider_id`、`provider_account_id`、`provider_api_id`、`price_policy_id`、`price_tier_id`、`cost_amount`、`billing_amount`、`platform_unit`、`platform_amount`。
+
+当配额或限流规则的超限动作是 `reject` 时，本次记录会以 `rejected` 状态写入，并带上 `quota_exceeded` 或 `rate_limited` 错误码；其他动作先记录判定结果，交由调用方或后续执行器处理降级、排队、审批等动作。
+
+## 部署与装载验证
+
+AI 能力中心走合并部署，后端路由随主服务启动，前端路由随主前端构建发布。应用中心装载时必须确认：
+
+- `sys_app.app_code=ai-capability-center`，`visibility_scope=PLATFORM_ONLY`，`charge_mode=NON_SELLABLE`，`billing_mode=NONE`。
+- `sys_app_entry` 中只有 7 个平台菜单：总览、供应商、模型目录、AI 场景、基础路由、策略中心、系统设置。
+- `permission` 中 7 个菜单权限均为平台权限，不作为套餐功能点；`ai_capability_center:manage` 是配置写权限，`ai_gateway:invoke` 是业务调用权限。
+- `saas_feature` 和 `sys_app_quota` 不应出现 `ai-capability-center` 的套餐功能点或套餐配额。
+- 前端页面内部不渲染二级 tab，左侧菜单是唯一导航入口。

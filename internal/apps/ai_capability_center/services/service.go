@@ -617,9 +617,47 @@ type InvokeResponse struct {
 	Status      string                 `json:"status"`
 	ModelID     string                 `json:"model_id"`
 	BaseRouteID string                 `json:"base_route_id"`
+	StrategyID  string                 `json:"tenant_strategy_id"`
 	Usage       map[string]interface{} `json:"usage"`
 	Billing     map[string]interface{} `json:"billing"`
+	Controls    map[string]interface{} `json:"controls"`
 	Data        map[string]interface{} `json:"data"`
+}
+
+type quotaCheckResult struct {
+	RuleID          string  `json:"rule_id"`
+	Dimension       string  `json:"dimension"`
+	SubjectCode     string  `json:"subject_code"`
+	UsageUnit       string  `json:"usage_unit"`
+	Period          string  `json:"period"`
+	Limit           float64 `json:"limit"`
+	UsedBefore      float64 `json:"used_before"`
+	RequestedAmount float64 `json:"requested_amount"`
+	Exceeded        bool    `json:"exceeded"`
+	Action          string  `json:"action"`
+}
+
+type rateLimitCheckResult struct {
+	RuleID      string `json:"rule_id"`
+	Dimension   string `json:"dimension"`
+	SubjectCode string `json:"subject_code"`
+	Window      string `json:"window"`
+	Limit       int    `json:"limit"`
+	UsedBefore  int64  `json:"used_before"`
+	Exceeded    bool   `json:"exceeded"`
+	Action      string `json:"action"`
+}
+
+type pricingResult struct {
+	PolicyID       string
+	TierID         string
+	UsageAmount    float64
+	UsageUnit      string
+	CostAmount     float64
+	BillingAmount  float64
+	PlatformUnit   string
+	PlatformAmount float64
+	FeatureKey     string
 }
 
 func (s *Service) EnsureBaseline(ctx context.Context) error {
@@ -979,59 +1017,426 @@ func (s *Service) Invoke(ctx context.Context, req InvokeRequest) (InvokeResponse
 	if err := s.db.WithContext(ctx).Where("app_code = ? AND ai_scenario_code = ? AND status = ? AND deleted_at IS NULL", req.AppCode, req.AIScenarioCode, "active").First(&scenario).Error; err != nil {
 		return InvokeResponse{}, ErrNotFound
 	}
+	strategy, strategyFound, err := s.matchTenantStrategy(ctx, req, scenario)
+	if err != nil {
+		return InvokeResponse{}, err
+	}
+	routeID := scenario.DefaultBaseRouteID
+	if strategyFound {
+		routeID = defaultString(strategy.OverrideBaseRouteID, strategy.DefaultBaseRouteID)
+	}
 	var route models.AIBaseRoute
-	if err := s.db.WithContext(ctx).Where("id = ? AND deleted_at IS NULL", scenario.DefaultBaseRouteID).First(&route).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("id = ? AND status = ? AND deleted_at IS NULL", routeID, "active").First(&route).Error; err != nil {
 		return InvokeResponse{}, ErrNotFound
 	}
-	var routeModel models.AIBaseRouteModel
-	_ = s.db.WithContext(ctx).Where("base_route_id = ? AND deleted_at IS NULL", route.ID).Order("priority asc, weight desc").First(&routeModel).Error
+	routeModel, model, err := s.selectRouteModel(ctx, route, scenario)
+	if err != nil {
+		return InvokeResponse{}, err
+	}
+	providerID, accountID, apiID := s.resolveProviderEndpoint(ctx, model.ProviderID, scenario.CapabilityCode)
 
 	paramsRaw, _ := json.Marshal(req.Params)
+	inputRaw, _ := json.Marshal(req.Input)
 	hash := sha256.Sum256(paramsRaw)
+	responseHash := sha256.Sum256(inputRaw)
 	now := time.Now()
-	record := models.AIUsageRecord{
-		RequestID:      req.RequestID,
-		TenantID:       req.TenantID,
-		TenantName:     req.TenantName,
-		AppCode:        scenario.AppCode,
-		AppName:        defaultString(req.AppName, scenario.AppName),
-		AIScenarioCode: scenario.AIScenarioCode,
-		AIScenarioName: scenario.AIScenarioName,
-		UserID:         req.UserID,
-		UserName:       req.UserName,
-		ModelID:        routeModel.ModelID,
-		BaseRouteID:    route.ID,
-		UsageAmount:    1,
-		UsageUnit:      usageUnitForCapability(ctx, s.db, scenario.CapabilityCode),
-		UsageDetail:    "Gateway 校验与路由命中记录",
-		Calls:          1,
-		Status:         "success",
-		LatencyMS:      0,
-		RequestParams:  string(paramsRaw),
-		PromptHash:     hex.EncodeToString(hash[:]),
-		CalledAt:       now,
-		CreatedAt:      now,
+	pricing, err := s.matchPricing(ctx, model, scenario, req)
+	if err != nil {
+		return InvokeResponse{}, err
 	}
-	if err := s.db.WithContext(ctx).Create(&record).Error; err != nil {
+	quotaChecks, err := s.evaluateQuotaRules(ctx, req, scenario, strategy, strategyFound, routeModel, pricing, accountID, apiID, now)
+	if err != nil {
+		return InvokeResponse{}, err
+	}
+	rateChecks, err := s.evaluateRateLimitRules(ctx, req, scenario, strategy, strategyFound, routeModel, pricing, accountID, apiID, now)
+	if err != nil {
+		return InvokeResponse{}, err
+	}
+	status := "success"
+	errorCode := ""
+	errorMessage := ""
+	for _, check := range quotaChecks {
+		if check.Exceeded && check.Action == "reject" {
+			status = "rejected"
+			errorCode = "quota_exceeded"
+			errorMessage = "AI Gateway 配额超限"
+			break
+		}
+	}
+	if status == "success" {
+		for _, check := range rateChecks {
+			if check.Exceeded && check.Action == "reject" {
+				status = "rejected"
+				errorCode = "rate_limited"
+				errorMessage = "AI Gateway 限流超限"
+				break
+			}
+		}
+	}
+	record := models.AIUsageRecord{
+		RequestID:         req.RequestID,
+		TenantID:          req.TenantID,
+		TenantName:        req.TenantName,
+		AppCode:           scenario.AppCode,
+		AppName:           defaultString(req.AppName, scenario.AppName),
+		AIScenarioCode:    scenario.AIScenarioCode,
+		AIScenarioName:    scenario.AIScenarioName,
+		UserID:            req.UserID,
+		UserName:          req.UserName,
+		ProviderID:        providerID,
+		ProviderAccountID: accountID,
+		ProviderAPIID:     apiID,
+		ModelID:           routeModel.ModelID,
+		BaseRouteID:       route.ID,
+		TenantStrategyID:  strategyID(strategy, strategyFound),
+		PricePolicyID:     pricing.PolicyID,
+		PriceTierID:       pricing.TierID,
+		UsageAmount:       pricing.UsageAmount,
+		UsageUnit:         pricing.UsageUnit,
+		UsageDetail:       "Gateway 路由、策略、配额、限流和价格命中记录",
+		Calls:             1,
+		CostAmount:        pricing.CostAmount,
+		BillingAmount:     pricing.BillingAmount,
+		PlatformUnit:      pricing.PlatformUnit,
+		PlatformAmount:    pricing.PlatformAmount,
+		Status:            status,
+		ErrorCode:         errorCode,
+		ErrorMessage:      errorMessage,
+		LatencyMS:         0,
+		RequestParams:     string(paramsRaw),
+		PromptHash:        hex.EncodeToString(hash[:]),
+		ResponseHash:      hex.EncodeToString(responseHash[:]),
+		CalledAt:          now,
+		CreatedAt:         now,
+	}
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&record).Error; err != nil {
+			return err
+		}
+		if status == "success" && strategyFound {
+			for _, check := range quotaChecks {
+				if check.RuleID == "" {
+					continue
+				}
+				if err := tx.Model(&models.AIStrategyQuotaRule{}).
+					Where("id = ? AND deleted_at IS NULL", check.RuleID).
+					Update("used_amount", gorm.Expr("used_amount + ?", pricing.UsageAmount)).Error; err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
 		return InvokeResponse{}, err
 	}
 	return InvokeResponse{
 		RequestID:   req.RequestID,
-		Status:      "success",
+		Status:      status,
 		ModelID:     routeModel.ModelID,
 		BaseRouteID: route.ID,
+		StrategyID:  record.TenantStrategyID,
 		Usage: map[string]interface{}{
 			"amount": record.UsageAmount,
 			"unit":   record.UsageUnit,
 		},
 		Billing: map[string]interface{}{
+			"price_policy_id": record.PricePolicyID,
+			"price_tier_id":   record.PriceTierID,
+			"feature_key":     pricing.FeatureKey,
 			"cost_amount":     record.CostAmount,
 			"billing_amount":  record.BillingAmount,
 			"platform_unit":   record.PlatformUnit,
 			"platform_amount": record.PlatformAmount,
 		},
+		Controls: map[string]interface{}{
+			"quota_rules":      quotaChecks,
+			"rate_limit_rules": rateChecks,
+		},
 		Data: map[string]interface{}{},
 	}, nil
+}
+
+func (s *Service) matchTenantStrategy(ctx context.Context, req InvokeRequest, scenario models.AIScenario) (models.AITenantStrategyPolicy, bool, error) {
+	var rows []models.AITenantStrategyPolicy
+	err := s.db.WithContext(ctx).
+		Where("app_code = ? AND ai_scenario_code = ? AND status = ? AND deleted_at IS NULL", scenario.AppCode, scenario.AIScenarioCode, "active").
+		Order("updated_at desc").
+		Find(&rows).Error
+	if err != nil {
+		return models.AITenantStrategyPolicy{}, false, err
+	}
+	bestScore := -1
+	var best models.AITenantStrategyPolicy
+	for _, row := range rows {
+		score := tenantStrategyMatchScore(row, req.TenantID)
+		if score > bestScore {
+			bestScore = score
+			best = row
+		}
+	}
+	return best, bestScore >= 0, nil
+}
+
+func tenantStrategyMatchScore(row models.AITenantStrategyPolicy, tenantID string) int {
+	scope := strings.TrimSpace(row.TenantScope)
+	switch scope {
+	case "include":
+		if containsString(row.TenantIDs, tenantID) {
+			return 30
+		}
+	case "all":
+		return 20
+	case "exclude":
+		if !containsString(row.TenantIDs, tenantID) {
+			return 10
+		}
+	}
+	return -1
+}
+
+func (s *Service) selectRouteModel(ctx context.Context, route models.AIBaseRoute, scenario models.AIScenario) (models.AIBaseRouteModel, models.AIModel, error) {
+	var rows []models.AIBaseRouteModel
+	if err := s.db.WithContext(ctx).Where("base_route_id = ? AND status = ? AND deleted_at IS NULL", route.ID, "active").Find(&rows).Error; err != nil {
+		return models.AIBaseRouteModel{}, models.AIModel{}, err
+	}
+	if len(rows) == 0 {
+		return models.AIBaseRouteModel{}, models.AIModel{}, ErrNotFound
+	}
+	bestScore := -1.0
+	var bestRouteModel models.AIBaseRouteModel
+	var bestModel models.AIModel
+	for _, row := range rows {
+		var model models.AIModel
+		if err := s.db.WithContext(ctx).Where("id = ? AND status = ? AND deleted_at IS NULL", row.ModelID, "active").First(&model).Error; err != nil {
+			continue
+		}
+		if scenario.ModelType != "" && model.ModelType != scenario.ModelType {
+			continue
+		}
+		score := routeModelScore(route.Strategy, row, model)
+		if score > bestScore {
+			bestScore = score
+			bestRouteModel = row
+			bestModel = model
+		}
+	}
+	if bestScore < 0 {
+		return models.AIBaseRouteModel{}, models.AIModel{}, ErrNotFound
+	}
+	return bestRouteModel, bestModel, nil
+}
+
+func routeModelScore(strategy string, row models.AIBaseRouteModel, model models.AIModel) float64 {
+	priorityScore := float64(100000 - row.Priority*100)
+	weightScore := float64(row.Weight)
+	switch strings.TrimSpace(strategy) {
+	case "load_balance":
+		return weightScore*1000 + priorityScore
+	case "cost_first":
+		return priorityScore + weightScore
+	case "quality_first":
+		return model.SuccessRate*1000 + priorityScore + weightScore
+	case "latency_first":
+		latency := model.LatencyP95
+		if latency <= 0 {
+			latency = 999999
+		}
+		return float64(1000000-latency) + priorityScore + weightScore
+	default:
+		roleScore := 0.0
+		if row.Role == "primary" {
+			roleScore = 10000
+		}
+		if row.Role == "fallback" {
+			roleScore = 5000
+		}
+		return roleScore + priorityScore + weightScore
+	}
+}
+
+func (s *Service) resolveProviderEndpoint(ctx context.Context, providerID, capabilityCode string) (string, string, string) {
+	var account models.AIProviderAccount
+	if err := s.db.WithContext(ctx).Where("provider_id = ? AND status = ? AND deleted_at IS NULL", providerID, "active").Order("updated_at desc").First(&account).Error; err != nil {
+		return providerID, "", ""
+	}
+	var apis []models.AIProviderAPI
+	if err := s.db.WithContext(ctx).Where("provider_id = ? AND account_id = ? AND status = ? AND deleted_at IS NULL", providerID, account.ID, "active").Find(&apis).Error; err != nil {
+		return providerID, account.ID, ""
+	}
+	for _, api := range apis {
+		if containsString(api.Capabilities, capabilityCode) {
+			return providerID, account.ID, api.ID
+		}
+	}
+	if len(apis) > 0 {
+		return providerID, account.ID, apis[0].ID
+	}
+	return providerID, account.ID, ""
+}
+
+func (s *Service) matchPricing(ctx context.Context, model models.AIModel, scenario models.AIScenario, req InvokeRequest) (pricingResult, error) {
+	usageAmount := numberParam(req.Params, "usage_amount", 1)
+	if usageAmount <= 0 {
+		usageAmount = 1
+	}
+	result := pricingResult{
+		UsageAmount: usageAmount,
+		UsageUnit:   usageUnitForCapability(ctx, s.db, scenario.CapabilityCode),
+	}
+	var policy models.AIModelPricePolicy
+	err := s.db.WithContext(ctx).
+		Where("model_id = ? AND capability_code = ? AND status = ? AND deleted_at IS NULL", model.ID, scenario.CapabilityCode, "active").
+		Order("updated_at desc").
+		First(&policy).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return result, nil
+	}
+	if err != nil {
+		return pricingResult{}, err
+	}
+	result.PolicyID = policy.ID
+	result.UsageUnit = defaultString(policy.BillingUnit, result.UsageUnit)
+	result.PlatformUnit = policy.PlatformUnit
+	result.PlatformAmount = policy.BasePlatformAmount * usageAmount
+	result.FeatureKey = policy.FeatureKey
+	costPrice := policy.BaseCostPrice
+	salePrice := policy.BaseSalePrice
+	var tiers []models.AIModelPriceTier
+	if err := s.db.WithContext(ctx).Where("price_policy_id = ? AND enabled = ? AND deleted_at IS NULL", policy.ID, true).Order("sort_order asc").Find(&tiers).Error; err != nil {
+		return pricingResult{}, err
+	}
+	if tier, ok := matchPriceTier(tiers, req.Params); ok {
+		result.TierID = tier.ID
+		costPrice = tier.CostPrice
+		salePrice = tier.SalePrice
+		if tier.PlatformAmount > 0 {
+			result.PlatformAmount = tier.PlatformAmount * usageAmount
+		}
+	}
+	result.CostAmount = costPrice * usageAmount
+	result.BillingAmount = salePrice * usageAmount
+	return result, nil
+}
+
+func matchPriceTier(tiers []models.AIModelPriceTier, params map[string]interface{}) (models.AIModelPriceTier, bool) {
+	for _, tier := range tiers {
+		if stringParam(params, "mode") != "" && tier.Mode != "" && stringParam(params, "mode") != tier.Mode {
+			continue
+		}
+		if stringParam(params, "resolution") != "" && tier.Resolution != "" && stringParam(params, "resolution") != tier.Resolution {
+			continue
+		}
+		if stringParam(params, "quality") != "" && tier.Quality != "" && stringParam(params, "quality") != tier.Quality {
+			continue
+		}
+		if stringParam(params, "aspect_ratio") != "" && tier.AspectRatio != "" && stringParam(params, "aspect_ratio") != tier.AspectRatio {
+			continue
+		}
+		if numberParam(params, "duration_seconds", 0) > 0 && tier.DurationSeconds > 0 && int(numberParam(params, "duration_seconds", 0)) != tier.DurationSeconds {
+			continue
+		}
+		return tier, true
+	}
+	if len(tiers) > 0 {
+		return tiers[0], true
+	}
+	return models.AIModelPriceTier{}, false
+}
+
+func (s *Service) evaluateQuotaRules(ctx context.Context, req InvokeRequest, scenario models.AIScenario, strategy models.AITenantStrategyPolicy, found bool, routeModel models.AIBaseRouteModel, pricing pricingResult, accountID, apiID string, now time.Time) ([]quotaCheckResult, error) {
+	if !found {
+		return []quotaCheckResult{}, nil
+	}
+	var rules []models.AIStrategyQuotaRule
+	if err := s.db.WithContext(ctx).Where("policy_id = ? AND status = ? AND deleted_at IS NULL", strategy.ID, "active").Find(&rules).Error; err != nil {
+		return nil, err
+	}
+	results := make([]quotaCheckResult, 0, len(rules))
+	for _, rule := range rules {
+		if !controlRuleMatches(rule.Dimension, rule.SubjectCode, req, scenario, routeModel, pricing, accountID, apiID) {
+			continue
+		}
+		start := periodStart(now, rule.Period)
+		used, err := s.usageAmountForQuotaRule(ctx, strategy.ID, rule, start)
+		if err != nil {
+			return nil, err
+		}
+		used += rule.UsedAmount
+		exceeded := rule.QuotaLimit > 0 && used+pricing.UsageAmount > rule.QuotaLimit
+		results = append(results, quotaCheckResult{
+			RuleID: rule.ID, Dimension: rule.Dimension, SubjectCode: rule.SubjectCode, UsageUnit: rule.UsageUnit, Period: rule.Period,
+			Limit: rule.QuotaLimit, UsedBefore: used, RequestedAmount: pricing.UsageAmount, Exceeded: exceeded, Action: rule.OverLimitAction,
+		})
+	}
+	return results, nil
+}
+
+func (s *Service) usageAmountForQuotaRule(ctx context.Context, strategyID string, rule models.AIStrategyQuotaRule, start *time.Time) (float64, error) {
+	q := s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).
+		Where("tenant_strategy_id = ? AND usage_unit = ?", strategyID, rule.UsageUnit)
+	if start != nil {
+		q = q.Where("called_at >= ?", *start)
+	}
+	var used float64
+	if err := q.Select("COALESCE(SUM(usage_amount),0)").Row().Scan(&used); err != nil {
+		return 0, err
+	}
+	return used, nil
+}
+
+func (s *Service) evaluateRateLimitRules(ctx context.Context, req InvokeRequest, scenario models.AIScenario, strategy models.AITenantStrategyPolicy, found bool, routeModel models.AIBaseRouteModel, pricing pricingResult, accountID, apiID string, now time.Time) ([]rateLimitCheckResult, error) {
+	if !found {
+		return []rateLimitCheckResult{}, nil
+	}
+	var rules []models.AIStrategyRateLimitRule
+	if err := s.db.WithContext(ctx).Where("policy_id = ? AND status = ? AND deleted_at IS NULL", strategy.ID, "active").Find(&rules).Error; err != nil {
+		return nil, err
+	}
+	results := []rateLimitCheckResult{}
+	for _, rule := range rules {
+		if !controlRuleMatches(rule.Dimension, rule.SubjectCode, req, scenario, routeModel, pricing, accountID, apiID) {
+			continue
+		}
+		checks := []struct {
+			window string
+			limit  int
+			start  time.Time
+		}{
+			{"minute", rule.MinuteLimit, now.Add(-time.Minute)},
+			{"hour", rule.HourLimit, now.Add(-time.Hour)},
+			{"day", rule.DayLimit, time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())},
+		}
+		if rule.QPS > 0 {
+			checks = append(checks, struct {
+				window string
+				limit  int
+				start  time.Time
+			}{"second", rule.QPS, now.Add(-time.Second)})
+		}
+		for _, check := range checks {
+			if check.limit <= 0 {
+				continue
+			}
+			used, err := s.callsSince(ctx, strategy.ID, check.start)
+			if err != nil {
+				return nil, err
+			}
+			results = append(results, rateLimitCheckResult{
+				RuleID: rule.ID, Dimension: rule.Dimension, SubjectCode: rule.SubjectCode, Window: check.window,
+				Limit: check.limit, UsedBefore: used, Exceeded: used+1 > int64(check.limit), Action: rule.OverLimitAction,
+			})
+		}
+	}
+	return results, nil
+}
+
+func (s *Service) callsSince(ctx context.Context, strategyID string, start time.Time) (int64, error) {
+	var calls int64
+	err := s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).
+		Where("tenant_strategy_id = ? AND called_at >= ?", strategyID, start).
+		Select("COALESCE(SUM(calls),0)").Row().Scan(&calls)
+	return calls, err
 }
 
 func (s *Service) CreateResource(ctx context.Context, userID uint64, resource string, payload map[string]interface{}) (interface{}, error) {
@@ -1091,6 +1496,10 @@ func (s *Service) CreateResource(ctx context.Context, userID uint64, resource st
 		if err := decodePayload(payload, &row); err != nil {
 			return nil, err
 		}
+		if err := validateCapability(row); err != nil {
+			return nil, err
+		}
+		row.ID = uuid.NewString()
 		row.CreatedAt = now
 		row.UpdatedAt = now
 		if err := s.db.WithContext(ctx).Create(&row).Error; err != nil {
@@ -1251,10 +1660,15 @@ func (s *Service) CreateResource(ctx context.Context, userID uint64, resource st
 		}
 		return row, nil
 	case "settings":
+		normalizeSettingPayload(payload)
 		var row models.AIGatewaySetting
 		if err := decodePayload(payload, &row); err != nil {
 			return nil, err
 		}
+		if err := validateGatewaySetting(row); err != nil {
+			return nil, err
+		}
+		row.ID = uuid.NewString()
 		row.CreatedAt = now
 		row.UpdatedAt = now
 		if err := s.db.WithContext(ctx).Create(&row).Error; err != nil {
@@ -1274,33 +1688,34 @@ func (s *Service) UpdateResource(ctx context.Context, userID uint64, resource, i
 	payload["updated_at"] = time.Now()
 	switch resource {
 	case "providers":
-		return updateRow[models.AIProvider](ctx, s, userID, resource, id, payload, "ai_provider")
+		return updateRow[models.AIProvider](ctx, s, userID, resource, id, payload, "ai_provider", validateProvider)
 	case "accounts":
-		return updateRow[models.AIProviderAccount](ctx, s, userID, resource, id, payload, "ai_provider_account")
+		return updateRow[models.AIProviderAccount](ctx, s, userID, resource, id, payload, "ai_provider_account", validateProviderAccount)
 	case "apis":
-		return updateRow[models.AIProviderAPI](ctx, s, userID, resource, id, payload, "ai_provider_api")
+		return updateRow[models.AIProviderAPI](ctx, s, userID, resource, id, payload, "ai_provider_api", validateProviderAPI)
 	case "capabilities":
-		return updateRow[models.AICapability](ctx, s, userID, resource, id, payload, "ai_capability")
+		return updateRow[models.AICapability](ctx, s, userID, resource, id, payload, "ai_capability", validateCapability)
 	case "models":
-		return updateRow[models.AIModel](ctx, s, userID, resource, id, payload, "ai_model")
+		return updateRow[models.AIModel](ctx, s, userID, resource, id, payload, "ai_model", validateModel)
 	case "price-policies":
-		return updateRow[models.AIModelPricePolicy](ctx, s, userID, resource, id, payload, "ai_model_price_policy")
+		return updateRow[models.AIModelPricePolicy](ctx, s, userID, resource, id, payload, "ai_model_price_policy", validatePricePolicy)
 	case "price-tiers":
-		return updateRow[models.AIModelPriceTier](ctx, s, userID, resource, id, payload, "ai_model_price_tier")
+		return updateRow[models.AIModelPriceTier](ctx, s, userID, resource, id, payload, "ai_model_price_tier", validatePriceTier)
 	case "base-routes":
-		return updateRow[models.AIBaseRoute](ctx, s, userID, resource, id, payload, "ai_base_route")
+		return updateRow[models.AIBaseRoute](ctx, s, userID, resource, id, payload, "ai_base_route", validateBaseRoute)
 	case "route-models":
-		return updateRow[models.AIBaseRouteModel](ctx, s, userID, resource, id, payload, "ai_base_route_model")
+		return updateRow[models.AIBaseRouteModel](ctx, s, userID, resource, id, payload, "ai_base_route_model", validateRouteModel)
 	case "scenarios":
-		return updateRow[models.AIScenario](ctx, s, userID, resource, id, payload, "ai_scenario")
+		return updateRow[models.AIScenario](ctx, s, userID, resource, id, payload, "ai_scenario", validateScenario)
 	case "tenant-strategies":
-		return updateRow[models.AITenantStrategyPolicy](ctx, s, userID, resource, id, payload, "ai_tenant_strategy")
+		return updateRow[models.AITenantStrategyPolicy](ctx, s, userID, resource, id, payload, "ai_tenant_strategy", validateTenantStrategy)
 	case "quota-rules":
-		return updateRow[models.AIStrategyQuotaRule](ctx, s, userID, resource, id, payload, "ai_strategy_quota_rule")
+		return updateRow[models.AIStrategyQuotaRule](ctx, s, userID, resource, id, payload, "ai_strategy_quota_rule", validateQuotaRule)
 	case "rate-limit-rules":
-		return updateRow[models.AIStrategyRateLimitRule](ctx, s, userID, resource, id, payload, "ai_strategy_rate_limit_rule")
+		return updateRow[models.AIStrategyRateLimitRule](ctx, s, userID, resource, id, payload, "ai_strategy_rate_limit_rule", validateRateLimitRule)
 	case "settings":
-		return updateRow[models.AIGatewaySetting](ctx, s, userID, resource, id, payload, "ai_gateway_setting")
+		normalizeSettingPayload(payload)
+		return updateRow[models.AIGatewaySetting](ctx, s, userID, resource, id, payload, "ai_gateway_setting", validateGatewaySetting)
 	default:
 		return nil, ErrNotFound
 	}
@@ -2083,6 +2498,160 @@ func validateProvider(row models.AIProvider) error {
 	return nil
 }
 
+func validateProviderAccount(row models.AIProviderAccount) error {
+	if strings.TrimSpace(row.ProviderID) == "" || strings.TrimSpace(row.AccountName) == "" || strings.TrimSpace(row.KeyAlias) == "" || row.QuotaLimit < 0 || row.UsedQuota < 0 {
+		return ErrInvalidInput
+	}
+	return nil
+}
+
+func validateProviderAPI(row models.AIProviderAPI) error {
+	if strings.TrimSpace(row.ProviderID) == "" || strings.TrimSpace(row.AccountID) == "" || strings.TrimSpace(row.APIName) == "" ||
+		strings.TrimSpace(row.APIPath) == "" || strings.TrimSpace(row.APIType) == "" || len(row.Capabilities) == 0 || row.QPSLimit < 0 || row.TimeoutMS <= 0 {
+		return ErrInvalidInput
+	}
+	return nil
+}
+
+func validateCapability(row models.AICapability) error {
+	if strings.TrimSpace(row.CapabilityCode) == "" || strings.TrimSpace(row.CapabilityName) == "" ||
+		strings.TrimSpace(row.ScenarioType) == "" || strings.TrimSpace(row.ModelType) == "" || strings.TrimSpace(row.DefaultBillingUnit) == "" {
+		return ErrInvalidInput
+	}
+	return nil
+}
+
+func validateModel(row models.AIModel) error {
+	if strings.TrimSpace(row.ProviderID) == "" || strings.TrimSpace(row.ModelCode) == "" || strings.TrimSpace(row.ModelName) == "" ||
+		strings.TrimSpace(row.ModelType) == "" || len(row.Capabilities) == 0 || row.ContextWindow < 0 || row.LatencyP95 < 0 ||
+		row.SuccessRate < 0 || row.SuccessRate > 100 {
+		return ErrInvalidInput
+	}
+	return nil
+}
+
+func validatePricePolicy(row models.AIModelPricePolicy) error {
+	if strings.TrimSpace(row.ModelID) == "" || strings.TrimSpace(row.FeatureKey) == "" || strings.TrimSpace(row.FeatureName) == "" ||
+		strings.TrimSpace(row.ModelType) == "" || strings.TrimSpace(row.CapabilityCode) == "" || strings.TrimSpace(row.BillingMode) == "" ||
+		strings.TrimSpace(row.BillingUnit) == "" || strings.TrimSpace(row.PlatformUnit) == "" || row.BaseCostPrice < 0 || row.BaseSalePrice < 0 ||
+		row.BasePlatformAmount < 0 {
+		return ErrInvalidInput
+	}
+	return nil
+}
+
+func validatePriceTier(row models.AIModelPriceTier) error {
+	if strings.TrimSpace(row.PricePolicyID) == "" || strings.TrimSpace(row.TierName) == "" || row.DurationSeconds < 0 ||
+		row.CostPrice < 0 || row.SalePrice < 0 || row.PlatformAmount < 0 {
+		return ErrInvalidInput
+	}
+	return nil
+}
+
+func validateBaseRoute(row models.AIBaseRoute) error {
+	if strings.TrimSpace(row.RouteCode) == "" || strings.TrimSpace(row.RouteName) == "" || strings.TrimSpace(row.CapabilityCode) == "" ||
+		strings.TrimSpace(row.ModelType) == "" || !validRouteStrategy(row.Strategy) || row.TimeoutMS <= 0 || row.MaxRetry < 0 {
+		return ErrInvalidInput
+	}
+	return nil
+}
+
+func validateRouteModel(row models.AIBaseRouteModel) error {
+	if strings.TrimSpace(row.BaseRouteID) == "" || strings.TrimSpace(row.ModelID) == "" || !validRouteModelRole(row.Role) ||
+		row.Priority <= 0 || row.Weight <= 0 || row.MaxRetry < 0 || row.TimeoutMS <= 0 {
+		return ErrInvalidInput
+	}
+	return nil
+}
+
+func validateScenario(row models.AIScenario) error {
+	if strings.TrimSpace(row.AppCode) == "" || strings.TrimSpace(row.AppName) == "" || strings.TrimSpace(row.AIScenarioCode) == "" ||
+		strings.TrimSpace(row.AIScenarioName) == "" || strings.TrimSpace(row.ScenarioType) == "" || strings.TrimSpace(row.CapabilityCode) == "" ||
+		strings.TrimSpace(row.ModelType) == "" || strings.TrimSpace(row.DefaultBaseRouteID) == "" {
+		return ErrInvalidInput
+	}
+	return nil
+}
+
+func validateTenantStrategy(row models.AITenantStrategyPolicy) error {
+	if strings.TrimSpace(row.PolicyName) == "" || !validTenantScope(row.TenantScope) || strings.TrimSpace(row.AppCode) == "" ||
+		strings.TrimSpace(row.AIScenarioCode) == "" || strings.TrimSpace(row.DefaultBaseRouteID) == "" {
+		return ErrInvalidInput
+	}
+	if row.TenantScope == "include" && len(row.TenantIDs) == 0 {
+		return ErrInvalidInput
+	}
+	return nil
+}
+
+func validateQuotaRule(row models.AIStrategyQuotaRule) error {
+	if strings.TrimSpace(row.PolicyID) == "" || strings.TrimSpace(row.SubjectCode) == "" || strings.TrimSpace(row.UsageUnit) == "" ||
+		!validControlDimension(row.Dimension) || !validControlPeriod(row.Period) || !validOverLimitAction(row.OverLimitAction) ||
+		row.QuotaLimit <= 0 || row.UsedAmount < 0 || row.WarningThreshold <= 0 || row.WarningThreshold > 100 {
+		return ErrInvalidInput
+	}
+	return nil
+}
+
+func validateRateLimitRule(row models.AIStrategyRateLimitRule) error {
+	if strings.TrimSpace(row.PolicyID) == "" || strings.TrimSpace(row.SubjectCode) == "" ||
+		!validControlDimension(row.Dimension) || !validOverLimitAction(row.OverLimitAction) ||
+		row.QPS < 0 || row.Concurrency < 0 || row.MinuteLimit < 0 || row.HourLimit < 0 || row.DayLimit < 0 ||
+		(row.QPS == 0 && row.Concurrency == 0 && row.MinuteLimit == 0 && row.HourLimit == 0 && row.DayLimit == 0) {
+		return ErrInvalidInput
+	}
+	return nil
+}
+
+func validateGatewaySetting(row models.AIGatewaySetting) error {
+	key := strings.TrimSpace(row.SettingKey)
+	if key == "" || strings.TrimSpace(row.SettingValue) == "" || !json.Valid([]byte(row.SettingValue)) {
+		return ErrInvalidInput
+	}
+	var value map[string]interface{}
+	if err := json.Unmarshal([]byte(row.SettingValue), &value); err != nil {
+		return ErrInvalidInput
+	}
+	switch key {
+	case "gateway_runtime":
+		timeout := numberParam(value, "default_timeout_ms", 0)
+		retry := numberParam(value, "default_max_retry", 0)
+		if timeout <= 0 || retry < 0 {
+			return ErrInvalidInput
+		}
+		if _, ok := value["usage_log_async"].(bool); !ok {
+			return ErrInvalidInput
+		}
+	case "security":
+		if _, ok := value["prompt_plaintext_storage"].(bool); !ok {
+			return ErrInvalidInput
+		}
+		if strings.TrimSpace(fmt.Sprint(value["api_key_encryption"])) == "" {
+			return ErrInvalidInput
+		}
+	default:
+		if strings.Contains(key, "timeout") && numberParam(value, "default_timeout_ms", 1) <= 0 {
+			return ErrInvalidInput
+		}
+	}
+	return nil
+}
+
+func normalizeSettingPayload(payload map[string]interface{}) {
+	value, ok := payload["setting_value"]
+	if !ok {
+		return
+	}
+	if _, ok := value.(string); ok {
+		return
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return
+	}
+	payload["setting_value"] = string(raw)
+}
+
 func accountKey(providerCode, accountName string) string {
 	return strings.TrimSpace(providerCode) + "\x00" + strings.TrimSpace(accountName)
 }
@@ -2248,7 +2817,23 @@ func (s *Service) hasAnyReferences(ctx context.Context, model interface{}, query
 	return count > 0
 }
 
-func updateRow[T any](ctx context.Context, s *Service, userID uint64, resource, id string, payload map[string]interface{}, module string) (interface{}, error) {
+func updateRow[T any](ctx context.Context, s *Service, userID uint64, resource, id string, payload map[string]interface{}, module string, validate func(T) error) (interface{}, error) {
+	var before T
+	if err := s.db.WithContext(ctx).Where("id = ? AND deleted_at IS NULL", id).First(&before).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	if validate != nil {
+		var merged T
+		if err := mergePayload(before, payload, &merged); err != nil {
+			return nil, err
+		}
+		if err := validate(merged); err != nil {
+			return nil, err
+		}
+	}
 	var row T
 	res := s.db.WithContext(ctx).Model(new(T)).Where("id = ? AND deleted_at IS NULL", id).Updates(payload)
 	if res.Error != nil {
@@ -2260,8 +2845,23 @@ func updateRow[T any](ctx context.Context, s *Service, userID uint64, resource, 
 	if err := s.db.WithContext(ctx).Where("id = ? AND deleted_at IS NULL", id).First(&row).Error; err != nil {
 		return nil, err
 	}
-	s.Audit(ctx, userID, module, "update", "更新 AI 能力中心资源："+resource, map[string]interface{}{"id": id, "patch": payload})
+	s.Audit(ctx, userID, module, "update", "更新 AI 能力中心资源："+resource, map[string]interface{}{"id": id, "before": before, "after": row, "patch": payload})
 	return row, nil
+}
+
+func mergePayload(before interface{}, patch map[string]interface{}, target interface{}) error {
+	raw, err := json.Marshal(before)
+	if err != nil {
+		return err
+	}
+	var merged map[string]interface{}
+	if err := json.Unmarshal(raw, &merged); err != nil {
+		return err
+	}
+	for key, value := range patch {
+		merged[key] = value
+	}
+	return decodePayload(merged, target)
 }
 
 func pageQuery[T any](q *gorm.DB, skip, limit int) (PageResult, error) {
@@ -2292,6 +2892,116 @@ func usageUnitForCapability(ctx context.Context, db *gorm.DB, code string) strin
 		return cap.DefaultBillingUnit
 	}
 	return "requests"
+}
+
+func containsString(values []string, target string) bool {
+	target = strings.TrimSpace(target)
+	for _, value := range values {
+		if strings.TrimSpace(value) == target {
+			return true
+		}
+	}
+	return false
+}
+
+func strategyID(strategy models.AITenantStrategyPolicy, found bool) string {
+	if !found {
+		return ""
+	}
+	return strategy.ID
+}
+
+func controlRuleMatches(dimension, subject string, req InvokeRequest, scenario models.AIScenario, routeModel models.AIBaseRouteModel, pricing pricingResult, accountID, apiID string) bool {
+	if strings.TrimSpace(subject) == "" || subject == "*" {
+		return true
+	}
+	switch strings.TrimSpace(dimension) {
+	case "tenant":
+		return subject == req.TenantID
+	case "app":
+		return subject == scenario.AppCode
+	case "scenario":
+		return subject == scenario.AIScenarioCode
+	case "model":
+		return subject == routeModel.ModelID
+	case "feature_sku":
+		return subject == pricing.FeatureKey || subject == pricing.PolicyID || subject == pricing.TierID
+	case "provider_account":
+		return subject == accountID
+	case "user":
+		return subject == req.UserID
+	case "amount":
+		return subject == pricing.UsageUnit
+	case "api":
+		return subject == apiID
+	default:
+		return false
+	}
+}
+
+func periodStart(now time.Time, period string) *time.Time {
+	var start time.Time
+	switch strings.TrimSpace(period) {
+	case "minute":
+		start = now.Truncate(time.Minute)
+	case "hour":
+		start = now.Truncate(time.Hour)
+	case "day":
+		start = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	case "week":
+		weekday := int(now.Weekday())
+		if weekday == 0 {
+			weekday = 7
+		}
+		dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		start = dayStart.AddDate(0, 0, -(weekday - 1))
+	case "month":
+		start = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	case "year":
+		start = time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location())
+	case "total":
+		return nil
+	default:
+		start = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	}
+	return &start
+}
+
+func numberParam(params map[string]interface{}, key string, fallback float64) float64 {
+	if params == nil {
+		return fallback
+	}
+	switch value := params[key].(type) {
+	case float64:
+		return value
+	case float32:
+		return float64(value)
+	case int:
+		return float64(value)
+	case int64:
+		return float64(value)
+	case json.Number:
+		parsed, err := value.Float64()
+		if err == nil {
+			return parsed
+		}
+	case string:
+		var parsed float64
+		if _, err := fmt.Sscanf(value, "%f", &parsed); err == nil {
+			return parsed
+		}
+	}
+	return fallback
+}
+
+func stringParam(params map[string]interface{}, key string) string {
+	if params == nil {
+		return ""
+	}
+	if _, ok := params[key]; !ok || params[key] == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(params[key]))
 }
 
 func defaultString(value, fallback string) string {
