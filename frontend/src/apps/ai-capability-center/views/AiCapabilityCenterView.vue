@@ -6,8 +6,8 @@ import { Delete, Edit, Plus, Refresh, Search, Upload } from '@element-plus/icons
 
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
-import { createAiResource, deleteAiResource, fetchAiOverview, fetchAiResource, importAiProviders, updateAiResource } from '../api'
-import type { AiOverview, AiPage, AiProviderImportPayload, AiResource, AiSectionConfig } from '../types'
+import { createAiResource, deleteAiResource, fetchAiOverview, fetchAiResource, importAiModels, importAiProviders, updateAiResource } from '../api'
+import type { AiModelImportPayload, AiOverview, AiPage, AiProviderImportPayload, AiResource, AiSectionConfig } from '../types'
 
 defineOptions({ name: 'AiCapabilityCenterView' })
 
@@ -17,7 +17,7 @@ const router = useRouter()
 type FieldConfig = {
   key: string
   label: string
-  type?: 'text' | 'number' | 'textarea' | 'select' | 'tags' | 'json'
+  type?: 'text' | 'number' | 'textarea' | 'select' | 'tags' | 'json' | 'switch'
   options?: Array<{ label: string; value: string }>
   required?: boolean
 }
@@ -51,8 +51,11 @@ const sections: AiSectionConfig[] = [
 const activeSection = computed(() => sections.find((item) => item.route === route.path) ?? sections[0])
 const overview = ref<AiOverview | null>(null)
 const page = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 20 })
+const allProvidersPage = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 200 })
 const providerAccountsPage = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 200 })
 const providerApisPage = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 200 })
+const pricePoliciesPage = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 200 })
+const priceTiersPage = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 200 })
 const currentPage = computed(() => Math.floor(page.value.skip / Math.max(page.value.limit, 1)) + 1)
 const keyword = ref('')
 const loading = ref(false)
@@ -65,7 +68,10 @@ const formModel = ref<Record<string, unknown>>({})
 const editingId = ref('')
 const selectedProviderId = ref('')
 const selectedAccountId = ref('')
+const selectedModelId = ref('')
+const selectedPolicyId = ref('')
 const importVisible = ref(false)
+const modelImportVisible = ref(false)
 const importJson = ref(JSON.stringify({
   providers: [{
     name: 'OpenAI',
@@ -88,16 +94,50 @@ const importJson = ref(JSON.stringify({
     }],
   }],
 }, null, 2))
+const modelImportJson = ref(JSON.stringify({
+  models: [{
+    provider_code: 'openai',
+    model_code: 'gpt-4.1',
+    model_name: 'GPT 4.1',
+    model_type: 'text',
+    capabilities: ['chat_completion'],
+    context_window: 128000,
+    unit: 'tokens',
+    price_policies: [{
+      feature_key: 'chat_tokens',
+      feature_name: '对话 Token',
+      model_type: 'text',
+      capability_code: 'chat_completion',
+      billing_mode: 'tiered',
+      billing_unit: 'tokens',
+      platform_unit: 'tokens',
+      base_cost_price: 0.01,
+      base_sale_price: 0.02,
+      tiers: [{
+        tier_name: 'standard',
+        mode: 'sync',
+        cost_price: 0.01,
+        sale_price: 0.02,
+        platform_amount: 0.01,
+        enabled: true,
+      }],
+    }],
+  }],
+}, null, 2))
 
 const canWrite = computed(() => Boolean(activeSection.value.resource && activeSection.value.writable))
 const formFields = computed<FieldConfig[]>(() => fieldsForResource(editorResource.value ?? activeSection.value.resource))
-const providerRows = computed(() => page.value.items)
+const providerRows = computed(() => activeSection.value.key === 'providers' ? page.value.items : allProvidersPage.value.items)
 const selectedProviderAccounts = computed(() => providerAccountsPage.value.items.filter((item) => String(item.provider_id || '') === selectedProviderId.value))
 const selectedAccountApis = computed(() => providerApisPage.value.items.filter((item) => {
   const matchesProvider = String(item.provider_id || '') === selectedProviderId.value
   const matchesAccount = !selectedAccountId.value || String(item.account_id || '') === selectedAccountId.value
   return matchesProvider && matchesAccount
 }))
+const selectedProviderModels = computed(() => page.value.items.filter((item) => String(item.provider_id || '') === selectedProviderId.value))
+const selectedModelPolicies = computed(() => pricePoliciesPage.value.items.filter((item) => String(item.model_id || '') === selectedModelId.value))
+const selectedPolicyTiers = computed(() => priceTiersPage.value.items.filter((item) => String(item.price_policy_id || '') === selectedPolicyId.value))
+const activeProviderName = computed(() => providerRows.value.find((item) => String(item.id || '') === selectedProviderId.value)?.name || '全部供应商')
 
 function displayCell(row: Record<string, unknown>, key: string) {
   const value = row[key]
@@ -142,6 +182,12 @@ async function loadData() {
       providerApisPage.value = await fetchAiResource('apis', { skip: 0, limit: 200 })
       reconcileProviderSelection()
     }
+    if (activeSection.value.key === 'models') {
+      allProvidersPage.value = await fetchAiResource('providers', { skip: 0, limit: 200 })
+      pricePoliciesPage.value = await fetchAiResource('price-policies', { skip: 0, limit: 200 })
+      priceTiersPage.value = await fetchAiResource('price-tiers', { skip: 0, limit: 200 })
+      reconcileModelSelection()
+    }
   } catch (error) {
     errorText.value = error instanceof Error ? error.message : '数据加载失败'
   } finally {
@@ -173,6 +219,19 @@ function openProviderCreate(resource: AiResource) {
     payload.provider_id = selectedProviderId.value
     payload.account_id = selectedAccountId.value
   }
+  formModel.value = normalizeEditorRow(payload)
+  editorJson.value = JSON.stringify(formModel.value, null, 2)
+  editorVisible.value = true
+}
+
+function openModelCreate(resource: AiResource) {
+  editorMode.value = 'create'
+  editorResource.value = resource
+  editingId.value = ''
+  const payload = defaultPayload(resource)
+  if (resource === 'models') payload.provider_id = selectedProviderId.value
+  if (resource === 'price-policies') payload.model_id = selectedModelId.value
+  if (resource === 'price-tiers') payload.price_policy_id = selectedPolicyId.value
   formModel.value = normalizeEditorRow(payload)
   editorJson.value = JSON.stringify(formModel.value, null, 2)
   editorVisible.value = true
@@ -229,6 +288,16 @@ function selectAccount(row: Record<string, unknown>) {
   selectedAccountId.value = String(row.id || '')
 }
 
+function selectModel(row: Record<string, unknown>) {
+  selectedModelId.value = String(row.id || '')
+  const firstPolicy = selectedModelPolicies.value[0]
+  selectedPolicyId.value = firstPolicy ? String(firstPolicy.id || '') : ''
+}
+
+function selectPolicy(row: Record<string, unknown>) {
+  selectedPolicyId.value = String(row.id || '')
+}
+
 function reconcileProviderSelection() {
   if (!providerRows.value.some((item) => String(item.id || '') === selectedProviderId.value)) {
     selectedProviderId.value = providerRows.value[0] ? String(providerRows.value[0].id || '') : ''
@@ -236,6 +305,20 @@ function reconcileProviderSelection() {
   if (!selectedProviderAccounts.value.some((item) => String(item.id || '') === selectedAccountId.value)) {
     const firstAccount = selectedProviderAccounts.value[0]
     selectedAccountId.value = firstAccount ? String(firstAccount.id || '') : ''
+  }
+}
+
+function reconcileModelSelection() {
+  if (!providerRows.value.some((item) => String(item.id || '') === selectedProviderId.value)) {
+    selectedProviderId.value = providerRows.value[0] ? String(providerRows.value[0].id || '') : ''
+  }
+  if (!selectedProviderModels.value.some((item) => String(item.id || '') === selectedModelId.value)) {
+    const firstModel = selectedProviderModels.value[0]
+    selectedModelId.value = firstModel ? String(firstModel.id || '') : ''
+  }
+  if (!selectedModelPolicies.value.some((item) => String(item.id || '') === selectedPolicyId.value)) {
+    const firstPolicy = selectedModelPolicies.value[0]
+    selectedPolicyId.value = firstPolicy ? String(firstPolicy.id || '') : ''
   }
 }
 
@@ -253,12 +336,28 @@ async function submitProviderImport() {
   await loadData()
 }
 
+async function submitModelImport() {
+  let payload: AiModelImportPayload
+  try {
+    payload = JSON.parse(modelImportJson.value) as AiModelImportPayload
+  } catch {
+    ElMessage.error('导入内容不是合法 JSON')
+    return
+  }
+  const result = await importAiModels(payload)
+  modelImportVisible.value = false
+  ElMessage.success(`导入完成：模型 ${result.models}，价格策略 ${result.price_policies}，分档 ${result.price_tiers}`)
+  await loadData()
+}
+
 function defaultPayload(resource?: AiResource): Record<string, unknown> {
   const status = 'active'
   if (resource === 'providers') return { name: '', code: '', type: 'public_cloud', base_url: '', auth_type: 'api_key', status, priority: 80, region: 'CN', qps_limit: 100, monthly_budget: 10000, owner: '' }
   if (resource === 'accounts') return { provider_id: '', account_name: '', endpoint: '', key_alias: '', encrypted_api_key: '', encrypted_secret: '', quota_limit: 0, used_quota: 0, status }
   if (resource === 'apis') return { provider_id: '', account_id: '', api_name: '', api_path: '', api_type: 'chat', capabilities: ['chat_completion'], auth_type: 'api_key', qps_limit: 100, timeout_ms: 30000, status }
   if (resource === 'models') return { provider_id: '', model_code: '', model_name: '', model_type: 'text', capabilities: ['text_generation'], context_window: 32000, unit: 'tokens', latency_p95: 0, success_rate: 0, status, default_for: [] }
+  if (resource === 'price-policies') return { model_id: '', feature_key: '', feature_name: '', model_type: 'text', capability_code: 'chat_completion', billing_mode: 'tiered', billing_unit: 'tokens', platform_unit: 'tokens', base_cost_price: 0, base_sale_price: 0, base_platform_amount: 0, currency: 'CNY', status }
+  if (resource === 'price-tiers') return { price_policy_id: '', tier_name: '', mode: 'sync', resolution: '', quality: '', duration_seconds: 0, aspect_ratio: '', cost_price: 0, sale_price: 0, platform_amount: 0, enabled: true, sort_order: 0 }
   if (resource === 'scenarios') return { app_code: '', app_name: '', ai_scenario_code: '', ai_scenario_name: '', scenario_type: 'text', capability_code: 'text_generation', model_type: 'text', default_base_route_id: '', owner: '', version: 'v1.0', status }
   if (resource === 'base-routes') return { route_code: '', route_name: '', capability_code: 'text_generation', model_type: 'text', strategy: 'fallback', timeout_ms: 30000, max_retry: 2, status }
   if (resource === 'tenant-strategies') return { policy_name: '', tenant_scope: 'include', tenant_ids: [], app_code: '', app_name: '', ai_scenario_code: '', ai_scenario_name: '', default_base_route_id: '', override_base_route_id: '', status }
@@ -316,6 +415,35 @@ function fieldsForResource(resource?: AiResource): FieldConfig[] {
     { key: 'success_rate', label: '成功率', type: 'number' },
     { key: 'default_for', label: '默认场景', type: 'tags' },
     status,
+  ]
+  if (resource === 'price-policies') return [
+    { key: 'model_id', label: '模型 ID', required: true },
+    { key: 'feature_key', label: '功能 Key', required: true },
+    { key: 'feature_name', label: '功能名称', required: true },
+    { key: 'model_type', label: '模型类型', type: 'select', options: toOptions(['text', 'embedding', 'image', 'audio', 'rerank']) },
+    { key: 'capability_code', label: '能力编码', required: true },
+    { key: 'billing_mode', label: '计费模式', type: 'select', options: toOptions(['per_unit', 'tiered', 'fixed']) },
+    { key: 'billing_unit', label: '计费单位', type: 'select', options: toOptions(['tokens', 'characters', 'images', 'seconds', 'requests']) },
+    { key: 'platform_unit', label: '平台单位', type: 'select', options: toOptions(['tokens', 'characters', 'images', 'seconds', 'requests']) },
+    { key: 'base_cost_price', label: '基础成本价', type: 'number' },
+    { key: 'base_sale_price', label: '基础销售价', type: 'number' },
+    { key: 'base_platform_amount', label: '平台用量基数', type: 'number' },
+    { key: 'currency', label: '币种', type: 'select', options: toOptions(['CNY', 'USD']) },
+    status,
+  ]
+  if (resource === 'price-tiers') return [
+    { key: 'price_policy_id', label: '价格策略 ID', required: true },
+    { key: 'tier_name', label: '分档名称', required: true },
+    { key: 'mode', label: '模式', type: 'select', options: toOptions(['sync', 'async', 'stream']) },
+    { key: 'resolution', label: '分辨率' },
+    { key: 'quality', label: '质量' },
+    { key: 'duration_seconds', label: '时长(秒)', type: 'number' },
+    { key: 'aspect_ratio', label: '画幅' },
+    { key: 'cost_price', label: '成本价', type: 'number' },
+    { key: 'sale_price', label: '销售价', type: 'number' },
+    { key: 'platform_amount', label: '平台金额', type: 'number' },
+    { key: 'enabled', label: '启用', type: 'switch' },
+    { key: 'sort_order', label: '排序', type: 'number' },
   ]
   if (resource === 'scenarios') return [
     { key: 'app_name', label: '应用名称', required: true },
@@ -403,7 +531,8 @@ onMounted(loadData)
     <template #actions>
       <el-button :icon="Refresh" @click="loadData">刷新</el-button>
       <el-button v-if="activeSection.key === 'providers'" v-permission="'ai_capability_center:manage'" :icon="Upload" @click="importVisible = true">整体导入</el-button>
-      <el-button v-if="canWrite && activeSection.key !== 'providers'" v-permission="'ai_capability_center:manage'" type="primary" :icon="Plus" @click="openCreate">新增配置</el-button>
+      <el-button v-if="activeSection.key === 'models'" v-permission="'ai_capability_center:manage'" :icon="Upload" @click="modelImportVisible = true">模型导入</el-button>
+      <el-button v-if="canWrite && !['providers', 'models'].includes(activeSection.key)" v-permission="'ai_capability_center:manage'" type="primary" :icon="Plus" @click="openCreate">新增配置</el-button>
     </template>
 
     <div class="ai-center-tabs">
@@ -570,6 +699,123 @@ onMounted(loadData)
       </section>
     </div>
 
+    <div v-else-if="activeSection.key === 'models'" class="ai-resource ai-model-workbench">
+      <div class="ai-toolbar">
+        <el-input v-model="keyword" clearable placeholder="搜索模型名称、编码、能力标签" @keyup.enter="loadData">
+          <template #prefix><el-icon><Search /></el-icon></template>
+        </el-input>
+        <el-button :icon="Search" @click="loadData">查询</el-button>
+        <el-button v-permission="'ai_capability_center:manage'" type="primary" :icon="Plus" :disabled="!selectedProviderId" @click="openModelCreate('models')">新增模型</el-button>
+      </div>
+      <el-alert v-if="errorText" :title="errorText" type="error" show-icon />
+
+      <section class="ai-model-shell">
+        <aside class="ai-provider-rail">
+          <header>
+            <strong>供应商</strong>
+            <span>{{ providerRows.length }} 个接入源</span>
+          </header>
+          <button
+            v-for="provider in providerRows"
+            :key="String(provider.id)"
+            :class="{ active: String(provider.id || '') === selectedProviderId }"
+            @click="selectedProviderId = String(provider.id || ''); reconcileModelSelection()"
+          >
+            <strong>{{ provider.name }}</strong>
+            <span>{{ provider.code }} · {{ provider.type || 'provider' }}</span>
+          </button>
+          <el-empty v-if="!providerRows.length" :image-size="72" description="暂无供应商" />
+        </aside>
+
+        <div class="ai-model-main">
+          <section class="ai-panel ai-model-hero">
+            <header><strong>{{ activeProviderName }}</strong><span>模型目录、价格策略和分档价格统一在平台侧维护</span></header>
+            <div class="ai-model-stats">
+              <div><span>模型</span><strong>{{ selectedProviderModels.length }}</strong></div>
+              <div><span>价格策略</span><strong>{{ selectedModelPolicies.length }}</strong></div>
+              <div><span>分档</span><strong>{{ selectedPolicyTiers.length }}</strong></div>
+            </div>
+          </section>
+
+          <section class="ai-panel">
+            <header><strong>模型列表</strong><span>选择模型后维护价格策略</span></header>
+            <el-table v-loading="loading" :data="selectedProviderModels" border class="ai-table" empty-text="当前供应商暂无模型" highlight-current-row @row-click="selectModel">
+              <el-table-column prop="model_name" label="模型" min-width="160" />
+              <el-table-column prop="model_code" label="编码" min-width="150" />
+              <el-table-column prop="model_type" label="类型" width="110" />
+              <el-table-column label="能力" min-width="180">
+                <template #default="{ row }">{{ displayCell(row, 'capabilities') }}</template>
+              </el-table-column>
+              <el-table-column label="上下文" width="110">
+                <template #default="{ row }">{{ numberText(row.context_window) }}</template>
+              </el-table-column>
+              <el-table-column label="状态" width="100">
+                <template #default="{ row }"><el-tag :type="statusType(row.status)">{{ displayCell(row, 'status') }}</el-tag></template>
+              </el-table-column>
+              <el-table-column fixed="right" label="操作" width="150">
+                <template #default="{ row }">
+                  <el-button v-permission="'ai_capability_center:manage'" link type="primary" :icon="Edit" @click.stop="openEdit(row, 'models')">编辑</el-button>
+                  <el-button v-permission="'ai_capability_center:manage'" link type="danger" :icon="Delete" @click.stop="removeRow(row, 'models')">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+            <el-pagination
+              :current-page="currentPage"
+              class="ai-pagination"
+              layout="total, prev, pager, next"
+              :page-size="page.limit"
+              :total="page.total"
+              @current-change="(pageNo: number) => { page.skip = (pageNo - 1) * page.limit; loadData() }"
+            />
+          </section>
+
+          <section class="ai-model-price-grid">
+            <div class="ai-panel">
+              <header>
+                <strong>价格策略</strong>
+                <el-button v-permission="'ai_capability_center:manage'" size="small" type="primary" :icon="Plus" :disabled="!selectedModelId" @click="openModelCreate('price-policies')">新增策略</el-button>
+              </header>
+              <el-table :data="selectedModelPolicies" border class="ai-table" empty-text="请选择模型或新增价格策略" highlight-current-row @row-click="selectPolicy">
+                <el-table-column prop="feature_name" label="功能" min-width="150" />
+                <el-table-column prop="feature_key" label="Key" min-width="140" />
+                <el-table-column prop="billing_mode" label="计费" width="100" />
+                <el-table-column label="基础价" width="150">
+                  <template #default="{ row }">{{ moneyText(row.base_cost_price) }} / {{ moneyText(row.base_sale_price) }}</template>
+                </el-table-column>
+                <el-table-column fixed="right" label="操作" width="150">
+                  <template #default="{ row }">
+                    <el-button v-permission="'ai_capability_center:manage'" link type="primary" :icon="Edit" @click.stop="openEdit(row, 'price-policies')">编辑</el-button>
+                    <el-button v-permission="'ai_capability_center:manage'" link type="danger" :icon="Delete" @click.stop="removeRow(row, 'price-policies')">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </div>
+
+            <div class="ai-panel">
+              <header>
+                <strong>分档价格</strong>
+                <el-button v-permission="'ai_capability_center:manage'" size="small" type="primary" :icon="Plus" :disabled="!selectedPolicyId" @click="openModelCreate('price-tiers')">新增分档</el-button>
+              </header>
+              <el-table :data="selectedPolicyTiers" border class="ai-table" empty-text="请选择价格策略或新增分档">
+                <el-table-column prop="tier_name" label="分档" min-width="130" />
+                <el-table-column prop="mode" label="模式" width="90" />
+                <el-table-column label="成本/销售" width="150">
+                  <template #default="{ row }">{{ moneyText(row.cost_price) }} / {{ moneyText(row.sale_price) }}</template>
+                </el-table-column>
+                <el-table-column prop="sort_order" label="排序" width="80" />
+                <el-table-column fixed="right" label="操作" width="150">
+                  <template #default="{ row }">
+                    <el-button v-permission="'ai_capability_center:manage'" link type="primary" :icon="Edit" @click="openEdit(row, 'price-tiers')">编辑</el-button>
+                    <el-button v-permission="'ai_capability_center:manage'" link type="danger" :icon="Delete" @click="removeRow(row, 'price-tiers')">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </div>
+          </section>
+        </div>
+      </section>
+    </div>
+
     <div v-else class="ai-resource">
       <div class="ai-toolbar">
         <el-input v-model="keyword" clearable placeholder="搜索当前页面数据" @keyup.enter="loadData">
@@ -602,7 +848,7 @@ onMounted(loadData)
       />
     </div>
 
-    <el-dialog v-model="editorVisible" :title="editorMode === 'create' ? '新增配置' : '编辑配置'" width="720px">
+    <el-drawer v-model="editorVisible" :title="editorMode === 'create' ? '新增配置' : '编辑配置'" size="720px">
       <el-alert title="按字段提交配置；保存后会写入底座操作日志。" type="info" show-icon />
       <el-form v-if="formFields.length" class="ai-form" label-position="top">
         <el-form-item v-for="field in formFields" :key="field.key" :label="field.label" :required="field.required">
@@ -613,6 +859,7 @@ onMounted(loadData)
           <el-input v-else-if="field.type === 'textarea'" v-model="formModel[field.key]" type="textarea" :rows="3" />
           <el-select v-else-if="field.type === 'tags'" v-model="formModel[field.key]" multiple filterable allow-create default-first-option />
           <el-input v-else-if="field.type === 'json'" v-model="formModel[field.key]" class="json-editor" type="textarea" :rows="5" spellcheck="false" />
+          <el-switch v-else-if="field.type === 'switch'" v-model="formModel[field.key]" />
           <el-input v-else v-model="formModel[field.key]" />
         </el-form-item>
       </el-form>
@@ -621,7 +868,7 @@ onMounted(loadData)
         <el-button @click="editorVisible = false">取消</el-button>
         <el-button type="primary" @click="saveEditor">保存</el-button>
       </template>
-    </el-dialog>
+    </el-drawer>
 
     <el-dialog v-model="importVisible" title="整体导入供应商" width="780px">
       <el-alert title="导入会在一个事务内 upsert 供应商、账号和 API；任一引用无效会整体回滚。" type="info" show-icon />
@@ -629,6 +876,15 @@ onMounted(loadData)
       <template #footer>
         <el-button @click="importVisible = false">取消</el-button>
         <el-button type="primary" @click="submitProviderImport">导入</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="modelImportVisible" title="整体导入模型和价格" width="780px">
+      <el-alert title="导入会在一个事务内 upsert 模型、价格策略和分档；任一引用无效会整体回滚。" type="info" show-icon />
+      <el-input v-model="modelImportJson" class="json-editor" type="textarea" :rows="18" spellcheck="false" />
+      <template #footer>
+        <el-button @click="modelImportVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitModelImport">导入</el-button>
       </template>
     </el-dialog>
   </NeuroAgentPageShell>
@@ -762,6 +1018,102 @@ onMounted(loadData)
   gap: 12px;
 }
 
+.ai-model-shell {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 12px;
+  min-width: 0;
+}
+
+.ai-provider-rail {
+  border: 1px solid var(--neuro-border);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--neuro-primary) 9%, transparent), transparent 42%),
+    var(--neuro-surface);
+  border-radius: 8px;
+  padding: 12px;
+  min-width: 0;
+}
+
+.ai-provider-rail header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.ai-provider-rail header span,
+.ai-model-stats span {
+  color: var(--neuro-text-muted);
+  font-size: 12px;
+}
+
+.ai-provider-rail button {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--neuro-text);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  text-align: left;
+}
+
+.ai-provider-rail button + button {
+  margin-top: 6px;
+}
+
+.ai-provider-rail button span {
+  color: var(--neuro-text-muted);
+  font-size: 12px;
+}
+
+.ai-provider-rail button.active {
+  border-color: color-mix(in srgb, var(--neuro-primary) 42%, var(--neuro-border));
+  background: color-mix(in srgb, var(--neuro-primary) 10%, var(--neuro-surface));
+}
+
+.ai-model-main {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ai-model-hero {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--neuro-primary) 14%, transparent), transparent 56%),
+    var(--neuro-surface);
+}
+
+.ai-model-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ai-model-stats div {
+  border: 1px solid var(--neuro-border);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.ai-model-stats strong {
+  display: block;
+  font-size: 22px;
+  margin-top: 4px;
+}
+
+.ai-model-price-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
 .ai-pagination {
   justify-content: flex-end;
 }
@@ -802,6 +1154,11 @@ onMounted(loadData)
   }
 
   .ai-provider-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-model-shell,
+  .ai-model-price-grid {
     grid-template-columns: 1fr;
   }
 

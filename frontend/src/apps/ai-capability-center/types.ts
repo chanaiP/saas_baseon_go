@@ -60,3 +60,15 @@ export interface AiProviderImportResult {
   accounts: number
   apis: number
 }
+
+export interface AiModelImportPayload {
+  models?: Array<Record<string, unknown>>
+  price_policies?: Array<Record<string, unknown>>
+  price_tiers?: Array<Record<string, unknown>>
+}
+
+export interface AiModelImportResult {
+  models: number
+  price_policies: number
+  price_tiers: number
+}
