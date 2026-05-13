@@ -90,3 +90,15 @@ export interface AiRouteImportResult {
   base_routes: number
   route_models: number
 }
+
+export interface AiTenantStrategyImportPayload {
+  policies?: Array<Record<string, unknown>>
+  quota_rules?: Array<Record<string, unknown>>
+  rate_limit_rules?: Array<Record<string, unknown>>
+}
+
+export interface AiTenantStrategyImportResult {
+  policies: number
+  quota_rules: number
+  rate_limit_rules: number
+}

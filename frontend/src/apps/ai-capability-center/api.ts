@@ -13,6 +13,8 @@ import type {
   AiRouteImportResult,
   AiScenarioImportPayload,
   AiScenarioImportResult,
+  AiTenantStrategyImportPayload,
+  AiTenantStrategyImportResult,
 } from './types'
 
 export async function fetchAiOverview() {
@@ -59,4 +61,8 @@ export async function importAiScenarios(payload: AiScenarioImportPayload) {
 
 export async function importAiRoutes(payload: AiRouteImportPayload) {
   return unwrap(http.post<ApiResponse<AiRouteImportResult>>('/api/ai-capability-center/routes/import', payload))
+}
+
+export async function importAiTenantStrategies(payload: AiTenantStrategyImportPayload) {
+  return unwrap(http.post<ApiResponse<AiTenantStrategyImportResult>>('/api/ai-capability-center/tenant-strategies/import', payload))
 }

@@ -6,8 +6,8 @@ import { Delete, Edit, Plus, Refresh, Search, Upload } from '@element-plus/icons
 
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
-import { createAiResource, deleteAiResource, fetchAiOverview, fetchAiResource, importAiModels, importAiProviders, importAiRoutes, importAiScenarios, updateAiResource } from '../api'
-import type { AiModelImportPayload, AiOverview, AiPage, AiProviderImportPayload, AiResource, AiRouteImportPayload, AiScenarioImportPayload, AiSectionConfig } from '../types'
+import { createAiResource, deleteAiResource, fetchAiOverview, fetchAiResource, importAiModels, importAiProviders, importAiRoutes, importAiScenarios, importAiTenantStrategies, updateAiResource } from '../api'
+import type { AiModelImportPayload, AiOverview, AiPage, AiProviderImportPayload, AiResource, AiRouteImportPayload, AiScenarioImportPayload, AiSectionConfig, AiTenantStrategyImportPayload } from '../types'
 
 defineOptions({ name: 'AiCapabilityCenterView' })
 
@@ -62,6 +62,8 @@ const routeModelsPage = ref<AiPage<Record<string, unknown>>>({ items: [], total:
 const allModelsPage = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 200 })
 const scenariosPage = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 200 })
 const tenantStrategiesPage = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 200 })
+const quotaRulesPage = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 200 })
+const rateLimitRulesPage = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 200 })
 const currentPage = computed(() => Math.floor(page.value.skip / Math.max(page.value.limit, 1)) + 1)
 const keyword = ref('')
 const loading = ref(false)
@@ -78,10 +80,12 @@ const selectedModelId = ref('')
 const selectedPolicyId = ref('')
 const selectedAppCode = ref('')
 const selectedBaseRouteId = ref('')
+const selectedTenantPolicyId = ref('')
 const importVisible = ref(false)
 const modelImportVisible = ref(false)
 const scenarioImportVisible = ref(false)
 const routeImportVisible = ref(false)
+const strategyImportVisible = ref(false)
 const importJson = ref(JSON.stringify({
   providers: [{
     name: 'OpenAI',
@@ -168,6 +172,35 @@ const routeImportJson = ref(JSON.stringify({
     }],
   }],
 }, null, 2))
+const strategyImportJson = ref(JSON.stringify({
+  policies: [{
+    policy_name: '重点租户商品文案策略',
+    tenant_scope: 'include',
+    tenant_ids: ['tenant-a'],
+    app_code: 'product_center',
+    app_name: '商品中心',
+    ai_scenario_code: 'product_copy_generate',
+    ai_scenario_name: '商品文案生成',
+    default_base_route_id: 'route-uuid',
+    override_base_route_id: '',
+    quota_rules: [{
+      dimension: 'scenario',
+      subject_code: 'product_copy_generate',
+      usage_unit: 'tokens',
+      period: 'day',
+      quota_limit: 100000,
+      warning_threshold: 80,
+      over_limit_action: 'alert_only',
+    }],
+    rate_limit_rules: [{
+      dimension: 'user',
+      subject_code: 'user-a',
+      qps: 20,
+      concurrency: 5,
+      over_limit_action: 'queue',
+    }],
+  }],
+}, null, 2))
 
 const canWrite = computed(() => Boolean(activeSection.value.resource && activeSection.value.writable))
 const formFields = computed<FieldConfig[]>(() => fieldsForResource(editorResource.value ?? activeSection.value.resource))
@@ -187,6 +220,9 @@ const baseRouteOptions = computed(() => baseRoutesPage.value.items.map((item) =>
 const modelOptions = computed(() => allModelsPage.value.items.map((item) => ({ label: `${item.model_name || item.model_code} · ${item.model_type || '-'}`, value: String(item.id || '') })).filter((item) => item.value))
 const selectedBaseRoute = computed(() => page.value.items.find((item) => String(item.id || '') === selectedBaseRouteId.value))
 const selectedRouteModels = computed(() => routeModelsPage.value.items.filter((item) => String(item.base_route_id || '') === selectedBaseRouteId.value))
+const selectedTenantPolicy = computed(() => page.value.items.find((item) => String(item.id || '') === selectedTenantPolicyId.value))
+const selectedQuotaRules = computed(() => quotaRulesPage.value.items.filter((item) => String(item.policy_id || '') === selectedTenantPolicyId.value))
+const selectedRateLimitRules = computed(() => rateLimitRulesPage.value.items.filter((item) => String(item.policy_id || '') === selectedTenantPolicyId.value))
 const appGroups = computed(() => {
   const groups = new Map<string, { app_code: string; app_name: string; total: number; active: number }>()
   for (const item of page.value.items) {
@@ -284,6 +320,14 @@ async function loadData() {
       tenantStrategiesPage.value = await fetchAiResource('tenant-strategies', { skip: 0, limit: 200 })
       reconcileRouteSelection()
     }
+    if (activeSection.value.key === 'strategy') {
+      tenantStrategiesPage.value = page.value
+      quotaRulesPage.value = await fetchAiResource('quota-rules', { skip: 0, limit: 200 })
+      rateLimitRulesPage.value = await fetchAiResource('rate-limit-rules', { skip: 0, limit: 200 })
+      scenariosPage.value = await fetchAiResource('scenarios', { skip: 0, limit: 200 })
+      baseRoutesPage.value = await fetchAiResource('base-routes', { skip: 0, limit: 200 })
+      reconcileTenantPolicySelection()
+    }
   } catch (error) {
     errorText.value = error instanceof Error ? error.message : '数据加载失败'
   } finally {
@@ -361,6 +405,27 @@ function openRouteCreate(resource: AiResource) {
   if (resource === 'route-models') {
     payload.base_route_id = selectedBaseRouteId.value
     payload.model_id = modelOptions.value[0]?.value || ''
+  }
+  formModel.value = normalizeEditorRow(payload)
+  editorJson.value = JSON.stringify(formModel.value, null, 2)
+  editorVisible.value = true
+}
+
+function openStrategyCreate(resource: AiResource) {
+  editorMode.value = 'create'
+  editorResource.value = resource
+  editingId.value = ''
+  const payload = defaultPayload(resource)
+  if (resource === 'tenant-strategies') {
+    const scenario = scenariosPage.value.items[0]
+    payload.app_code = scenario?.app_code || ''
+    payload.app_name = scenario?.app_name || ''
+    payload.ai_scenario_code = scenario?.ai_scenario_code || ''
+    payload.ai_scenario_name = scenario?.ai_scenario_name || ''
+    payload.default_base_route_id = scenario?.default_base_route_id || baseRouteOptions.value[0]?.value || ''
+  }
+  if (resource === 'quota-rules' || resource === 'rate-limit-rules') {
+    payload.policy_id = selectedTenantPolicyId.value
   }
   formModel.value = normalizeEditorRow(payload)
   editorJson.value = JSON.stringify(formModel.value, null, 2)
@@ -464,6 +529,12 @@ function reconcileRouteSelection() {
   }
 }
 
+function reconcileTenantPolicySelection() {
+  if (!page.value.items.some((item) => String(item.id || '') === selectedTenantPolicyId.value)) {
+    selectedTenantPolicyId.value = page.value.items[0] ? String(page.value.items[0].id || '') : ''
+  }
+}
+
 async function submitProviderImport() {
   let payload: AiProviderImportPayload
   try {
@@ -520,6 +591,20 @@ async function submitRouteImport() {
   await loadData()
 }
 
+async function submitStrategyImport() {
+  let payload: AiTenantStrategyImportPayload
+  try {
+    payload = JSON.parse(strategyImportJson.value) as AiTenantStrategyImportPayload
+  } catch {
+    ElMessage.error('导入内容不是合法 JSON')
+    return
+  }
+  const result = await importAiTenantStrategies(payload)
+  strategyImportVisible.value = false
+  ElMessage.success(`导入完成：策略 ${result.policies}，配额 ${result.quota_rules}，限流 ${result.rate_limit_rules}`)
+  await loadData()
+}
+
 function defaultPayload(resource?: AiResource): Record<string, unknown> {
   const status = 'active'
   if (resource === 'providers') return { name: '', code: '', type: 'public_cloud', base_url: '', auth_type: 'api_key', status, priority: 80, region: 'CN', qps_limit: 100, monthly_budget: 10000, owner: '' }
@@ -532,6 +617,8 @@ function defaultPayload(resource?: AiResource): Record<string, unknown> {
   if (resource === 'base-routes') return { route_code: '', route_name: '', capability_code: 'text_generation', model_type: 'text', strategy: 'fallback', timeout_ms: 30000, max_retry: 2, status }
   if (resource === 'route-models') return { base_route_id: '', model_id: '', role: 'candidate', priority: 1, weight: 100, max_retry: 0, timeout_ms: 30000, status }
   if (resource === 'tenant-strategies') return { policy_name: '', tenant_scope: 'include', tenant_ids: [], app_code: '', app_name: '', ai_scenario_code: '', ai_scenario_name: '', default_base_route_id: '', override_base_route_id: '', status }
+  if (resource === 'quota-rules') return { policy_id: '', dimension: 'scenario', subject_code: '', usage_unit: 'tokens', period: 'day', quota_limit: 1000, used_amount: 0, warning_threshold: 80, over_limit_action: 'alert_only', status }
+  if (resource === 'rate-limit-rules') return { policy_id: '', dimension: 'user', subject_code: '', qps: 10, concurrency: 1, minute_limit: 0, hour_limit: 0, day_limit: 0, over_limit_action: 'queue', status }
   if (resource === 'settings') return { setting_key: '', setting_value: {}, description: '', status }
   return { status }
 }
@@ -657,8 +744,33 @@ function fieldsForResource(resource?: AiResource): FieldConfig[] {
     { key: 'app_code', label: '应用编码', required: true },
     { key: 'ai_scenario_name', label: 'AI 场景名称' },
     { key: 'ai_scenario_code', label: 'AI 场景编码', required: true },
-    { key: 'override_base_route_id', label: '覆盖基础路由 ID' },
-    { key: 'extra_config', label: '扩展配置 JSON', type: 'json' },
+    { key: 'default_base_route_id', label: '默认基础路由', type: 'select', options: baseRouteOptions.value, required: true },
+    { key: 'override_base_route_id', label: '覆盖基础路由', type: 'select', options: [{ label: '不覆盖', value: '' }, ...baseRouteOptions.value] },
+    { key: 'description', label: '说明', type: 'textarea' },
+    status,
+  ]
+  if (resource === 'quota-rules') return [
+    { key: 'policy_id', label: '策略', type: 'select', options: page.value.items.map((item) => ({ label: String(item.policy_name || item.id), value: String(item.id || '') })), required: true },
+    { key: 'dimension', label: '维度', type: 'select', options: toOptions(['tenant', 'app', 'scenario', 'model', 'feature_sku', 'provider_account', 'user', 'amount', 'api']) },
+    { key: 'subject_code', label: '控制对象', required: true },
+    { key: 'usage_unit', label: '用量单位', type: 'select', options: toOptions(['tokens', 'requests', 'images', 'video_seconds', 'audio_seconds', 'agent_runs', 'characters']) },
+    { key: 'period', label: '周期', type: 'select', options: toOptions(['minute', 'hour', 'day', 'week', 'month', 'year', 'total']) },
+    { key: 'quota_limit', label: '配额上限', type: 'number' },
+    { key: 'used_amount', label: '已用量', type: 'number' },
+    { key: 'warning_threshold', label: '预警阈值', type: 'number' },
+    { key: 'over_limit_action', label: '超限动作', type: 'select', options: toOptions(['alert_only', 'degrade_route', 'queue', 'reject', 'approval']) },
+    status,
+  ]
+  if (resource === 'rate-limit-rules') return [
+    { key: 'policy_id', label: '策略', type: 'select', options: page.value.items.map((item) => ({ label: String(item.policy_name || item.id), value: String(item.id || '') })), required: true },
+    { key: 'dimension', label: '维度', type: 'select', options: toOptions(['tenant', 'app', 'scenario', 'model', 'feature_sku', 'provider_account', 'user', 'amount', 'api']) },
+    { key: 'subject_code', label: '控制对象', required: true },
+    { key: 'qps', label: 'QPS', type: 'number' },
+    { key: 'concurrency', label: '并发', type: 'number' },
+    { key: 'minute_limit', label: '分钟限制', type: 'number' },
+    { key: 'hour_limit', label: '小时限制', type: 'number' },
+    { key: 'day_limit', label: '日限制', type: 'number' },
+    { key: 'over_limit_action', label: '超限动作', type: 'select', options: toOptions(['alert_only', 'degrade_route', 'queue', 'reject', 'approval']) },
     status,
   ]
   if (resource === 'settings') return [
@@ -715,7 +827,8 @@ onMounted(loadData)
       <el-button v-if="activeSection.key === 'models'" v-permission="'ai_capability_center:manage'" :icon="Upload" @click="modelImportVisible = true">模型导入</el-button>
       <el-button v-if="activeSection.key === 'scenarios'" v-permission="'ai_capability_center:manage'" :icon="Upload" @click="scenarioImportVisible = true">场景导入</el-button>
       <el-button v-if="activeSection.key === 'routes'" v-permission="'ai_capability_center:manage'" :icon="Upload" @click="routeImportVisible = true">路由导入</el-button>
-      <el-button v-if="canWrite && !['providers', 'models', 'scenarios', 'routes'].includes(activeSection.key)" v-permission="'ai_capability_center:manage'" type="primary" :icon="Plus" @click="openCreate">新增配置</el-button>
+      <el-button v-if="activeSection.key === 'strategy'" v-permission="'ai_capability_center:manage'" :icon="Upload" @click="strategyImportVisible = true">策略导入</el-button>
+      <el-button v-if="canWrite && !['providers', 'models', 'scenarios', 'routes', 'strategy'].includes(activeSection.key)" v-permission="'ai_capability_center:manage'" type="primary" :icon="Plus" @click="openCreate">新增配置</el-button>
     </template>
 
     <div class="ai-center-tabs">
@@ -1161,6 +1274,110 @@ onMounted(loadData)
       </section>
     </div>
 
+    <div v-else-if="activeSection.key === 'strategy'" class="ai-resource ai-strategy-workbench">
+      <div class="ai-toolbar">
+        <el-input v-model="keyword" clearable placeholder="搜索策略、应用、场景" @keyup.enter="loadData">
+          <template #prefix><el-icon><Search /></el-icon></template>
+        </el-input>
+        <el-button :icon="Search" @click="loadData">查询</el-button>
+        <el-button v-permission="'ai_capability_center:manage'" type="primary" :icon="Plus" @click="openStrategyCreate('tenant-strategies')">新增策略</el-button>
+      </div>
+      <el-alert v-if="errorText" :title="errorText" type="error" show-icon />
+
+      <section class="ai-model-shell">
+        <aside class="ai-provider-rail">
+          <header><strong>租户策略</strong><span>{{ page.total }} 条</span></header>
+          <button
+            v-for="item in page.items"
+            :key="String(item.id)"
+            :class="{ active: String(item.id || '') === selectedTenantPolicyId }"
+            @click="selectedTenantPolicyId = String(item.id || '')"
+          >
+            <strong>{{ item.policy_name }}</strong>
+            <span>{{ item.tenant_scope }} · {{ item.app_code }}/{{ item.ai_scenario_code }}</span>
+          </button>
+          <el-empty v-if="!page.items.length" :image-size="72" description="暂无租户策略" />
+        </aside>
+
+        <div class="ai-model-main">
+          <section class="ai-panel ai-strategy-hero">
+            <header><strong>{{ selectedTenantPolicy?.policy_name || '策略中心' }}</strong><span>租户 + 场景策略优先于应用策略和场景默认路由</span></header>
+            <div class="ai-model-stats">
+              <div><span>配额规则</span><strong>{{ selectedQuotaRules.length }}</strong></div>
+              <div><span>限流规则</span><strong>{{ selectedRateLimitRules.length }}</strong></div>
+              <div><span>路由覆盖</span><strong>{{ selectedTenantPolicy?.override_base_route_id ? '是' : '否' }}</strong></div>
+            </div>
+          </section>
+
+          <section class="ai-panel">
+            <header><strong>策略配置</strong><span>租户 + 场景 > 租户 + 应用 > 全部租户 + 场景 > 场景默认路由</span></header>
+            <el-table v-loading="loading" :data="selectedTenantPolicy ? [selectedTenantPolicy] : []" border class="ai-table" empty-text="请选择策略">
+              <el-table-column prop="tenant_scope" label="租户范围" width="110" />
+              <el-table-column prop="tenant_ids" label="租户" min-width="140">
+                <template #default="{ row }">{{ displayCell(row, 'tenant_ids') }}</template>
+              </el-table-column>
+              <el-table-column prop="app_code" label="应用" width="140" />
+              <el-table-column prop="ai_scenario_code" label="场景" min-width="160" />
+              <el-table-column prop="override_base_route_id" label="覆盖路由" min-width="180" />
+              <el-table-column label="状态" width="100">
+                <template #default="{ row }"><el-tag :type="statusType(row.status)">{{ displayCell(row, 'status') }}</el-tag></template>
+              </el-table-column>
+              <el-table-column fixed="right" label="操作" width="150">
+                <template #default="{ row }">
+                  <el-button v-permission="'ai_capability_center:manage'" link type="primary" :icon="Edit" @click="openEdit(row, 'tenant-strategies')">编辑</el-button>
+                  <el-button v-permission="'ai_capability_center:manage'" link type="danger" :icon="Delete" @click="removeRow(row, 'tenant-strategies')">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </section>
+
+          <section class="ai-model-price-grid">
+            <div class="ai-panel">
+              <header>
+                <strong>配额规则</strong>
+                <el-button v-permission="'ai_capability_center:manage'" size="small" type="primary" :icon="Plus" :disabled="!selectedTenantPolicyId" @click="openStrategyCreate('quota-rules')">新增配额</el-button>
+              </header>
+              <el-table :data="selectedQuotaRules" border class="ai-table" empty-text="当前策略暂无配额规则">
+                <el-table-column prop="dimension" label="维度" width="110" />
+                <el-table-column prop="subject_code" label="对象" min-width="140" />
+                <el-table-column label="配额" width="140">
+                  <template #default="{ row }">{{ numberText(row.quota_limit) }} {{ row.usage_unit }}/{{ row.period }}</template>
+                </el-table-column>
+                <el-table-column prop="over_limit_action" label="动作" width="130" />
+                <el-table-column fixed="right" label="操作" width="140">
+                  <template #default="{ row }">
+                    <el-button v-permission="'ai_capability_center:manage'" link type="primary" :icon="Edit" @click="openEdit(row, 'quota-rules')">编辑</el-button>
+                    <el-button v-permission="'ai_capability_center:manage'" link type="danger" :icon="Delete" @click="removeRow(row, 'quota-rules')">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </div>
+
+            <div class="ai-panel">
+              <header>
+                <strong>限流规则</strong>
+                <el-button v-permission="'ai_capability_center:manage'" size="small" type="primary" :icon="Plus" :disabled="!selectedTenantPolicyId" @click="openStrategyCreate('rate-limit-rules')">新增限流</el-button>
+              </header>
+              <el-table :data="selectedRateLimitRules" border class="ai-table" empty-text="当前策略暂无限流规则">
+                <el-table-column prop="dimension" label="维度" width="110" />
+                <el-table-column prop="subject_code" label="对象" min-width="140" />
+                <el-table-column label="限制" min-width="160">
+                  <template #default="{ row }">QPS {{ row.qps || 0 }} · 并发 {{ row.concurrency || 0 }} · 日 {{ row.day_limit || 0 }}</template>
+                </el-table-column>
+                <el-table-column prop="over_limit_action" label="动作" width="120" />
+                <el-table-column fixed="right" label="操作" width="140">
+                  <template #default="{ row }">
+                    <el-button v-permission="'ai_capability_center:manage'" link type="primary" :icon="Edit" @click="openEdit(row, 'rate-limit-rules')">编辑</el-button>
+                    <el-button v-permission="'ai_capability_center:manage'" link type="danger" :icon="Delete" @click="removeRow(row, 'rate-limit-rules')">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </div>
+          </section>
+        </div>
+      </section>
+    </div>
+
     <div v-else class="ai-resource">
       <div class="ai-toolbar">
         <el-input v-model="keyword" clearable placeholder="搜索当前页面数据" @keyup.enter="loadData">
@@ -1248,6 +1465,15 @@ onMounted(loadData)
       <template #footer>
         <el-button @click="routeImportVisible = false">取消</el-button>
         <el-button type="primary" @click="submitRouteImport">导入</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="strategyImportVisible" title="整体导入租户策略和规则" width="780px">
+      <el-alert title="导入会按策略、配额规则、限流规则的业务键 upsert；场景、路由、维度或动作无效会整体回滚。" type="info" show-icon />
+      <el-input v-model="strategyImportJson" class="json-editor" type="textarea" :rows="18" spellcheck="false" />
+      <template #footer>
+        <el-button @click="strategyImportVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitStrategyImport">导入</el-button>
       </template>
     </el-dialog>
   </NeuroAgentPageShell>
@@ -1462,6 +1688,12 @@ onMounted(loadData)
 .ai-route-hero {
   background:
     linear-gradient(135deg, color-mix(in srgb, #92400e 14%, transparent), transparent 58%),
+    var(--neuro-surface);
+}
+
+.ai-strategy-hero {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, #7c2d12 14%, transparent), transparent 58%),
     var(--neuro-surface);
 }
 
