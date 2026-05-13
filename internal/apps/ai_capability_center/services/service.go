@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 
 	"saas_baseon_go/internal/apps/ai_capability_center"
@@ -132,6 +133,7 @@ func (s *Service) EnsureBaseline(ctx context.Context) error {
 			if count > 0 {
 				continue
 			}
+			item.ID = uuid.NewString()
 			item.CreatedAt = now
 			item.UpdatedAt = now
 			if err := tx.Create(&item).Error; err != nil {
@@ -150,6 +152,7 @@ func (s *Service) EnsureBaseline(ctx context.Context) error {
 			if count > 0 {
 				continue
 			}
+			item.ID = uuid.NewString()
 			item.CreatedAt = now
 			item.UpdatedAt = now
 			if err := tx.Create(&item).Error; err != nil {
@@ -169,29 +172,50 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	trendStart := todayStart.AddDate(0, 0, -6)
 	var calls int64
 	var cost, billing float64
-	s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).
+	if err := s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).
 		Select("COALESCE(SUM(calls),0), COALESCE(SUM(cost_amount),0), COALESCE(SUM(billing_amount),0)").
 		Where("called_at >= ?", todayStart).
-		Row().Scan(&calls, &cost, &billing)
+		Row().Scan(&calls, &cost, &billing); err != nil {
+		return Overview{}, err
+	}
 
 	var successCount int64
 	var totalRecords int64
-	_ = s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).Where("called_at >= ?", todayStart).Count(&totalRecords).Error
-	_ = s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).Where("called_at >= ? AND status = ?", todayStart, "success").Count(&successCount).Error
+	if err := s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).Where("called_at >= ?", todayStart).Count(&totalRecords).Error; err != nil {
+		return Overview{}, err
+	}
+	if err := s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).Where("called_at >= ? AND status = ?", todayStart, "success").Count(&successCount).Error; err != nil {
+		return Overview{}, err
+	}
 	successRate := 100.0
 	if totalRecords > 0 {
 		successRate = float64(successCount) / float64(totalRecords) * 100
 	}
 
-	var p95 int
-	_ = s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).Select("COALESCE(MAX(latency_ms),0)").Where("called_at >= ?", todayStart).Scan(&p95).Error
+	p95, err := s.p95Latency(ctx, todayStart)
+	if err != nil {
+		return Overview{}, err
+	}
 	var routeRows []models.AIBaseRoute
-	_ = s.db.WithContext(ctx).Where("deleted_at IS NULL").Order("updated_at desc").Limit(4).Find(&routeRows).Error
-	trend := s.usageTrend(ctx, trendStart, todayStart)
-	costShare := s.modelCostShare(ctx, trendStart)
-	ranking := s.tenantRanking(ctx, trendStart)
+	if err := s.db.WithContext(ctx).Where("deleted_at IS NULL").Order("updated_at desc").Limit(4).Find(&routeRows).Error; err != nil {
+		return Overview{}, err
+	}
+	trend, err := s.usageTrend(ctx, trendStart, todayStart)
+	if err != nil {
+		return Overview{}, err
+	}
+	costShare, err := s.modelCostShare(ctx, trendStart)
+	if err != nil {
+		return Overview{}, err
+	}
+	ranking, err := s.tenantRanking(ctx, trendStart)
+	if err != nil {
+		return Overview{}, err
+	}
 	var tenantCount int64
-	_ = s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).Where("called_at >= ?", trendStart).Distinct("tenant_id").Count(&tenantCount).Error
+	if err := s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).Where("called_at >= ?", trendStart).Distinct("tenant_id").Count(&tenantCount).Error; err != nil {
+		return Overview{}, err
+	}
 
 	return Overview{
 		Metrics: []OverviewMetric{
@@ -218,7 +242,7 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	}, nil
 }
 
-func (s *Service) usageTrend(ctx context.Context, start, end time.Time) []UsageTrendPoint {
+func (s *Service) usageTrend(ctx context.Context, start, end time.Time) ([]UsageTrendPoint, error) {
 	points := make([]UsageTrendPoint, 0, 7)
 	byDate := make(map[string]*UsageTrendPoint, 7)
 	for day := start; !day.After(end); day = day.AddDate(0, 0, 1) {
@@ -227,12 +251,15 @@ func (s *Service) usageTrend(ctx context.Context, start, end time.Time) []UsageT
 		byDate[key] = &points[len(points)-1]
 	}
 	var rows []UsageTrendPoint
-	_ = s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).
-		Select("TO_CHAR(called_at, 'YYYY-MM-DD') AS date, COALESCE(SUM(calls),0) AS calls, COALESCE(SUM(cost_amount),0) AS cost_amount, COALESCE(SUM(billing_amount),0) AS billing_amount").
+	dateExpr := usageDateExpression(s.db)
+	if err := s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).
+		Select(dateExpr+" AS date, COALESCE(SUM(calls),0) AS calls, COALESCE(SUM(cost_amount),0) AS cost_amount, COALESCE(SUM(billing_amount),0) AS billing_amount").
 		Where("called_at >= ?", start).
-		Group("TO_CHAR(called_at, 'YYYY-MM-DD')").
+		Group(dateExpr).
 		Order("date asc").
-		Scan(&rows).Error
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
 	for _, row := range rows {
 		if point, ok := byDate[row.Date]; ok {
 			point.Calls = row.Calls
@@ -240,38 +267,70 @@ func (s *Service) usageTrend(ctx context.Context, start, end time.Time) []UsageT
 			point.BillingAmount = row.BillingAmount
 		}
 	}
-	return points
+	return points, nil
 }
 
-func (s *Service) modelCostShare(ctx context.Context, start time.Time) []ModelCostShare {
+func (s *Service) modelCostShare(ctx context.Context, start time.Time) ([]ModelCostShare, error) {
 	var rows []ModelCostShare
-	_ = s.db.WithContext(ctx).Table("ai_usage_records AS u").
+	if err := s.db.WithContext(ctx).Table("ai_usage_records AS u").
 		Select("COALESCE(m.model_type, 'unknown') AS model_type, COALESCE(SUM(u.cost_amount),0) AS cost_amount").
 		Joins("LEFT JOIN ai_models AS m ON m.id = u.model_id").
 		Where("u.called_at >= ?", start).
 		Group("COALESCE(m.model_type, 'unknown')").
 		Order("cost_amount desc").
 		Limit(6).
-		Scan(&rows).Error
-	return rows
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
 }
 
-func (s *Service) tenantRanking(ctx context.Context, start time.Time) []TenantRankingItem {
+func (s *Service) tenantRanking(ctx context.Context, start time.Time) ([]TenantRankingItem, error) {
 	var rows []TenantRankingItem
-	_ = s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).
+	if err := s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).
 		Select(`tenant_name,
 			COALESCE(SUM(calls),0) AS calls,
 			COALESCE(SUM(cost_amount),0) AS cost_amount,
 			COALESCE(SUM(billing_amount),0) AS billing_amount,
 			COALESCE(SUM(billing_amount - cost_amount),0) AS profit_amount,
-			CASE WHEN COUNT(*) = 0 THEN 100 ELSE SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END)::float / COUNT(*) * 100 END AS success_rate,
+			COALESCE(AVG(CASE WHEN status = 'success' THEN 100.0 ELSE 0.0 END),100) AS success_rate,
 			COUNT(DISTINCT ai_scenario_code) AS scenario_count`).
 		Where("called_at >= ?", start).
 		Group("tenant_name").
 		Order("billing_amount desc").
 		Limit(8).
-		Scan(&rows).Error
-	return rows
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (s *Service) p95Latency(ctx context.Context, start time.Time) (int, error) {
+	var latencies []int
+	if err := s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).
+		Where("called_at >= ?", start).
+		Order("latency_ms asc").
+		Pluck("latency_ms", &latencies).Error; err != nil {
+		return 0, err
+	}
+	if len(latencies) == 0 {
+		return 0, nil
+	}
+	index := int(float64(len(latencies))*0.95+0.999999) - 1
+	if index < 0 {
+		index = 0
+	}
+	if index >= len(latencies) {
+		index = len(latencies) - 1
+	}
+	return latencies[index], nil
+}
+
+func usageDateExpression(db *gorm.DB) string {
+	if db != nil && db.Dialector != nil && db.Dialector.Name() == "sqlite" {
+		return "strftime('%Y-%m-%d', called_at)"
+	}
+	return "TO_CHAR(called_at, 'YYYY-MM-DD')"
 }
 
 func (s *Service) ListProviders(ctx context.Context, skip, limit int, keyword string) (PageResult, error) {

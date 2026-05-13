@@ -35,3 +35,16 @@ AI 能力中心是合并部署应用，`app_code=ai-capability-center`。它属�
 Manifest 声明平台菜单、配置管理操作和 AI Gateway 调用权限。菜单仅平台可见，`package_features` 和 `quotas` 保持为空，避免进入租户套餐售卖或租户自助开通。
 
 配置写操作统一写入 SaaS 底座操作日志，`app_code=ai-capability-center`，不创建独立审计表。
+
+## 总览统计口径
+
+总览页的统计数据来自 `ai_usage_records`，独立用量统计页已删除，用量明细仅作为总览、审计和 Gateway 调用链路的数据源保留。
+
+- 今日调用量：当天 `called_at >= 今日 00:00` 的 `calls` 汇总。
+- 今日成本：当天 `cost_amount` 汇总，展示为成本价。
+- 成功率：当天记录数口径，`status=success` 记录数 / 当天总记录数；无记录时默认 `100.00%`。
+- P95 延迟：当天 `latency_ms` 升序后的 95 分位；无记录时为 `0ms`。
+- 7 天趋势：从今日往前 6 天到今天，按天汇总 `calls/cost_amount/billing_amount`，无数据日期补 0。
+- 模型类型成本结构：近 7 天用量左连接模型目录，按 `model_type` 汇总成本，未匹配模型归类为 `unknown`。
+- 租户排行：近 7 天按 `tenant_name` 汇总调用量、成本、收入、毛利、成功率和场景数，按收入倒序取前 8。
+- 租户指标：近 7 天服务租户数；今日收入和今日毛利。
