@@ -29,10 +29,11 @@ func NewService(db *gorm.DB) *Service {
 }
 
 type PageResult struct {
-	Items interface{} `json:"items"`
-	Total int64       `json:"total"`
-	Skip  int         `json:"skip"`
-	Limit int         `json:"limit"`
+	Items   interface{} `json:"items"`
+	Total   int64       `json:"total"`
+	Skip    int         `json:"skip"`
+	Limit   int         `json:"limit"`
+	Summary interface{} `json:"summary,omitempty"`
 }
 
 type Overview struct {
@@ -72,6 +73,14 @@ type TenantRankingItem struct {
 	ProfitAmount  float64 `json:"profit_amount"`
 	SuccessRate   float64 `json:"success_rate"`
 	ScenarioCount int64   `json:"scenario_count"`
+}
+
+type UsageUnitSummary struct {
+	UsageUnit     string  `json:"usage_unit"`
+	UsageAmount   float64 `json:"usage_amount"`
+	Calls         int64   `json:"calls"`
+	CostAmount    float64 `json:"cost_amount"`
+	BillingAmount float64 `json:"billing_amount"`
 }
 
 type HealthCheck struct {
@@ -359,9 +368,26 @@ func (s *Service) ListRateLimitRules(ctx context.Context, skip, limit int, polic
 	return pageQuery[models.AIStrategyRateLimitRule](q, skip, limit)
 }
 
-func (s *Service) ListUsageRecords(ctx context.Context, skip, limit int, keyword string) (PageResult, error) {
+func (s *Service) ListUsageRecords(ctx context.Context, skip, limit int, keyword, startDate, endDate string) (PageResult, error) {
 	q := keywordQuery(s.db.WithContext(ctx).Model(&models.AIUsageRecord{}), keyword, []string{"tenant_name", "app_name", "ai_scenario_name", "user_name", "usage_detail", "status"})
-	return pageQueryOrder[models.AIUsageRecord](q, skip, limit, "called_at desc")
+	q, err := usageDateQuery(q, startDate, endDate)
+	if err != nil {
+		return PageResult{}, err
+	}
+	result, err := pageQueryOrder[models.AIUsageRecord](q, skip, limit, "called_at desc")
+	if err != nil {
+		return PageResult{}, err
+	}
+	var summary []UsageUnitSummary
+	if err := q.Session(&gorm.Session{}).
+		Select("usage_unit, COALESCE(SUM(usage_amount),0) AS usage_amount, COALESCE(SUM(calls),0) AS calls, COALESCE(SUM(cost_amount),0) AS cost_amount, COALESCE(SUM(billing_amount),0) AS billing_amount").
+		Group("usage_unit").
+		Order("usage_unit asc").
+		Scan(&summary).Error; err != nil {
+		return PageResult{}, err
+	}
+	result.Summary = summary
+	return result, nil
 }
 
 func (s *Service) ListSettings(ctx context.Context, skip, limit int) (PageResult, error) {
@@ -804,6 +830,24 @@ func keywordQuery(q *gorm.DB, keyword string, columns []string) *gorm.DB {
 		q = q.Where(strings.Join(parts, " OR "), args...)
 	}
 	return q
+}
+
+func usageDateQuery(q *gorm.DB, startDate, endDate string) (*gorm.DB, error) {
+	if strings.TrimSpace(startDate) != "" {
+		start, err := time.Parse("2006-01-02", strings.TrimSpace(startDate))
+		if err != nil {
+			return nil, ErrInvalidInput
+		}
+		q = q.Where("called_at >= ?", start)
+	}
+	if strings.TrimSpace(endDate) != "" {
+		end, err := time.Parse("2006-01-02", strings.TrimSpace(endDate))
+		if err != nil {
+			return nil, ErrInvalidInput
+		}
+		q = q.Where("called_at < ?", end.AddDate(0, 0, 1))
+	}
+	return q, nil
 }
 
 func decodePayload(payload map[string]interface{}, target interface{}) error {

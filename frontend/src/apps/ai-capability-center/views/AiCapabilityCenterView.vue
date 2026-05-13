@@ -56,6 +56,7 @@ const overview = ref<AiOverview | null>(null)
 const page = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 20 })
 const currentPage = computed(() => Math.floor(page.value.skip / Math.max(page.value.limit, 1)) + 1)
 const keyword = ref('')
+const usageDateRange = ref<[string, string] | []>([])
 const loading = ref(false)
 const errorText = ref('')
 const editorVisible = ref(false)
@@ -66,6 +67,7 @@ const editingId = ref('')
 
 const canWrite = computed(() => Boolean(activeSection.value.resource && activeSection.value.writable))
 const formFields = computed<FieldConfig[]>(() => fieldsForResource(activeSection.value.resource))
+const usageSummary = computed(() => Array.isArray(page.value.summary) ? page.value.summary as Array<Record<string, unknown>> : [])
 
 function displayCell(row: Record<string, unknown>, key: string) {
   const value = row[key]
@@ -104,6 +106,8 @@ async function loadData() {
       skip: page.value.skip,
       limit: page.value.limit,
       keyword: keyword.value.trim(),
+      start_date: activeSection.value.resource === 'usage-records' ? usageDateRange.value[0] : undefined,
+      end_date: activeSection.value.resource === 'usage-records' ? usageDateRange.value[1] : undefined,
     })
   } catch (error) {
     errorText.value = error instanceof Error ? error.message : '数据加载失败'
@@ -274,6 +278,7 @@ function buildEditorPayload() {
 watch(() => route.path, () => {
   page.value.skip = 0
   keyword.value = ''
+  usageDateRange.value = []
   loadData()
 })
 
@@ -368,7 +373,23 @@ onMounted(loadData)
         <el-input v-model="keyword" clearable placeholder="搜索当前页面数据" @keyup.enter="loadData">
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
+        <el-date-picker
+          v-if="activeSection.resource === 'usage-records'"
+          v-model="usageDateRange"
+          type="daterange"
+          value-format="YYYY-MM-DD"
+          start-placeholder="开始日期"
+          end-placeholder="结束日期"
+          unlink-panels
+        />
         <el-button :icon="Search" @click="loadData">查询</el-button>
+      </div>
+      <div v-if="activeSection.resource === 'usage-records' && usageSummary.length" class="ai-usage-summary">
+        <article v-for="item in usageSummary" :key="String(item.usage_unit)">
+          <span>{{ item.usage_unit }}</span>
+          <strong>{{ numberText(item.usage_amount) }}</strong>
+          <small>{{ numberText(item.calls) }} 次调用 / {{ moneyText(item.billing_amount) }}</small>
+        </article>
       </div>
       <el-alert v-if="errorText" :title="errorText" type="error" show-icon />
       <el-table v-loading="loading" :data="page.items" border class="ai-table" empty-text="暂无数据">
@@ -532,6 +553,35 @@ onMounted(loadData)
   max-width: 360px;
 }
 
+.ai-toolbar :deep(.el-date-editor) {
+  max-width: 320px;
+}
+
+.ai-usage-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ai-usage-summary article {
+  border: 1px solid var(--neuro-border);
+  background: var(--neuro-surface);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.ai-usage-summary span,
+.ai-usage-summary small {
+  display: block;
+  color: var(--neuro-text-muted);
+}
+
+.ai-usage-summary strong {
+  display: block;
+  margin: 6px 0;
+  font-size: 20px;
+}
+
 .ai-table {
   width: 100%;
 }
@@ -582,6 +632,15 @@ onMounted(loadData)
 
   .ai-toolbar .el-input {
     max-width: none;
+  }
+
+  .ai-toolbar :deep(.el-date-editor) {
+    max-width: none;
+    width: 100%;
+  }
+
+  .ai-usage-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .ai-form {

@@ -65,7 +65,7 @@ func (h *Handler) List(c *gin.Context) {
 	case "rate-limit-rules":
 		result, err = h.service.ListRateLimitRules(c.Request.Context(), skip, limit, c.Query("policy_id"))
 	case "usage-records":
-		result, err = h.service.ListUsageRecords(c.Request.Context(), skip, limit, keyword)
+		result, err = h.service.ListUsageRecords(c.Request.Context(), skip, limit, keyword, c.Query("start_date"), c.Query("end_date"))
 	case "settings":
 		result, err = h.service.ListSettings(c.Request.Context(), skip, limit)
 	default:

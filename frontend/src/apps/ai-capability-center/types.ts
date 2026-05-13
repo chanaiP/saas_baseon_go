@@ -3,6 +3,7 @@ export interface AiPage<T = unknown> {
   total: number
   skip: number
   limit: number
+  summary?: unknown
 }
 
 export interface AiOverview {
