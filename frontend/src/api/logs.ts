@@ -18,6 +18,11 @@ export interface AuditLogRow {
   tenant_id?: number | null
   tenant_name?: string | null
   user_id?: number | null
+  user_name?: string | null
+  user_account?: string | null
+  user_employee_no?: string | null
+  app_code?: string | null
+  app_name?: string | null
   module: string
   action: string
   summary: string
@@ -70,6 +75,7 @@ export async function fetchAuditLogs(
   limit = 20,
   opts?: {
     module?: string
+    app_code?: string
     keyword?: string
     tenant_name_hint?: string
     account?: string
@@ -80,6 +86,7 @@ export async function fetchAuditLogs(
 ) {
   const params: Record<string, string | number> = { skip, limit }
   if (opts?.module) params.module = opts.module
+  if (opts?.app_code) params.app_code = opts.app_code
   const kw = (opts?.keyword ?? '').trim()
   if (kw) params.keyword = kw
   const tnh = (opts?.tenant_name_hint ?? '').trim()

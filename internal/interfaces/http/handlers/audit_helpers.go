@@ -33,9 +33,11 @@ func (h *IdentityHandler) audit(c *gin.Context, tenantID uint64, userID uint64, 
 	ip := c.ClientIP()
 	userAgent := c.Request.UserAgent()
 	requestID := c.GetString("request_id")
+	appCode := auditAppCode(module)
 	_ = h.db.Create(&models.AuditLog{
 		TenantID:  &tenantID,
 		UserID:    &userID,
+		AppCode:   nullableFromString(appCode),
 		Module:    module,
 		Action:    action,
 		Summary:   summary,

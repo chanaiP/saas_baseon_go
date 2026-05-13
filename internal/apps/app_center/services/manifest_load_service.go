@@ -118,6 +118,7 @@ func (s *AppService) LoadManifest(ctx context.Context, viewerID uint64, req dto.
 		detail := string(diffRaw)
 		if err := tx.Create(&models.AuditLog{
 			UserID:    &userID,
+			AppCode:   &env.parse.AppCode,
 			Module:    "app_center",
 			Action:    "manifest_load",
 			Summary:   fmt.Sprintf("装载应用 Manifest：%s", env.parse.AppCode),

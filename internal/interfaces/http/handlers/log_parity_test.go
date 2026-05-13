@@ -33,12 +33,22 @@ func TestAuditLogJSONMapsRowAndTenantName(t *testing.T) {
 	detail := `{"id":1}`
 	ip := "127.0.0.1"
 	tenantName := "八号租户"
+	userName := "平台管理员"
+	userAccount := "admin"
+	userEmployeeNo := "E10001"
+	appName := "系统管理"
+	appCode := "system-management"
 
-	item := auditLogToJSON(models.AuditLog{ID: 2, TenantID: &tenantID, UserID: &userID, Module: "user", Action: "create", Summary: "创建用户", Detail: &detail, IP: &ip}, &tenantName)
+	item := auditLogToJSON(models.AuditLog{ID: 2, TenantID: &tenantID, UserID: &userID, AppCode: &appCode, Module: "user", Action: "create", Summary: "创建用户", Detail: &detail, IP: &ip}, &tenantName, &userName, &userAccount, &userEmployeeNo, appCode, &appName)
 
 	require.Equal(t, uint64(2), item["id"])
 	require.Equal(t, &tenantID, item["tenant_id"])
 	require.Equal(t, &tenantName, item["tenant_name"])
+	require.Equal(t, &userName, item["user_name"])
+	require.Equal(t, &userAccount, item["user_account"])
+	require.Equal(t, &userEmployeeNo, item["user_employee_no"])
+	require.Equal(t, "system-management", item["app_code"])
+	require.Equal(t, &appName, item["app_name"])
 	require.Equal(t, "user", item["module"])
 	require.Equal(t, "create", item["action"])
 	require.Equal(t, "创建用户", item["summary"])

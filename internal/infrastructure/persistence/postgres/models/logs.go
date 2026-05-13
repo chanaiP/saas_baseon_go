@@ -20,6 +20,7 @@ type AuditLog struct {
 	ID        uint64    `gorm:"primaryKey;autoIncrement;column:id"`
 	TenantID  *uint64   `gorm:"column:tenant_id;index"`
 	UserID    *uint64   `gorm:"column:user_id;index"`
+	AppCode   *string   `gorm:"column:app_code;type:varchar(100);index"`
 	Module    string    `gorm:"column:module;type:varchar(64);not null"`
 	Action    string    `gorm:"column:action;type:varchar(32);not null"`
 	Summary   string    `gorm:"column:summary;type:varchar(500);not null"`

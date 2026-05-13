@@ -176,6 +176,7 @@ CREATE TABLE public.audit_log (
     id bigint NOT NULL,
     tenant_id bigint,
     user_id bigint,
+    app_code character varying(100),
     module character varying(64) NOT NULL,
     action character varying(32) NOT NULL,
     summary character varying(500) NOT NULL,
@@ -1937,6 +1938,8 @@ CREATE INDEX idx_audit_log_request_id ON public.audit_log USING btree (request_i
 CREATE INDEX idx_audit_log_user_id ON public.audit_log USING btree (user_id);
 
 CREATE INDEX idx_audit_log_tenant_created ON public.audit_log USING btree (tenant_id, created_at DESC);
+
+CREATE INDEX idx_audit_log_app_code_created ON public.audit_log USING btree (app_code, created_at DESC);
 
 
 --

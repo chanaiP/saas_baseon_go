@@ -62,8 +62,8 @@ func loginLogToJSON(row models.LoginLog, tenantName *string) gin.H {
 	return gin.H{"id": row.ID, "tenant_id": row.TenantID, "tenant_name": tenantName, "user_id": row.UserID, "account": row.Account, "success": row.Success, "message": row.Message, "ip": row.IP, "created_at": row.CreatedAt}
 }
 
-func auditLogToJSON(row models.AuditLog, tenantName *string) gin.H {
-	return gin.H{"id": row.ID, "tenant_id": row.TenantID, "tenant_name": tenantName, "user_id": row.UserID, "module": row.Module, "action": row.Action, "summary": row.Summary, "detail": row.Detail, "ip": row.IP, "user_agent": row.UserAgent, "request_id": row.RequestID, "result": row.Result, "created_at": row.CreatedAt}
+func auditLogToJSON(row models.AuditLog, tenantName *string, userName *string, userAccount *string, userEmployeeNo *string, appCode string, appName *string) gin.H {
+	return gin.H{"id": row.ID, "tenant_id": row.TenantID, "tenant_name": tenantName, "user_id": row.UserID, "user_name": userName, "user_account": userAccount, "user_employee_no": userEmployeeNo, "app_code": appCode, "app_name": appName, "module": row.Module, "action": row.Action, "summary": row.Summary, "detail": row.Detail, "ip": row.IP, "user_agent": row.UserAgent, "request_id": row.RequestID, "result": row.Result, "created_at": row.CreatedAt}
 }
 
 func parseOptionalUintQuery(c *gin.Context, key string) *uint64 {

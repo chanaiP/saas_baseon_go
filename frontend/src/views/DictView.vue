@@ -40,7 +40,8 @@ const limitI = ref(10)
 
 const dlgT = ref(false)
 const dlgTEdit = ref(false)
-const tForm = ref({ code: '', name: '', remark: '', scope: 'HYBRID', tenant_editable: true, is_platform_only: false })
+const fixedDictScope = 'platform'
+const tForm = ref({ code: '', name: '', remark: '', tenant_editable: true, is_platform_only: false })
 const tEditId = ref<number | null>(null)
 
 const dlgI = ref(false)
@@ -155,7 +156,7 @@ function onItemPageSizeChange(s: number) {
 
 function openTypeDlg() {
   tEditId.value = null
-  tForm.value = { code: '', name: '', remark: '', scope: 'HYBRID', tenant_editable: true, is_platform_only: false }
+  tForm.value = { code: '', name: '', remark: '', tenant_editable: true, is_platform_only: false }
   dlgT.value = true
 }
 
@@ -165,20 +166,29 @@ function openTypeEdit(row: DictTypeRow) {
     code: row.code,
     name: row.name,
     remark: row.remark || '',
-    scope: row.scope || 'HYBRID',
     tenant_editable: row.tenant_editable !== false,
     is_platform_only: !!row.is_platform_only,
   }
   dlgTEdit.value = true
 }
 
+function onPlatformOnlyChange(value: boolean | string | number) {
+  if (Boolean(value)) {
+    tForm.value.tenant_editable = false
+  }
+}
+
+const normalizedTenantEditable = computed(() => {
+  return tForm.value.is_platform_only ? false : tForm.value.tenant_editable
+})
+
 async function saveType() {
   await createDictType({
     code: tForm.value.code,
     name: tForm.value.name,
     remark: tForm.value.remark || undefined,
-    scope: tForm.value.scope,
-    tenant_editable: tForm.value.tenant_editable,
+    scope: fixedDictScope,
+    tenant_editable: normalizedTenantEditable.value,
     is_platform_only: tForm.value.is_platform_only,
   })
   dlgT.value = false
@@ -190,8 +200,8 @@ async function saveTypeEdit() {
   await updateDictType(tEditId.value, {
     name: tForm.value.name,
     remark: tForm.value.remark || null,
-    scope: tForm.value.scope,
-    tenant_editable: tForm.value.tenant_editable,
+    scope: fixedDictScope,
+    tenant_editable: normalizedTenantEditable.value,
     is_platform_only: tForm.value.is_platform_only,
   })
   dlgTEdit.value = false
@@ -256,10 +266,9 @@ async function restoreItem(row: DictItemRow) {
 
 const typeColumns = computed<TableColumn[]>(() => [
   { key: 'name_code', title: '名称 / 编码', minWidth: 196, tooltip: true },
-  { key: 'scope', title: '作用域', minWidth: 100, width: 108 },
   { key: 'tenant_editable', title: '租户覆盖', minWidth: 112, width: 120 },
   { key: 'is_platform_only', title: '平台专属', minWidth: 100, width: 108, hidden: !isPlatformAdmin.value },
-  { key: 'actions', title: '操作', width: 156, minWidth: 156, tooltip: false, hidden: !isPlatformAdmin.value },
+  { key: 'actions', title: '操作', width: 184, minWidth: 184, tooltip: false, hidden: !isPlatformAdmin.value },
 ])
 
 const itemColumns = computed<TableColumn[]>(() => [
@@ -270,7 +279,7 @@ const itemColumns = computed<TableColumn[]>(() => [
   { key: 'sort_order', title: '排序', minWidth: 96, width: 96, align: 'center' },
   { key: 'enabled', title: '启用', minWidth: 96, width: 96, align: 'center' },
   { key: 'is_override', title: '覆盖', minWidth: 96, width: 96, align: 'center', hidden: isPlatformAdmin.value },
-  { key: 'actions', title: '操作', width: isPlatformAdmin.value ? 156 : 228, minWidth: isPlatformAdmin.value ? 156 : 228, tooltip: false },
+  { key: 'actions', title: '操作', width: isPlatformAdmin.value ? 184 : 240, minWidth: isPlatformAdmin.value ? 184 : 240, tooltip: false },
 ])
 
 onMounted(() => void loadTypes())
@@ -400,20 +409,12 @@ onMounted(() => void loadTypes())
         </div>
         <div class="nm-form-row">
           <div class="nm-form-item">
-            <label class="nm-form-label">作用域</label>
-            <el-select v-model="tForm.scope">
-              <el-option label="混合覆盖" value="HYBRID" />
-              <el-option label="租户数据" value="TENANT" />
-              <el-option label="平台定义" value="PLATFORM" />
-            </el-select>
-          </div>
-          <div class="nm-form-item">
             <label class="nm-form-label">租户覆盖</label>
-            <el-switch v-model="tForm.tenant_editable" />
+            <el-switch v-model="tForm.tenant_editable" :disabled="tForm.is_platform_only" />
           </div>
           <div class="nm-form-item">
             <label class="nm-form-label">平台专属</label>
-            <el-switch v-model="tForm.is_platform_only" />
+            <el-switch v-model="tForm.is_platform_only" @change="onPlatformOnlyChange" />
           </div>
         </div>
       </div>
@@ -440,20 +441,12 @@ onMounted(() => void loadTypes())
         </div>
         <div class="nm-form-row">
           <div class="nm-form-item">
-            <label class="nm-form-label">作用域</label>
-            <el-select v-model="tForm.scope">
-              <el-option label="混合覆盖" value="HYBRID" />
-              <el-option label="租户数据" value="TENANT" />
-              <el-option label="平台定义" value="PLATFORM" />
-            </el-select>
-          </div>
-          <div class="nm-form-item">
             <label class="nm-form-label">租户覆盖</label>
-            <el-switch v-model="tForm.tenant_editable" />
+            <el-switch v-model="tForm.tenant_editable" :disabled="tForm.is_platform_only" />
           </div>
           <div class="nm-form-item">
             <label class="nm-form-label">平台专属</label>
-            <el-switch v-model="tForm.is_platform_only" />
+            <el-switch v-model="tForm.is_platform_only" @change="onPlatformOnlyChange" />
           </div>
         </div>
       </div>
@@ -533,7 +526,7 @@ onMounted(() => void loadTypes())
 
 .page :deep(.dict-data-table .op-btns) {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
   max-width: 100%;

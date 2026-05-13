@@ -15,6 +15,28 @@ func (h *IdentityHandler) tenantName(tenantID *uint64) *string {
 	return &tenant.Name
 }
 
+func (h *IdentityHandler) userIdentity(userID *uint64) (*string, *string, *string) {
+	if userID == nil {
+		return nil, nil, nil
+	}
+	var user models.AppUser
+	if err := h.db.First(&user, *userID).Error; err != nil {
+		return nil, nil, nil
+	}
+	return &user.Name, &user.Account, &user.EmployeeNo
+}
+
+func (h *IdentityHandler) appName(appCode string) *string {
+	if appCode == "" {
+		return nil
+	}
+	var app models.SysApp
+	if err := h.db.Where("app_code = ? AND deleted_at IS NULL", appCode).First(&app).Error; err != nil {
+		return nil
+	}
+	return &app.AppName
+}
+
 func (h *IdentityHandler) permissionScopeTenantIDs(tenantID uint64) []uint64 {
 	ids := []uint64{}
 	seen := map[uint64]struct{}{}

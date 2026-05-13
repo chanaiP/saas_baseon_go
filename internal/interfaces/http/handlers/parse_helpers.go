@@ -109,6 +109,7 @@ func (h *IdentityHandler) auditCrossTenantAccess(c *gin.Context, user models.App
 	_ = h.db.Create(&models.AuditLog{
 		TenantID:  &tenantContext.ActorTenantID,
 		UserID:    &user.ID,
+		AppCode:   nullableFromString("system-management"),
 		Module:    "tenant",
 		Action:    "cross_tenant_access",
 		Summary:   "跨租户访问",

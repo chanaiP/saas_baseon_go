@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 	"saas_baseon_go/internal/interfaces/http/response"
@@ -24,7 +25,7 @@ func (h *IdentityHandler) LoginLogs(c *gin.Context) {
 	query := h.db.Model(&models.LoginLog{})
 	if !h.viewerHasPlatformScope(user) {
 		query = query.Where("login_log.tenant_id = ?", user.TenantID)
-	} else if tenantName := strings.TrimSpace(c.Query("tenant_name")); tenantName != "" {
+	} else if tenantName := logTenantNameQuery(c); tenantName != "" {
 		like := "%" + tenantName + "%"
 		query = query.Joins("LEFT JOIN tenant t ON t.id = login_log.tenant_id").Where("t.name LIKE ? OR t.code LIKE ?", like, like)
 	}
@@ -59,9 +60,12 @@ func (h *IdentityHandler) AuditLogs(c *gin.Context) {
 	query := h.db.Model(&models.AuditLog{})
 	if !h.viewerHasPlatformScope(user) {
 		query = query.Where("audit_log.tenant_id = ?", user.TenantID)
-	} else if tenantName := strings.TrimSpace(c.Query("tenant_name")); tenantName != "" {
+	} else if tenantName := logTenantNameQuery(c); tenantName != "" {
 		like := "%" + tenantName + "%"
 		query = query.Joins("LEFT JOIN tenant t ON t.id = audit_log.tenant_id").Where("t.name LIKE ? OR t.code LIKE ?", like, like)
+	}
+	if appCode := strings.TrimSpace(c.Query("app_code")); appCode != "" {
+		query = applyAuditAppFilter(query, appCode)
 	}
 	if keyword := strings.TrimSpace(c.Query("keyword")); keyword != "" {
 		like := "%" + keyword + "%"
@@ -82,9 +86,64 @@ func (h *IdentityHandler) AuditLogs(c *gin.Context) {
 	_ = query.Order("audit_log.id desc").Offset(skip).Limit(limit).Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, auditLogToJSON(row, h.tenantName(row.TenantID)))
+		appCode := auditLogAppCode(row)
+		userName, userAccount, userEmployeeNo := h.userIdentity(row.UserID)
+		items = append(items, auditLogToJSON(row, h.tenantName(row.TenantID), userName, userAccount, userEmployeeNo, appCode, h.appName(appCode)))
 	}
 	response.OK(c, paginatedWithTotal(items, total, skip, limit))
+}
+
+func applyAuditAppFilter(query *gorm.DB, appCode string) *gorm.DB {
+	modules := auditModulesForAppCode(appCode)
+	if len(modules) == 0 {
+		return query.Where("audit_log.app_code = ? OR audit_log.module = ? OR audit_log.module = ?", appCode, appCode, strings.ReplaceAll(appCode, "-", "_"))
+	}
+	return query.Where("audit_log.app_code = ? OR (audit_log.app_code IS NULL AND audit_log.module IN ?)", appCode, modules)
+}
+
+func auditModulesForAppCode(appCode string) []string {
+	switch appCode {
+	case "app-center":
+		return []string{"app", "app_center", "application"}
+	case "system-monitor":
+		return []string{"monitor", "system_monitor"}
+	case "model-manager":
+		return []string{"model", "model_manager", "model-manager"}
+	case "system-management":
+		return []string{
+			"business_unit", "business_unit_org_map", "dict_item", "dict_type", "file",
+			"menu", "organization", "permission", "plan", "position", "position_type",
+			"profile", "quota", "role", "sys_param", "tenant", "tenant_branding",
+			"tenant_feature_override", "tenant_quota_override", "tenant_subscription", "user",
+		}
+	default:
+		return nil
+	}
+}
+
+func auditAppCode(module string) string {
+	for _, appCode := range []string{"app-center", "system-monitor", "model-manager", "system-management"} {
+		for _, item := range auditModulesForAppCode(appCode) {
+			if item == module {
+				return appCode
+			}
+		}
+	}
+	return strings.ReplaceAll(module, "_", "-")
+}
+
+func auditLogAppCode(row models.AuditLog) string {
+	if row.AppCode != nil && strings.TrimSpace(*row.AppCode) != "" {
+		return strings.TrimSpace(*row.AppCode)
+	}
+	return auditAppCode(row.Module)
+}
+
+func logTenantNameQuery(c *gin.Context) string {
+	if value := strings.TrimSpace(c.Query("tenant_name_hint")); value != "" {
+		return value
+	}
+	return strings.TrimSpace(c.Query("tenant_name"))
 }
 
 func (h *IdentityHandler) MonitorHealthDetail(c *gin.Context) {
