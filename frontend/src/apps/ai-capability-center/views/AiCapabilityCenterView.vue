@@ -6,8 +6,8 @@ import { Delete, Edit, Plus, Refresh, Search, Upload } from '@element-plus/icons
 
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
-import { createAiResource, deleteAiResource, fetchAiOverview, fetchAiResource, importAiModels, importAiProviders, updateAiResource } from '../api'
-import type { AiModelImportPayload, AiOverview, AiPage, AiProviderImportPayload, AiResource, AiSectionConfig } from '../types'
+import { createAiResource, deleteAiResource, fetchAiOverview, fetchAiResource, importAiModels, importAiProviders, importAiScenarios, updateAiResource } from '../api'
+import type { AiModelImportPayload, AiOverview, AiPage, AiProviderImportPayload, AiResource, AiScenarioImportPayload, AiSectionConfig } from '../types'
 
 defineOptions({ name: 'AiCapabilityCenterView' })
 
@@ -56,6 +56,9 @@ const providerAccountsPage = ref<AiPage<Record<string, unknown>>>({ items: [], t
 const providerApisPage = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 200 })
 const pricePoliciesPage = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 200 })
 const priceTiersPage = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 200 })
+const capabilitiesPage = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 200 })
+const baseRoutesPage = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 200 })
+const tenantStrategiesPage = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 200 })
 const currentPage = computed(() => Math.floor(page.value.skip / Math.max(page.value.limit, 1)) + 1)
 const keyword = ref('')
 const loading = ref(false)
@@ -70,8 +73,10 @@ const selectedProviderId = ref('')
 const selectedAccountId = ref('')
 const selectedModelId = ref('')
 const selectedPolicyId = ref('')
+const selectedAppCode = ref('')
 const importVisible = ref(false)
 const modelImportVisible = ref(false)
+const scenarioImportVisible = ref(false)
 const importJson = ref(JSON.stringify({
   providers: [{
     name: 'OpenAI',
@@ -124,6 +129,20 @@ const modelImportJson = ref(JSON.stringify({
     }],
   }],
 }, null, 2))
+const scenarioImportJson = ref(JSON.stringify({
+  scenarios: [{
+    app_code: 'product_center',
+    app_name: '商品中心',
+    ai_scenario_code: 'product_copy_generate',
+    ai_scenario_name: '商品文案生成',
+    scenario_type: 'text',
+    capability_code: 'chat_completion',
+    model_type: 'text',
+    default_base_route_id: 'route-uuid',
+    owner: '商品平台组',
+    version: 'v1.0',
+  }],
+}, null, 2))
 
 const canWrite = computed(() => Boolean(activeSection.value.resource && activeSection.value.writable))
 const formFields = computed<FieldConfig[]>(() => fieldsForResource(editorResource.value ?? activeSection.value.resource))
@@ -138,6 +157,21 @@ const selectedProviderModels = computed(() => page.value.items.filter((item) => 
 const selectedModelPolicies = computed(() => pricePoliciesPage.value.items.filter((item) => String(item.model_id || '') === selectedModelId.value))
 const selectedPolicyTiers = computed(() => priceTiersPage.value.items.filter((item) => String(item.price_policy_id || '') === selectedPolicyId.value))
 const activeProviderName = computed(() => providerRows.value.find((item) => String(item.id || '') === selectedProviderId.value)?.name || '全部供应商')
+const capabilityOptions = computed(() => capabilitiesPage.value.items.map((item) => ({ label: String(item.capability_name || item.capability_code), value: String(item.capability_code || '') })).filter((item) => item.value))
+const baseRouteOptions = computed(() => baseRoutesPage.value.items.map((item) => ({ label: `${item.route_name || item.route_code} · ${item.capability_code || '-'}`, value: String(item.id || '') })).filter((item) => item.value))
+const appGroups = computed(() => {
+  const groups = new Map<string, { app_code: string; app_name: string; total: number; active: number }>()
+  for (const item of page.value.items) {
+    const appCode = String(item.app_code || '')
+    if (!appCode) continue
+    const group = groups.get(appCode) || { app_code: appCode, app_name: String(item.app_name || appCode), total: 0, active: 0 }
+    group.total++
+    if (item.status === 'active') group.active++
+    groups.set(appCode, group)
+  }
+  return Array.from(groups.values()).sort((a, b) => a.app_code.localeCompare(b.app_code))
+})
+const selectedAppScenarios = computed(() => page.value.items.filter((item) => String(item.app_code || '') === selectedAppCode.value))
 
 function displayCell(row: Record<string, unknown>, key: string) {
   const value = row[key]
@@ -164,6 +198,12 @@ function moneyText(value: unknown) {
   return Number.isFinite(numeric) ? `¥${numeric.toFixed(2)}` : '¥0.00'
 }
 
+function strategyCount(row: Record<string, unknown>) {
+  const appCode = String(row.app_code || '')
+  const scenarioCode = String(row.ai_scenario_code || '')
+  return tenantStrategiesPage.value.items.filter((item) => String(item.app_code || '') === appCode && String(item.ai_scenario_code || '') === scenarioCode).length
+}
+
 async function loadData() {
   loading.value = true
   errorText.value = ''
@@ -187,6 +227,12 @@ async function loadData() {
       pricePoliciesPage.value = await fetchAiResource('price-policies', { skip: 0, limit: 200 })
       priceTiersPage.value = await fetchAiResource('price-tiers', { skip: 0, limit: 200 })
       reconcileModelSelection()
+    }
+    if (activeSection.value.key === 'scenarios') {
+      capabilitiesPage.value = await fetchAiResource('capabilities', { skip: 0, limit: 200 })
+      baseRoutesPage.value = await fetchAiResource('base-routes', { skip: 0, limit: 200 })
+      tenantStrategiesPage.value = await fetchAiResource('tenant-strategies', { skip: 0, limit: 200 })
+      reconcileScenarioSelection()
     }
   } catch (error) {
     errorText.value = error instanceof Error ? error.message : '数据加载失败'
@@ -232,6 +278,23 @@ function openModelCreate(resource: AiResource) {
   if (resource === 'models') payload.provider_id = selectedProviderId.value
   if (resource === 'price-policies') payload.model_id = selectedModelId.value
   if (resource === 'price-tiers') payload.price_policy_id = selectedPolicyId.value
+  formModel.value = normalizeEditorRow(payload)
+  editorJson.value = JSON.stringify(formModel.value, null, 2)
+  editorVisible.value = true
+}
+
+function openScenarioCreate() {
+  editorMode.value = 'create'
+  editorResource.value = 'scenarios'
+  editingId.value = ''
+  const payload = defaultPayload('scenarios')
+  const group = appGroups.value.find((item) => item.app_code === selectedAppCode.value)
+  if (group) {
+    payload.app_code = group.app_code
+    payload.app_name = group.app_name
+  }
+  payload.capability_code = capabilityOptions.value[0]?.value || 'chat_completion'
+  payload.default_base_route_id = baseRouteOptions.value[0]?.value || ''
   formModel.value = normalizeEditorRow(payload)
   editorJson.value = JSON.stringify(formModel.value, null, 2)
   editorVisible.value = true
@@ -322,6 +385,12 @@ function reconcileModelSelection() {
   }
 }
 
+function reconcileScenarioSelection() {
+  if (!appGroups.value.some((item) => item.app_code === selectedAppCode.value)) {
+    selectedAppCode.value = appGroups.value[0]?.app_code || ''
+  }
+}
+
 async function submitProviderImport() {
   let payload: AiProviderImportPayload
   try {
@@ -347,6 +416,20 @@ async function submitModelImport() {
   const result = await importAiModels(payload)
   modelImportVisible.value = false
   ElMessage.success(`导入完成：模型 ${result.models}，价格策略 ${result.price_policies}，分档 ${result.price_tiers}`)
+  await loadData()
+}
+
+async function submitScenarioImport() {
+  let payload: AiScenarioImportPayload
+  try {
+    payload = JSON.parse(scenarioImportJson.value) as AiScenarioImportPayload
+  } catch {
+    ElMessage.error('导入内容不是合法 JSON')
+    return
+  }
+  const result = await importAiScenarios(payload)
+  scenarioImportVisible.value = false
+  ElMessage.success(`导入完成：AI 场景 ${result.scenarios}`)
   await loadData()
 }
 
@@ -451,9 +534,9 @@ function fieldsForResource(resource?: AiResource): FieldConfig[] {
     { key: 'ai_scenario_name', label: 'AI 场景名称', required: true },
     { key: 'ai_scenario_code', label: 'AI 场景编码', required: true },
     { key: 'scenario_type', label: '场景类型', type: 'select', options: toOptions(['text', 'embedding', 'image', 'audio']) },
-    { key: 'capability_code', label: '能力编码', required: true },
+    { key: 'capability_code', label: '能力编码', type: 'select', options: capabilityOptions.value, required: true },
     { key: 'model_type', label: '模型类型', type: 'select', options: toOptions(['text', 'embedding', 'image', 'audio', 'rerank']) },
-    { key: 'default_base_route_id', label: '默认基础路由 ID' },
+    { key: 'default_base_route_id', label: '默认基础路由', type: 'select', options: baseRouteOptions.value, required: true },
     { key: 'owner', label: '负责人' },
     { key: 'version', label: '版本' },
     status,
@@ -532,7 +615,8 @@ onMounted(loadData)
       <el-button :icon="Refresh" @click="loadData">刷新</el-button>
       <el-button v-if="activeSection.key === 'providers'" v-permission="'ai_capability_center:manage'" :icon="Upload" @click="importVisible = true">整体导入</el-button>
       <el-button v-if="activeSection.key === 'models'" v-permission="'ai_capability_center:manage'" :icon="Upload" @click="modelImportVisible = true">模型导入</el-button>
-      <el-button v-if="canWrite && !['providers', 'models'].includes(activeSection.key)" v-permission="'ai_capability_center:manage'" type="primary" :icon="Plus" @click="openCreate">新增配置</el-button>
+      <el-button v-if="activeSection.key === 'scenarios'" v-permission="'ai_capability_center:manage'" :icon="Upload" @click="scenarioImportVisible = true">场景导入</el-button>
+      <el-button v-if="canWrite && !['providers', 'models', 'scenarios'].includes(activeSection.key)" v-permission="'ai_capability_center:manage'" type="primary" :icon="Plus" @click="openCreate">新增配置</el-button>
     </template>
 
     <div class="ai-center-tabs">
@@ -816,6 +900,78 @@ onMounted(loadData)
       </section>
     </div>
 
+    <div v-else-if="activeSection.key === 'scenarios'" class="ai-resource ai-scenario-workbench">
+      <div class="ai-toolbar">
+        <el-input v-model="keyword" clearable placeholder="搜索应用、场景、负责人" @keyup.enter="loadData">
+          <template #prefix><el-icon><Search /></el-icon></template>
+        </el-input>
+        <el-button :icon="Search" @click="loadData">查询</el-button>
+        <el-button v-permission="'ai_capability_center:manage'" type="primary" :icon="Plus" @click="openScenarioCreate">新增场景</el-button>
+      </div>
+      <el-alert v-if="errorText" :title="errorText" type="error" show-icon />
+
+      <section class="ai-model-shell">
+        <aside class="ai-provider-rail ai-app-rail">
+          <header>
+            <strong>应用分组</strong>
+            <span>{{ appGroups.length }} 个应用</span>
+          </header>
+          <button
+            v-for="app in appGroups"
+            :key="app.app_code"
+            :class="{ active: app.app_code === selectedAppCode }"
+            @click="selectedAppCode = app.app_code"
+          >
+            <strong>{{ app.app_name }}</strong>
+            <span>{{ app.app_code }} · {{ app.active }}/{{ app.total }} active</span>
+          </button>
+          <el-empty v-if="!appGroups.length" :image-size="72" description="暂无 AI 场景" />
+        </aside>
+
+        <div class="ai-model-main">
+          <section class="ai-panel ai-scenario-hero">
+            <header><strong>{{ appGroups.find(item => item.app_code === selectedAppCode)?.app_name || 'AI 场景' }}</strong><span>场景是业务调用 AI Gateway 的入口契约</span></header>
+            <div class="ai-model-stats">
+              <div><span>场景数</span><strong>{{ selectedAppScenarios.length }}</strong></div>
+              <div><span>能力字典</span><strong>{{ capabilityOptions.length }}</strong></div>
+              <div><span>基础路由</span><strong>{{ baseRouteOptions.length }}</strong></div>
+            </div>
+          </section>
+
+          <section class="ai-panel">
+            <header><strong>场景注册表</strong><span>app_code + ai_scenario_code 保持唯一</span></header>
+            <el-table v-loading="loading" :data="selectedAppScenarios" border class="ai-table" empty-text="当前应用暂无场景">
+              <el-table-column prop="ai_scenario_name" label="场景" min-width="170" />
+              <el-table-column prop="ai_scenario_code" label="场景编码" min-width="180" />
+              <el-table-column prop="capability_code" label="能力" width="150" />
+              <el-table-column prop="default_base_route_id" label="默认路由" min-width="220" />
+              <el-table-column label="策略覆盖" width="100">
+                <template #default="{ row }">{{ strategyCount(row) }}</template>
+              </el-table-column>
+              <el-table-column prop="owner" label="负责人" width="120" />
+              <el-table-column label="状态" width="100">
+                <template #default="{ row }"><el-tag :type="statusType(row.status)">{{ displayCell(row, 'status') }}</el-tag></template>
+              </el-table-column>
+              <el-table-column fixed="right" label="操作" width="150">
+                <template #default="{ row }">
+                  <el-button v-permission="'ai_capability_center:manage'" link type="primary" :icon="Edit" @click="openEdit(row, 'scenarios')">编辑</el-button>
+                  <el-button v-permission="'ai_capability_center:manage'" link type="danger" :icon="Delete" @click="removeRow(row, 'scenarios')">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+            <el-pagination
+              :current-page="currentPage"
+              class="ai-pagination"
+              layout="total, prev, pager, next"
+              :page-size="page.limit"
+              :total="page.total"
+              @current-change="(pageNo: number) => { page.skip = (pageNo - 1) * page.limit; loadData() }"
+            />
+          </section>
+        </div>
+      </section>
+    </div>
+
     <div v-else class="ai-resource">
       <div class="ai-toolbar">
         <el-input v-model="keyword" clearable placeholder="搜索当前页面数据" @keyup.enter="loadData">
@@ -885,6 +1041,15 @@ onMounted(loadData)
       <template #footer>
         <el-button @click="modelImportVisible = false">取消</el-button>
         <el-button type="primary" @click="submitModelImport">导入</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="scenarioImportVisible" title="批量导入 AI 场景" width="780px">
+      <el-alert title="导入会按 app_code + ai_scenario_code upsert；能力字典或默认路由引用无效会整体回滚。" type="info" show-icon />
+      <el-input v-model="scenarioImportJson" class="json-editor" type="textarea" :rows="18" spellcheck="false" />
+      <template #footer>
+        <el-button @click="scenarioImportVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitScenarioImport">导入</el-button>
       </template>
     </el-dialog>
   </NeuroAgentPageShell>
@@ -1087,6 +1252,12 @@ onMounted(loadData)
 .ai-model-hero {
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--neuro-primary) 14%, transparent), transparent 56%),
+    var(--neuro-surface);
+}
+
+.ai-scenario-hero {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, #0f766e 16%, transparent), transparent 58%),
     var(--neuro-surface);
 }
 

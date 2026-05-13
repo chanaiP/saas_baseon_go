@@ -72,3 +72,11 @@ export interface AiModelImportResult {
   price_policies: number
   price_tiers: number
 }
+
+export interface AiScenarioImportPayload {
+  scenarios?: Array<Record<string, unknown>>
+}
+
+export interface AiScenarioImportResult {
+  scenarios: number
+}
