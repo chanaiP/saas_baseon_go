@@ -2,12 +2,12 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Delete, Edit, Plus, Refresh, Search } from '@element-plus/icons-vue'
+import { Delete, Edit, Plus, Refresh, Search, Upload } from '@element-plus/icons-vue'
 
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
-import { createAiResource, deleteAiResource, fetchAiOverview, fetchAiResource, updateAiResource } from '../api'
-import type { AiOverview, AiPage, AiResource, AiSectionConfig } from '../types'
+import { createAiResource, deleteAiResource, fetchAiOverview, fetchAiResource, importAiProviders, updateAiResource } from '../api'
+import type { AiOverview, AiPage, AiProviderImportPayload, AiResource, AiSectionConfig } from '../types'
 
 defineOptions({ name: 'AiCapabilityCenterView' })
 
@@ -51,18 +51,53 @@ const sections: AiSectionConfig[] = [
 const activeSection = computed(() => sections.find((item) => item.route === route.path) ?? sections[0])
 const overview = ref<AiOverview | null>(null)
 const page = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 20 })
+const providerAccountsPage = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 200 })
+const providerApisPage = ref<AiPage<Record<string, unknown>>>({ items: [], total: 0, skip: 0, limit: 200 })
 const currentPage = computed(() => Math.floor(page.value.skip / Math.max(page.value.limit, 1)) + 1)
 const keyword = ref('')
 const loading = ref(false)
 const errorText = ref('')
 const editorVisible = ref(false)
 const editorMode = ref<'create' | 'edit'>('create')
+const editorResource = ref<AiResource | undefined>()
 const editorJson = ref('{}')
 const formModel = ref<Record<string, unknown>>({})
 const editingId = ref('')
+const selectedProviderId = ref('')
+const selectedAccountId = ref('')
+const importVisible = ref(false)
+const importJson = ref(JSON.stringify({
+  providers: [{
+    name: 'OpenAI',
+    code: 'openai',
+    type: 'public_cloud',
+    base_url: 'https://api.openai.com',
+    auth_type: 'api_key',
+    accounts: [{
+      account_name: 'prod',
+      endpoint: 'https://api.openai.com',
+      key_alias: 'OPENAI_API_KEY',
+      encrypted_api_key: 'ciphertext',
+      apis: [{
+        api_name: 'chat.completions',
+        api_path: '/v1/chat/completions',
+        api_type: 'chat',
+        capabilities: ['chat_completion'],
+        timeout_ms: 30000,
+      }],
+    }],
+  }],
+}, null, 2))
 
 const canWrite = computed(() => Boolean(activeSection.value.resource && activeSection.value.writable))
-const formFields = computed<FieldConfig[]>(() => fieldsForResource(activeSection.value.resource))
+const formFields = computed<FieldConfig[]>(() => fieldsForResource(editorResource.value ?? activeSection.value.resource))
+const providerRows = computed(() => page.value.items)
+const selectedProviderAccounts = computed(() => providerAccountsPage.value.items.filter((item) => String(item.provider_id || '') === selectedProviderId.value))
+const selectedAccountApis = computed(() => providerApisPage.value.items.filter((item) => {
+  const matchesProvider = String(item.provider_id || '') === selectedProviderId.value
+  const matchesAccount = !selectedAccountId.value || String(item.account_id || '') === selectedAccountId.value
+  return matchesProvider && matchesAccount
+}))
 
 function displayCell(row: Record<string, unknown>, key: string) {
   const value = row[key]
@@ -102,6 +137,11 @@ async function loadData() {
       limit: page.value.limit,
       keyword: keyword.value.trim(),
     })
+    if (activeSection.value.key === 'providers') {
+      providerAccountsPage.value = await fetchAiResource('accounts', { skip: 0, limit: 200 })
+      providerApisPage.value = await fetchAiResource('apis', { skip: 0, limit: 200 })
+      reconcileProviderSelection()
+    }
   } catch (error) {
     errorText.value = error instanceof Error ? error.message : '数据加载失败'
   } finally {
@@ -114,15 +154,34 @@ function switchSection(path: string) {
 }
 
 function openCreate() {
+  if (!activeSection.value.resource) return
   editorMode.value = 'create'
+  editorResource.value = activeSection.value.resource
   editingId.value = ''
   formModel.value = normalizeEditorRow(defaultPayload(activeSection.value.resource))
   editorJson.value = JSON.stringify(formModel.value, null, 2)
   editorVisible.value = true
 }
 
-function openEdit(row: Record<string, unknown>) {
+function openProviderCreate(resource: AiResource) {
+  editorMode.value = 'create'
+  editorResource.value = resource
+  editingId.value = ''
+  const payload = defaultPayload(resource)
+  if (resource === 'accounts') payload.provider_id = selectedProviderId.value
+  if (resource === 'apis') {
+    payload.provider_id = selectedProviderId.value
+    payload.account_id = selectedAccountId.value
+  }
+  formModel.value = normalizeEditorRow(payload)
+  editorJson.value = JSON.stringify(formModel.value, null, 2)
+  editorVisible.value = true
+}
+
+function openEdit(row: Record<string, unknown>, resource = activeSection.value.resource) {
+  if (!resource) return
   editorMode.value = 'edit'
+  editorResource.value = resource
   editingId.value = String(row.id || '')
   formModel.value = normalizeEditorRow(row)
   editorJson.value = JSON.stringify(row, null, 2)
@@ -130,7 +189,8 @@ function openEdit(row: Record<string, unknown>) {
 }
 
 async function saveEditor() {
-  if (!activeSection.value.resource) return
+  const resource = editorResource.value ?? activeSection.value.resource
+  if (!resource) return
   let payload: Record<string, unknown>
   try {
     payload = formFields.value.length ? buildEditorPayload() : JSON.parse(editorJson.value) as Record<string, unknown>
@@ -139,29 +199,65 @@ async function saveEditor() {
     return
   }
   if (editorMode.value === 'edit' && editingId.value) {
-    await updateAiResource(activeSection.value.resource, editingId.value, payload)
+    await updateAiResource(resource, editingId.value, payload)
     ElMessage.success('已更新')
   } else {
-    await createAiResource(activeSection.value.resource, payload)
+    await createAiResource(resource, payload)
     ElMessage.success('已创建')
   }
   editorVisible.value = false
   await loadData()
 }
 
-async function removeRow(row: Record<string, unknown>) {
-  if (!activeSection.value.resource) return
+async function removeRow(row: Record<string, unknown>, resource = activeSection.value.resource) {
+  if (!resource) return
   const id = String(row.id || '')
   if (!id) return
   await ElMessageBox.confirm('确认删除该配置？删除会写入底座操作日志。', '删除确认', { type: 'warning' })
-  await deleteAiResource(activeSection.value.resource, id)
+  await deleteAiResource(resource, id)
   ElMessage.success('已删除')
+  await loadData()
+}
+
+function selectProvider(row: Record<string, unknown>) {
+  selectedProviderId.value = String(row.id || '')
+  const firstAccount = selectedProviderAccounts.value[0]
+  selectedAccountId.value = firstAccount ? String(firstAccount.id || '') : ''
+}
+
+function selectAccount(row: Record<string, unknown>) {
+  selectedAccountId.value = String(row.id || '')
+}
+
+function reconcileProviderSelection() {
+  if (!providerRows.value.some((item) => String(item.id || '') === selectedProviderId.value)) {
+    selectedProviderId.value = providerRows.value[0] ? String(providerRows.value[0].id || '') : ''
+  }
+  if (!selectedProviderAccounts.value.some((item) => String(item.id || '') === selectedAccountId.value)) {
+    const firstAccount = selectedProviderAccounts.value[0]
+    selectedAccountId.value = firstAccount ? String(firstAccount.id || '') : ''
+  }
+}
+
+async function submitProviderImport() {
+  let payload: AiProviderImportPayload
+  try {
+    payload = JSON.parse(importJson.value) as AiProviderImportPayload
+  } catch {
+    ElMessage.error('导入内容不是合法 JSON')
+    return
+  }
+  const result = await importAiProviders(payload)
+  importVisible.value = false
+  ElMessage.success(`导入完成：供应商 ${result.providers}，账号 ${result.accounts}，API ${result.apis}`)
   await loadData()
 }
 
 function defaultPayload(resource?: AiResource): Record<string, unknown> {
   const status = 'active'
   if (resource === 'providers') return { name: '', code: '', type: 'public_cloud', base_url: '', auth_type: 'api_key', status, priority: 80, region: 'CN', qps_limit: 100, monthly_budget: 10000, owner: '' }
+  if (resource === 'accounts') return { provider_id: '', account_name: '', endpoint: '', key_alias: '', encrypted_api_key: '', encrypted_secret: '', quota_limit: 0, used_quota: 0, status }
+  if (resource === 'apis') return { provider_id: '', account_id: '', api_name: '', api_path: '', api_type: 'chat', capabilities: ['chat_completion'], auth_type: 'api_key', qps_limit: 100, timeout_ms: 30000, status }
   if (resource === 'models') return { provider_id: '', model_code: '', model_name: '', model_type: 'text', capabilities: ['text_generation'], context_window: 32000, unit: 'tokens', latency_p95: 0, success_rate: 0, status, default_for: [] }
   if (resource === 'scenarios') return { app_code: '', app_name: '', ai_scenario_code: '', ai_scenario_name: '', scenario_type: 'text', capability_code: 'text_generation', model_type: 'text', default_base_route_id: '', owner: '', version: 'v1.0', status }
   if (resource === 'base-routes') return { route_code: '', route_name: '', capability_code: 'text_generation', model_type: 'text', strategy: 'fallback', timeout_ms: 30000, max_retry: 2, status }
@@ -183,6 +279,29 @@ function fieldsForResource(resource?: AiResource): FieldConfig[] {
     { key: 'priority', label: '优先级', type: 'number' },
     { key: 'qps_limit', label: 'QPS 限制', type: 'number' },
     { key: 'monthly_budget', label: '月预算', type: 'number' },
+    status,
+  ]
+  if (resource === 'accounts') return [
+    { key: 'provider_id', label: '供应商 ID', required: true },
+    { key: 'account_name', label: '账号名称', required: true },
+    { key: 'endpoint', label: '接入 Endpoint' },
+    { key: 'key_alias', label: '密钥别名', required: true },
+    { key: 'encrypted_api_key', label: '加密 API Key', type: 'textarea' },
+    { key: 'encrypted_secret', label: '加密 Secret', type: 'textarea' },
+    { key: 'quota_limit', label: '配额上限', type: 'number' },
+    { key: 'used_quota', label: '已用配额', type: 'number' },
+    status,
+  ]
+  if (resource === 'apis') return [
+    { key: 'provider_id', label: '供应商 ID', required: true },
+    { key: 'account_id', label: '账号 ID', required: true },
+    { key: 'api_name', label: 'API 名称', required: true },
+    { key: 'api_path', label: 'API 路径', required: true },
+    { key: 'api_type', label: 'API 类型', type: 'select', options: toOptions(['chat', 'embedding', 'image', 'audio', 'rerank']) },
+    { key: 'capabilities', label: '能力标签', type: 'tags' },
+    { key: 'auth_type', label: '鉴权方式', type: 'select', options: toOptions(['api_key', 'oauth2', 'aksk', 'none']) },
+    { key: 'qps_limit', label: 'QPS 限制', type: 'number' },
+    { key: 'timeout_ms', label: '超时时间(ms)', type: 'number' },
     status,
   ]
   if (resource === 'models') return [
@@ -244,7 +363,7 @@ function fieldsForResource(resource?: AiResource): FieldConfig[] {
 
 function normalizeEditorRow(row: Record<string, unknown>) {
   const next = { ...row }
-  for (const field of fieldsForResource(activeSection.value.resource)) {
+  for (const field of fieldsForResource(editorResource.value ?? activeSection.value.resource)) {
     if (field.type === 'tags' && !Array.isArray(next[field.key])) {
       next[field.key] = next[field.key] ? [String(next[field.key])] : []
     }
@@ -283,7 +402,8 @@ onMounted(loadData)
     <template #subtitle>{{ activeSection.description }}</template>
     <template #actions>
       <el-button :icon="Refresh" @click="loadData">刷新</el-button>
-      <el-button v-if="canWrite" v-permission="'ai_capability_center:manage'" type="primary" :icon="Plus" @click="openCreate">新增配置</el-button>
+      <el-button v-if="activeSection.key === 'providers'" v-permission="'ai_capability_center:manage'" :icon="Upload" @click="importVisible = true">整体导入</el-button>
+      <el-button v-if="canWrite && activeSection.key !== 'providers'" v-permission="'ai_capability_center:manage'" type="primary" :icon="Plus" @click="openCreate">新增配置</el-button>
     </template>
 
     <div class="ai-center-tabs">
@@ -360,6 +480,96 @@ onMounted(loadData)
       </section>
     </div>
 
+    <div v-else-if="activeSection.key === 'providers'" class="ai-resource ai-provider-workbench">
+      <div class="ai-toolbar">
+        <el-input v-model="keyword" clearable placeholder="搜索供应商名称、编码、负责人" @keyup.enter="loadData">
+          <template #prefix><el-icon><Search /></el-icon></template>
+        </el-input>
+        <el-button :icon="Search" @click="loadData">查询</el-button>
+        <el-button v-permission="'ai_capability_center:manage'" type="primary" :icon="Plus" @click="openCreate">新增供应商</el-button>
+      </div>
+      <el-alert v-if="errorText" :title="errorText" type="error" show-icon />
+
+      <section class="ai-panel">
+        <header><strong>供应商</strong><span>平台统一维护，不进入租户后台和套餐售卖</span></header>
+        <el-table v-loading="loading" :data="providerRows" border class="ai-table" empty-text="暂无供应商" highlight-current-row @row-click="selectProvider">
+          <el-table-column prop="name" label="供应商" min-width="160" />
+          <el-table-column prop="code" label="编码" min-width="140" />
+          <el-table-column prop="type" label="类型" width="120" />
+          <el-table-column prop="base_url" label="Endpoint" min-width="220" />
+          <el-table-column prop="owner" label="负责人" width="120" />
+          <el-table-column label="状态" width="110">
+            <template #default="{ row }"><el-tag :type="statusType(row.status)">{{ displayCell(row, 'status') }}</el-tag></template>
+          </el-table-column>
+          <el-table-column fixed="right" label="操作" width="150">
+            <template #default="{ row }">
+              <el-button v-permission="'ai_capability_center:manage'" link type="primary" :icon="Edit" @click.stop="openEdit(row, 'providers')">编辑</el-button>
+              <el-button v-permission="'ai_capability_center:manage'" link type="danger" :icon="Delete" @click.stop="removeRow(row, 'providers')">删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-pagination
+          :current-page="currentPage"
+          class="ai-pagination"
+          layout="total, prev, pager, next"
+          :page-size="page.limit"
+          :total="page.total"
+          @current-change="(pageNo: number) => { page.skip = (pageNo - 1) * page.limit; loadData() }"
+        />
+      </section>
+
+      <section class="ai-provider-grid">
+        <div class="ai-panel">
+          <header>
+            <strong>接入账号</strong>
+            <el-button v-permission="'ai_capability_center:manage'" size="small" type="primary" :icon="Plus" :disabled="!selectedProviderId" @click="openProviderCreate('accounts')">新增账号</el-button>
+          </header>
+          <el-table :data="selectedProviderAccounts" border class="ai-table" empty-text="请选择供应商或新增账号" highlight-current-row @row-click="selectAccount">
+            <el-table-column prop="account_name" label="账号" min-width="130" />
+            <el-table-column prop="endpoint" label="Endpoint" min-width="190" />
+            <el-table-column prop="key_alias" label="密钥别名" min-width="130" />
+            <el-table-column label="配额" width="120">
+              <template #default="{ row }">{{ numberText(row.used_quota) }} / {{ numberText(row.quota_limit) }}</template>
+            </el-table-column>
+            <el-table-column label="状态" width="100">
+              <template #default="{ row }"><el-tag :type="statusType(row.status)">{{ displayCell(row, 'status') }}</el-tag></template>
+            </el-table-column>
+            <el-table-column fixed="right" label="操作" width="150">
+              <template #default="{ row }">
+                <el-button v-permission="'ai_capability_center:manage'" link type="primary" :icon="Edit" @click.stop="openEdit(row, 'accounts')">编辑</el-button>
+                <el-button v-permission="'ai_capability_center:manage'" link type="danger" :icon="Delete" @click.stop="removeRow(row, 'accounts')">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+
+        <div class="ai-panel">
+          <header>
+            <strong>API 配置</strong>
+            <el-button v-permission="'ai_capability_center:manage'" size="small" type="primary" :icon="Plus" :disabled="!selectedProviderId || !selectedAccountId" @click="openProviderCreate('apis')">新增 API</el-button>
+          </header>
+          <el-table :data="selectedAccountApis" border class="ai-table" empty-text="请选择账号或新增 API">
+            <el-table-column prop="api_name" label="API" min-width="150" />
+            <el-table-column prop="api_path" label="路径" min-width="180" />
+            <el-table-column prop="api_type" label="类型" width="110" />
+            <el-table-column label="能力" min-width="160">
+              <template #default="{ row }">{{ displayCell(row, 'capabilities') }}</template>
+            </el-table-column>
+            <el-table-column prop="timeout_ms" label="超时(ms)" width="110" />
+            <el-table-column label="状态" width="100">
+              <template #default="{ row }"><el-tag :type="statusType(row.status)">{{ displayCell(row, 'status') }}</el-tag></template>
+            </el-table-column>
+            <el-table-column fixed="right" label="操作" width="150">
+              <template #default="{ row }">
+                <el-button v-permission="'ai_capability_center:manage'" link type="primary" :icon="Edit" @click="openEdit(row, 'apis')">编辑</el-button>
+                <el-button v-permission="'ai_capability_center:manage'" link type="danger" :icon="Delete" @click="removeRow(row, 'apis')">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </section>
+    </div>
+
     <div v-else class="ai-resource">
       <div class="ai-toolbar">
         <el-input v-model="keyword" clearable placeholder="搜索当前页面数据" @keyup.enter="loadData">
@@ -410,6 +620,15 @@ onMounted(loadData)
       <template #footer>
         <el-button @click="editorVisible = false">取消</el-button>
         <el-button type="primary" @click="saveEditor">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="importVisible" title="整体导入供应商" width="780px">
+      <el-alert title="导入会在一个事务内 upsert 供应商、账号和 API；任一引用无效会整体回滚。" type="info" show-icon />
+      <el-input v-model="importJson" class="json-editor" type="textarea" :rows="18" spellcheck="false" />
+      <template #footer>
+        <el-button @click="importVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitProviderImport">导入</el-button>
       </template>
     </el-dialog>
   </NeuroAgentPageShell>
@@ -533,6 +752,16 @@ onMounted(loadData)
   width: 100%;
 }
 
+.ai-provider-workbench .ai-panel {
+  min-width: 0;
+}
+
+.ai-provider-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  gap: 12px;
+}
+
 .ai-pagination {
   justify-content: flex-end;
 }
@@ -569,6 +798,10 @@ onMounted(loadData)
   }
 
   .ai-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-provider-grid {
     grid-template-columns: 1fr;
   }
 

@@ -173,6 +173,7 @@ func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHan
 		ai := api.Group("/ai-capability-center")
 		{
 			ai.GET("/overview", aiCapabilityCenterHandler.Overview)
+			ai.POST("/providers/import", aiCapabilityCenterHandler.ImportProviders)
 			ai.GET("/:resource", aiCapabilityCenterHandler.List)
 			ai.POST("/:resource", aiCapabilityCenterHandler.Create)
 			ai.PUT("/:resource/:id", aiCapabilityCenterHandler.Update)

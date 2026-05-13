@@ -48,3 +48,15 @@ export interface AiSectionConfig {
   columns: AiColumn[]
   writable?: boolean
 }
+
+export interface AiProviderImportPayload {
+  providers?: Array<Record<string, unknown>>
+  accounts?: Array<Record<string, unknown>>
+  apis?: Array<Record<string, unknown>>
+}
+
+export interface AiProviderImportResult {
+  providers: number
+  accounts: number
+  apis: number
+}

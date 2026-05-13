@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -80,6 +81,161 @@ func TestOverviewReturnsEmptySeriesWithoutUsage(t *testing.T) {
 	require.Empty(t, overview.TenantRanking)
 }
 
+func TestImportProvidersUpsertsProviderAccountsAndAPIs(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	service := NewService(db)
+	ctx := context.Background()
+
+	result, err := service.ImportProviders(ctx, 7, ProviderImportRequest{
+		Providers: []ProviderImportProvider{{
+			Name: "OpenAI", Code: "openai", Type: "public_cloud", BaseURL: "https://api.openai.com", Priority: 10,
+			Accounts: []ProviderImportAccount{{
+				AccountName: "prod", Endpoint: "https://api.openai.com", KeyAlias: "OPENAI_API_KEY", EncryptedAPIKey: "ciphertext",
+				APIs: []ProviderImportAPI{{
+					APIName: "chat.completions", APIPath: "/v1/chat/completions", APIType: "chat", Capabilities: []string{"chat_completion"}, TimeoutMS: 45000,
+				}},
+			}},
+		}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, ProviderImportResult{Providers: 1, Accounts: 1, APIs: 1}, result)
+
+	var provider models.AIProvider
+	require.NoError(t, db.Where("code = ? AND deleted_at IS NULL", "openai").First(&provider).Error)
+	require.Equal(t, "OpenAI", provider.Name)
+	require.Equal(t, 10, provider.Priority)
+
+	var account models.AIProviderAccount
+	require.NoError(t, db.Where("provider_id = ? AND account_name = ? AND deleted_at IS NULL", provider.ID, "prod").First(&account).Error)
+	require.Equal(t, "OPENAI_API_KEY", account.KeyAlias)
+	require.Equal(t, "ciphertext", account.EncryptedAPIKey)
+
+	var api models.AIProviderAPI
+	require.NoError(t, db.Where("provider_id = ? AND account_id = ? AND api_name = ? AND deleted_at IS NULL", provider.ID, account.ID, "chat.completions").First(&api).Error)
+	require.Equal(t, "/v1/chat/completions", api.APIPath)
+	require.Equal(t, 45000, api.TimeoutMS)
+	require.Equal(t, []string{"chat_completion"}, api.Capabilities)
+
+	result, err = service.ImportProviders(ctx, 7, ProviderImportRequest{
+		Providers: []ProviderImportProvider{{
+			Name: "OpenAI Updated", Code: "openai", Type: "public_cloud", BaseURL: "https://gateway.openai.example", Priority: 20,
+		}},
+		Accounts: []ProviderImportAccount{{
+			ProviderCode: "openai", AccountName: "prod", Endpoint: "https://gateway.openai.example", KeyAlias: "OPENAI_PRIMARY", EncryptedAPIKey: "ciphertext-v2",
+		}},
+		APIs: []ProviderImportAPI{{
+			ProviderCode: "openai", AccountName: "prod", APIName: "chat.completions", APIPath: "/proxy/chat", APIType: "chat", Capabilities: []string{"chat_completion", "embedding"},
+		}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, ProviderImportResult{Providers: 1, Accounts: 1, APIs: 1}, result)
+
+	var count int64
+	require.NoError(t, db.Model(&models.AIProvider{}).Where("code = ? AND deleted_at IS NULL", "openai").Count(&count).Error)
+	require.Equal(t, int64(1), count)
+	require.NoError(t, db.Model(&models.AIProviderAccount{}).Where("provider_id = ? AND account_name = ? AND deleted_at IS NULL", provider.ID, "prod").Count(&count).Error)
+	require.Equal(t, int64(1), count)
+	require.NoError(t, db.Model(&models.AIProviderAPI{}).Where("provider_id = ? AND account_id = ? AND api_name = ? AND deleted_at IS NULL", provider.ID, account.ID, "chat.completions").Count(&count).Error)
+	require.Equal(t, int64(1), count)
+
+	require.NoError(t, db.Where("id = ?", provider.ID).First(&provider).Error)
+	require.Equal(t, "OpenAI Updated", provider.Name)
+	require.Equal(t, "https://gateway.openai.example", provider.BaseURL)
+	require.Equal(t, 20, provider.Priority)
+	require.NoError(t, db.Where("id = ?", account.ID).First(&account).Error)
+	require.Equal(t, "OPENAI_PRIMARY", account.KeyAlias)
+	require.Equal(t, "ciphertext-v2", account.EncryptedAPIKey)
+	require.NoError(t, db.Where("id = ?", api.ID).First(&api).Error)
+	require.Equal(t, "/proxy/chat", api.APIPath)
+	require.Equal(t, []string{"chat_completion", "embedding"}, api.Capabilities)
+
+	raw, err := json.Marshal(account)
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "encrypted_api_key")
+	require.NotContains(t, string(raw), "ciphertext-v2")
+}
+
+func TestImportProvidersRollsBackOnInvalidReference(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	service := NewService(db)
+	ctx := context.Background()
+
+	_, err := service.ImportProviders(ctx, 7, ProviderImportRequest{
+		Providers: []ProviderImportProvider{{
+			Name: "Rollback Provider", Code: "rollback", BaseURL: "https://rollback.example",
+		}},
+		Accounts: []ProviderImportAccount{{
+			ProviderCode: "missing-provider", AccountName: "prod", KeyAlias: "MISSING_KEY",
+		}},
+	})
+	require.ErrorIs(t, err, ErrInvalidInput)
+
+	var count int64
+	require.NoError(t, db.Model(&models.AIProvider{}).Where("code = ?", "rollback").Count(&count).Error)
+	require.Equal(t, int64(0), count)
+	require.NoError(t, db.Model(&models.AIProviderAccount{}).Count(&count).Error)
+	require.Equal(t, int64(0), count)
+}
+
+func TestDeleteProviderCascadesAccountsAndAPIsAndBlocksReferences(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	service := NewService(db)
+	ctx := context.Background()
+	provider, account, api := seedProviderAccountAPI(t, db, "cascade", "cascade-account")
+
+	require.NoError(t, service.DeleteResource(ctx, 7, "providers", provider.ID))
+
+	var deletedProvider models.AIProvider
+	require.NoError(t, db.Where("id = ?", provider.ID).First(&deletedProvider).Error)
+	require.NotNil(t, deletedProvider.DeletedAt)
+	require.Equal(t, "inactive", deletedProvider.Status)
+	var deletedAccount models.AIProviderAccount
+	require.NoError(t, db.Where("id = ?", account.ID).First(&deletedAccount).Error)
+	require.NotNil(t, deletedAccount.DeletedAt)
+	require.Equal(t, "inactive", deletedAccount.Status)
+	var deletedAPI models.AIProviderAPI
+	require.NoError(t, db.Where("id = ?", api.ID).First(&deletedAPI).Error)
+	require.NotNil(t, deletedAPI.DeletedAt)
+	require.Equal(t, "inactive", deletedAPI.Status)
+
+	blockedProvider, _, _ := seedProviderAccountAPI(t, db, "blocked", "blocked-account")
+	now := time.Now()
+	require.NoError(t, db.Create(&models.AIModel{
+		ID: "99999999-9999-9999-9999-999999999999", ProviderID: blockedProvider.ID, ModelCode: "blocked-model", ModelName: "Blocked Model",
+		ModelType: "text", Capabilities: []string{"chat_completion"}, Status: "active", DefaultFor: []string{},
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+
+	err := service.DeleteResource(ctx, 7, "providers", blockedProvider.ID)
+	require.ErrorIs(t, err, ErrResourceInUse)
+}
+
+func TestDeleteProviderAccountCascadesAPIsAndBlocksUsageReferences(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	service := NewService(db)
+	ctx := context.Background()
+	_, account, api := seedProviderAccountAPI(t, db, "account-cascade", "prod")
+
+	require.NoError(t, service.DeleteResource(ctx, 7, "accounts", account.ID))
+
+	var deletedAccount models.AIProviderAccount
+	require.NoError(t, db.Where("id = ?", account.ID).First(&deletedAccount).Error)
+	require.NotNil(t, deletedAccount.DeletedAt)
+	require.Equal(t, "inactive", deletedAccount.Status)
+	var deletedAPI models.AIProviderAPI
+	require.NoError(t, db.Where("id = ?", api.ID).First(&deletedAPI).Error)
+	require.NotNil(t, deletedAPI.DeletedAt)
+	require.Equal(t, "inactive", deletedAPI.Status)
+
+	_, blockedAccount, _ := seedProviderAccountAPI(t, db, "usage-blocked", "prod")
+	record := usageRecord("usage-block-account", "tenant-a", "租户 A", "app-a", "chat", "", 1, 1, 1, 120, "success", time.Now())
+	record.ProviderAccountID = blockedAccount.ID
+	require.NoError(t, db.Create(&record).Error)
+
+	err := service.DeleteResource(ctx, 7, "accounts", blockedAccount.ID)
+	require.ErrorIs(t, err, ErrResourceInUse)
+}
+
 func newAICapabilityTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
@@ -105,6 +261,71 @@ func newAICapabilityTestDB(t *testing.T) *gorm.DB {
 		setting_value TEXT NOT NULL DEFAULT '{}',
 		description TEXT,
 		status TEXT NOT NULL DEFAULT 'active',
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL,
+		deleted_at DATETIME
+	)`).Error)
+	require.NoError(t, db.Exec(`CREATE TABLE audit_log (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		tenant_id INTEGER,
+		user_id INTEGER,
+		app_code TEXT,
+		module TEXT NOT NULL,
+		action TEXT NOT NULL,
+		summary TEXT NOT NULL,
+		detail TEXT,
+		ip TEXT,
+		user_agent TEXT,
+		request_id TEXT,
+		result TEXT NOT NULL DEFAULT 'success',
+		created_at DATETIME NOT NULL
+	)`).Error)
+	require.NoError(t, db.Exec(`CREATE TABLE ai_providers (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		code TEXT NOT NULL,
+		type TEXT NOT NULL,
+		base_url TEXT NOT NULL,
+		auth_type TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'active',
+		priority INTEGER NOT NULL DEFAULT 0,
+		region TEXT,
+		qps_limit INTEGER NOT NULL DEFAULT 0,
+		monthly_budget NUMERIC NOT NULL DEFAULT 0,
+		owner TEXT,
+		remark TEXT,
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL,
+		deleted_at DATETIME
+	)`).Error)
+	require.NoError(t, db.Exec(`CREATE TABLE ai_provider_accounts (
+		id TEXT PRIMARY KEY,
+		provider_id TEXT NOT NULL,
+		account_name TEXT NOT NULL,
+		endpoint TEXT,
+		key_alias TEXT NOT NULL,
+		encrypted_api_key TEXT,
+		encrypted_secret TEXT,
+		quota_limit NUMERIC NOT NULL DEFAULT 0,
+		used_quota NUMERIC NOT NULL DEFAULT 0,
+		status TEXT NOT NULL DEFAULT 'active',
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL,
+		deleted_at DATETIME
+	)`).Error)
+	require.NoError(t, db.Exec(`CREATE TABLE ai_provider_apis (
+		id TEXT PRIMARY KEY,
+		provider_id TEXT NOT NULL,
+		account_id TEXT NOT NULL,
+		api_name TEXT NOT NULL,
+		api_path TEXT NOT NULL,
+		api_type TEXT NOT NULL,
+		capabilities TEXT NOT NULL,
+		auth_type TEXT NOT NULL,
+		qps_limit INTEGER NOT NULL DEFAULT 0,
+		timeout_ms INTEGER NOT NULL DEFAULT 30000,
+		status TEXT NOT NULL DEFAULT 'active',
+		last_called_at DATETIME,
 		created_at DATETIME NOT NULL,
 		updated_at DATETIME NOT NULL,
 		deleted_at DATETIME
@@ -180,6 +401,29 @@ func newAICapabilityTestDB(t *testing.T) *gorm.DB {
 		created_at DATETIME NOT NULL
 	)`).Error)
 	return db
+}
+
+func seedProviderAccountAPI(t *testing.T, db *gorm.DB, providerCode, accountName string) (models.AIProvider, models.AIProviderAccount, models.AIProviderAPI) {
+	t.Helper()
+	now := time.Now()
+	provider := models.AIProvider{
+		ID: "provider-" + providerCode, Name: "Provider " + providerCode, Code: providerCode, Type: "public_cloud",
+		BaseURL: "https://" + providerCode + ".example", AuthType: "api_key", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&provider).Error)
+	account := models.AIProviderAccount{
+		ID: "account-" + providerCode, ProviderID: provider.ID, AccountName: accountName, KeyAlias: "KEY_" + providerCode, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&account).Error)
+	api := models.AIProviderAPI{
+		ID: "api-" + providerCode, ProviderID: provider.ID, AccountID: account.ID, APIName: "chat", APIPath: "/chat", APIType: "chat",
+		Capabilities: []string{"chat_completion"}, AuthType: "api_key", TimeoutMS: 30000, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&api).Error)
+	return provider, account, api
 }
 
 func usageRecord(id, tenantID, tenantName, appCode, scenarioCode, modelID string, calls int, cost, billing float64, latency int, status string, calledAt time.Time) models.AIUsageRecord {

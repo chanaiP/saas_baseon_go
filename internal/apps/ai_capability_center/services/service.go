@@ -84,10 +84,135 @@ type UsageUnitSummary struct {
 	BillingAmount float64 `json:"billing_amount"`
 }
 
+type ProviderImportRequest struct {
+	Providers []ProviderImportProvider `json:"providers"`
+	Accounts  []ProviderImportAccount  `json:"accounts"`
+	APIs      []ProviderImportAPI      `json:"apis"`
+}
+
+type ProviderImportProvider struct {
+	Name          string                  `json:"name"`
+	Code          string                  `json:"code"`
+	Type          string                  `json:"type"`
+	BaseURL       string                  `json:"base_url"`
+	AuthType      string                  `json:"auth_type"`
+	Status        string                  `json:"status"`
+	Priority      int                     `json:"priority"`
+	Region        string                  `json:"region"`
+	QPSLimit      int                     `json:"qps_limit"`
+	MonthlyBudget float64                 `json:"monthly_budget"`
+	Owner         string                  `json:"owner"`
+	Remark        string                  `json:"remark"`
+	Accounts      []ProviderImportAccount `json:"accounts"`
+}
+
+type ProviderImportAccount struct {
+	ProviderCode    string              `json:"provider_code"`
+	AccountName     string              `json:"account_name"`
+	Endpoint        string              `json:"endpoint"`
+	KeyAlias        string              `json:"key_alias"`
+	EncryptedAPIKey string              `json:"encrypted_api_key"`
+	EncryptedSecret string              `json:"encrypted_secret"`
+	QuotaLimit      float64             `json:"quota_limit"`
+	UsedQuota       float64             `json:"used_quota"`
+	Status          string              `json:"status"`
+	APIs            []ProviderImportAPI `json:"apis"`
+}
+
+type ProviderImportAPI struct {
+	ProviderCode string   `json:"provider_code"`
+	AccountName  string   `json:"account_name"`
+	APIName      string   `json:"api_name"`
+	APIPath      string   `json:"api_path"`
+	APIType      string   `json:"api_type"`
+	Capabilities []string `json:"capabilities"`
+	AuthType     string   `json:"auth_type"`
+	QPSLimit     int      `json:"qps_limit"`
+	TimeoutMS    int      `json:"timeout_ms"`
+	Status       string   `json:"status"`
+}
+
+type ProviderImportResult struct {
+	Providers int `json:"providers"`
+	Accounts  int `json:"accounts"`
+	APIs      int `json:"apis"`
+}
+
 type HealthCheck struct {
 	Name    string `json:"name"`
 	Status  string `json:"status"`
 	Message string `json:"message"`
+}
+
+func (s *Service) ImportProviders(ctx context.Context, userID uint64, req ProviderImportRequest) (ProviderImportResult, error) {
+	now := time.Now()
+	result := ProviderImportResult{}
+	if len(req.Providers) == 0 && len(req.Accounts) == 0 && len(req.APIs) == 0 {
+		return result, ErrInvalidInput
+	}
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		providerIDs := map[string]string{}
+		accountIDs := map[string]string{}
+		for _, item := range req.Providers {
+			provider, err := upsertProviderImport(ctx, tx, item, now)
+			if err != nil {
+				return err
+			}
+			result.Providers++
+			providerIDs[provider.Code] = provider.ID
+			for _, account := range item.Accounts {
+				account.ProviderCode = provider.Code
+				saved, err := upsertProviderAccountImport(ctx, tx, providerIDs, account, now)
+				if err != nil {
+					return err
+				}
+				result.Accounts++
+				accountIDs[accountKey(provider.Code, saved.AccountName)] = saved.ID
+				for _, api := range account.APIs {
+					api.ProviderCode = provider.Code
+					api.AccountName = saved.AccountName
+					if err := upsertProviderAPIImport(ctx, tx, providerIDs, accountIDs, api, now); err != nil {
+						return err
+					}
+					result.APIs++
+				}
+			}
+		}
+		if err := loadProviderIDs(ctx, tx, providerIDs); err != nil {
+			return err
+		}
+		for _, item := range req.Accounts {
+			saved, err := upsertProviderAccountImport(ctx, tx, providerIDs, item, now)
+			if err != nil {
+				return err
+			}
+			result.Accounts++
+			accountIDs[accountKey(item.ProviderCode, saved.AccountName)] = saved.ID
+			for _, api := range item.APIs {
+				api.ProviderCode = item.ProviderCode
+				api.AccountName = saved.AccountName
+				if err := upsertProviderAPIImport(ctx, tx, providerIDs, accountIDs, api, now); err != nil {
+					return err
+				}
+				result.APIs++
+			}
+		}
+		if err := loadAccountIDs(ctx, tx, accountIDs); err != nil {
+			return err
+		}
+		for _, item := range req.APIs {
+			if err := upsertProviderAPIImport(ctx, tx, providerIDs, accountIDs, item, now); err != nil {
+				return err
+			}
+			result.APIs++
+		}
+		return nil
+	})
+	if err != nil {
+		return ProviderImportResult{}, err
+	}
+	s.Audit(ctx, userID, "ai_provider", "import", "整体导入 AI 供应商资源", result)
+	return result, nil
 }
 
 type InvokeRequest struct {
@@ -533,6 +658,10 @@ func (s *Service) CreateResource(ctx context.Context, userID uint64, resource st
 		if err := decodePayload(payload, &row); err != nil {
 			return nil, err
 		}
+		if err := validateProvider(row); err != nil {
+			return nil, err
+		}
+		row.ID = uuid.NewString()
 		row.CreatedAt = now
 		row.UpdatedAt = now
 		if err := s.db.WithContext(ctx).Create(&row).Error; err != nil {
@@ -545,6 +674,10 @@ func (s *Service) CreateResource(ctx context.Context, userID uint64, resource st
 		if err := decodePayload(payload, &row); err != nil {
 			return nil, err
 		}
+		if !s.exists(ctx, &models.AIProvider{}, row.ProviderID) || strings.TrimSpace(row.AccountName) == "" || strings.TrimSpace(row.KeyAlias) == "" {
+			return nil, ErrInvalidInput
+		}
+		row.ID = uuid.NewString()
 		row.CreatedAt = now
 		row.UpdatedAt = now
 		if err := s.db.WithContext(ctx).Create(&row).Error; err != nil {
@@ -557,6 +690,11 @@ func (s *Service) CreateResource(ctx context.Context, userID uint64, resource st
 		if err := decodePayload(payload, &row); err != nil {
 			return nil, err
 		}
+		if !s.exists(ctx, &models.AIProvider{}, row.ProviderID) || !s.exists(ctx, &models.AIProviderAccount{}, row.AccountID) ||
+			strings.TrimSpace(row.APIName) == "" || strings.TrimSpace(row.APIPath) == "" || strings.TrimSpace(row.APIType) == "" || len(row.Capabilities) == 0 {
+			return nil, ErrInvalidInput
+		}
+		row.ID = uuid.NewString()
 		row.CreatedAt = now
 		row.UpdatedAt = now
 		if err := s.db.WithContext(ctx).Create(&row).Error; err != nil {
@@ -792,12 +930,26 @@ func (s *Service) DeleteResource(ctx context.Context, userID uint64, resource, i
 		if s.hasReferences(ctx, &models.AIModel{}, "provider_id = ?", id) || s.hasAnyReferences(ctx, &models.AIUsageRecord{}, "provider_id = ?", id) {
 			return ErrResourceInUse
 		}
-		model = &models.AIProvider{}
 		module = "ai_provider"
+		if err := s.deleteProviderCascade(ctx, userID, id, now); err != nil {
+			return err
+		}
+		s.Audit(ctx, userID, module, "delete", "删除 AI 供应商："+id, map[string]string{"id": id})
+		return nil
 	case "accounts":
-		model = &models.AIProviderAccount{}
 		module = "ai_provider_account"
+		if s.hasAnyReferences(ctx, &models.AIUsageRecord{}, "provider_account_id = ?", id) {
+			return ErrResourceInUse
+		}
+		if err := s.deleteProviderAccountCascade(ctx, id, now); err != nil {
+			return err
+		}
+		s.Audit(ctx, userID, module, "delete", "删除 AI 供应商账号："+id, map[string]string{"id": id})
+		return nil
 	case "apis":
+		if s.hasAnyReferences(ctx, &models.AIUsageRecord{}, "provider_api_id = ?", id) {
+			return ErrResourceInUse
+		}
 		model = &models.AIProviderAPI{}
 		module = "ai_provider_api"
 	case "capabilities":
@@ -917,6 +1069,212 @@ func decodePayload(payload map[string]interface{}, target interface{}) error {
 	return json.Unmarshal(raw, target)
 }
 
+func upsertProviderImport(ctx context.Context, tx *gorm.DB, item ProviderImportProvider, now time.Time) (models.AIProvider, error) {
+	row := models.AIProvider{
+		Name:          strings.TrimSpace(item.Name),
+		Code:          strings.TrimSpace(item.Code),
+		Type:          defaultString(item.Type, "public_cloud"),
+		BaseURL:       strings.TrimSpace(item.BaseURL),
+		AuthType:      defaultString(item.AuthType, "api_key"),
+		Status:        defaultString(item.Status, "active"),
+		Priority:      item.Priority,
+		Region:        strings.TrimSpace(item.Region),
+		QPSLimit:      item.QPSLimit,
+		MonthlyBudget: item.MonthlyBudget,
+		Owner:         strings.TrimSpace(item.Owner),
+		Remark:        strings.TrimSpace(item.Remark),
+	}
+	if err := validateProvider(row); err != nil {
+		return models.AIProvider{}, err
+	}
+	var existing models.AIProvider
+	err := tx.WithContext(ctx).Where("code = ? AND deleted_at IS NULL", row.Code).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		row.ID = uuid.NewString()
+		row.CreatedAt = now
+		row.UpdatedAt = now
+		return row, tx.Create(&row).Error
+	}
+	if err != nil {
+		return models.AIProvider{}, err
+	}
+	row.ID = existing.ID
+	row.CreatedAt = existing.CreatedAt
+	row.UpdatedAt = now
+	return row, tx.Model(&existing).Updates(map[string]interface{}{
+		"name": row.Name, "type": row.Type, "base_url": row.BaseURL, "auth_type": row.AuthType,
+		"status": row.Status, "priority": row.Priority, "region": row.Region, "qps_limit": row.QPSLimit,
+		"monthly_budget": row.MonthlyBudget, "owner": row.Owner, "remark": row.Remark, "updated_at": now,
+	}).Error
+}
+
+func upsertProviderAccountImport(ctx context.Context, tx *gorm.DB, providerIDs map[string]string, item ProviderImportAccount, now time.Time) (models.AIProviderAccount, error) {
+	providerCode := strings.TrimSpace(item.ProviderCode)
+	providerID := providerIDs[providerCode]
+	if providerID == "" || strings.TrimSpace(item.AccountName) == "" || strings.TrimSpace(item.KeyAlias) == "" {
+		return models.AIProviderAccount{}, ErrInvalidInput
+	}
+	row := models.AIProviderAccount{
+		ProviderID:      providerID,
+		AccountName:     strings.TrimSpace(item.AccountName),
+		Endpoint:        strings.TrimSpace(item.Endpoint),
+		KeyAlias:        strings.TrimSpace(item.KeyAlias),
+		EncryptedAPIKey: strings.TrimSpace(item.EncryptedAPIKey),
+		EncryptedSecret: strings.TrimSpace(item.EncryptedSecret),
+		QuotaLimit:      item.QuotaLimit,
+		UsedQuota:       item.UsedQuota,
+		Status:          defaultString(item.Status, "active"),
+	}
+	var existing models.AIProviderAccount
+	err := tx.WithContext(ctx).Where("provider_id = ? AND account_name = ? AND deleted_at IS NULL", providerID, row.AccountName).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		row.ID = uuid.NewString()
+		row.CreatedAt = now
+		row.UpdatedAt = now
+		return row, tx.Create(&row).Error
+	}
+	if err != nil {
+		return models.AIProviderAccount{}, err
+	}
+	row.ID = existing.ID
+	row.CreatedAt = existing.CreatedAt
+	row.UpdatedAt = now
+	return row, tx.Model(&existing).Updates(map[string]interface{}{
+		"endpoint": row.Endpoint, "key_alias": row.KeyAlias, "encrypted_api_key": row.EncryptedAPIKey,
+		"encrypted_secret": row.EncryptedSecret, "quota_limit": row.QuotaLimit, "used_quota": row.UsedQuota,
+		"status": row.Status, "updated_at": now,
+	}).Error
+}
+
+func upsertProviderAPIImport(ctx context.Context, tx *gorm.DB, providerIDs map[string]string, accountIDs map[string]string, item ProviderImportAPI, now time.Time) error {
+	providerCode := strings.TrimSpace(item.ProviderCode)
+	providerID := providerIDs[providerCode]
+	accountID := accountIDs[accountKey(providerCode, item.AccountName)]
+	if providerID == "" || accountID == "" || strings.TrimSpace(item.APIName) == "" || strings.TrimSpace(item.APIPath) == "" || strings.TrimSpace(item.APIType) == "" {
+		return ErrInvalidInput
+	}
+	row := models.AIProviderAPI{
+		ProviderID:   providerID,
+		AccountID:    accountID,
+		APIName:      strings.TrimSpace(item.APIName),
+		APIPath:      strings.TrimSpace(item.APIPath),
+		APIType:      strings.TrimSpace(item.APIType),
+		Capabilities: item.Capabilities,
+		AuthType:     defaultString(item.AuthType, "api_key"),
+		QPSLimit:     item.QPSLimit,
+		TimeoutMS:    item.TimeoutMS,
+		Status:       defaultString(item.Status, "active"),
+		LastCalledAt: nil,
+	}
+	if row.TimeoutMS <= 0 {
+		row.TimeoutMS = 30000
+	}
+	if len(row.Capabilities) == 0 {
+		return ErrInvalidInput
+	}
+	var existing models.AIProviderAPI
+	err := tx.WithContext(ctx).Where("provider_id = ? AND account_id = ? AND api_name = ? AND deleted_at IS NULL", providerID, accountID, row.APIName).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		row.ID = uuid.NewString()
+		row.CreatedAt = now
+		row.UpdatedAt = now
+		return tx.Create(&row).Error
+	}
+	if err != nil {
+		return err
+	}
+	row.ID = existing.ID
+	row.CreatedAt = existing.CreatedAt
+	row.UpdatedAt = now
+	return tx.Model(&existing).
+		Select("api_path", "api_type", "capabilities", "auth_type", "qps_limit", "timeout_ms", "status", "updated_at").
+		Updates(row).Error
+}
+
+func loadProviderIDs(ctx context.Context, tx *gorm.DB, providerIDs map[string]string) error {
+	var rows []models.AIProvider
+	if err := tx.WithContext(ctx).Where("deleted_at IS NULL").Find(&rows).Error; err != nil {
+		return err
+	}
+	for _, row := range rows {
+		providerIDs[row.Code] = row.ID
+	}
+	return nil
+}
+
+func loadAccountIDs(ctx context.Context, tx *gorm.DB, accountIDs map[string]string) error {
+	var rows []struct {
+		ProviderCode string
+		AccountName  string
+		ID           string
+	}
+	if err := tx.WithContext(ctx).Table("ai_provider_accounts AS a").
+		Select("p.code AS provider_code, a.account_name, a.id").
+		Joins("JOIN ai_providers AS p ON p.id = a.provider_id").
+		Where("a.deleted_at IS NULL AND p.deleted_at IS NULL").
+		Scan(&rows).Error; err != nil {
+		return err
+	}
+	for _, row := range rows {
+		accountIDs[accountKey(row.ProviderCode, row.AccountName)] = row.ID
+	}
+	return nil
+}
+
+func validateProvider(row models.AIProvider) error {
+	if strings.TrimSpace(row.Name) == "" || strings.TrimSpace(row.Code) == "" || strings.TrimSpace(row.BaseURL) == "" {
+		return ErrInvalidInput
+	}
+	return nil
+}
+
+func accountKey(providerCode, accountName string) string {
+	return strings.TrimSpace(providerCode) + "\x00" + strings.TrimSpace(accountName)
+}
+
+func (s *Service) deleteProviderCascade(ctx context.Context, userID uint64, id string, now time.Time) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var provider models.AIProvider
+		if err := tx.Where("id = ? AND deleted_at IS NULL", id).First(&provider).Error; err != nil {
+			return ErrNotFound
+		}
+		if err := tx.Model(&models.AIProviderAPI{}).Where("provider_id = ? AND deleted_at IS NULL", id).Updates(map[string]interface{}{"deleted_at": now, "updated_at": now, "status": "inactive"}).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&models.AIProviderAccount{}).Where("provider_id = ? AND deleted_at IS NULL", id).Updates(map[string]interface{}{"deleted_at": now, "updated_at": now, "status": "inactive"}).Error; err != nil {
+			return err
+		}
+		res := tx.Model(&models.AIProvider{}).Where("id = ? AND deleted_at IS NULL", id).Updates(map[string]interface{}{"deleted_at": now, "updated_at": now, "status": "inactive"})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return ErrNotFound
+		}
+		return nil
+	})
+}
+
+func (s *Service) deleteProviderAccountCascade(ctx context.Context, id string, now time.Time) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var account models.AIProviderAccount
+		if err := tx.Where("id = ? AND deleted_at IS NULL", id).First(&account).Error; err != nil {
+			return ErrNotFound
+		}
+		if err := tx.Model(&models.AIProviderAPI{}).Where("account_id = ? AND deleted_at IS NULL", id).Updates(map[string]interface{}{"deleted_at": now, "updated_at": now, "status": "inactive"}).Error; err != nil {
+			return err
+		}
+		res := tx.Model(&models.AIProviderAccount{}).Where("id = ? AND deleted_at IS NULL", id).Updates(map[string]interface{}{"deleted_at": now, "updated_at": now, "status": "inactive"})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return ErrNotFound
+		}
+		return nil
+	})
+}
+
 func (s *Service) exists(ctx context.Context, model interface{}, id string) bool {
 	if strings.TrimSpace(id) == "" {
 		return false
@@ -1006,7 +1364,7 @@ func defaultString(value, fallback string) string {
 	if strings.TrimSpace(value) == "" {
 		return fallback
 	}
-	return value
+	return strings.TrimSpace(value)
 }
 
 func (s *Service) Audit(ctx context.Context, userID uint64, module, action, summary string, detail interface{}) {

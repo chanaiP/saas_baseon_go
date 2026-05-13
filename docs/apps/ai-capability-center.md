@@ -48,3 +48,69 @@ Manifest 声明平台菜单、配置管理操作和 AI Gateway 调用权限。�
 - 模型类型成本结构：近 7 天用量左连接模型目录，按 `model_type` 汇总成本，未匹配模型归类为 `unknown`。
 - 租户排行：近 7 天按 `tenant_name` 汇总调用量、成本、收入、毛利、成功率和场景数，按收入倒序取前 8。
 - 租户指标：近 7 天服务租户数；今日收入和今日毛利。
+
+## 供应商整体导入
+
+供应商页支持通过 `POST /api/ai-capability-center/providers/import` 一次性导入供应商、接入账号和 API 配置。导入在单个事务内执行，按供应商 `code`、账号 `provider_code + account_name`、API `provider_code + account_name + api_name` 幂等 upsert；任一 provider/account/api 引用不成立时整体回滚。
+
+账号密钥字段仅用于写入，不在前端列表中回显明文或密文；页面仅展示 `key_alias`。
+
+```json
+{
+  "providers": [
+    {
+      "name": "OpenAI",
+      "code": "openai",
+      "type": "public_cloud",
+      "base_url": "https://api.openai.com",
+      "auth_type": "api_key",
+      "priority": 80,
+      "region": "US",
+      "qps_limit": 100,
+      "monthly_budget": 10000,
+      "owner": "AI 平台组",
+      "accounts": [
+        {
+          "account_name": "prod",
+          "endpoint": "https://api.openai.com",
+          "key_alias": "OPENAI_API_KEY",
+          "encrypted_api_key": "ciphertext",
+          "apis": [
+            {
+              "api_name": "chat.completions",
+              "api_path": "/v1/chat/completions",
+              "api_type": "chat",
+              "capabilities": ["chat_completion"],
+              "auth_type": "api_key",
+              "qps_limit": 100,
+              "timeout_ms": 30000
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "provider_code": "openai",
+      "account_name": "sandbox",
+      "endpoint": "https://api.openai.com",
+      "key_alias": "OPENAI_SANDBOX_KEY",
+      "encrypted_api_key": "ciphertext"
+    }
+  ],
+  "apis": [
+    {
+      "provider_code": "openai",
+      "account_name": "sandbox",
+      "api_name": "embeddings",
+      "api_path": "/v1/embeddings",
+      "api_type": "embedding",
+      "capabilities": ["embedding"],
+      "timeout_ms": 30000
+    }
+  ]
+}
+```
+
+删除供应商时会逻辑删除其接入账号和 API；如果供应商已被模型或用量明细引用则阻断。删除接入账号时会逻辑删除其 API；如果账号已被用量明细引用则阻断。

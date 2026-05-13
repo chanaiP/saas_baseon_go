@@ -1,7 +1,7 @@
 import http, { unwrap } from '@/api/http'
 import type { ApiResponse } from '@/api/types'
 
-import type { AiOverview, AiPage, AiResource } from './types'
+import type { AiOverview, AiPage, AiProviderImportPayload, AiProviderImportResult, AiResource } from './types'
 
 export async function fetchAiOverview() {
   return unwrap(http.get<ApiResponse<AiOverview>>('/api/ai-capability-center/overview'))
@@ -31,4 +31,8 @@ export async function updateAiResource<T = Record<string, unknown>>(resource: Ai
 
 export async function deleteAiResource(resource: AiResource, id: string) {
   return unwrap(http.delete<ApiResponse<{ deleted: boolean }>>(`/api/ai-capability-center/${resource}/${id}`))
+}
+
+export async function importAiProviders(payload: AiProviderImportPayload) {
+  return unwrap(http.post<ApiResponse<AiProviderImportResult>>('/api/ai-capability-center/providers/import', payload))
 }
