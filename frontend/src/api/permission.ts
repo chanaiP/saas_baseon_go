@@ -23,6 +23,7 @@ export interface MenuBundle {
   operations: MenuBundleOp[]
   is_platform_only?: boolean
   is_package_feature?: boolean
+  show_in_admin?: boolean
   feature_code?: string | null
   feature_type?: string | null
   app_code?: string | null
@@ -100,6 +101,7 @@ export async function updatePermission(
   payload: {
     data_perm_mode?: 'NONE' | 'ORG' | 'BU' | 'ORG_BU'
     is_platform_only?: boolean
+    show_in_admin?: boolean
   },
 ) {
   return unwrap(

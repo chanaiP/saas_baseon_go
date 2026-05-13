@@ -153,6 +153,7 @@ type AppEntryResponse struct {
 	SortOrder        int        `json:"sort_order"`
 	PlatformOnly     bool       `json:"platform_only"`
 	TenantVisible    bool       `json:"tenant_visible"`
+	ShowInAdmin      bool       `json:"show_in_admin"`
 	TenantEditable   bool       `json:"tenant_editable"`
 	IncludeInPackage bool       `json:"include_in_package"`
 	FeatureCode      *string    `json:"feature_code"`

@@ -149,8 +149,11 @@
 - [x] 后端：写操作审计补 before/after 差异，不只记录 patch。
 - [x] 应用中心：每次菜单/权限/API/套餐变更后执行 manifest scan/load 或等价装载验证。
 - [x] 权限：复核页面按钮、API、manifest 三方一致。
+- [x] 修复 manifest 平台菜单运行时侧栏合成，确保 7 个菜单不是页面内 tab。
+- [x] 修复 manifest 操作按钮挂载，`visible=false` 的按钮权限按 `parent_id` 纳入菜单包。
 - [x] 文档：补充部署与应用装载验证步骤。
 - [x] 测试：补充 manifest 菜单数量和删除用量统计页断言。
+- [x] 测试：补充 manifest 操作按钮进入菜单包的回归单测。
 - [x] Review：检查应用中心执行闭环、权限资源归属、套餐功能点口径。
 
 ## 13. 横向能力：页面验收

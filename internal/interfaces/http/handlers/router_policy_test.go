@@ -4,9 +4,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 )
@@ -141,6 +144,51 @@ func TestPureViewOperationsDoNotBecomePackageFeatures(t *testing.T) {
 	require.True(t, permissionAllowedByFeatureCodeSet(models.Permission{Path: "login:view", PermType: 2, IsPackageFeature: true}, allowed))
 	require.True(t, permissionAllowedByFeatureCodeSet(models.Permission{Path: "audit:view", PermType: 2, IsPackageFeature: true}, allowed))
 	require.True(t, permissionAllowedByFeatureCodeSet(models.Permission{Path: "monhealth:view", PermType: 2, IsPackageFeature: true}, allowed))
+}
+
+func TestMenuBundleOperationsIncludesManifestParentOperation(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.Permission{}))
+
+	now := time.Now()
+	menu := models.Permission{
+		TenantID:       1,
+		Name:           "AI 能力中心",
+		Path:           "/ai-capability-center",
+		PermType:       3,
+		Enabled:        true,
+		Visible:        false,
+		ShowInAdmin:    true,
+		IsPlatformOnly: true,
+		AppCode:        "ai-capability-center",
+		DataPermMode:   "NONE",
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	require.NoError(t, db.Create(&menu).Error)
+	parentID := menu.ID
+	op := models.Permission{
+		TenantID:       1,
+		ParentID:       &parentID,
+		Name:           "AI 能力中心-配置管理",
+		Path:           "ai_capability_center:manage",
+		PermType:       2,
+		Enabled:        true,
+		Visible:        false,
+		IsPlatformOnly: true,
+		AppCode:        "ai-capability-center",
+		DataPermMode:   "NONE",
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	require.NoError(t, db.Create(&op).Error)
+
+	items := (&IdentityHandler{db: db}).menuBundleOperations(1, menu.ID, menu.Path, true)
+
+	require.Len(t, items, 1)
+	require.Equal(t, "ai_capability_center:manage", items[0]["path"])
+	require.Equal(t, "AI 能力中心-配置管理", items[0]["name"])
 }
 
 func TestValidatePermissionPayloadMatchesOriginalDataPermissionPolicy(t *testing.T) {

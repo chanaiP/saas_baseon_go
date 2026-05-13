@@ -18,7 +18,7 @@ func (h *IdentityHandler) MenuBundles(c *gin.Context) {
 	}
 	forPlatform := user.IsPlatformAdmin || h.viewerHasPlatformScope(user)
 	var permissions []models.Permission
-	_ = h.db.Where("tenant_id IN ? AND perm_type = ? AND enabled = ? AND visible = ? AND deleted_at IS NULL", h.permissionScopeTenantIDs(user.TenantID), 3, true, true).Order("sort_order asc, id asc").Find(&permissions).Error
+	_ = h.db.Where("tenant_id IN ? AND perm_type = ? AND enabled = ? AND deleted_at IS NULL", h.permissionScopeTenantIDs(user.TenantID), 3, true).Order("sort_order asc, id asc").Find(&permissions).Error
 	bundles := make([]gin.H, 0, len(permissions))
 	for _, permission := range permissions {
 		if !forPlatform && permission.IsPlatformOnly {
@@ -27,7 +27,7 @@ func (h *IdentityHandler) MenuBundles(c *gin.Context) {
 		if !forPlatform && !h.permissionAllowedForTenantSubscription(user.TenantID, permission) {
 			continue
 		}
-		operations := h.menuBundleOperations(user.TenantID, permission.Path, forPlatform)
+		operations := h.menuBundleOperations(user.TenantID, permission.ID, permission.Path, forPlatform)
 		bundles = append(bundles, gin.H{
 			"path":               permission.Path,
 			"title":              permission.Name,
@@ -36,6 +36,7 @@ func (h *IdentityHandler) MenuBundles(c *gin.Context) {
 			"operations":         operations,
 			"is_platform_only":   permission.IsPlatformOnly,
 			"is_package_feature": permission.IsPackageFeature,
+			"show_in_admin":      permission.ShowInAdmin,
 			"feature_code":       permission.FeatureCode,
 			"feature_type":       permission.FeatureType,
 			"app_code":           permission.AppCode,
@@ -79,6 +80,7 @@ func (h *IdentityHandler) standaloneCapabilityBundles(tenantID uint64, forPlatfo
 			"operations":         []gin.H{},
 			"is_platform_only":   permission.IsPlatformOnly,
 			"is_package_feature": permission.IsPackageFeature,
+			"show_in_admin":      false,
 			"feature_code":       permission.FeatureCode,
 			"feature_type":       packageFeatureTypeForPermission(permission),
 			"app_code":           permission.AppCode,

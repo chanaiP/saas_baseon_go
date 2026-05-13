@@ -8,6 +8,7 @@ export interface MenuNode {
   icon?: string
   permissionCode?: string
   isPlatformOnly?: boolean
+  showInAdmin?: boolean
   dataPermMode?: 'NONE' | 'ORG' | 'BU' | 'ORG_BU'
   enabled?: boolean
   children?: MenuNode[]

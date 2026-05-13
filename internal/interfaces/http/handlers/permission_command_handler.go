@@ -36,6 +36,7 @@ func (h *IdentityHandler) CreatePermission(c *gin.Context) {
 		SortOrder:        intValueOrDefault(body.SortOrder, 0),
 		Enabled:          body.Enabled == nil || *body.Enabled,
 		Visible:          body.TenantVisible == nil || *body.TenantVisible,
+		ShowInAdmin:      permissionShowInAdmin(body.ShowInAdmin, intValueOrZero(body.PermType)),
 		IsPlatformOnly:   body.IsPlatformOnly != nil && *body.IsPlatformOnly,
 		IsPackageFeature: body.IsPackageFeature != nil && *body.IsPackageFeature,
 		TenantEditable:   body.TenantEditable != nil && *body.TenantEditable,
@@ -222,6 +223,7 @@ type permissionPayload struct {
 	SortOrder           *int     `json:"sort_order"`
 	Enabled             *bool    `json:"enabled"`
 	TenantVisible       *bool    `json:"tenant_visible"`
+	ShowInAdmin         *bool    `json:"show_in_admin"`
 	IsPlatformOnly      *bool    `json:"is_platform_only"`
 	IsPackageFeature    *bool    `json:"is_package_feature"`
 	FeatureCode         *string  `json:"feature_code"`
@@ -307,6 +309,9 @@ func applyPermissionPayload(row *models.Permission, body permissionPayload) {
 	if body.TenantVisible != nil {
 		row.Visible = *body.TenantVisible
 	}
+	if body.ShowInAdmin != nil || body.PermType != nil {
+		row.ShowInAdmin = permissionShowInAdmin(body.ShowInAdmin, row.PermType)
+	}
 	if body.IsPlatformOnly != nil {
 		row.IsPlatformOnly = *body.IsPlatformOnly
 	}
@@ -337,6 +342,16 @@ func applyPermissionPayload(row *models.Permission, body permissionPayload) {
 	if row.AppCode == "" {
 		row.AppCode = "system-management"
 	}
+}
+
+func permissionShowInAdmin(value *bool, permType int) bool {
+	if permType != 3 {
+		return false
+	}
+	if value == nil {
+		return true
+	}
+	return *value
 }
 
 func replacePermissionCustomScopes(tx *gorm.DB, permissionID uint64, departmentIDs []uint64, userIDs []uint64, replaceDepartments bool, replaceUsers bool) error {

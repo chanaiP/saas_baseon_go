@@ -8,6 +8,7 @@ export function isMenuVisibleForSidebar(
   canPath: (path: string) => boolean = can,
 ): boolean {
   if (n.enabled === false) return false
+  if (n.showInAdmin === false) return false
   if (n.type !== 'menu' || !n.path) return false
   if (canPath(n.path)) return true
   const buttons = (n.children || []).filter((c) => c.type === 'button' && c.enabled !== false)
@@ -23,6 +24,7 @@ export function filterVisibleMenuTree(
   const out: MenuNode[] = []
   for (const n of nodes) {
     if (n.enabled === false) continue
+    if (n.showInAdmin === false) continue
     if (n.type === 'directory') {
       const ch = filterVisibleMenuTree(n.children || [], can, canPath)
       if (ch.length) out.push({ ...n, children: ch })

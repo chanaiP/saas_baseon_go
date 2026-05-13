@@ -98,6 +98,7 @@ type Permission struct {
 	SortOrder        int        `gorm:"column:sort_order;not null;default:0"`
 	Enabled          bool       `gorm:"column:enabled;not null;default:true"`
 	Visible          bool       `gorm:"column:visible;not null;default:true"`
+	ShowInAdmin      bool       `gorm:"column:show_in_admin;not null;default:true"`
 	IsPlatformOnly   bool       `gorm:"column:is_platform_only;not null;default:false"`
 	IsPackageFeature bool       `gorm:"column:is_package_feature;not null;default:true"`
 	TenantEditable   bool       `gorm:"column:tenant_editable;not null;default:false"`

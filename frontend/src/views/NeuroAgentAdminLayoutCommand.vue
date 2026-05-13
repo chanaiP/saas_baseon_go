@@ -488,7 +488,7 @@ onBeforeUnmount(() => {
 })
 
 const baseMenuTree = computed(() =>
-  platformUiScope.value ? sidebarMenu.tree : filterPlatformOnlyMenus(sidebarMenu.tenantTree),
+  platformUiScope.value ? sidebarMenu.adminTree : filterPlatformOnlyMenus(sidebarMenu.tenantTree),
 )
 
 const finalMenuTree = computed(() =>

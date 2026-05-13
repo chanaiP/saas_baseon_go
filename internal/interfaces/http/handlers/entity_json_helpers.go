@@ -39,6 +39,7 @@ func permissionToJSON(row models.Permission) gin.H {
 		"sort_order":         row.SortOrder,
 		"enabled":            row.Enabled,
 		"visible":            row.Visible,
+		"show_in_admin":      row.ShowInAdmin,
 		"tenant_visible":     row.Visible,
 		"is_platform_only":   row.IsPlatformOnly,
 		"is_package_feature": row.IsPackageFeature,

@@ -70,6 +70,7 @@ type ManifestMenu struct {
 	SortOrder        int    `json:"sort_order" yaml:"sort_order"`
 	PlatformOnly     bool   `json:"platform_only" yaml:"platform_only"`
 	TenantVisible    bool   `json:"tenant_visible" yaml:"tenant_visible"`
+	ShowInAdmin      *bool  `json:"show_in_admin" yaml:"show_in_admin"`
 	TenantEditable   bool   `json:"tenant_editable" yaml:"tenant_editable"`
 	IncludeInPackage bool   `json:"include_in_package" yaml:"include_in_package"`
 	FeatureCode      string `json:"feature_code" yaml:"feature_code"`
@@ -166,6 +167,7 @@ menus:
     path: /demo
     sort_order: 1
     tenant_visible: true
+    show_in_admin: true
     tenant_editable: true
     include_in_package: true
     feature_code: demo_manage

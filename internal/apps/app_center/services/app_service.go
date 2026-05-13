@@ -422,6 +422,7 @@ func (s *AppService) appAssets(ctx context.Context, appCode string) (dto.AppAsse
 			SortOrder:        row.SortOrder,
 			PlatformOnly:     row.PlatformOnly,
 			TenantVisible:    row.TenantVisible,
+			ShowInAdmin:      row.ShowInAdmin,
 			TenantEditable:   row.TenantEditable,
 			IncludeInPackage: row.IncludeInPackage,
 			FeatureCode:      row.FeatureCode,

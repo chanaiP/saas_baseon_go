@@ -597,17 +597,22 @@ func (h *IdentityHandler) disableStaleMenuPackageFeatures() {
 	}
 }
 
-func (h *IdentityHandler) menuBundleOperations(tenantID uint64, menuPath string, forPlatform bool) []gin.H {
+func (h *IdentityHandler) menuBundleOperations(tenantID uint64, menuPermissionID uint64, menuPath string, forPlatform bool) []gin.H {
 	prefixes := operationPrefixesForMenuPath(menuPath)
-	if len(prefixes) == 0 {
+	if len(prefixes) == 0 && menuPermissionID == 0 {
 		return []gin.H{}
 	}
-	query := h.db.Where("tenant_id IN ? AND perm_type = ? AND enabled = ? AND visible = ? AND deleted_at IS NULL", h.permissionScopeTenantIDs(tenantID), 2, true, true)
+	query := h.db.Where("tenant_id IN ? AND perm_type = ? AND enabled = ? AND deleted_at IS NULL", h.permissionScopeTenantIDs(tenantID), 2, true)
 	parts := make([]string, 0, len(prefixes))
 	args := make([]interface{}, 0, len(prefixes))
 	for _, prefix := range prefixes {
-		parts = append(parts, "path LIKE ?")
+		parts = append(parts, "(visible = ? AND path LIKE ?)")
+		args = append(args, true)
 		args = append(args, prefix+":%")
+	}
+	if menuPermissionID > 0 {
+		parts = append(parts, "parent_id = ?")
+		args = append(args, menuPermissionID)
 	}
 	var rows []models.Permission
 	_ = query.Where(strings.Join(parts, " OR "), args...).Order("id asc").Find(&rows).Error

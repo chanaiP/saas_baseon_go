@@ -107,6 +107,7 @@ type SysAppEntry struct {
 	SortOrder         int        `gorm:"column:sort_order;not null;default:0"`
 	PlatformOnly      bool       `gorm:"column:platform_only;not null;default:false"`
 	TenantVisible     bool       `gorm:"column:tenant_visible;not null;default:true"`
+	ShowInAdmin       bool       `gorm:"column:show_in_admin;not null;default:true"`
 	TenantEditable    bool       `gorm:"column:tenant_editable;not null;default:false"`
 	IncludeInPackage  bool       `gorm:"column:include_in_package;not null;default:false"`
 	FeatureCode       *string    `gorm:"column:feature_code;type:varchar(100);index"`

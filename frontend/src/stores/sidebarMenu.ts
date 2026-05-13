@@ -595,12 +595,97 @@ function findMenuByPath(nodes: MenuNode[], path: string): MenuNode | null {
   return best
 }
 
+function hasExactMenuPath(nodes: MenuNode[], path: string): boolean {
+  for (const n of nodes) {
+    if (n.type === 'menu' && n.path === path) return true
+    if (n.children?.length && hasExactMenuPath(n.children, path)) return true
+  }
+  return false
+}
+
+function menuNodeIdFromBundle(bundle: MenuBundle): string {
+  return `manifest-menu-${bundle.path.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '') || bundle.menu_permission_id}`
+}
+
+function menuNodeFromBundle(bundle: MenuBundle): MenuNode {
+  return {
+    id: menuNodeIdFromBundle(bundle),
+    type: 'menu',
+    title: bundle.title || bundle.path,
+    path: bundle.path,
+    icon: 'Document',
+    isPlatformOnly: bundle.is_platform_only,
+    showInAdmin: bundle.show_in_admin !== false,
+    dataPermMode: bundle.data_perm_mode,
+    enabled: true,
+    children: (bundle.operations || []).map((op) => ({
+      id: `manifest-op-${op.path.replace(/[^a-zA-Z0-9]+/g, '-')}`,
+      type: 'button',
+      title: op.name,
+      permissionCode: op.path,
+      enabled: true,
+      isPlatformOnly: op.is_platform_only,
+      children: [],
+    })),
+  }
+}
+
+function buildManifestAppMenus(nodes: MenuNode[], bundles: MenuBundle[]): MenuNode[] {
+  const missingBundles = bundles
+    .filter((bundle) => bundle.path && !hasExactMenuPath(nodes, bundle.path))
+
+  if (!missingBundles.length) return []
+
+  const bundlesByApp = new Map<string, MenuBundle[]>()
+  for (const bundle of missingBundles) {
+    const appCode = bundle.app_code || 'manifest'
+    if (!bundlesByApp.has(appCode)) bundlesByApp.set(appCode, [])
+    bundlesByApp.get(appCode)!.push(bundle)
+  }
+
+  const appMenus: MenuNode[] = []
+  for (const [appCode, appBundles] of bundlesByApp) {
+    const sorted = [...appBundles]
+    const rootBundle = sorted[0]
+    const rootPath = rootBundle.path
+    const directoryTitle = rootBundle.title || appCode
+    const rootMenu: MenuNode = {
+      ...menuNodeFromBundle(rootBundle),
+      id: `${menuNodeIdFromBundle(rootBundle)}-overview`,
+      title: '总览',
+    }
+    const children = sorted.slice(1).map(menuNodeFromBundle)
+    const directory: MenuNode = {
+      id: `manifest-app-${appCode}`,
+      type: 'directory',
+      title: directoryTitle,
+      icon: rootBundle.app_code === 'ai-capability-center' ? 'Cpu' : 'Document',
+      isPlatformOnly: rootBundle.is_platform_only,
+      showInAdmin: rootBundle.show_in_admin !== false,
+      enabled: true,
+      children: [rootMenu, ...children].filter((node) => node.showInAdmin !== false),
+    }
+
+    if (directory.children?.length && rootPath) {
+      appMenus.push(directory)
+    }
+  }
+  return appMenus
+}
+
+function buildAdminMenuTree(nodes: MenuNode[], bundles: MenuBundle[]): MenuNode[] {
+  const withMeta = applyMenuBundleMeta(nodes, bundles)
+  if (!bundles.length) return withMeta
+  return [...withMeta, ...buildManifestAppMenus(withMeta, bundles)]
+}
+
 function applyTenantOverrides(
   nodes: MenuNode[],
   bundles: MenuBundle[],
   overrides: TenantMenuOverride[],
 ): MenuNode[] {
-  if (!bundles.length || !overrides.length) return nodes
+  const withMeta = applyMenuBundleMeta(nodes, bundles)
+  if (!bundles.length || !overrides.length) return withMeta
   const bundleByPath = new Map(bundles.map((item) => [item.path, item]))
   const overrideByPermissionId = new Map(overrides.map((item) => [item.permission_id, item]))
 
@@ -622,6 +707,27 @@ function applyTenantOverrides(
       next.push(cloned)
     }
     return next
+  }
+
+  return walk(withMeta)
+}
+
+function applyMenuBundleMeta(nodes: MenuNode[], bundles: MenuBundle[]): MenuNode[] {
+  if (!bundles.length) return nodes
+  const bundleByPath = new Map(bundles.map((item) => [item.path, item]))
+
+  function walk(items: MenuNode[]): MenuNode[] {
+    return items.map((node) => {
+      const cloned: MenuNode = { ...node }
+      if (cloned.children?.length) cloned.children = walk(cloned.children)
+      if (cloned.type === 'menu' && cloned.path) {
+        const bundle = bundleByPath.get(cloned.path)
+        if (bundle) {
+          cloned.showInAdmin = bundle.show_in_admin !== false
+        }
+      }
+      return cloned
+    })
   }
 
   return walk(nodes)
@@ -649,6 +755,7 @@ export const useSidebarMenuStore = defineStore('sidebarMenu', () => {
   const tenantOverrides = ref<TenantMenuOverride[]>([])
   const overridesLoaded = ref(false)
   const overridesLoadedAt = ref(0)
+  const adminTree = computed(() => buildAdminMenuTree(tree.value, menuBundles.value))
   const tenantTree = computed(() => applyTenantOverrides(tree.value, menuBundles.value, tenantOverrides.value))
 
   function persist() {
@@ -677,6 +784,9 @@ export const useSidebarMenuStore = defineStore('sidebarMenu', () => {
 
   async function loadTenantMenuRuntime(options: { force?: boolean; isPlatformAdmin?: boolean } = {}) {
     if (options.isPlatformAdmin) {
+      if (options.force || !menuBundles.value.length) {
+        menuBundles.value = await fetchMenuBundles()
+      }
       overridesLoaded.value = true
       overridesLoadedAt.value = Date.now()
       tenantOverrides.value = []
@@ -839,7 +949,7 @@ export const useSidebarMenuStore = defineStore('sidebarMenu', () => {
   /** 更新节点展示字段（平台菜单树，持久化到 localStorage） */
   function updateMenuNode(
     nodeId: string,
-    patch: Partial<Pick<MenuNode, 'title' | 'path' | 'icon' | 'permissionCode' | 'isPlatformOnly' | 'enabled' | 'dataPermMode'>>,
+    patch: Partial<Pick<MenuNode, 'title' | 'path' | 'icon' | 'permissionCode' | 'isPlatformOnly' | 'showInAdmin' | 'enabled' | 'dataPermMode'>>,
   ): boolean {
     const next = JSON.parse(JSON.stringify(tree.value)) as MenuNode[]
     function walk(nodes: MenuNode[]): boolean {
@@ -850,6 +960,7 @@ export const useSidebarMenuStore = defineStore('sidebarMenu', () => {
           if (patch.icon !== undefined) n.icon = patch.icon
           if (patch.permissionCode !== undefined) n.permissionCode = patch.permissionCode
           if (patch.isPlatformOnly !== undefined) n.isPlatformOnly = patch.isPlatformOnly
+          if (patch.showInAdmin !== undefined) n.showInAdmin = patch.showInAdmin
           if (patch.enabled !== undefined) n.enabled = patch.enabled
           if (patch.dataPermMode !== undefined) n.dataPermMode = patch.dataPermMode
           return true
@@ -890,6 +1001,7 @@ export const useSidebarMenuStore = defineStore('sidebarMenu', () => {
 
   return {
     tree,
+    adminTree,
     tenantTree,
     menuBundles,
     tenantOverrides,

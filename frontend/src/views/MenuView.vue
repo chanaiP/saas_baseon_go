@@ -258,9 +258,10 @@ const addForm = ref<{
   path: string
   permissionCode: string
   scope: 'tenant' | 'platform'
+  showInAdmin: boolean
   icon: string
   dataPermMode: 'NONE' | 'ORG' | 'BU' | 'ORG_BU'
-}>({ nodeType: 'menu', title: '新菜单', path: '', permissionCode: '', scope: 'tenant', icon: 'Document', dataPermMode: 'ORG' })
+}>({ nodeType: 'menu', title: '新菜单', path: '', permissionCode: '', scope: 'tenant', showInAdmin: true, icon: 'Document', dataPermMode: 'ORG' })
 
 const editDlg = ref(false)
 const editTargetId = ref<string | null>(null)
@@ -269,6 +270,7 @@ const editForm = ref({
   path: '',
   permissionCode: '',
   scope: 'tenant' as 'tenant' | 'platform',
+  showInAdmin: true,
   icon: 'Document',
   dataPermMode: 'ORG' as 'NONE' | 'ORG' | 'BU' | 'ORG_BU',
 })
@@ -401,6 +403,7 @@ type PackageFeatureTarget = {
   id: number
   is_platform_only?: boolean
   is_package_feature?: boolean
+  show_in_admin?: boolean
 }
 
 function packageFeatureTarget(row: MenuNode): PackageFeatureTarget | null {
@@ -413,12 +416,39 @@ function packageFeatureTarget(row: MenuNode): PackageFeatureTarget | null {
       id: bundle.menu_permission_id,
       is_platform_only: bundle.is_platform_only,
       is_package_feature: bundle.is_package_feature,
+      show_in_admin: bundle.show_in_admin,
     }
   }
   if (row.type === 'button' && row.permissionCode) {
     return bundleOpByPermissionCode.value.get(row.permissionCode) || null
   }
   return null
+}
+
+function canToggleAdminDisplay(row: MenuNode) {
+  return isPlatformAdmin.value && canEditMenu.value && (row.type === 'directory' || row.type === 'menu')
+}
+
+async function onRowShowInAdmin(row: MenuNode, showInAdmin: boolean) {
+  if (!canToggleAdminDisplay(row)) return
+  const oldValue = row.showInAdmin !== false
+  store.updateMenuNode(row.id, { showInAdmin })
+  if (row.type === 'menu') {
+    const meta = permissionMetaForRow(row)
+    if (!meta?.id) {
+      store.updateMenuNode(row.id, { showInAdmin: oldValue })
+      ElMessage.error('未找到该菜单的后端权限映射，已回滚显示设置')
+      return
+    }
+    try {
+      await updatePermission(meta.id, { show_in_admin: showInAdmin })
+      await loadMenuBundlesForScope()
+      await store.loadTenantMenuRuntime({ force: true, isPlatformAdmin: isPlatformAdmin.value })
+    } catch (e) {
+      store.updateMenuNode(row.id, { showInAdmin: oldValue })
+      ElMessage.error(e instanceof Error ? e.message : '后台显示设置保存失败')
+    }
+  }
 }
 
 function packageFeatureState(row: MenuNode): { text: string; type: 'warning' | 'success' | 'info' } | null {
@@ -596,7 +626,7 @@ function resolveDirectParentForNewNode(nodeType: MenuNodeType, parentNode: MenuN
 function openAddDlg() {
   addContextRow.value = null
   globalAddParentId.value = null
-  addForm.value = { nodeType: 'menu', title: '新菜单', path: '', permissionCode: '', scope: 'tenant', icon: 'Document', dataPermMode: 'ORG' }
+  addForm.value = { nodeType: 'menu', title: '新菜单', path: '', permissionCode: '', scope: 'tenant', showInAdmin: true, icon: 'Document', dataPermMode: 'ORG' }
   addDlg.value = true
 }
 
@@ -605,11 +635,11 @@ function openAddDlgUnderRow(row: MenuNode) {
   globalAddParentId.value = null
   addContextRow.value = row
   if (row.type === 'menu') {
-    addForm.value = { nodeType: 'button', title: '新按钮', path: '', permissionCode: '', scope: 'tenant', icon: 'Document', dataPermMode: 'ORG' }
+    addForm.value = { nodeType: 'button', title: '新按钮', path: '', permissionCode: '', scope: 'tenant', showInAdmin: false, icon: 'Document', dataPermMode: 'ORG' }
   } else if (row.type === 'directory') {
-    addForm.value = { nodeType: 'menu', title: '新菜单', path: '', permissionCode: '', scope: 'tenant', icon: 'Document', dataPermMode: 'ORG' }
+    addForm.value = { nodeType: 'menu', title: '新菜单', path: '', permissionCode: '', scope: 'tenant', showInAdmin: true, icon: 'Document', dataPermMode: 'ORG' }
   } else {
-    addForm.value = { nodeType: 'button', title: '新按钮', path: '', permissionCode: '', scope: 'tenant', icon: 'Document', dataPermMode: 'ORG' }
+    addForm.value = { nodeType: 'button', title: '新按钮', path: '', permissionCode: '', scope: 'tenant', showInAdmin: false, icon: 'Document', dataPermMode: 'ORG' }
   }
   addDlg.value = true
 }
@@ -649,6 +679,7 @@ function confirmAdd() {
   if (nt === 'menu') node.path = addForm.value.path.trim()
   if (nt === 'button') node.permissionCode = addForm.value.permissionCode.trim()
   if (nt === 'menu' || nt === 'button') node.isPlatformOnly = addForm.value.scope === 'platform'
+  if (nt === 'directory' || nt === 'menu') node.showInAdmin = addForm.value.showInAdmin
   if (nt === 'menu') node.dataPermMode = addForm.value.dataPermMode
 
   if (addParentScenario.value === 'root') {
@@ -700,6 +731,9 @@ function openEditRow(row: MenuNode) {
     path: row.path || '',
     permissionCode: row.permissionCode || '',
     scope: (backendScope ?? row.isPlatformOnly) ? 'platform' : 'tenant',
+    showInAdmin: row.type === 'menu' && row.path
+      ? bundleByMenuPath.value.get(row.path)?.show_in_admin !== false
+      : row.showInAdmin !== false,
     icon: row.icon || 'Document',
     dataPermMode: bundleMode || row.dataPermMode || 'ORG',
   }
@@ -775,12 +809,14 @@ async function confirmEditWithScopeGuard(forcePlatformScope: boolean) {
   if (row.type === 'menu') patch.path = editForm.value.path.trim()
   if (row.type === 'button') patch.permissionCode = editForm.value.permissionCode.trim()
   if (row.type === 'menu' || row.type === 'button') patch.isPlatformOnly = nextIsPlatformOnly
+  if (row.type === 'directory' || row.type === 'menu') patch.showInAdmin = editForm.value.showInAdmin
   if (row.type === 'menu') patch.dataPermMode = editForm.value.dataPermMode
   if (!store.updateMenuNode(id, patch)) return
   if ((row.type === 'menu' || row.type === 'button') && meta?.id) {
     try {
       await updatePermission(meta.id, {
         ...(row.type === 'menu' ? { data_perm_mode: editForm.value.dataPermMode } : {}),
+        ...(row.type === 'menu' ? { show_in_admin: editForm.value.showInAdmin } : {}),
         is_platform_only: nextIsPlatformOnly,
       })
       await loadMenuBundlesForScope()
@@ -945,7 +981,8 @@ watch(
 const columns = computed<TableColumn[]>(() => [
   { key: 'sort', title: '排序', width: 104, align: 'center', fixed: 'left', hidden: !isPlatformAdmin.value || !canEditMenu.value },
   { key: 'title', title: '名称', minWidth: 240 },
-  { key: 'sidebar', title: '侧栏', width: 120, minWidth: 120, align: 'center', hidden: !canEditMenu.value },
+  { key: 'sidebar', title: '启用', width: 108, minWidth: 104, align: 'center', hidden: !canEditMenu.value },
+  { key: 'adminVisible', title: '后台显示', width: 128, minWidth: 120, align: 'center', hidden: !isPlatformAdmin.value || !canEditMenu.value },
   { key: 'type', title: '类型', width: 104, minWidth: 96, align: 'center' },
   {
     key: 'scope',
@@ -1108,6 +1145,17 @@ onMounted(() => {
           @click.stop
         />
       </template>
+      <template #col-adminVisible="{ row }">
+        <el-switch
+          v-if="row.type === 'directory' || row.type === 'menu'"
+          :model-value="row.showInAdmin !== false"
+          size="small"
+          :disabled="!canToggleAdminDisplay(row)"
+          @change="(v: boolean) => onRowShowInAdmin(row, v)"
+          @click.stop
+        />
+        <span v-else class="scope-dash">—</span>
+      </template>
       <template #col-type="{ row }">{{ typeZh(row.type) }}</template>
       <template #col-path="{ row }">
         <span v-if="row.type === 'menu' && row.path">{{ row.path }}</span>
@@ -1250,6 +1298,10 @@ onMounted(() => {
           <label class="nm-form-label">名称</label>
           <el-input v-model="addForm.title" placeholder="显示名称" />
         </div>
+        <div v-if="addForm.nodeType === 'directory' || addForm.nodeType === 'menu'" class="nm-form-item">
+          <label class="nm-form-label">后台显示</label>
+          <el-switch v-model="addForm.showInAdmin" active-text="显示" inactive-text="隐藏" />
+        </div>
         <div v-if="addForm.nodeType === 'menu'" class="nm-form-item">
           <label class="nm-form-label">路由</label>
           <el-input v-model="addForm.path" placeholder="须以 / 开头，如 /reports" />
@@ -1304,6 +1356,10 @@ onMounted(() => {
         <div class="nm-form-item">
           <label class="nm-form-label">名称</label>
           <el-input v-model="editForm.title" placeholder="显示名称" />
+        </div>
+        <div v-if="isPlatformAdmin && (editTargetRow.type === 'directory' || editTargetRow.type === 'menu')" class="nm-form-item">
+          <label class="nm-form-label">后台显示</label>
+          <el-switch v-model="editForm.showInAdmin" active-text="显示" inactive-text="隐藏" />
         </div>
         <div v-if="isPlatformAdmin && editTargetRow.type === 'menu'" class="nm-form-item">
           <label class="nm-form-label">路由</label>

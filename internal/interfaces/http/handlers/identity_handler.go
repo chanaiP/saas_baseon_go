@@ -105,6 +105,7 @@ func (h *IdentityHandler) UpdatePermissionDataPermMode(c *gin.Context) {
 	var body struct {
 		DataPermMode   *string `json:"data_perm_mode"`
 		IsPlatformOnly *bool   `json:"is_platform_only"`
+		ShowInAdmin    *bool   `json:"show_in_admin"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
@@ -140,6 +141,14 @@ func (h *IdentityHandler) UpdatePermissionDataPermMode(c *gin.Context) {
 			row.IsPackageFeature = false
 		}
 	}
+	if body.ShowInAdmin != nil {
+		if row.PermType != 3 {
+			response.Error(c, 400, response.CodeBadRequest, "仅菜单权限支持配置后台显示")
+			return
+		}
+		updates["show_in_admin"] = *body.ShowInAdmin
+		row.ShowInAdmin = *body.ShowInAdmin
+	}
 	if len(updates) == 0 {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
@@ -153,5 +162,5 @@ func (h *IdentityHandler) UpdatePermissionDataPermMode(c *gin.Context) {
 	}
 	h.syncPackageFeaturesFromPermissions()
 	h.invalidateAllAuthorizationCache()
-	response.OK(c, gin.H{"id": row.ID, "data_perm_mode": row.DataPermMode, "is_platform_only": row.IsPlatformOnly, "is_package_feature": row.IsPackageFeature})
+	response.OK(c, gin.H{"id": row.ID, "data_perm_mode": row.DataPermMode, "is_platform_only": row.IsPlatformOnly, "is_package_feature": row.IsPackageFeature, "show_in_admin": row.ShowInAdmin})
 }

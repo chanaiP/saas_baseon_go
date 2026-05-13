@@ -752,6 +752,7 @@ func (s *AppService) syncManifestAssets(tx *gorm.DB, env manifestEnvelope, now t
 			SortOrder:         menu.SortOrder,
 			PlatformOnly:      manifestAssetPlatformOnly(env, menu.PlatformOnly),
 			TenantVisible:     menu.TenantVisible,
+			ShowInAdmin:       defaultBoolPtr(menu.ShowInAdmin, true),
 			TenantEditable:    menu.TenantEditable,
 			IncludeInPackage:  menu.IncludeInPackage,
 			FeatureCode:       cleanOptionalString(&menu.FeatureCode),
@@ -1021,6 +1022,7 @@ func upsertManifestAsset[T any](tx *gorm.DB, row T, _ []clause.Column) error {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			platformOnly := value.PlatformOnly
 			tenantVisible := value.TenantVisible
+			showInAdmin := value.ShowInAdmin
 			tenantEditable := value.TenantEditable
 			includeInPackage := value.IncludeInPackage
 			featureCode := value.FeatureCode
@@ -1032,6 +1034,7 @@ func upsertManifestAsset[T any](tx *gorm.DB, row T, _ []clause.Column) error {
 			return tx.Model(&models.SysAppEntry{}).Where("app_code = ? AND resource_code = ? AND deleted_at IS NULL", value.AppCode, value.ResourceCode).Updates(map[string]interface{}{
 				"platform_only":      platformOnly,
 				"tenant_visible":     tenantVisible,
+				"show_in_admin":      showInAdmin,
 				"tenant_editable":    tenantEditable,
 				"include_in_package": includeInPackage,
 				"feature_code":       featureCode,
@@ -1162,6 +1165,7 @@ func (s *AppService) syncManifestPermissions(tx *gorm.DB, env manifestEnvelope, 
 			SortOrder:        menu.SortOrder,
 			Enabled:          true,
 			Visible:          menu.TenantVisible,
+			ShowInAdmin:      defaultBoolPtr(menu.ShowInAdmin, true),
 			IsPlatformOnly:   manifestAssetPlatformOnly(env, menu.PlatformOnly),
 			IsPackageFeature: menu.IncludeInPackage,
 			TenantEditable:   menu.TenantEditable,
@@ -1280,6 +1284,7 @@ func upsertPermissionByPath(tx *gorm.DB, row *models.Permission) error {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		enabled := row.Enabled
 		visible := row.Visible
+		showInAdmin := row.ShowInAdmin
 		isPlatformOnly := row.IsPlatformOnly
 		isPackageFeature := row.IsPackageFeature
 		tenantEditable := row.TenantEditable
@@ -1292,6 +1297,7 @@ func upsertPermissionByPath(tx *gorm.DB, row *models.Permission) error {
 		return tx.Model(&models.Permission{}).Where("tenant_id = ? AND path = ? AND deleted_at IS NULL", row.TenantID, row.Path).Updates(map[string]interface{}{
 			"enabled":            enabled,
 			"visible":            visible,
+			"show_in_admin":      showInAdmin,
 			"is_platform_only":   isPlatformOnly,
 			"is_package_feature": isPackageFeature,
 			"tenant_editable":    tenantEditable,
@@ -1311,6 +1317,7 @@ func upsertPermissionByPath(tx *gorm.DB, row *models.Permission) error {
 		"sort_order":         row.SortOrder,
 		"enabled":            row.Enabled,
 		"visible":            row.Visible,
+		"show_in_admin":      row.ShowInAdmin,
 		"is_platform_only":   row.IsPlatformOnly,
 		"is_package_feature": row.IsPackageFeature,
 		"tenant_editable":    row.TenantEditable,
@@ -1535,6 +1542,13 @@ func messageForManifestAction(action string, fallback string) string {
 
 func serviceStringPtr(value string) *string {
 	return &value
+}
+
+func defaultBoolPtr(value *bool, fallback bool) bool {
+	if value == nil {
+		return fallback
+	}
+	return *value
 }
 
 func stringValue(value *string) string {

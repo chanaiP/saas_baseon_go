@@ -481,6 +481,7 @@ CREATE TABLE public.permission (
     sort_order bigint DEFAULT 0 NOT NULL,
     enabled boolean DEFAULT true NOT NULL,
     visible boolean DEFAULT true NOT NULL,
+    show_in_admin boolean DEFAULT true NOT NULL,
     is_platform_only boolean DEFAULT false NOT NULL,
     is_package_feature boolean DEFAULT true NOT NULL,
     tenant_editable boolean DEFAULT false NOT NULL,
@@ -2127,6 +2128,8 @@ CREATE INDEX idx_permission_custom_user_user_id ON public.permission_custom_user
 CREATE INDEX idx_permission_path ON public.permission USING btree (path);
 
 CREATE INDEX idx_permission_app_code ON public.permission USING btree (app_code);
+
+CREATE INDEX idx_permission_show_in_admin ON public.permission USING btree (show_in_admin);
 
 
 --

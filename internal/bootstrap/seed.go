@@ -224,6 +224,7 @@ type seedPermission struct {
 	Hidden          bool
 	PlatformOnly    bool
 	PackageFeature  bool
+	ShowInAdmin     *bool
 	TenantEditable  bool
 	TenantEditScope string
 	AppCode         string
@@ -372,6 +373,7 @@ func seedPermissions(db *gorm.DB, tenantID uint64) ([]models.Permission, error) 
 			SortOrder:        item.SortOrder,
 			Enabled:          true,
 			Visible:          !item.Hidden,
+			ShowInAdmin:      seedPermissionShowInAdmin(item),
 			IsPlatformOnly:   item.PlatformOnly,
 			IsPackageFeature: item.PackageFeature,
 			TenantEditable:   tenantEditable,
@@ -414,6 +416,7 @@ func seedPermissions(db *gorm.DB, tenantID uint64) ([]models.Permission, error) 
 			"sort_order":         item.SortOrder,
 			"enabled":            true,
 			"visible":            !item.Hidden,
+			"show_in_admin":      seedPermissionShowInAdmin(item),
 			"is_platform_only":   item.PlatformOnly,
 			"is_package_feature": item.PackageFeature,
 			"tenant_editable":    tenantEditable,
@@ -431,6 +434,16 @@ func seedPermissions(db *gorm.DB, tenantID uint64) ([]models.Permission, error) 
 		return nil, err
 	}
 	return out, nil
+}
+
+func seedPermissionShowInAdmin(item seedPermission) bool {
+	if item.Type != 3 {
+		return false
+	}
+	if item.ShowInAdmin != nil {
+		return *item.ShowInAdmin
+	}
+	return !item.Hidden
 }
 
 func seedPermissionParentIDs(db *gorm.DB, tenantID uint64) error {
