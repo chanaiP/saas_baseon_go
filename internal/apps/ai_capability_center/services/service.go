@@ -261,6 +261,62 @@ type RouteImportResult struct {
 	RouteModels int `json:"route_models"`
 }
 
+type TenantStrategyImportRequest struct {
+	Policies       []TenantStrategyImportPolicy        `json:"policies"`
+	QuotaRules     []TenantStrategyImportQuotaRule     `json:"quota_rules"`
+	RateLimitRules []TenantStrategyImportRateLimitRule `json:"rate_limit_rules"`
+}
+
+type TenantStrategyImportPolicy struct {
+	PolicyName          string                              `json:"policy_name"`
+	TenantScope         string                              `json:"tenant_scope"`
+	TenantIDs           []string                            `json:"tenant_ids"`
+	AppCode             string                              `json:"app_code"`
+	AppName             string                              `json:"app_name"`
+	AIScenarioCode      string                              `json:"ai_scenario_code"`
+	AIScenarioName      string                              `json:"ai_scenario_name"`
+	DefaultBaseRouteID  string                              `json:"default_base_route_id"`
+	OverrideBaseRouteID string                              `json:"override_base_route_id"`
+	Description         string                              `json:"description"`
+	Status              string                              `json:"status"`
+	QuotaRules          []TenantStrategyImportQuotaRule     `json:"quota_rules"`
+	RateLimitRules      []TenantStrategyImportRateLimitRule `json:"rate_limit_rules"`
+}
+
+type TenantStrategyImportQuotaRule struct {
+	PolicyID         string  `json:"policy_id"`
+	PolicyName       string  `json:"policy_name"`
+	Dimension        string  `json:"dimension"`
+	SubjectCode      string  `json:"subject_code"`
+	UsageUnit        string  `json:"usage_unit"`
+	Period           string  `json:"period"`
+	QuotaLimit       float64 `json:"quota_limit"`
+	UsedAmount       float64 `json:"used_amount"`
+	WarningThreshold float64 `json:"warning_threshold"`
+	OverLimitAction  string  `json:"over_limit_action"`
+	Status           string  `json:"status"`
+}
+
+type TenantStrategyImportRateLimitRule struct {
+	PolicyID        string `json:"policy_id"`
+	PolicyName      string `json:"policy_name"`
+	Dimension       string `json:"dimension"`
+	SubjectCode     string `json:"subject_code"`
+	QPS             int    `json:"qps"`
+	Concurrency     int    `json:"concurrency"`
+	MinuteLimit     int    `json:"minute_limit"`
+	HourLimit       int    `json:"hour_limit"`
+	DayLimit        int    `json:"day_limit"`
+	OverLimitAction string `json:"over_limit_action"`
+	Status          string `json:"status"`
+}
+
+type TenantStrategyImportResult struct {
+	Policies       int `json:"policies"`
+	QuotaRules     int `json:"quota_rules"`
+	RateLimitRules int `json:"rate_limit_rules"`
+}
+
 type HealthCheck struct {
 	Name    string `json:"name"`
 	Status  string `json:"status"`
@@ -483,6 +539,63 @@ func (s *Service) ImportRoutes(ctx context.Context, userID uint64, req RouteImpo
 		return RouteImportResult{}, err
 	}
 	s.Audit(ctx, userID, "ai_base_route", "import", "整体导入基础路由和模型池", result)
+	return result, nil
+}
+
+func (s *Service) ImportTenantStrategies(ctx context.Context, userID uint64, req TenantStrategyImportRequest) (TenantStrategyImportResult, error) {
+	now := time.Now()
+	result := TenantStrategyImportResult{}
+	if len(req.Policies) == 0 && len(req.QuotaRules) == 0 && len(req.RateLimitRules) == 0 {
+		return result, ErrInvalidInput
+	}
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		policyIDs := map[string]string{}
+		if err := loadTenantStrategyPolicyIDs(ctx, tx, policyIDs); err != nil {
+			return err
+		}
+		for _, item := range req.Policies {
+			policy, err := upsertTenantStrategyPolicyImport(ctx, tx, item, now)
+			if err != nil {
+				return err
+			}
+			result.Policies++
+			policyIDs[policy.PolicyName] = policy.ID
+			for _, rule := range item.QuotaRules {
+				rule.PolicyName = policy.PolicyName
+				if err := upsertTenantStrategyQuotaRuleImport(ctx, tx, policyIDs, rule, now); err != nil {
+					return err
+				}
+				result.QuotaRules++
+			}
+			for _, rule := range item.RateLimitRules {
+				rule.PolicyName = policy.PolicyName
+				if err := upsertTenantStrategyRateLimitRuleImport(ctx, tx, policyIDs, rule, now); err != nil {
+					return err
+				}
+				result.RateLimitRules++
+			}
+		}
+		if err := loadTenantStrategyPolicyIDs(ctx, tx, policyIDs); err != nil {
+			return err
+		}
+		for _, item := range req.QuotaRules {
+			if err := upsertTenantStrategyQuotaRuleImport(ctx, tx, policyIDs, item, now); err != nil {
+				return err
+			}
+			result.QuotaRules++
+		}
+		for _, item := range req.RateLimitRules {
+			if err := upsertTenantStrategyRateLimitRuleImport(ctx, tx, policyIDs, item, now); err != nil {
+				return err
+			}
+			result.RateLimitRules++
+		}
+		return nil
+	})
+	if err != nil {
+		return TenantStrategyImportResult{}, err
+	}
+	s.Audit(ctx, userID, "ai_tenant_strategy", "import", "整体导入租户策略和规则", result)
 	return result, nil
 }
 
@@ -1274,8 +1387,12 @@ func (s *Service) DeleteResource(ctx context.Context, userID uint64, resource, i
 		model = &models.AIScenario{}
 		module = "ai_scenario"
 	case "tenant-strategies":
-		model = &models.AITenantStrategyPolicy{}
 		module = "ai_tenant_strategy"
+		if err := s.deleteTenantStrategyCascade(ctx, id, now); err != nil {
+			return err
+		}
+		s.Audit(ctx, userID, module, "delete", "删除租户策略："+id, map[string]string{"id": id})
+		return nil
 	case "quota-rules":
 		model = &models.AIStrategyQuotaRule{}
 		module = "ai_strategy_quota_rule"
@@ -1769,6 +1886,153 @@ func upsertRouteModelImport(ctx context.Context, tx *gorm.DB, routeIDs, modelIDs
 	}).Error
 }
 
+func loadTenantStrategyPolicyIDs(ctx context.Context, tx *gorm.DB, policyIDs map[string]string) error {
+	var rows []struct {
+		ID         string
+		PolicyName string
+	}
+	if err := tx.WithContext(ctx).Model(&models.AITenantStrategyPolicy{}).Select("id, policy_name").Where("deleted_at IS NULL").Scan(&rows).Error; err != nil {
+		return err
+	}
+	for _, row := range rows {
+		policyIDs[row.PolicyName] = row.ID
+	}
+	return nil
+}
+
+func upsertTenantStrategyPolicyImport(ctx context.Context, tx *gorm.DB, item TenantStrategyImportPolicy, now time.Time) (models.AITenantStrategyPolicy, error) {
+	row := models.AITenantStrategyPolicy{
+		PolicyName:          strings.TrimSpace(item.PolicyName),
+		TenantScope:         defaultString(item.TenantScope, "all"),
+		TenantIDs:           item.TenantIDs,
+		AppCode:             strings.TrimSpace(item.AppCode),
+		AppName:             strings.TrimSpace(item.AppName),
+		AIScenarioCode:      strings.TrimSpace(item.AIScenarioCode),
+		AIScenarioName:      strings.TrimSpace(item.AIScenarioName),
+		DefaultBaseRouteID:  strings.TrimSpace(item.DefaultBaseRouteID),
+		OverrideBaseRouteID: strings.TrimSpace(item.OverrideBaseRouteID),
+		Description:         strings.TrimSpace(item.Description),
+		Status:              defaultString(item.Status, "active"),
+	}
+	if row.PolicyName == "" || row.AppCode == "" || row.AIScenarioCode == "" || row.DefaultBaseRouteID == "" || !validTenantScope(row.TenantScope) {
+		return models.AITenantStrategyPolicy{}, ErrInvalidInput
+	}
+	if !scenarioExistsTx(ctx, tx, row.AppCode, row.AIScenarioCode) || !existsTx(ctx, tx, &models.AIBaseRoute{}, row.DefaultBaseRouteID) {
+		return models.AITenantStrategyPolicy{}, ErrInvalidInput
+	}
+	if row.OverrideBaseRouteID != "" && !existsTx(ctx, tx, &models.AIBaseRoute{}, row.OverrideBaseRouteID) {
+		return models.AITenantStrategyPolicy{}, ErrInvalidInput
+	}
+	var existing models.AITenantStrategyPolicy
+	err := tx.WithContext(ctx).Where("policy_name = ? AND tenant_scope = ? AND app_code = ? AND ai_scenario_code = ? AND deleted_at IS NULL", row.PolicyName, row.TenantScope, row.AppCode, row.AIScenarioCode).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		row.ID = uuid.NewString()
+		row.CreatedAt = now
+		row.UpdatedAt = now
+		if err := tx.Create(&row).Error; err != nil {
+			return models.AITenantStrategyPolicy{}, err
+		}
+		return row, nil
+	}
+	if err != nil {
+		return models.AITenantStrategyPolicy{}, err
+	}
+	row.ID = existing.ID
+	row.CreatedAt = existing.CreatedAt
+	row.UpdatedAt = now
+	err = tx.Model(&existing).Updates(map[string]interface{}{
+		"tenant_ids": jsonString(row.TenantIDs), "app_name": row.AppName, "ai_scenario_name": row.AIScenarioName,
+		"default_base_route_id": row.DefaultBaseRouteID, "override_base_route_id": row.OverrideBaseRouteID,
+		"description": row.Description, "status": row.Status, "updated_at": now,
+	}).Error
+	return row, err
+}
+
+func upsertTenantStrategyQuotaRuleImport(ctx context.Context, tx *gorm.DB, policyIDs map[string]string, item TenantStrategyImportQuotaRule, now time.Time) error {
+	policyID := strings.TrimSpace(item.PolicyID)
+	if policyID == "" {
+		policyID = policyIDs[strings.TrimSpace(item.PolicyName)]
+	}
+	row := models.AIStrategyQuotaRule{
+		PolicyID:         policyID,
+		Dimension:        strings.TrimSpace(item.Dimension),
+		SubjectCode:      strings.TrimSpace(item.SubjectCode),
+		UsageUnit:        strings.TrimSpace(item.UsageUnit),
+		Period:           strings.TrimSpace(item.Period),
+		QuotaLimit:       item.QuotaLimit,
+		UsedAmount:       item.UsedAmount,
+		WarningThreshold: defaultFloat(item.WarningThreshold, 80),
+		OverLimitAction:  defaultString(item.OverLimitAction, "alert_only"),
+		Status:           defaultString(item.Status, "active"),
+	}
+	if row.PolicyID == "" || row.SubjectCode == "" || row.UsageUnit == "" || row.Period == "" ||
+		!validControlDimension(row.Dimension) || !validControlPeriod(row.Period) || !validOverLimitAction(row.OverLimitAction) ||
+		row.QuotaLimit <= 0 || row.UsedAmount < 0 || row.WarningThreshold <= 0 {
+		return ErrInvalidInput
+	}
+	if !existsTx(ctx, tx, &models.AITenantStrategyPolicy{}, row.PolicyID) {
+		return ErrInvalidInput
+	}
+	var existing models.AIStrategyQuotaRule
+	err := tx.WithContext(ctx).Where("policy_id = ? AND dimension = ? AND subject_code = ? AND usage_unit = ? AND period = ? AND deleted_at IS NULL", row.PolicyID, row.Dimension, row.SubjectCode, row.UsageUnit, row.Period).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		row.ID = uuid.NewString()
+		row.CreatedAt = now
+		row.UpdatedAt = now
+		return tx.Create(&row).Error
+	}
+	if err != nil {
+		return err
+	}
+	return tx.Model(&existing).Updates(map[string]interface{}{
+		"quota_limit": row.QuotaLimit, "used_amount": row.UsedAmount, "warning_threshold": row.WarningThreshold,
+		"over_limit_action": row.OverLimitAction, "status": row.Status, "updated_at": now,
+	}).Error
+}
+
+func upsertTenantStrategyRateLimitRuleImport(ctx context.Context, tx *gorm.DB, policyIDs map[string]string, item TenantStrategyImportRateLimitRule, now time.Time) error {
+	policyID := strings.TrimSpace(item.PolicyID)
+	if policyID == "" {
+		policyID = policyIDs[strings.TrimSpace(item.PolicyName)]
+	}
+	row := models.AIStrategyRateLimitRule{
+		PolicyID:        policyID,
+		Dimension:       strings.TrimSpace(item.Dimension),
+		SubjectCode:     strings.TrimSpace(item.SubjectCode),
+		QPS:             item.QPS,
+		Concurrency:     item.Concurrency,
+		MinuteLimit:     item.MinuteLimit,
+		HourLimit:       item.HourLimit,
+		DayLimit:        item.DayLimit,
+		OverLimitAction: defaultString(item.OverLimitAction, "queue"),
+		Status:          defaultString(item.Status, "active"),
+	}
+	if row.PolicyID == "" || row.SubjectCode == "" || !validControlDimension(row.Dimension) || !validOverLimitAction(row.OverLimitAction) ||
+		row.QPS < 0 || row.Concurrency < 0 || row.MinuteLimit < 0 || row.HourLimit < 0 || row.DayLimit < 0 ||
+		(row.QPS == 0 && row.Concurrency == 0 && row.MinuteLimit == 0 && row.HourLimit == 0 && row.DayLimit == 0) {
+		return ErrInvalidInput
+	}
+	if !existsTx(ctx, tx, &models.AITenantStrategyPolicy{}, row.PolicyID) {
+		return ErrInvalidInput
+	}
+	var existing models.AIStrategyRateLimitRule
+	err := tx.WithContext(ctx).Where("policy_id = ? AND dimension = ? AND subject_code = ? AND deleted_at IS NULL", row.PolicyID, row.Dimension, row.SubjectCode).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		row.ID = uuid.NewString()
+		row.CreatedAt = now
+		row.UpdatedAt = now
+		return tx.Create(&row).Error
+	}
+	if err != nil {
+		return err
+	}
+	return tx.Model(&existing).Updates(map[string]interface{}{
+		"qps": row.QPS, "concurrency": row.Concurrency, "minute_limit": row.MinuteLimit,
+		"hour_limit": row.HourLimit, "day_limit": row.DayLimit, "over_limit_action": row.OverLimitAction,
+		"status": row.Status, "updated_at": now,
+	}).Error
+}
+
 func upsertScenarioImport(ctx context.Context, tx *gorm.DB, item ScenarioImportItem, now time.Time) error {
 	row := models.AIScenario{
 		AppCode:            strings.TrimSpace(item.AppCode),
@@ -1894,6 +2158,30 @@ func (s *Service) deleteBaseRouteCascade(ctx context.Context, id string, now tim
 	})
 }
 
+func (s *Service) deleteTenantStrategyCascade(ctx context.Context, id string, now time.Time) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var policy models.AITenantStrategyPolicy
+		if err := tx.Where("id = ? AND deleted_at IS NULL", id).First(&policy).Error; err != nil {
+			return ErrNotFound
+		}
+		updates := map[string]interface{}{"deleted_at": now, "updated_at": now, "status": "inactive"}
+		if err := tx.Model(&models.AIStrategyQuotaRule{}).Where("policy_id = ? AND deleted_at IS NULL", id).Updates(updates).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&models.AIStrategyRateLimitRule{}).Where("policy_id = ? AND deleted_at IS NULL", id).Updates(updates).Error; err != nil {
+			return err
+		}
+		res := tx.Model(&models.AITenantStrategyPolicy{}).Where("id = ? AND deleted_at IS NULL", id).Updates(updates)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return ErrNotFound
+		}
+		return nil
+	})
+}
+
 func (s *Service) exists(ctx context.Context, model interface{}, id string) bool {
 	if strings.TrimSpace(id) == "" {
 		return false
@@ -1927,6 +2215,15 @@ func existsTx(ctx context.Context, tx *gorm.DB, model interface{}, id string) bo
 	}
 	var count int64
 	_ = tx.WithContext(ctx).Model(model).Where("id = ? AND deleted_at IS NULL", strings.TrimSpace(id)).Count(&count).Error
+	return count > 0
+}
+
+func scenarioExistsTx(ctx context.Context, tx *gorm.DB, appCode, scenarioCode string) bool {
+	if strings.TrimSpace(appCode) == "" || strings.TrimSpace(scenarioCode) == "" {
+		return false
+	}
+	var count int64
+	_ = tx.WithContext(ctx).Model(&models.AIScenario{}).Where("app_code = ? AND ai_scenario_code = ? AND deleted_at IS NULL", strings.TrimSpace(appCode), strings.TrimSpace(scenarioCode)).Count(&count).Error
 	return count > 0
 }
 
@@ -2011,9 +2308,60 @@ func defaultInt(value, fallback int) int {
 	return value
 }
 
+func defaultFloat(value, fallback float64) float64 {
+	if value == 0 {
+		return fallback
+	}
+	return value
+}
+
+func jsonString(value interface{}) string {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return "[]"
+	}
+	return string(raw)
+}
+
 func validRouteStrategy(strategy string) bool {
 	switch strings.TrimSpace(strategy) {
 	case "fixed", "fallback", "priority", "load_balance", "cost_first", "quality_first", "latency_first", "quota_aware", "tenant_custom", "capability_match":
+		return true
+	default:
+		return false
+	}
+}
+
+func validTenantScope(scope string) bool {
+	switch strings.TrimSpace(scope) {
+	case "all", "include", "exclude":
+		return true
+	default:
+		return false
+	}
+}
+
+func validControlDimension(dimension string) bool {
+	switch strings.TrimSpace(dimension) {
+	case "tenant", "app", "scenario", "model", "feature_sku", "provider_account", "user", "amount", "api":
+		return true
+	default:
+		return false
+	}
+}
+
+func validControlPeriod(period string) bool {
+	switch strings.TrimSpace(period) {
+	case "minute", "hour", "day", "week", "month", "year", "total":
+		return true
+	default:
+		return false
+	}
+}
+
+func validOverLimitAction(action string) bool {
+	switch strings.TrimSpace(action) {
+	case "alert_only", "degrade_route", "queue", "reject", "approval":
 		return true
 	default:
 		return false

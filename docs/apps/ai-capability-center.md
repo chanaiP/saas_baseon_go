@@ -262,3 +262,48 @@ AI 场景通过 `POST /api/ai-capability-center/scenarios/import` 批量注册�
   ]
 }
 ```
+
+## 租户策略批量导入
+
+策略中心通过 `POST /api/ai-capability-center/tenant-strategies/import` 一次性导入租户策略、配额规则和限流规则。导入在单个事务内执行，按 `policy_name + tenant_scope + app_code + ai_scenario_code` 幂等 upsert 策略，按 `policy + dimension + subject_code + usage_unit + period` 幂等 upsert 配额规则，按 `policy + dimension + subject_code` 幂等 upsert 限流规则。导入会校验 AI 场景已注册、默认基础路由存在、覆盖路由存在；规则维度只允许 `tenant/app/scenario/model/feature_sku/provider_account/user/amount/api`，超限动作只允许 `alert_only/degrade_route/queue/reject/approval`。
+
+```json
+{
+  "policies": [
+    {
+      "policy_name": "重点租户商品文案策略",
+      "tenant_scope": "include",
+      "tenant_ids": ["tenant-a"],
+      "app_code": "product_center",
+      "app_name": "商品中心",
+      "ai_scenario_code": "product_copy_generate",
+      "ai_scenario_name": "商品文案生成",
+      "default_base_route_id": "route-uuid",
+      "override_base_route_id": "fast-route-uuid",
+      "status": "active",
+      "quota_rules": [
+        {
+          "dimension": "scenario",
+          "subject_code": "product_copy_generate",
+          "usage_unit": "tokens",
+          "period": "day",
+          "quota_limit": 100000,
+          "warning_threshold": 80,
+          "over_limit_action": "alert_only",
+          "status": "active"
+        }
+      ],
+      "rate_limit_rules": [
+        {
+          "dimension": "user",
+          "subject_code": "user-a",
+          "qps": 20,
+          "concurrency": 5,
+          "over_limit_action": "queue",
+          "status": "active"
+        }
+      ]
+    }
+  ]
+}
+```

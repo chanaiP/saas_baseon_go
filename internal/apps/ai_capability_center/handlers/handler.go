@@ -174,6 +174,25 @@ func (h *Handler) ImportRoutes(c *gin.Context) {
 	response.OK(c, result)
 }
 
+func (h *Handler) ImportTenantStrategies(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	var req services.TenantStrategyImportRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequest, "请求参数不合法")
+		return
+	}
+	result, err := h.service.ImportTenantStrategies(c.Request.Context(), userID, req)
+	if err != nil {
+		writeError(c, err)
+		return
+	}
+	response.OK(c, result)
+}
+
 func (h *Handler) Update(c *gin.Context) {
 	userID, ok := currentUserID(c)
 	if !ok {

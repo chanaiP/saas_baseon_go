@@ -513,6 +513,141 @@ func TestDeleteBaseRouteBlocksReferencesAndCascadesModelPool(t *testing.T) {
 	require.NotNil(t, deletedRouteModel.DeletedAt)
 }
 
+func TestImportTenantStrategiesUpsertsPoliciesAndRules(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "chat_completion", "tokens")
+	route := seedBaseRoute(t, db, "route-chat", "chat_completion")
+	overrideRoute := seedBaseRoute(t, db, "route-chat-fast", "chat_completion")
+	seedScenario(t, db, route.ID)
+	service := NewService(db)
+	ctx := context.Background()
+
+	result, err := service.ImportTenantStrategies(ctx, 7, TenantStrategyImportRequest{
+		Policies: []TenantStrategyImportPolicy{{
+			PolicyName: "重点租户策略", TenantScope: "include", TenantIDs: []string{"tenant-a"},
+			AppCode: "product_center", AppName: "商品中心", AIScenarioCode: "copy_gen", AIScenarioName: "文案生成",
+			DefaultBaseRouteID: route.ID, OverrideBaseRouteID: overrideRoute.ID,
+			QuotaRules: []TenantStrategyImportQuotaRule{{
+				Dimension: "scenario", SubjectCode: "copy_gen", UsageUnit: "tokens", Period: "day",
+				QuotaLimit: 1000, WarningThreshold: 80, OverLimitAction: "alert_only",
+			}},
+			RateLimitRules: []TenantStrategyImportRateLimitRule{{
+				Dimension: "user", SubjectCode: "user-a", QPS: 20, Concurrency: 5, OverLimitAction: "queue",
+			}},
+		}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, TenantStrategyImportResult{Policies: 1, QuotaRules: 1, RateLimitRules: 1}, result)
+
+	var policy models.AITenantStrategyPolicy
+	require.NoError(t, db.Where("policy_name = ? AND deleted_at IS NULL", "重点租户策略").First(&policy).Error)
+	require.Equal(t, []string{"tenant-a"}, policy.TenantIDs)
+	require.Equal(t, overrideRoute.ID, policy.OverrideBaseRouteID)
+	var quota models.AIStrategyQuotaRule
+	require.NoError(t, db.Where("policy_id = ? AND dimension = ? AND deleted_at IS NULL", policy.ID, "scenario").First(&quota).Error)
+	require.InDelta(t, 1000, quota.QuotaLimit, 0.0001)
+	var rate models.AIStrategyRateLimitRule
+	require.NoError(t, db.Where("policy_id = ? AND dimension = ? AND deleted_at IS NULL", policy.ID, "user").First(&rate).Error)
+	require.Equal(t, 20, rate.QPS)
+
+	result, err = service.ImportTenantStrategies(ctx, 7, TenantStrategyImportRequest{
+		Policies: []TenantStrategyImportPolicy{{
+			PolicyName: "重点租户策略", TenantScope: "include", TenantIDs: []string{"tenant-b"},
+			AppCode: "product_center", AppName: "商品中心", AIScenarioCode: "copy_gen", AIScenarioName: "文案生成",
+			DefaultBaseRouteID: route.ID,
+		}},
+		QuotaRules: []TenantStrategyImportQuotaRule{{
+			PolicyName: "重点租户策略", Dimension: "scenario", SubjectCode: "copy_gen", UsageUnit: "tokens", Period: "day",
+			QuotaLimit: 2000, WarningThreshold: 70, OverLimitAction: "degrade_route",
+		}},
+		RateLimitRules: []TenantStrategyImportRateLimitRule{{
+			PolicyName: "重点租户策略", Dimension: "user", SubjectCode: "user-a", QPS: 10, Concurrency: 3, OverLimitAction: "reject",
+		}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, TenantStrategyImportResult{Policies: 1, QuotaRules: 1, RateLimitRules: 1}, result)
+
+	var count int64
+	require.NoError(t, db.Model(&models.AITenantStrategyPolicy{}).Where("policy_name = ? AND deleted_at IS NULL", "重点租户策略").Count(&count).Error)
+	require.Equal(t, int64(1), count)
+	require.NoError(t, db.Model(&models.AIStrategyQuotaRule{}).Where("policy_id = ? AND deleted_at IS NULL", policy.ID).Count(&count).Error)
+	require.Equal(t, int64(1), count)
+	require.NoError(t, db.Model(&models.AIStrategyRateLimitRule{}).Where("policy_id = ? AND deleted_at IS NULL", policy.ID).Count(&count).Error)
+	require.Equal(t, int64(1), count)
+	require.NoError(t, db.Where("id = ?", policy.ID).First(&policy).Error)
+	require.Equal(t, []string{"tenant-b"}, policy.TenantIDs)
+	require.Empty(t, policy.OverrideBaseRouteID)
+	require.NoError(t, db.Where("id = ?", quota.ID).First(&quota).Error)
+	require.InDelta(t, 2000, quota.QuotaLimit, 0.0001)
+	require.Equal(t, "degrade_route", quota.OverLimitAction)
+	require.NoError(t, db.Where("id = ?", rate.ID).First(&rate).Error)
+	require.Equal(t, 10, rate.QPS)
+	require.Equal(t, "reject", rate.OverLimitAction)
+}
+
+func TestImportTenantStrategiesRollsBackOnInvalidRule(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "chat_completion", "tokens")
+	route := seedBaseRoute(t, db, "route-chat", "chat_completion")
+	seedScenario(t, db, route.ID)
+	service := NewService(db)
+	ctx := context.Background()
+
+	_, err := service.ImportTenantStrategies(ctx, 7, TenantStrategyImportRequest{
+		Policies: []TenantStrategyImportPolicy{{
+			PolicyName: "错误策略", TenantScope: "all", AppCode: "product_center", AppName: "商品中心",
+			AIScenarioCode: "copy_gen", AIScenarioName: "文案生成", DefaultBaseRouteID: route.ID,
+			QuotaRules: []TenantStrategyImportQuotaRule{{
+				Dimension: "unknown", SubjectCode: "copy_gen", UsageUnit: "tokens", Period: "day", QuotaLimit: 100,
+			}},
+		}},
+	})
+	require.ErrorIs(t, err, ErrInvalidInput)
+
+	var count int64
+	require.NoError(t, db.Model(&models.AITenantStrategyPolicy{}).Where("policy_name = ?", "错误策略").Count(&count).Error)
+	require.Equal(t, int64(0), count)
+	require.NoError(t, db.Model(&models.AIStrategyQuotaRule{}).Count(&count).Error)
+	require.Equal(t, int64(0), count)
+}
+
+func TestDeleteTenantStrategyCascadesRules(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "chat_completion", "tokens")
+	route := seedBaseRoute(t, db, "route-chat", "chat_completion")
+	seedScenario(t, db, route.ID)
+	now := time.Now()
+	policy := models.AITenantStrategyPolicy{
+		ID: "policy-copy", PolicyName: "租户策略", TenantScope: "all", TenantIDs: []string{}, AppCode: "product_center", AppName: "商品中心",
+		AIScenarioCode: "copy_gen", AIScenarioName: "文案生成", DefaultBaseRouteID: route.ID, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&policy).Error)
+	quota := models.AIStrategyQuotaRule{
+		ID: "quota-copy", PolicyID: policy.ID, Dimension: "scenario", SubjectCode: "copy_gen", UsageUnit: "tokens",
+		Period: "day", QuotaLimit: 100, WarningThreshold: 80, OverLimitAction: "alert_only", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&quota).Error)
+	rate := models.AIStrategyRateLimitRule{
+		ID: "rate-copy", PolicyID: policy.ID, Dimension: "user", SubjectCode: "user-a", QPS: 10, OverLimitAction: "queue", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&rate).Error)
+
+	require.NoError(t, NewService(db).DeleteResource(context.Background(), 7, "tenant-strategies", policy.ID))
+
+	var deletedPolicy models.AITenantStrategyPolicy
+	require.NoError(t, db.Where("id = ?", policy.ID).First(&deletedPolicy).Error)
+	require.NotNil(t, deletedPolicy.DeletedAt)
+	var deletedQuota models.AIStrategyQuotaRule
+	require.NoError(t, db.Where("id = ?", quota.ID).First(&deletedQuota).Error)
+	require.NotNil(t, deletedQuota.DeletedAt)
+	var deletedRate models.AIStrategyRateLimitRule
+	require.NoError(t, db.Where("id = ?", rate.ID).First(&deletedRate).Error)
+	require.NotNil(t, deletedRate.DeletedAt)
+}
+
 func TestDeleteScenarioBlocksUsageAndStrategyReferences(t *testing.T) {
 	db := newAICapabilityTestDB(t)
 	seedCapability(t, db, "chat_completion", "tokens")
@@ -756,6 +891,38 @@ func newAICapabilityTestDB(t *testing.T) *gorm.DB {
 		updated_at DATETIME NOT NULL,
 		deleted_at DATETIME
 	)`).Error)
+	require.NoError(t, db.Exec(`CREATE TABLE ai_strategy_quota_rules (
+		id TEXT PRIMARY KEY,
+		policy_id TEXT NOT NULL,
+		dimension TEXT NOT NULL,
+		subject_code TEXT NOT NULL,
+		usage_unit TEXT NOT NULL,
+		period TEXT NOT NULL,
+		quota_limit NUMERIC NOT NULL DEFAULT 0,
+		used_amount NUMERIC NOT NULL DEFAULT 0,
+		warning_threshold NUMERIC NOT NULL DEFAULT 80,
+		over_limit_action TEXT NOT NULL DEFAULT 'alert_only',
+		status TEXT NOT NULL DEFAULT 'active',
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL,
+		deleted_at DATETIME
+	)`).Error)
+	require.NoError(t, db.Exec(`CREATE TABLE ai_strategy_rate_limit_rules (
+		id TEXT PRIMARY KEY,
+		policy_id TEXT NOT NULL,
+		dimension TEXT NOT NULL,
+		subject_code TEXT NOT NULL,
+		qps INTEGER NOT NULL DEFAULT 0,
+		concurrency INTEGER NOT NULL DEFAULT 0,
+		minute_limit INTEGER NOT NULL DEFAULT 0,
+		hour_limit INTEGER NOT NULL DEFAULT 0,
+		day_limit INTEGER NOT NULL DEFAULT 0,
+		over_limit_action TEXT NOT NULL DEFAULT 'queue',
+		status TEXT NOT NULL DEFAULT 'active',
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL,
+		deleted_at DATETIME
+	)`).Error)
 	require.NoError(t, db.Exec(`CREATE TABLE ai_usage_records (
 		id TEXT PRIMARY KEY,
 		request_id TEXT NOT NULL UNIQUE,
@@ -814,6 +981,18 @@ func seedBaseRoute(t *testing.T, db *gorm.DB, routeCode, capabilityCode string) 
 	row := models.AIBaseRoute{
 		ID: "route-" + routeCode, RouteCode: routeCode, RouteName: routeCode, CapabilityCode: capabilityCode,
 		ModelType: "text", Strategy: "fallback", TimeoutMS: 30000, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&row).Error)
+	return row
+}
+
+func seedScenario(t *testing.T, db *gorm.DB, routeID string) models.AIScenario {
+	t.Helper()
+	now := time.Now()
+	row := models.AIScenario{
+		ID: "scenario-copy", AppCode: "product_center", AppName: "商品中心", AIScenarioCode: "copy_gen", AIScenarioName: "文案生成",
+		ScenarioType: "text", CapabilityCode: "chat_completion", ModelType: "text", DefaultBaseRouteID: routeID, Status: "active",
 		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
 	}
 	require.NoError(t, db.Create(&row).Error)

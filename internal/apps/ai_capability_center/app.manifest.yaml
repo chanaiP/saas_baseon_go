@@ -188,6 +188,10 @@ apis:
     path: /api/ai-capability-center/routes/import
     permission_code: ai_capability_center:manage
     audit: true
+  - method: POST
+    path: /api/ai-capability-center/tenant-strategies/import
+    permission_code: ai_capability_center:manage
+    audit: true
   - method: PUT
     path: /api/ai-capability-center/{resource}/{id}
     permission_code: ai_capability_center:manage
