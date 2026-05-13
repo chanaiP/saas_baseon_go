@@ -671,7 +671,6 @@ const pathToComponentName: Record<string, string> = {
   '/ai-capability-center/models': 'AiCapabilityCenterView',
   '/ai-capability-center/scenarios': 'AiCapabilityCenterView',
   '/ai-capability-center/routes': 'AiCapabilityCenterView',
-  '/ai-capability-center/usage': 'AiCapabilityCenterView',
   '/ai-capability-center/strategy': 'AiCapabilityCenterView',
   '/ai-capability-center/settings': 'AiCapabilityCenterView',
   '/tenants': 'TenantView',

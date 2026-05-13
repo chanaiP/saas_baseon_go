@@ -266,7 +266,7 @@ func TestAppCenterParseAICapabilityCenterManifest(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, result.Valid)
 	require.Equal(t, "ai-capability-center", result.AppCode)
-	require.Equal(t, 8, result.Counts.Menus)
+	require.Equal(t, 7, result.Counts.Menus)
 	require.NotEmpty(t, result.ManifestHash)
 }
 

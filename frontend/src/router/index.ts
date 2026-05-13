@@ -105,12 +105,6 @@ const router = createRouter({
           component: () => import('@/apps/ai-capability-center/views/AiCapabilityCenterView.vue'),
         },
         {
-          path: 'ai-capability-center/usage',
-          name: 'AiCapabilityCenterUsageView',
-          meta: { title: '用量统计' },
-          component: () => import('@/apps/ai-capability-center/views/AiCapabilityCenterView.vue'),
-        },
-        {
           path: 'ai-capability-center/strategy',
           name: 'AiCapabilityCenterStrategyView',
           meta: { title: '策略中心' },

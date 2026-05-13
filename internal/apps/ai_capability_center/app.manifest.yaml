@@ -14,7 +14,7 @@ app:
   billing_mode: SUBSCRIPTION
   package_policy: IN_PACKAGE
   version: 0.1.0
-  description: 统一管理 AI 供应商、模型、场景、基础路由、策略、用量和网关配置
+  description: 统一管理 AI 供应商、模型、场景、基础路由、策略和网关配置；用量统计统一收敛到总览
   backend_dir: internal/apps/ai_capability_center
   frontend_dir: frontend/src/apps/ai-capability-center
 clients:
@@ -65,15 +65,6 @@ menus:
     tenant_editable: true
     include_in_package: true
     feature_code: ai_capability_routes
-    data_perm_mode: ORG
-  - code: ai_capability_usage
-    name: 用量统计
-    path: /ai-capability-center/usage
-    sort_order: 85
-    tenant_visible: true
-    tenant_editable: true
-    include_in_package: true
-    feature_code: ai_capability_usage
     data_perm_mode: ORG
   - code: ai_capability_strategy
     name: 策略中心
@@ -135,12 +126,6 @@ permissions:
     name: 基础路由
     type: MENU
     menu_code: ai_capability_routes
-    include_in_package: true
-    data_perm_mode: ORG
-  - code: /ai-capability-center/usage
-    name: 用量统计
-    type: MENU
-    menu_code: ai_capability_usage
     include_in_package: true
     data_perm_mode: ORG
   - code: /ai-capability-center/strategy
@@ -223,13 +208,6 @@ package_features:
     feature_type: MENU
     parent_code: ai_capability_dashboard
     source_code: /ai-capability-center/routes
-    package_policy: IN_PACKAGE
-    include_in_package: true
-  - feature_code: ai_capability_usage
-    feature_name: 用量统计
-    feature_type: MENU
-    parent_code: ai_capability_dashboard
-    source_code: /ai-capability-center/usage
     package_policy: IN_PACKAGE
     include_in_package: true
   - feature_code: ai_capability_strategy
