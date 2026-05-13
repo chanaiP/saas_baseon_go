@@ -158,7 +158,7 @@ func (h *IdentityHandler) SaveTenantFeatureOverrides(c *gin.Context) {
 			return err
 		}
 		for _, item := range body.Overrides {
-			if err := tx.Create(&models.TenantFeatureOverride{TenantID: tenantID, FeatureID: item.FeatureID, Enabled: item.Enabled, Reason: item.Reason}).Error; err != nil {
+			if err := tx.Create(&models.TenantFeatureOverride{TenantID: tenantID, FeatureID: item.FeatureID, Enabled: item.Enabled, Reason: item.Reason, Source: "MANUAL"}).Error; err != nil {
 				return err
 			}
 		}
@@ -204,12 +204,12 @@ func (h *IdentityHandler) SaveTenantQuotaOverrides(c *gin.Context) {
 			return err
 		}
 		for _, item := range body.Overrides {
-			if err := tx.Create(&models.TenantQuotaOverride{TenantID: tenantID, QuotaID: item.QuotaID, QuotaValue: item.QuotaValue, Reason: item.Reason}).Error; err != nil {
+			if err := tx.Create(&models.TenantQuotaOverride{TenantID: tenantID, QuotaID: item.QuotaID, QuotaValue: item.QuotaValue, Reason: item.Reason, Source: "MANUAL"}).Error; err != nil {
 				return err
 			}
 		}
 		for _, item := range body.Quotas {
-			if err := tx.Create(&models.TenantQuotaOverride{TenantID: tenantID, QuotaID: item.QuotaID, QuotaValue: item.QuotaValue}).Error; err != nil {
+			if err := tx.Create(&models.TenantQuotaOverride{TenantID: tenantID, QuotaID: item.QuotaID, QuotaValue: item.QuotaValue, Source: "MANUAL"}).Error; err != nil {
 				return err
 			}
 		}

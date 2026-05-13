@@ -36,6 +36,7 @@ export interface AppCenterApp {
   created_at: string
   updated_at: string
   clients?: AppCenterClient[]
+  assets?: AppCenterAssets
 }
 
 export interface AppCenterClient {
@@ -46,6 +47,107 @@ export interface AppCenterClient {
   enabled: boolean
   sort_order: number
   config_note?: string | null
+}
+
+export interface AppCenterAssets {
+  entries: AppCenterEntry[]
+  apis: AppCenterAPI[]
+  permissions: AppCenterPermission[]
+  package_features: AppCenterPackageFeature[]
+  quotas: AppCenterQuota[]
+  manifest_loads: AppCenterManifestLoad[]
+}
+
+export interface AppCenterEntry {
+  resource_code: string
+  name: string
+  path: string
+  parent_code?: string | null
+  sort_order: number
+  platform_only: boolean
+  tenant_visible: boolean
+  tenant_editable: boolean
+  include_in_package: boolean
+  feature_code?: string | null
+  data_perm_mode: string
+  status: string
+  last_synced_at?: string | null
+  protection_source?: string | null
+  protection_reason?: string | null
+  protected_at?: string | null
+}
+
+export interface AppCenterAPI {
+  method: string
+  path: string
+  permission_code?: string | null
+  public: boolean
+  audit: boolean
+  status: string
+  last_synced_at?: string | null
+  protection_source?: string | null
+  protection_reason?: string | null
+  protected_at?: string | null
+}
+
+export interface AppCenterPermission {
+  permission_code: string
+  name: string
+  permission_type: string
+  menu_code?: string | null
+  platform_only: boolean
+  include_in_package: boolean
+  data_perm_mode: string
+  status: string
+  last_synced_at?: string | null
+  protection_source?: string | null
+  protection_reason?: string | null
+  protected_at?: string | null
+}
+
+export interface AppCenterPackageFeature {
+  feature_code: string
+  feature_name: string
+  feature_type: string
+  parent_code?: string | null
+  source_code?: string | null
+  package_policy: string
+  include_in_package: boolean
+  status: string
+  last_synced_at?: string | null
+  protection_source?: string | null
+  protection_reason?: string | null
+  protected_at?: string | null
+}
+
+export interface AppCenterQuota {
+  quota_code: string
+  quota_name: string
+  quota_type: string
+  unit?: string | null
+  period_type?: string | null
+  include_in_package: boolean
+  status: string
+  last_synced_at?: string | null
+  protection_source?: string | null
+  protection_reason?: string | null
+  protected_at?: string | null
+}
+
+export interface AppCenterManifestLoad {
+  id: number
+  action: string
+  source_type: string
+  source_name?: string | null
+  manifest_version: string
+  manifest_hash: string
+  fragment_role: string
+  status: string
+  summary?: string | null
+  error_summary?: string | null
+  operator_user_id: number
+  created_at: string
+  updated_at: string
 }
 
 export interface AppCenterListResponse {
@@ -82,6 +184,7 @@ export interface AppManifestParseResult {
   source: string
   status: string
   deployment_mode: string
+  communication_modes: string[]
   visibility_scope: string
   charge_policy: string
   billing_mode: string
@@ -102,6 +205,29 @@ export interface AppManifestParseResult {
     quotas: number
     documents: number
   }
+}
+
+export interface AppManifestScanGroup {
+  app_code: string
+  app_name: string
+  mode: 'CREATE' | 'SYNC'
+  loadable: boolean
+  fragment_count: number
+  main_count: number
+  files: AppManifestParseResult[]
+  merged: AppManifestParseResult
+  blockers: string[]
+  warnings: string[]
+}
+
+export interface AppManifestScanResult {
+  items: AppManifestParseResult[]
+  groups: AppManifestScanGroup[]
+  total: number
+  importable_count: number
+  blocked_count: number
+  scan_root: string
+  elapsed_ms: number
 }
 
 export interface AppManifestDiffSummary {

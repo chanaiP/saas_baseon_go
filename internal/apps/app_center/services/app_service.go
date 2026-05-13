@@ -92,7 +92,13 @@ func (s *AppService) GetApp(ctx context.Context, viewerID uint64, id uint64) (dt
 	if err != nil {
 		return dto.AppResponse{}, err
 	}
-	return appToResponse(row, clients), nil
+	assets, err := s.appAssets(ctx, row.AppCode)
+	if err != nil {
+		return dto.AppResponse{}, err
+	}
+	result := appToResponse(row, clients)
+	result.Assets = &assets
+	return result, nil
 }
 
 func (s *AppService) CreateApp(ctx context.Context, viewerID uint64, req dto.AppCreateRequest) (dto.AppResponse, error) {
@@ -371,4 +377,139 @@ func appToResponse(row models.SysApp, clients []models.SysAppClient) dto.AppResp
 		UpdatedAt:        row.UpdatedAt,
 		Clients:          clientResponses,
 	}
+}
+
+func (s *AppService) appAssets(ctx context.Context, appCode string) (dto.AppAssetsResponse, error) {
+	entries, err := s.repo.EntriesByAppCode(ctx, appCode)
+	if err != nil {
+		return dto.AppAssetsResponse{}, err
+	}
+	apis, err := s.repo.APIsByAppCode(ctx, appCode)
+	if err != nil {
+		return dto.AppAssetsResponse{}, err
+	}
+	permissions, err := s.repo.PermissionsByAppCode(ctx, appCode)
+	if err != nil {
+		return dto.AppAssetsResponse{}, err
+	}
+	features, err := s.repo.PackageFeaturesByAppCode(ctx, appCode)
+	if err != nil {
+		return dto.AppAssetsResponse{}, err
+	}
+	quotas, err := s.repo.QuotasByAppCode(ctx, appCode)
+	if err != nil {
+		return dto.AppAssetsResponse{}, err
+	}
+	loads, err := s.repo.ManifestLoadsByAppCode(ctx, appCode, 20)
+	if err != nil {
+		return dto.AppAssetsResponse{}, err
+	}
+
+	result := dto.AppAssetsResponse{
+		Entries:         make([]dto.AppEntryResponse, 0, len(entries)),
+		APIs:            make([]dto.AppAPIResponse, 0, len(apis)),
+		Permissions:     make([]dto.AppPermissionResponse, 0, len(permissions)),
+		PackageFeatures: make([]dto.AppPackageFeatureResponse, 0, len(features)),
+		Quotas:          make([]dto.AppQuotaResponse, 0, len(quotas)),
+		ManifestLoads:   make([]dto.AppManifestLoadRecord, 0, len(loads)),
+	}
+	for _, row := range entries {
+		result.Entries = append(result.Entries, dto.AppEntryResponse{
+			ResourceCode:     row.ResourceCode,
+			Name:             row.Name,
+			Path:             row.Path,
+			ParentCode:       row.ParentCode,
+			SortOrder:        row.SortOrder,
+			PlatformOnly:     row.PlatformOnly,
+			TenantVisible:    row.TenantVisible,
+			TenantEditable:   row.TenantEditable,
+			IncludeInPackage: row.IncludeInPackage,
+			FeatureCode:      row.FeatureCode,
+			DataPermMode:     row.DataPermMode,
+			Status:           row.Status,
+			LastSyncedAt:     &row.LastSyncedAt,
+			ProtectionSource: row.ProtectionSource,
+			ProtectionReason: row.ProtectionReason,
+			ProtectedAt:      row.ProtectedAt,
+		})
+	}
+	for _, row := range apis {
+		result.APIs = append(result.APIs, dto.AppAPIResponse{
+			Method:           row.Method,
+			Path:             row.Path,
+			PermissionCode:   row.PermissionCode,
+			Public:           row.Public,
+			Audit:            row.Audit,
+			Status:           row.Status,
+			LastSyncedAt:     &row.LastSyncedAt,
+			ProtectionSource: row.ProtectionSource,
+			ProtectionReason: row.ProtectionReason,
+			ProtectedAt:      row.ProtectedAt,
+		})
+	}
+	for _, row := range permissions {
+		result.Permissions = append(result.Permissions, dto.AppPermissionResponse{
+			PermissionCode:   row.PermissionCode,
+			Name:             row.Name,
+			PermissionType:   row.PermissionType,
+			MenuCode:         row.MenuCode,
+			PlatformOnly:     row.PlatformOnly,
+			IncludeInPackage: row.IncludeInPackage,
+			DataPermMode:     row.DataPermMode,
+			Status:           row.Status,
+			LastSyncedAt:     &row.LastSyncedAt,
+			ProtectionSource: row.ProtectionSource,
+			ProtectionReason: row.ProtectionReason,
+			ProtectedAt:      row.ProtectedAt,
+		})
+	}
+	for _, row := range features {
+		result.PackageFeatures = append(result.PackageFeatures, dto.AppPackageFeatureResponse{
+			FeatureCode:      row.FeatureCode,
+			FeatureName:      row.FeatureName,
+			FeatureType:      row.FeatureType,
+			ParentCode:       row.ParentCode,
+			SourceCode:       row.SourceCode,
+			PackagePolicy:    row.PackagePolicy,
+			IncludeInPackage: row.IncludeInPackage,
+			Status:           row.Status,
+			LastSyncedAt:     &row.LastSyncedAt,
+			ProtectionSource: row.ProtectionSource,
+			ProtectionReason: row.ProtectionReason,
+			ProtectedAt:      row.ProtectedAt,
+		})
+	}
+	for _, row := range quotas {
+		result.Quotas = append(result.Quotas, dto.AppQuotaResponse{
+			QuotaCode:        row.QuotaCode,
+			QuotaName:        row.QuotaName,
+			QuotaType:        row.QuotaType,
+			Unit:             row.Unit,
+			PeriodType:       row.PeriodType,
+			IncludeInPackage: row.IncludeInPackage,
+			Status:           row.Status,
+			LastSyncedAt:     &row.LastSyncedAt,
+			ProtectionSource: row.ProtectionSource,
+			ProtectionReason: row.ProtectionReason,
+			ProtectedAt:      row.ProtectedAt,
+		})
+	}
+	for _, row := range loads {
+		result.ManifestLoads = append(result.ManifestLoads, dto.AppManifestLoadRecord{
+			ID:              row.ID,
+			Action:          row.Action,
+			SourceType:      row.SourceType,
+			SourceName:      row.SourceName,
+			ManifestVersion: row.ManifestVersion,
+			ManifestHash:    row.ManifestHash,
+			FragmentRole:    row.FragmentRole,
+			Status:          row.Status,
+			Summary:         row.Summary,
+			ErrorSummary:    row.ErrorSummary,
+			OperatorUserID:  row.OperatorUserID,
+			CreatedAt:       row.CreatedAt,
+			UpdatedAt:       row.UpdatedAt,
+		})
+	}
+	return result, nil
 }

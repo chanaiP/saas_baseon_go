@@ -69,6 +69,12 @@ const router = createRouter({
           component: () => import('@/apps/app-center/views/AppCenterListView.vue'),
         },
         {
+          path: 'model-manager',
+          name: 'ModelManagerView',
+          meta: { title: '模型管理' },
+          component: () => import('@/apps/model-manager/views/ModelManagerView.vue'),
+        },
+        {
           path: 'tenants',
           name: 'TenantView',
           meta: { title: '主体管理', requiresPlatformAdmin: true },

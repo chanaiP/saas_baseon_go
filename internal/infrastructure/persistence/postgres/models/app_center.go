@@ -113,6 +113,9 @@ type SysAppEntry struct {
 	DataPermMode      string     `gorm:"column:data_perm_mode;type:varchar(16);not null;default:'ORG'"`
 	ManifestHash      string     `gorm:"column:manifest_hash;type:varchar(128);not null"`
 	ManagedByManifest bool       `gorm:"column:managed_by_manifest;not null;default:true"`
+	ProtectionSource  *string    `gorm:"column:protection_source;type:varchar(32)"`
+	ProtectionReason  *string    `gorm:"column:protection_reason;type:varchar(500)"`
+	ProtectedAt       *time.Time `gorm:"column:protected_at"`
 	Status            string     `gorm:"column:status;type:varchar(32);not null;default:'ACTIVE';index"`
 	LastSyncedAt      time.Time  `gorm:"column:last_synced_at;not null"`
 	CreatedAt         time.Time  `gorm:"column:created_at;not null"`
@@ -132,6 +135,9 @@ type SysAppAPI struct {
 	Audit             bool       `gorm:"column:audit;not null;default:false"`
 	ManifestHash      string     `gorm:"column:manifest_hash;type:varchar(128);not null"`
 	ManagedByManifest bool       `gorm:"column:managed_by_manifest;not null;default:true"`
+	ProtectionSource  *string    `gorm:"column:protection_source;type:varchar(32)"`
+	ProtectionReason  *string    `gorm:"column:protection_reason;type:varchar(500)"`
+	ProtectedAt       *time.Time `gorm:"column:protected_at"`
 	Status            string     `gorm:"column:status;type:varchar(32);not null;default:'ACTIVE';index"`
 	LastSyncedAt      time.Time  `gorm:"column:last_synced_at;not null"`
 	CreatedAt         time.Time  `gorm:"column:created_at;not null"`
@@ -153,6 +159,9 @@ type SysAppPermission struct {
 	DataPermMode      string     `gorm:"column:data_perm_mode;type:varchar(16);not null;default:'ORG'"`
 	ManifestHash      string     `gorm:"column:manifest_hash;type:varchar(128);not null"`
 	ManagedByManifest bool       `gorm:"column:managed_by_manifest;not null;default:true"`
+	ProtectionSource  *string    `gorm:"column:protection_source;type:varchar(32)"`
+	ProtectionReason  *string    `gorm:"column:protection_reason;type:varchar(500)"`
+	ProtectedAt       *time.Time `gorm:"column:protected_at"`
 	Status            string     `gorm:"column:status;type:varchar(32);not null;default:'ACTIVE';index"`
 	LastSyncedAt      time.Time  `gorm:"column:last_synced_at;not null"`
 	CreatedAt         time.Time  `gorm:"column:created_at;not null"`
@@ -175,6 +184,9 @@ type SysAppPackageFeature struct {
 	Description       *string    `gorm:"column:description;type:varchar(500)"`
 	ManifestHash      string     `gorm:"column:manifest_hash;type:varchar(128);not null"`
 	ManagedByManifest bool       `gorm:"column:managed_by_manifest;not null;default:true"`
+	ProtectionSource  *string    `gorm:"column:protection_source;type:varchar(32)"`
+	ProtectionReason  *string    `gorm:"column:protection_reason;type:varchar(500)"`
+	ProtectedAt       *time.Time `gorm:"column:protected_at"`
 	Status            string     `gorm:"column:status;type:varchar(32);not null;default:'ACTIVE';index"`
 	LastSyncedAt      time.Time  `gorm:"column:last_synced_at;not null"`
 	CreatedAt         time.Time  `gorm:"column:created_at;not null"`
@@ -196,6 +208,9 @@ type SysAppQuota struct {
 	Description       *string    `gorm:"column:description;type:varchar(500)"`
 	ManifestHash      string     `gorm:"column:manifest_hash;type:varchar(128);not null"`
 	ManagedByManifest bool       `gorm:"column:managed_by_manifest;not null;default:true"`
+	ProtectionSource  *string    `gorm:"column:protection_source;type:varchar(32)"`
+	ProtectionReason  *string    `gorm:"column:protection_reason;type:varchar(500)"`
+	ProtectedAt       *time.Time `gorm:"column:protected_at"`
 	Status            string     `gorm:"column:status;type:varchar(32);not null;default:'ACTIVE';index"`
 	LastSyncedAt      time.Time  `gorm:"column:last_synced_at;not null"`
 	CreatedAt         time.Time  `gorm:"column:created_at;not null"`

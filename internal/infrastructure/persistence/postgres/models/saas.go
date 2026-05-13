@@ -86,6 +86,8 @@ type TenantSubscription struct {
 	TrialEndTime       *time.Time `gorm:"column:trial_end_time"`
 	AutoRenew          bool       `gorm:"column:auto_renew;not null;default:false"`
 	FrozenReason       *string    `gorm:"column:frozen_reason;type:varchar(500)"`
+	Source             string     `gorm:"column:source;type:varchar(32);not null;default:'MANUAL'"`
+	SourceRef          *string    `gorm:"column:source_ref;type:varchar(128)"`
 	CreatedAt          time.Time  `gorm:"column:created_at;not null"`
 	UpdatedAt          time.Time  `gorm:"column:updated_at;not null"`
 }
@@ -98,6 +100,8 @@ type TenantFeatureOverride struct {
 	FeatureID uint64     `gorm:"column:feature_id;not null;index:idx_tenant_feature,unique"`
 	Enabled   bool       `gorm:"column:enabled;not null"`
 	Reason    *string    `gorm:"column:reason;type:varchar(500)"`
+	Source    string     `gorm:"column:source;type:varchar(32);not null;default:'MANUAL'"`
+	SourceRef *string    `gorm:"column:source_ref;type:varchar(128)"`
 	StartTime *time.Time `gorm:"column:start_time"`
 	EndTime   *time.Time `gorm:"column:end_time"`
 	CreatedAt time.Time  `gorm:"column:created_at;not null"`
@@ -112,6 +116,8 @@ type TenantQuotaOverride struct {
 	QuotaID    uint64     `gorm:"column:quota_id;not null;index:idx_tenant_quota,unique"`
 	QuotaValue int        `gorm:"column:quota_value;not null"`
 	Reason     *string    `gorm:"column:reason;type:varchar(500)"`
+	Source     string     `gorm:"column:source;type:varchar(32);not null;default:'MANUAL'"`
+	SourceRef  *string    `gorm:"column:source_ref;type:varchar(128)"`
 	StartTime  *time.Time `gorm:"column:start_time"`
 	EndTime    *time.Time `gorm:"column:end_time"`
 	CreatedAt  time.Time  `gorm:"column:created_at;not null"`

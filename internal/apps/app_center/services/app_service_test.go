@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
@@ -136,6 +137,7 @@ func TestAppCenterCreatePersistsManualApp(t *testing.T) {
 	require.Equal(t, "演示主体", *detail.VisibleTenants)
 	require.Equal(t, "<p>管理客户、商机、跟进与经营数据。</p>", *detail.DetailDesc)
 	require.Len(t, detail.Clients, 2)
+	require.NotNil(t, detail.Assets)
 }
 
 func TestAppCenterCreateRejectsDuplicateCode(t *testing.T) {
@@ -279,6 +281,105 @@ package_features: []
 	require.Contains(t, result.Blockers[0], "app_code 已存在")
 }
 
+func TestAppCenterParseManifestBlocksStandaloneWithoutAccessContract(t *testing.T) {
+	db := newAppCenterTestDB(t)
+	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
+
+	service := NewAppService(repositories.NewAppRepository(db))
+	result, err := service.ParseManifestContent(context.Background(), 1, "external.manifest.yaml", []byte(`
+manifest_version: "1.0"
+fragment_role: main
+app:
+  app_code: external-crm
+  app_name: 外部客户系统
+  app_type: BUSINESS_APP
+  source: MANIFEST
+  status: INITIATED
+  deployment_mode: STANDALONE
+  visibility_scope: TENANT
+  charge_policy: PAID
+  billing_mode: SUBSCRIPTION
+  package_policy: IN_PACKAGE
+clients:
+  - PC_WEB
+package_features:
+  - feature_code: external_crm
+    feature_name: 外部客户系统
+    feature_type: SERVICE
+    include_in_package: true
+`))
+
+	require.NoError(t, err)
+	require.False(t, result.Valid)
+	require.False(t, result.Importable)
+	require.Contains(t, result.Blockers, "独立部署应用必须声明 app.communication_modes")
+	require.Contains(t, result.Blockers, "独立部署应用必须声明 app.open_api_scopes")
+	require.Contains(t, result.Blockers, "独立部署应用必须声明 app.tenant_context")
+	require.Contains(t, result.Blockers, "独立部署应用必须声明 app.signature_strategy")
+	require.Contains(t, result.Blockers, "独立部署应用必须声明 app.idempotency_strategy")
+}
+
+func TestAppCenterLoadStandaloneManifestPersistsAccessContract(t *testing.T) {
+	db := newAppCenterTestDB(t)
+	require.NoError(t, db.Create(&models.Tenant{ID: 1, Code: "platform", Name: "平台主体", IsPlatform: true, Status: 1}).Error)
+	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
+
+	manifest := `
+manifest_version: "1.0"
+fragment_role: main
+app:
+  app_code: external-billing
+  app_name: 外部计费系统
+  app_type: API_APP
+  source: MANIFEST
+  status: INITIATED
+  deployment_mode: STANDALONE
+  communication_modes:
+    - PLATFORM_API
+    - WEBHOOK
+  visibility_scope: TENANT
+  charge_policy: PAID
+  billing_mode: SUBSCRIPTION
+  package_policy: IN_PACKAGE
+  api_base_url: https://billing.example.com/api
+  webhook_url: https://billing.example.com/webhook
+  health_check_url: https://billing.example.com/health
+  open_api_scopes:
+    - tenant.read
+    - user.read
+  tenant_context: 由底座签发的租户上下文头 X-Tenant-ID 透传
+  signature_strategy: HMAC-SHA256 请求签名
+  idempotency_strategy: 写入请求必须携带 Idempotency-Key
+clients:
+  - API_ONLY
+package_features:
+  - feature_code: external_billing_api
+    feature_name: 外部计费 API
+    feature_type: SERVICE
+    include_in_package: true
+`
+	service := NewAppService(repositories.NewAppRepository(db))
+	loaded, err := service.LoadManifest(context.Background(), 1, dto.ManifestLoadRequest{
+		FileName:   "external.manifest.yaml",
+		Content:    manifest,
+		SourceType: "UPLOAD",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, "SUCCESS", loaded.Status)
+	var app models.SysApp
+	require.NoError(t, db.Where("app_code = ?", "external-billing").First(&app).Error)
+	require.Equal(t, "STANDALONE", app.DeploymentMode)
+	require.NotNil(t, app.CommModes)
+	require.Equal(t, "PLATFORM_API,WEBHOOK", *app.CommModes)
+	require.NotNil(t, app.APIBaseURL)
+	require.Equal(t, "https://billing.example.com/api", *app.APIBaseURL)
+	require.NotNil(t, app.WebhookURL)
+	require.Equal(t, "https://billing.example.com/webhook", *app.WebhookURL)
+	require.NotNil(t, app.HealthCheckURL)
+	require.Equal(t, "https://billing.example.com/health", *app.HealthCheckURL)
+}
+
 func TestAppCenterScanManifestsReadsManifestFiles(t *testing.T) {
 	db := newAppCenterTestDB(t)
 	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
@@ -309,6 +410,108 @@ package_features:
 	require.Equal(t, 1, result.Total)
 	require.Equal(t, 1, result.ImportableCount)
 	require.Equal(t, "demo-app", result.Items[0].AppCode)
+	require.Len(t, result.Groups, 1)
+	require.Equal(t, "demo-app", result.Groups[0].AppCode)
+	require.True(t, result.Groups[0].Loadable)
+}
+
+func TestAppCenterScanManifestsGroupsFragmentsByAppCode(t *testing.T) {
+	db := newAppCenterTestDB(t)
+	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
+
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "internal/apps/crm"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "frontend/src/apps/crm"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "internal/apps/crm/app.manifest.yaml"), []byte(`
+manifest_version: "1.0"
+fragment_role: main
+app:
+  app_code: crm-suite
+  app_name: 客户管理
+  app_type: BUSINESS_APP
+  package_policy: IN_PACKAGE
+clients:
+  - PC_WEB
+menus:
+  - code: crm_list
+    name: 客户列表
+    path: /crm
+package_features:
+  - feature_code: crm_manage
+    feature_name: 客户管理
+    include_in_package: true
+`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "frontend/src/apps/crm/app.manifest.yaml"), []byte(`
+manifest_version: "1.0"
+fragment_role: frontend
+app:
+  app_code: crm-suite
+  app_name: 客户管理
+  package_policy: IN_PACKAGE
+clients:
+  - H5
+operations:
+  - code: crm_export
+    name: 导出客户
+    permission_code: crm:export
+package_features:
+  - feature_code: button_crm_export
+    feature_name: 导出客户
+    include_in_package: true
+`), 0o644))
+
+	service := NewAppService(repositories.NewAppRepository(db))
+	result, err := service.ScanManifests(context.Background(), 1, root)
+
+	require.NoError(t, err)
+	require.Equal(t, 2, result.Total)
+	require.Len(t, result.Groups, 1)
+	group := result.Groups[0]
+	require.Equal(t, "crm-suite", group.AppCode)
+	require.True(t, group.Loadable)
+	require.Equal(t, 2, group.FragmentCount)
+	require.Equal(t, 1, group.MainCount)
+	require.ElementsMatch(t, []string{"PC_WEB", "H5"}, group.Merged.ClientCodes)
+	require.Equal(t, 1, group.Merged.Counts.Menus)
+	require.Equal(t, 1, group.Merged.Counts.Operations)
+	require.Equal(t, 2, group.Merged.Counts.PackageFeatures)
+}
+
+func TestAppCenterScanManifestsBlocksMultipleMainFragments(t *testing.T) {
+	db := newAppCenterTestDB(t)
+	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
+
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "a"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "b"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example\n"), 0o644))
+	manifest := []byte(`
+manifest_version: "1.0"
+fragment_role: main
+app:
+  app_code: duplicate-main
+  app_name: 重复主片段
+  app_type: BUSINESS_APP
+  package_policy: IN_PACKAGE
+clients:
+  - PC_WEB
+package_features:
+  - feature_code: duplicate_main
+    feature_name: 重复主片段
+    include_in_package: true
+`)
+	require.NoError(t, os.WriteFile(filepath.Join(root, "a/app.manifest.yaml"), manifest, 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "b/app.manifest.yaml"), manifest, 0o644))
+
+	service := NewAppService(repositories.NewAppRepository(db))
+	result, err := service.ScanManifests(context.Background(), 1, root)
+
+	require.NoError(t, err)
+	require.Len(t, result.Groups, 1)
+	require.False(t, result.Groups[0].Loadable)
+	require.Equal(t, 2, result.Groups[0].MainCount)
+	require.Contains(t, result.Groups[0].Blockers[0], "只能包含一个")
 }
 
 func TestAppCenterLoadManifestCreatesAssetsAndPackageCenter(t *testing.T) {
@@ -421,6 +624,118 @@ quotas:
 	var quota models.SaasQuota
 	require.NoError(t, db.Where("quota_code = ?", "max_ops_exports").First(&quota).Error)
 	require.Equal(t, "导出次数", quota.QuotaName)
+
+	detail, err := service.GetApp(context.Background(), 1, app.ID)
+	require.NoError(t, err)
+	require.NotNil(t, detail.Assets)
+	require.Len(t, detail.Assets.Entries, 1)
+	require.Len(t, detail.Assets.APIs, 1)
+	require.Len(t, detail.Assets.Permissions, 2)
+	require.Len(t, detail.Assets.PackageFeatures, 2)
+	require.Len(t, detail.Assets.Quotas, 1)
+	require.Len(t, detail.Assets.ManifestLoads, 1)
+	require.Equal(t, "ops_dashboard", detail.Assets.Entries[0].ResourceCode)
+	require.Equal(t, "/api/ops/dashboard", detail.Assets.APIs[0].Path)
+	require.Equal(t, "SUCCESS", detail.Assets.ManifestLoads[0].Status)
+}
+
+func TestAppCenterDiffManifestMarksMissingAssetsAsDisable(t *testing.T) {
+	db := newAppCenterTestDB(t)
+	require.NoError(t, db.Create(&models.Tenant{ID: 1, Code: "platform", Name: "平台主体", IsPlatform: true, Status: 1}).Error)
+	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
+	require.NoError(t, db.Create(&models.SysApp{AppCode: "ops-console", AppName: "运营控制台", AppType: "BUSINESS_APP", Source: "MANIFEST", Status: "INITIATED", ChargeMode: "SUBSCRIPTION", VisibilityScope: "TENANT", DeploymentMode: "MERGED"}).Error)
+	require.NoError(t, db.Create(&models.SysAppEntry{AppCode: "ops-console", ResourceCode: "old_menu", Name: "旧菜单", ManagedByManifest: true, Status: "ACTIVE"}).Error)
+	require.NoError(t, db.Create(&models.SysAppAPI{AppCode: "ops-console", Method: "GET", Path: "/api/old", ManagedByManifest: true, Status: "ACTIVE"}).Error)
+	require.NoError(t, db.Create(&models.SysAppPackageFeature{AppCode: "ops-console", FeatureCode: "old_feature", FeatureName: "旧功能", ManagedByManifest: true, Status: "ACTIVE"}).Error)
+
+	manifest := `manifest_version: "1.0"
+fragment_role: main
+app:
+  app_code: ops-console
+  app_name: 运营控制台
+  app_type: BUSINESS_APP
+  source: MANIFEST
+  status: INITIATED
+  deployment_mode: MERGED
+  visibility_scope: TENANT
+  charge_policy: PAID
+  billing_mode: SUBSCRIPTION
+  package_policy: IN_PACKAGE
+clients:
+  - PC_WEB
+menus:
+  - code: ops_dashboard
+    name: 运营看板
+    path: /ops/dashboard
+package_features:
+  - feature_code: ops_dashboard
+    feature_name: 运营看板
+    include_in_package: true
+`
+	service := NewAppService(repositories.NewAppRepository(db))
+	diff, err := service.DiffManifest(context.Background(), 1, "app.manifest.yaml", "", []byte(manifest))
+
+	require.NoError(t, err)
+	require.True(t, diff.Loadable)
+	require.GreaterOrEqual(t, diff.Summary.Disable, 3)
+	disabled := map[string]bool{}
+	for _, change := range diff.Changes {
+		if change.Action == "DISABLE" {
+			disabled[change.ResourceCode] = true
+		}
+	}
+	require.True(t, disabled["old_menu"])
+	require.True(t, disabled["GET /api/old"])
+	require.True(t, disabled["old_feature"])
+}
+
+func TestAppCenterDiffBlocksProtectedManifestAssetOverwrite(t *testing.T) {
+	db := newAppCenterTestDB(t)
+	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
+	require.NoError(t, db.Create(&models.SysApp{AppCode: "ops-console", AppName: "运营控制台", AppType: "BUSINESS_APP", Source: "MANIFEST", Status: "INITIATED", ChargeMode: "SUBSCRIPTION", VisibilityScope: "TENANT", DeploymentMode: "MERGED"}).Error)
+	require.NoError(t, db.Create(&models.SysAppEntry{
+		AppCode:           "ops-console",
+		ResourceCode:      "ops_dashboard",
+		Name:              "人工运营看板",
+		Path:              "/ops/manual-dashboard",
+		ManifestHash:      "manual",
+		ManagedByManifest: false,
+		ProtectionSource:  stringPtr("MANUAL"),
+		Status:            "ACTIVE",
+		LastSyncedAt:      time.Now(),
+	}).Error)
+
+	manifest := `manifest_version: "1.0"
+fragment_role: main
+app:
+  app_code: ops-console
+  app_name: 运营控制台
+  app_type: BUSINESS_APP
+  source: MANIFEST
+  status: INITIATED
+  deployment_mode: MERGED
+  visibility_scope: TENANT
+  charge_policy: PAID
+  billing_mode: SUBSCRIPTION
+  package_policy: IN_PACKAGE
+clients:
+  - PC_WEB
+menus:
+  - code: ops_dashboard
+    name: 运营看板
+    path: /ops/dashboard
+package_features:
+  - feature_code: ops_dashboard
+    feature_name: 运营看板
+    include_in_package: true
+`
+	service := NewAppService(repositories.NewAppRepository(db))
+	diff, err := service.DiffManifest(context.Background(), 1, "app.manifest.yaml", "", []byte(manifest))
+
+	require.NoError(t, err)
+	require.False(t, diff.Loadable)
+	require.GreaterOrEqual(t, diff.Summary.Conflict, 1)
+	require.Contains(t, diff.Blockers, "资源有人工保护标记，Manifest 不允许覆盖")
 }
 
 func newAppCenterTestDB(t *testing.T) *gorm.DB {

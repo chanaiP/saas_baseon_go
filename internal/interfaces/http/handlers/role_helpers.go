@@ -213,7 +213,7 @@ func replaceRolePermissionsWithOverrides(tx *gorm.DB, roleID uint64, permissionI
 		overrideByID[override.PermissionID] = override
 	}
 	for _, id := range uniqueUint64s(permissionIDs) {
-		link := models.RolePermission{RoleID: roleID, PermissionID: id}
+		link := models.RolePermission{RoleID: roleID, PermissionID: id, Source: "MANUAL"}
 		override, ok := overrideByID[id]
 		if ok {
 			link.DataScopeOverride = nullableFromString(override.DataScope)

@@ -1,7 +1,7 @@
 import http, { unwrap } from '@/api/http'
 import type { ApiResponse } from '@/api/types'
 
-import type { AppCenterApp, AppCenterCreatePayload, AppCenterListQuery, AppCenterListResponse, AppCenterStats, AppCenterUpdatePayload, AppManifestDiffResult, AppManifestLoadResult, AppManifestParseResult } from './types'
+import type { AppCenterApp, AppCenterCreatePayload, AppCenterListQuery, AppCenterListResponse, AppCenterStats, AppCenterUpdatePayload, AppManifestDiffResult, AppManifestLoadResult, AppManifestParseResult, AppManifestScanResult } from './types'
 
 export async function fetchAppCenterApps(query: AppCenterListQuery = {}) {
   const params: Record<string, string | number> = {
@@ -64,4 +64,22 @@ export async function loadAppManifestFile(file: File) {
   return unwrap(http.post<ApiResponse<AppManifestLoadResult>>('/api/apps/manifest/load', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
   }))
+}
+
+export async function diffAppManifestPaths(filePaths: string[]) {
+  return unwrap(http.post<ApiResponse<AppManifestDiffResult>>('/api/apps/manifest/diff', {
+    file_paths: filePaths,
+    source_type: 'RUNTIME_SCAN',
+  }))
+}
+
+export async function loadAppManifestPaths(filePaths: string[]) {
+  return unwrap(http.post<ApiResponse<AppManifestLoadResult>>('/api/apps/manifest/load', {
+    file_paths: filePaths,
+    source_type: 'RUNTIME_SCAN',
+  }))
+}
+
+export async function scanAppManifests(root = '') {
+  return unwrap(http.post<ApiResponse<AppManifestScanResult>>('/api/apps/manifest/scan', { root }))
 }

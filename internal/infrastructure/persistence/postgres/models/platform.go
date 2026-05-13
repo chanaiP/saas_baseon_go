@@ -141,6 +141,8 @@ type TenantMenuOverride struct {
 	Enabled      *bool     `gorm:"column:enabled"`
 	Visible      *bool     `gorm:"column:visible"`
 	SortOrder    *int      `gorm:"column:sort_order"`
+	Source       string    `gorm:"column:source;type:varchar(32);not null;default:'MANUAL'"`
+	SourceRef    *string   `gorm:"column:source_ref;type:varchar(128)"`
 	CreatedAt    time.Time `gorm:"column:created_at;not null"`
 	UpdatedAt    time.Time `gorm:"column:updated_at;not null"`
 }

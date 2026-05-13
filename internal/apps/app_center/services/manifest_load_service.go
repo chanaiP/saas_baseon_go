@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -19,6 +21,8 @@ import (
 
 var ErrManifestLoadBlocked = errors.New("Manifest 存在阻断项，不能装载")
 
+const legacyManifestBaselineHash = "LEGACY_BASELINE"
+
 type manifestEnvelope struct {
 	manifest AppManifest
 	parse    dto.ManifestParseResponse
@@ -26,10 +30,18 @@ type manifestEnvelope struct {
 }
 
 func (s *AppService) DiffManifest(ctx context.Context, viewerID uint64, fileName string, filePath string, content []byte) (dto.ManifestDiffResponse, error) {
+	return s.DiffManifestRequest(ctx, viewerID, dto.ManifestLoadRequest{
+		FileName: fileName,
+		FilePath: filePath,
+		Content:  string(content),
+	})
+}
+
+func (s *AppService) DiffManifestRequest(ctx context.Context, viewerID uint64, req dto.ManifestLoadRequest) (dto.ManifestDiffResponse, error) {
 	if err := s.requirePlatformViewer(ctx, viewerID); err != nil {
 		return dto.ManifestDiffResponse{}, err
 	}
-	env, err := s.parseManifestForLoad(ctx, fileName, filePath, content)
+	env, err := s.manifestEnvelopeFromRequest(ctx, req)
 	if err != nil {
 		return dto.ManifestDiffResponse{}, err
 	}
@@ -40,7 +52,7 @@ func (s *AppService) LoadManifest(ctx context.Context, viewerID uint64, req dto.
 	if err := s.requirePlatformViewer(ctx, viewerID); err != nil {
 		return dto.ManifestLoadResponse{}, err
 	}
-	env, err := s.parseManifestForLoad(ctx, req.FileName, req.FilePath, []byte(req.Content))
+	env, err := s.manifestEnvelopeFromRequest(ctx, req)
 	if err != nil {
 		return dto.ManifestLoadResponse{}, err
 	}
@@ -153,6 +165,7 @@ func (s *AppService) parseManifestForLoad(ctx context.Context, fileName string, 
 		Source:          strings.TrimSpace(manifest.App.Source),
 		Status:          strings.TrimSpace(manifest.App.Status),
 		DeploymentMode:  strings.TrimSpace(manifest.App.DeploymentMode),
+		CommModes:       normalizedStringList(manifest.App.CommunicationModes),
 		VisibilityScope: strings.TrimSpace(manifest.App.VisibilityScope),
 		ChargePolicy:    strings.TrimSpace(manifest.App.ChargePolicy),
 		BillingMode:     strings.TrimSpace(manifest.App.BillingMode),
@@ -246,7 +259,9 @@ func (s *AppService) diffManifest(ctx context.Context, env manifestEnvelope) (dt
 		addChange(dto.ManifestDiffChange{ResourceType: "CLIENT", ResourceCode: client, Name: manifestClientName(client), Action: action, Severity: "INFO", Message: "客户端形态"})
 	}
 
+	declaredMenus := map[string]struct{}{}
 	for _, menu := range env.manifest.Menus {
+		declaredMenus[strings.TrimSpace(menu.Code)] = struct{}{}
 		if menu.IncludeInPackage && menu.PlatformOnly {
 			addChange(conflictChange("MENU", menu.Code, menu.Name, "平台专属菜单不能纳入套餐功能点"))
 			continue
@@ -261,9 +276,20 @@ func (s *AppService) diffManifest(ctx context.Context, env manifestEnvelope) (dt
 		if err != nil {
 			return dto.ManifestDiffResponse{}, err
 		}
-		addChange(dto.ManifestDiffChange{ResourceType: "MENU", ResourceCode: menu.Code, Name: menu.Name, Action: action, Severity: "INFO", Message: "菜单入口"})
+		addChange(dto.ManifestDiffChange{ResourceType: "MENU", ResourceCode: menu.Code, Name: menu.Name, Action: action, Severity: severityForManifestAction(action), Message: messageForManifestAction(action, "菜单入口")})
 	}
+	if env.parse.Exists {
+		changes, err := s.diffMissingManifestEntries(db, env.parse.AppCode, declaredMenus)
+		if err != nil {
+			return dto.ManifestDiffResponse{}, err
+		}
+		for _, change := range changes {
+			addChange(change)
+		}
+	}
+	declaredPermissions := map[string]struct{}{}
 	for _, op := range env.manifest.Operations {
+		declaredPermissions[strings.TrimSpace(defaultString(op.PermissionCode, op.Code))] = struct{}{}
 		if op.IncludeInPackage && op.PlatformOnly {
 			addChange(conflictChange("OPERATION", op.Code, op.Name, "平台专属操作不能纳入套餐功能点"))
 			continue
@@ -278,9 +304,10 @@ func (s *AppService) diffManifest(ctx context.Context, env manifestEnvelope) (dt
 		if err != nil {
 			return dto.ManifestDiffResponse{}, err
 		}
-		addChange(dto.ManifestDiffChange{ResourceType: "OPERATION", ResourceCode: op.PermissionCode, Name: op.Name, Action: action, Severity: "INFO", Message: "操作权限"})
+		addChange(dto.ManifestDiffChange{ResourceType: "OPERATION", ResourceCode: op.PermissionCode, Name: op.Name, Action: action, Severity: severityForManifestAction(action), Message: messageForManifestAction(action, "操作权限")})
 	}
 	for _, perm := range env.manifest.Permissions {
+		declaredPermissions[strings.TrimSpace(perm.Code)] = struct{}{}
 		if perm.IncludeInPackage && perm.PlatformOnly {
 			addChange(conflictChange("PERMISSION", perm.Code, perm.Name, "平台专属权限不能纳入套餐功能点"))
 			continue
@@ -295,11 +322,22 @@ func (s *AppService) diffManifest(ctx context.Context, env manifestEnvelope) (dt
 		if err != nil {
 			return dto.ManifestDiffResponse{}, err
 		}
-		addChange(dto.ManifestDiffChange{ResourceType: "PERMISSION", ResourceCode: perm.Code, Name: perm.Name, Action: action, Severity: "INFO", Message: "权限点"})
+		addChange(dto.ManifestDiffChange{ResourceType: "PERMISSION", ResourceCode: perm.Code, Name: perm.Name, Action: action, Severity: severityForManifestAction(action), Message: messageForManifestAction(action, "权限点")})
 	}
+	if env.parse.Exists {
+		changes, err := s.diffMissingManifestPermissions(db, env.parse.AppCode, declaredPermissions)
+		if err != nil {
+			return dto.ManifestDiffResponse{}, err
+		}
+		for _, change := range changes {
+			addChange(change)
+		}
+	}
+	declaredAPIs := map[string]struct{}{}
 	for _, api := range env.manifest.APIs {
 		method := strings.ToUpper(strings.TrimSpace(api.Method))
 		path := strings.TrimSpace(api.Path)
+		declaredAPIs[method+" "+path] = struct{}{}
 		var other models.SysAppAPI
 		err := db.Where("method = ? AND path = ? AND app_code <> ? AND deleted_at IS NULL", method, path, env.parse.AppCode).First(&other).Error
 		if err == nil {
@@ -313,9 +351,20 @@ func (s *AppService) diffManifest(ctx context.Context, env manifestEnvelope) (dt
 		if err != nil {
 			return dto.ManifestDiffResponse{}, err
 		}
-		addChange(dto.ManifestDiffChange{ResourceType: "API", ResourceCode: method + " " + path, Name: path, Action: action, Severity: "INFO", Message: "API 权限矩阵"})
+		addChange(dto.ManifestDiffChange{ResourceType: "API", ResourceCode: method + " " + path, Name: path, Action: action, Severity: severityForManifestAction(action), Message: messageForManifestAction(action, "API 权限矩阵")})
 	}
+	if env.parse.Exists {
+		changes, err := s.diffMissingManifestAPIs(db, env.parse.AppCode, declaredAPIs)
+		if err != nil {
+			return dto.ManifestDiffResponse{}, err
+		}
+		for _, change := range changes {
+			addChange(change)
+		}
+	}
+	declaredFeatures := map[string]struct{}{}
 	for _, feature := range env.manifest.PackageFeatures {
+		declaredFeatures[strings.TrimSpace(feature.FeatureCode)] = struct{}{}
 		var existing models.SaasFeature
 		err := db.Where("feature_code = ?", strings.TrimSpace(feature.FeatureCode)).First(&existing).Error
 		if err == nil && existing.AppCode != "" && existing.AppCode != env.parse.AppCode {
@@ -329,9 +378,20 @@ func (s *AppService) diffManifest(ctx context.Context, env manifestEnvelope) (dt
 		if err != nil {
 			return dto.ManifestDiffResponse{}, err
 		}
-		addChange(dto.ManifestDiffChange{ResourceType: "PACKAGE_FEATURE", ResourceCode: feature.FeatureCode, Name: feature.FeatureName, Action: action, Severity: "INFO", Message: "套餐功能点"})
+		addChange(dto.ManifestDiffChange{ResourceType: "PACKAGE_FEATURE", ResourceCode: feature.FeatureCode, Name: feature.FeatureName, Action: action, Severity: severityForManifestAction(action), Message: messageForManifestAction(action, "套餐功能点")})
 	}
+	if env.parse.Exists {
+		changes, err := s.diffMissingManifestPackageFeatures(db, env.parse.AppCode, declaredFeatures)
+		if err != nil {
+			return dto.ManifestDiffResponse{}, err
+		}
+		for _, change := range changes {
+			addChange(change)
+		}
+	}
+	declaredQuotas := map[string]struct{}{}
 	for _, quota := range env.manifest.Quotas {
+		declaredQuotas[strings.TrimSpace(quota.QuotaCode)] = struct{}{}
 		var existing models.SaasQuota
 		err := db.Where("quota_code = ?", strings.TrimSpace(quota.QuotaCode)).First(&existing).Error
 		if err == nil && (!strings.EqualFold(existing.QuotaType, defaultString(quota.QuotaType, "STATIC")) || stringValue(existing.Unit) != strings.TrimSpace(quota.Unit)) {
@@ -345,11 +405,144 @@ func (s *AppService) diffManifest(ctx context.Context, env manifestEnvelope) (dt
 		if err != nil {
 			return dto.ManifestDiffResponse{}, err
 		}
-		addChange(dto.ManifestDiffChange{ResourceType: "QUOTA", ResourceCode: quota.QuotaCode, Name: quota.QuotaName, Action: action, Severity: "INFO", Message: "配额定义"})
+		addChange(dto.ManifestDiffChange{ResourceType: "QUOTA", ResourceCode: quota.QuotaCode, Name: quota.QuotaName, Action: action, Severity: severityForManifestAction(action), Message: messageForManifestAction(action, "配额定义")})
+	}
+	if env.parse.Exists {
+		changes, err := s.diffMissingManifestQuotas(db, env.parse.AppCode, declaredQuotas)
+		if err != nil {
+			return dto.ManifestDiffResponse{}, err
+		}
+		for _, change := range changes {
+			addChange(change)
+		}
 	}
 
 	result.Loadable = len(result.Blockers) == 0
 	return result, nil
+}
+
+func (s *AppService) manifestEnvelopeFromRequest(ctx context.Context, req dto.ManifestLoadRequest) (manifestEnvelope, error) {
+	if len(req.FilePaths) > 0 {
+		envs := make([]manifestEnvelope, 0, len(req.FilePaths))
+		for _, filePath := range req.FilePaths {
+			env, err := s.manifestEnvelopeFromFilePath(ctx, filePath)
+			if err != nil {
+				return manifestEnvelope{}, err
+			}
+			envs = append(envs, env)
+		}
+		merged, blockers, _ := mergeManifestEnvelopesForPreview(envs)
+		if len(blockers) > 0 {
+			return manifestEnvelope{}, ErrManifestLoadBlocked
+		}
+		raw, err := json.MarshalIndent(merged.manifest, "", "  ")
+		if err != nil {
+			return manifestEnvelope{}, err
+		}
+		merged.content = raw
+		merged.parse.FileName = defaultString(req.FileName, merged.parse.AppCode+".manifest.merged.json")
+		merged.parse.FilePath = strings.Join(req.FilePaths, ",")
+		return merged, nil
+	}
+	if strings.TrimSpace(req.Content) != "" {
+		return s.parseManifestForLoad(ctx, req.FileName, req.FilePath, []byte(req.Content))
+	}
+	if strings.TrimSpace(req.FilePath) != "" {
+		return s.manifestEnvelopeFromFilePath(ctx, req.FilePath)
+	}
+	return s.parseManifestForLoad(ctx, req.FileName, req.FilePath, nil)
+}
+
+func (s *AppService) manifestEnvelopeFromFilePath(ctx context.Context, filePath string) (manifestEnvelope, error) {
+	cleanPath := strings.TrimSpace(filePath)
+	if cleanPath == "" {
+		return manifestEnvelope{}, ErrManifestContentRequired
+	}
+	absPath, err := filepath.Abs(cleanPath)
+	if err != nil {
+		return manifestEnvelope{}, err
+	}
+	raw, err := os.ReadFile(absPath)
+	if err != nil {
+		return manifestEnvelope{}, err
+	}
+	return s.parseManifestForLoad(ctx, filepath.Base(absPath), absPath, raw)
+}
+
+func (s *AppService) diffMissingManifestEntries(db *gorm.DB, appCode string, declared map[string]struct{}) ([]dto.ManifestDiffChange, error) {
+	var rows []models.SysAppEntry
+	if err := db.Where("app_code = ? AND managed_by_manifest = ? AND status = ? AND manifest_hash <> ? AND deleted_at IS NULL", appCode, true, "ACTIVE", legacyManifestBaselineHash).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	changes := []dto.ManifestDiffChange{}
+	for _, row := range rows {
+		if _, ok := declared[row.ResourceCode]; ok {
+			continue
+		}
+		changes = append(changes, disableChange("MENU", row.ResourceCode, row.Name, "Manifest 已不再声明，装载时应停用或归档，不物理删除"))
+	}
+	return changes, nil
+}
+
+func (s *AppService) diffMissingManifestPermissions(db *gorm.DB, appCode string, declared map[string]struct{}) ([]dto.ManifestDiffChange, error) {
+	var rows []models.SysAppPermission
+	if err := db.Where("app_code = ? AND managed_by_manifest = ? AND status = ? AND manifest_hash <> ? AND deleted_at IS NULL", appCode, true, "ACTIVE", legacyManifestBaselineHash).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	changes := []dto.ManifestDiffChange{}
+	for _, row := range rows {
+		if _, ok := declared[row.PermissionCode]; ok {
+			continue
+		}
+		changes = append(changes, disableChange("PERMISSION", row.PermissionCode, row.Name, "Manifest 已不再声明，装载时应停用或归档，不物理删除"))
+	}
+	return changes, nil
+}
+
+func (s *AppService) diffMissingManifestAPIs(db *gorm.DB, appCode string, declared map[string]struct{}) ([]dto.ManifestDiffChange, error) {
+	var rows []models.SysAppAPI
+	if err := db.Where("app_code = ? AND managed_by_manifest = ? AND status = ? AND manifest_hash <> ? AND deleted_at IS NULL", appCode, true, "ACTIVE", legacyManifestBaselineHash).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	changes := []dto.ManifestDiffChange{}
+	for _, row := range rows {
+		code := strings.ToUpper(strings.TrimSpace(row.Method)) + " " + strings.TrimSpace(row.Path)
+		if _, ok := declared[code]; ok {
+			continue
+		}
+		changes = append(changes, disableChange("API", code, row.Path, "Manifest 已不再声明，装载时应停用或归档，不物理删除"))
+	}
+	return changes, nil
+}
+
+func (s *AppService) diffMissingManifestPackageFeatures(db *gorm.DB, appCode string, declared map[string]struct{}) ([]dto.ManifestDiffChange, error) {
+	var rows []models.SysAppPackageFeature
+	if err := db.Where("app_code = ? AND managed_by_manifest = ? AND status = ? AND manifest_hash <> ? AND deleted_at IS NULL", appCode, true, "ACTIVE", legacyManifestBaselineHash).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	changes := []dto.ManifestDiffChange{}
+	for _, row := range rows {
+		if _, ok := declared[row.FeatureCode]; ok {
+			continue
+		}
+		changes = append(changes, disableChange("PACKAGE_FEATURE", row.FeatureCode, row.FeatureName, "Manifest 已不再声明，装载时应移出套餐或归档，不物理删除"))
+	}
+	return changes, nil
+}
+
+func (s *AppService) diffMissingManifestQuotas(db *gorm.DB, appCode string, declared map[string]struct{}) ([]dto.ManifestDiffChange, error) {
+	var rows []models.SysAppQuota
+	if err := db.Where("app_code = ? AND managed_by_manifest = ? AND status = ? AND manifest_hash <> ? AND deleted_at IS NULL", appCode, true, "ACTIVE", legacyManifestBaselineHash).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	changes := []dto.ManifestDiffChange{}
+	for _, row := range rows {
+		if _, ok := declared[row.QuotaCode]; ok {
+			continue
+		}
+		changes = append(changes, disableChange("QUOTA", row.QuotaCode, row.QuotaName, "Manifest 已不再声明，装载时应停用或归档，不物理删除"))
+	}
+	return changes, nil
 }
 
 func (s *AppService) permissionPathOwnedByOtherApp(db *gorm.DB, appCode string, path string) (bool, error) {
@@ -373,10 +566,12 @@ func (s *AppService) diffByManifestAsset(db *gorm.DB, model interface{}, appCode
 		return "CONFLICT", nil
 	}
 	var row struct {
-		ManifestHash string
+		ManifestHash      string
+		ManagedByManifest bool
+		ProtectionSource  *string
 	}
 	err := db.Model(model).
-		Select("manifest_hash").
+		Select("manifest_hash", "managed_by_manifest", "protection_source").
 		Where("app_code = ? AND "+codeColumn+" = ? AND deleted_at IS NULL", appCode, strings.TrimSpace(code)).
 		First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -384,6 +579,9 @@ func (s *AppService) diffByManifestAsset(db *gorm.DB, model interface{}, appCode
 	}
 	if err != nil {
 		return "", err
+	}
+	if manifestAssetProtected(row.ManagedByManifest, row.ProtectionSource) {
+		return "CONFLICT", nil
 	}
 	if row.ManifestHash == hash {
 		return "NO_CHANGE", nil
@@ -393,7 +591,7 @@ func (s *AppService) diffByManifestAsset(db *gorm.DB, model interface{}, appCode
 
 func (s *AppService) diffByManifestAPI(db *gorm.DB, appCode string, method string, path string, hash string) (string, error) {
 	var row models.SysAppAPI
-	err := db.Select("manifest_hash").
+	err := db.Select("manifest_hash", "managed_by_manifest", "protection_source").
 		Where("app_code = ? AND method = ? AND path = ? AND deleted_at IS NULL", appCode, method, path).
 		First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -401,6 +599,9 @@ func (s *AppService) diffByManifestAPI(db *gorm.DB, appCode string, method strin
 	}
 	if err != nil {
 		return "", err
+	}
+	if manifestAssetProtected(row.ManagedByManifest, row.ProtectionSource) {
+		return "CONFLICT", nil
 	}
 	if row.ManifestHash == hash {
 		return "NO_CHANGE", nil
@@ -436,6 +637,7 @@ func (s *AppService) persistManifestFile(tx *gorm.DB, loadID uint64, env manifes
 func (s *AppService) upsertManifestApp(tx *gorm.DB, env manifestEnvelope, now time.Time) error {
 	app := env.manifest.App
 	chargeMode := manifestChargeMode(app.ChargePolicy, app.BillingMode)
+	commModes := strings.Join(normalizedStringList(app.CommunicationModes), ",")
 	row := models.SysApp{
 		AppCode:          env.parse.AppCode,
 		AppName:          env.parse.AppName,
@@ -448,6 +650,10 @@ func (s *AppService) upsertManifestApp(tx *gorm.DB, env manifestEnvelope, now ti
 		Version:          cleanOptionalString(&app.Version),
 		Description:      cleanOptionalString(&app.Description),
 		DeploymentMode:   defaultString(app.DeploymentMode, "MERGED"),
+		CommModes:        cleanOptionalString(&commModes),
+		HealthCheckURL:   cleanOptionalString(&app.HealthCheckURL),
+		APIBaseURL:       cleanOptionalString(&app.APIBaseURL),
+		WebhookURL:       cleanOptionalString(&app.WebhookURL),
 		IsPlatformOnly:   strings.EqualFold(defaultString(app.VisibilityScope, "TENANT"), "PLATFORM_ONLY"),
 		ManifestHash:     &env.parse.ManifestHash,
 		ManifestVersion:  &env.parse.ManifestVersion,
@@ -469,6 +675,10 @@ func (s *AppService) upsertManifestApp(tx *gorm.DB, env manifestEnvelope, now ti
 		"version":                 row.Version,
 		"description":             row.Description,
 		"deployment_mode":         row.DeploymentMode,
+		"communication_modes":     row.CommModes,
+		"health_check_url":        row.HealthCheckURL,
+		"api_base_url":            row.APIBaseURL,
+		"webhook_url":             row.WebhookURL,
 		"is_platform_only":        row.IsPlatformOnly,
 		"is_builtin":              row.IsBuiltin,
 		"manifest_hash":           row.ManifestHash,
@@ -668,6 +878,9 @@ func upsertManifestAsset[T any](tx *gorm.DB, row T, _ []clause.Column) error {
 		if err != nil {
 			return err
 		}
+		if manifestAssetProtected(existing.ManagedByManifest, existing.ProtectionSource) {
+			return protectedManifestAssetError("菜单入口", value.ResourceCode)
+		}
 		value.ID = existing.ID
 		value.CreatedAt = existing.CreatedAt
 		return tx.Save(&value).Error
@@ -679,6 +892,9 @@ func upsertManifestAsset[T any](tx *gorm.DB, row T, _ []clause.Column) error {
 		}
 		if err != nil {
 			return err
+		}
+		if manifestAssetProtected(existing.ManagedByManifest, existing.ProtectionSource) {
+			return protectedManifestAssetError("API", value.Method+" "+value.Path)
 		}
 		value.ID = existing.ID
 		value.CreatedAt = existing.CreatedAt
@@ -692,6 +908,9 @@ func upsertManifestAsset[T any](tx *gorm.DB, row T, _ []clause.Column) error {
 		if err != nil {
 			return err
 		}
+		if manifestAssetProtected(existing.ManagedByManifest, existing.ProtectionSource) {
+			return protectedManifestAssetError("权限", value.PermissionCode)
+		}
 		value.ID = existing.ID
 		value.CreatedAt = existing.CreatedAt
 		return tx.Save(&value).Error
@@ -704,6 +923,9 @@ func upsertManifestAsset[T any](tx *gorm.DB, row T, _ []clause.Column) error {
 		if err != nil {
 			return err
 		}
+		if manifestAssetProtected(existing.ManagedByManifest, existing.ProtectionSource) {
+			return protectedManifestAssetError("套餐功能点", value.FeatureCode)
+		}
 		value.ID = existing.ID
 		value.CreatedAt = existing.CreatedAt
 		return tx.Save(&value).Error
@@ -715,6 +937,9 @@ func upsertManifestAsset[T any](tx *gorm.DB, row T, _ []clause.Column) error {
 		}
 		if err != nil {
 			return err
+		}
+		if manifestAssetProtected(existing.ManagedByManifest, existing.ProtectionSource) {
+			return protectedManifestAssetError("配额", value.QuotaCode)
 		}
 		value.ID = existing.ID
 		value.CreatedAt = existing.CreatedAt
@@ -1025,6 +1250,40 @@ func conflictChange(resourceType string, code string, name string, message strin
 		Severity:     "ERROR",
 		Message:      message,
 	}
+}
+
+func disableChange(resourceType string, code string, name string, message string) dto.ManifestDiffChange {
+	return dto.ManifestDiffChange{
+		ResourceType: resourceType,
+		ResourceCode: code,
+		Name:         name,
+		Action:       "DISABLE",
+		Severity:     "WARN",
+		Message:      message,
+	}
+}
+
+func manifestAssetProtected(managedByManifest bool, protectionSource *string) bool {
+	source := strings.ToUpper(strings.TrimSpace(stringValue(protectionSource)))
+	return !managedByManifest || (source != "" && source != "MANIFEST")
+}
+
+func protectedManifestAssetError(resourceType string, code string) error {
+	return fmt.Errorf("%s %s 有人工保护标记，Manifest 不允许覆盖", resourceType, code)
+}
+
+func severityForManifestAction(action string) string {
+	if action == "CONFLICT" {
+		return "ERROR"
+	}
+	return "INFO"
+}
+
+func messageForManifestAction(action string, fallback string) string {
+	if action == "CONFLICT" {
+		return "资源有人工保护标记，Manifest 不允许覆盖"
+	}
+	return fallback
 }
 
 func serviceStringPtr(value string) *string {

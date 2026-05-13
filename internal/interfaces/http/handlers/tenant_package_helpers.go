@@ -58,7 +58,7 @@ func (h *IdentityHandler) createTenantWithAdminOnDB(db *gorm.DB, code, name stri
 	var permissions []models.Permission
 	if err := db.Where("tenant_id = ? OR tenant_id = ?", tenant.ID, 1).Find(&permissions).Error; err == nil {
 		for _, permission := range permissions {
-			if err := db.Where("role_id = ? AND permission_id = ?", role.ID, permission.ID).FirstOrCreate(&models.RolePermission{RoleID: role.ID, PermissionID: permission.ID}).Error; err != nil {
+			if err := db.Where("role_id = ? AND permission_id = ?", role.ID, permission.ID).FirstOrCreate(&models.RolePermission{RoleID: role.ID, PermissionID: permission.ID, Source: "SYSTEM"}).Error; err != nil {
 				return tenant, err
 			}
 		}
@@ -100,7 +100,7 @@ func (h *IdentityHandler) saveTenantPackageOnDB(db *gorm.DB, tenantID uint64, bo
 		return errors.New("套餐不存在或已停用")
 	}
 	var existing models.TenantSubscription
-	sub := models.TenantSubscription{TenantID: tenantID, PlanID: body.PlanID, SubscriptionStatus: body.SubscriptionStatus, StartTime: start, EndTime: parseTimePtr(body.EndTime), TrialEndTime: parseTimePtr(body.TrialEndTime), AutoRenew: body.AutoRenew, FrozenReason: body.FrozenReason}
+	sub := models.TenantSubscription{TenantID: tenantID, PlanID: body.PlanID, SubscriptionStatus: body.SubscriptionStatus, StartTime: start, EndTime: parseTimePtr(body.EndTime), TrialEndTime: parseTimePtr(body.TrialEndTime), AutoRenew: body.AutoRenew, FrozenReason: body.FrozenReason, Source: "MANUAL"}
 	if err := db.Where("tenant_id = ?", tenantID).First(&existing).Error; err == nil {
 		if err := db.Model(&existing).Updates(sub).Error; err != nil {
 			return err
@@ -114,7 +114,7 @@ func (h *IdentityHandler) saveTenantPackageOnDB(db *gorm.DB, tenantID uint64, bo
 	}
 	for _, quota := range body.Quotas {
 		_ = db.Where("tenant_id = ? AND quota_id = ?", tenantID, quota.QuotaID).Delete(&models.TenantQuotaOverride{}).Error
-		if err := db.Create(&models.TenantQuotaOverride{TenantID: tenantID, QuotaID: quota.QuotaID, QuotaValue: quota.QuotaValue, Reason: stringPtrLocal("主体套餐配置")}).Error; err != nil {
+		if err := db.Create(&models.TenantQuotaOverride{TenantID: tenantID, QuotaID: quota.QuotaID, QuotaValue: quota.QuotaValue, Reason: stringPtrLocal("主体套餐配置"), Source: "MANUAL"}).Error; err != nil {
 			return err
 		}
 	}
@@ -134,7 +134,7 @@ func (h *IdentityHandler) findTenantSubscription(tenantID uint64) (models.Tenant
 }
 
 func tenantSubscriptionToJSON(row models.TenantSubscription) gin.H {
-	return gin.H{"id": row.ID, "tenant_id": row.TenantID, "plan_id": row.PlanID, "subscription_status": row.SubscriptionStatus, "start_time": row.StartTime, "end_time": row.EndTime, "trial_end_time": row.TrialEndTime, "auto_renew": row.AutoRenew, "frozen_reason": row.FrozenReason, "created_at": row.CreatedAt, "updated_at": row.UpdatedAt}
+	return gin.H{"id": row.ID, "tenant_id": row.TenantID, "plan_id": row.PlanID, "subscription_status": row.SubscriptionStatus, "start_time": row.StartTime, "end_time": row.EndTime, "trial_end_time": row.TrialEndTime, "auto_renew": row.AutoRenew, "frozen_reason": row.FrozenReason, "source": row.Source, "source_ref": row.SourceRef, "created_at": row.CreatedAt, "updated_at": row.UpdatedAt}
 }
 
 func (h *IdentityHandler) primaryAdmin(tenantID uint64) (models.AppUser, bool) {
@@ -150,7 +150,7 @@ func (h *IdentityHandler) tenantFeatureOverridesPayload(tenantID uint64) gin.H {
 	for _, row := range rows {
 		var feature models.SaasFeature
 		_ = h.db.First(&feature, row.FeatureID).Error
-		items = append(items, gin.H{"id": row.ID, "tenant_id": row.TenantID, "feature_id": row.FeatureID, "feature_code": feature.FeatureCode, "feature_name": feature.FeatureName, "enabled": row.Enabled, "reason": row.Reason, "start_time": row.StartTime, "end_time": row.EndTime})
+		items = append(items, gin.H{"id": row.ID, "tenant_id": row.TenantID, "feature_id": row.FeatureID, "feature_code": feature.FeatureCode, "feature_name": feature.FeatureName, "enabled": row.Enabled, "reason": row.Reason, "source": row.Source, "source_ref": row.SourceRef, "start_time": row.StartTime, "end_time": row.EndTime})
 	}
 	return gin.H{"tenant_id": tenantID, "overrides": items}
 }
@@ -162,7 +162,7 @@ func (h *IdentityHandler) tenantQuotaOverridesPayload(tenantID uint64) gin.H {
 	for _, row := range rows {
 		var quota models.SaasQuota
 		_ = h.db.First(&quota, row.QuotaID).Error
-		items = append(items, gin.H{"id": row.ID, "tenant_id": row.TenantID, "quota_id": row.QuotaID, "quota_code": quota.QuotaCode, "quota_name": quota.QuotaName, "quota_value": row.QuotaValue, "period_type": quota.PeriodType, "unit": quota.Unit, "reason": row.Reason, "start_time": row.StartTime, "end_time": row.EndTime})
+		items = append(items, gin.H{"id": row.ID, "tenant_id": row.TenantID, "quota_id": row.QuotaID, "quota_code": quota.QuotaCode, "quota_name": quota.QuotaName, "quota_value": row.QuotaValue, "period_type": quota.PeriodType, "unit": quota.Unit, "reason": row.Reason, "source": row.Source, "source_ref": row.SourceRef, "start_time": row.StartTime, "end_time": row.EndTime})
 	}
 	return gin.H{"tenant_id": tenantID, "overrides": items}
 }

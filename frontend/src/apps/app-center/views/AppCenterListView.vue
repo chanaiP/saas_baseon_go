@@ -13,8 +13,8 @@ import { formatDateTimeChina } from '@/utils/datetime'
 import NeuroAgentDialog from '@/views/components/NeuroAgentDialog.vue'
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
-import { createAppCenterApp, diffAppManifestFile, downloadAppManifestTemplate, fetchAppCenterApp, fetchAppCenterApps, fetchAppCenterStats, loadAppManifestFile, updateAppCenterApp, updateAppCenterAppStatus } from '../api'
-import type { AppCenterApp, AppCenterClient, AppCenterCreatePayload, AppCenterStats, AppCenterUpdatePayload, AppManifestDiffResult, AppManifestParseResult } from '../types'
+import { createAppCenterApp, diffAppManifestFile, diffAppManifestPaths, downloadAppManifestTemplate, fetchAppCenterApp, fetchAppCenterApps, fetchAppCenterStats, loadAppManifestFile, loadAppManifestPaths, scanAppManifests, updateAppCenterApp, updateAppCenterAppStatus } from '../api'
+import type { AppCenterApp, AppCenterClient, AppCenterCreatePayload, AppCenterStats, AppCenterUpdatePayload, AppManifestDiffChange, AppManifestDiffResult, AppManifestParseResult, AppManifestScanGroup, AppManifestScanResult } from '../types'
 
 const emptyStats: AppCenterStats = {
   total: 0,
@@ -159,13 +159,22 @@ const route = useRoute()
 const createDialogVisible = ref(false)
 const editDialogVisible = ref(false)
 const detailDialogVisible = ref(false)
-const createMode = ref<'manual' | 'manifest'>('manual')
+const detailAssetTab = ref<'entries' | 'permissions' | 'apis' | 'features' | 'quotas' | 'loads'>('entries')
+const createMode = ref<'manual' | 'manifest-file' | 'runtime-scan'>('manual')
 const manifestFileInputRef = ref<HTMLInputElement | null>(null)
 const manifestFileName = ref('')
 const manifestImportSummary = ref('')
 const manifestSelectedFile = ref<File | null>(null)
 const manifestDiff = ref<AppManifestDiffResult | null>(null)
 const manifestLoading = ref(false)
+const manifestScanning = ref(false)
+const manifestScanResult = ref<AppManifestScanResult | null>(null)
+const runtimeManifestSyncingCode = ref('')
+const runtimeManifestPreviewVisible = ref(false)
+const runtimeManifestPreviewApp = ref<AppCenterApp | null>(null)
+const runtimeManifestPreviewDiff = ref<AppManifestDiffResult | null>(null)
+const runtimeManifestPreviewFilePaths = ref<string[]>([])
+const runtimeManifestLoading = ref(false)
 const saving = ref(false)
 const detailLoading = ref(false)
 const detailApp = ref<AppCenterApp | null>(null)
@@ -227,6 +236,15 @@ const commercialKindOptions = [
   { value: 'PAID', label: '收费', description: '需要选择收费模式，可配置是否包含试用。' },
   { value: 'NON_SELLABLE', label: '非售卖', description: '平台内置或治理能力，不作为商品售卖。' },
 ]
+
+const detailAssetTabs = [
+  { key: 'entries', label: '菜单入口' },
+  { key: 'permissions', label: '权限' },
+  { key: 'apis', label: 'API' },
+  { key: 'features', label: '套餐功能' },
+  { key: 'quotas', label: '配额' },
+  { key: 'loads', label: '装载记录' },
+] as const
 
 const paidChargeModeOptions = computed(() => commercialModeOptions.value.filter((item) => chargeModeAllowsTrial(item.value)))
 
@@ -310,6 +328,15 @@ const editStepCompletion = computed<Record<string, boolean>>(() => ({
   commercial: commercialStepCompleted(editDraft.value),
   clients: selectedEditClients.value.length > 0,
 }))
+const runtimeCreateGroups = computed(() => {
+  return (manifestScanResult.value?.groups || []).filter((group) => group.mode === 'CREATE')
+})
+const runtimeSyncGroups = computed(() => {
+  return (manifestScanResult.value?.groups || []).filter((group) => group.mode === 'SYNC')
+})
+const runtimeManifestPreviewChanges = computed(() => {
+  return runtimeManifestPreviewDiff.value?.changes || []
+})
 
 const groupedApps = computed(() => {
   const order = new Map(appTypeOptions.value.map((item, index) => [item.value, index]))
@@ -677,7 +704,14 @@ async function downloadManifestTemplate() {
 }
 
 function triggerManifestImport() {
+  createMode.value = 'manifest-file'
   manifestFileInputRef.value?.click()
+}
+
+function switchCreateModeManual() {
+  createMode.value = 'manual'
+  manifestImportSummary.value = ''
+  manifestScanResult.value = null
 }
 
 function manifestValue(source: Record<string, unknown>, paths: string[]) {
@@ -733,7 +767,7 @@ function applyManifestToCreateForm(manifest: Record<string, unknown>, fileName: 
   const rawAppType = manifestString(manifest, ['app_type', 'app.app_type', 'type', 'application.type'])
   const appType = allowedValue(rawAppType, appTypeOrder)
   const trialPolicy = manifestString(manifest, ['trial_policy', 'trial.policy', 'commercial.trial_policy', 'billing.trial_policy'])
-  const communicationModes = new Set(manifestArray(manifest, ['communication_modes', 'deployment.communication_modes']).map((item) => item.toUpperCase()))
+  const communicationModes = new Set(manifestArray(manifest, ['communication_modes', 'app.communication_modes', 'deployment.communication_modes']).map((item) => item.toUpperCase()))
   const clientCodes = new Set(manifestArray(manifest, ['clients', 'client_codes']).map((item) => item.toUpperCase()))
 
   createForm.value = {
@@ -772,7 +806,7 @@ function applyManifestToCreateForm(manifest: Record<string, unknown>, fileName: 
   }
   manifestFileName.value = fileName
   manifestImportSummary.value = 'Manifest 已解析并回填到表单，可继续修改后创建。'
-  createMode.value = 'manifest'
+  createMode.value = 'manifest-file'
   createStep.value = 'basic'
   nextTick(() => createScrollRef.value?.scrollTo({ top: 0 }))
 }
@@ -789,6 +823,7 @@ function backendManifestToCreateSource(result: AppManifestParseResult) {
       source: result.source,
       status: result.status,
       deployment_mode: result.deployment_mode,
+      communication_modes: result.communication_modes,
       visibility_scope: result.visibility_scope,
       charge_policy: chargeMode,
     },
@@ -807,7 +842,7 @@ async function handleManifestFileChange(event: Event) {
     manifestSelectedFile.value = file
     manifestDiff.value = diff
     manifestFileName.value = file.name
-    createMode.value = 'manifest'
+    createMode.value = 'manifest-file'
     if (!diff.loadable) {
       const blocker = diff.blockers?.[0] || result.blockers?.[0] || 'Manifest 当前存在冲突，不能装载'
       manifestFileName.value = file.name
@@ -851,6 +886,124 @@ async function loadSelectedManifest() {
     ElMessage.error(error instanceof Error ? error.message : 'Manifest 装载失败')
   } finally {
     manifestLoading.value = false
+  }
+}
+
+async function scanRuntimeManifests() {
+  createMode.value = 'runtime-scan'
+  manifestFileName.value = ''
+  manifestSelectedFile.value = null
+  manifestDiff.value = null
+  manifestImportSummary.value = '正在扫描当前后端运行目录内的 app.manifest 文件...'
+  manifestScanning.value = true
+  try {
+    const result = await scanAppManifests()
+    manifestScanResult.value = result
+    const createCount = result.groups.filter((group) => group.mode === 'CREATE').length
+    const syncCount = result.groups.filter((group) => group.mode === 'SYNC').length
+    manifestImportSummary.value = `扫描完成：${result.elapsed_ms}ms，发现 ${createCount} 个可新建应用；${syncCount} 个已有应用不在新增入口处理。`
+    if (result.blocked_count > 0) {
+      ElMessage.warning(`Manifest 扫描完成，存在 ${result.blocked_count} 个阻断项`)
+    } else if (createCount === 0) {
+      ElMessage.info('未发现可新建应用，已有应用请在列表中检查更新')
+    } else {
+      ElMessage.success('Manifest 扫描完成')
+    }
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : 'Manifest 扫描失败')
+  } finally {
+    manifestScanning.value = false
+  }
+}
+
+function manifestFilePathsForGroup(group: AppManifestScanGroup) {
+  return group.files.map((file) => file.file_path || '').filter(Boolean)
+}
+
+function manifestChangeLabel(action: AppManifestDiffChange['action']) {
+  const labels: Record<AppManifestDiffChange['action'], string> = {
+    CREATE: '纳入治理',
+    UPDATE: '更新',
+    NO_CHANGE: '不变',
+    DISABLE: '停用',
+    CONFLICT: '冲突',
+  }
+  return labels[action] || action
+}
+
+function manifestCurrentText(action: AppManifestDiffChange['action']) {
+  if (action === 'CREATE') return '当前未纳入 Manifest 治理'
+  if (action === 'DISABLE') return '当前治理记录仍存在'
+  if (action === 'CONFLICT') return '当前存在保护或冲突'
+  return '当前已有治理记录'
+}
+
+function manifestTargetText(action: AppManifestDiffChange['action']) {
+  if (action === 'CREATE') return 'Manifest 声明纳入治理'
+  if (action === 'DISABLE') return 'Manifest 已不再声明'
+  if (action === 'NO_CHANGE') return 'Manifest 与当前一致'
+  if (action === 'CONFLICT') return 'Manifest 不能覆盖'
+  return 'Manifest 将更新资产'
+}
+
+async function syncRuntimeManifest(app: AppCenterApp) {
+  if (runtimeManifestSyncingCode.value) return
+  runtimeManifestSyncingCode.value = app.app_code
+  try {
+    const scan = await scanAppManifests()
+    const group = scan.groups.find((item) => item.app_code === app.app_code && item.mode === 'SYNC')
+    if (!group) {
+      ElMessage.info(`运行目录未发现 ${app.app_name} 的 Manifest 更新源`)
+      return
+    }
+    if (!group.loadable) {
+      ElMessage.error(group.blockers?.[0] || 'Manifest 存在阻断项，不能同步')
+      return
+    }
+    const filePaths = manifestFilePathsForGroup(group)
+    if (!filePaths.length) {
+      ElMessage.error('Manifest 文件路径为空，不能从运行目录同步')
+      return
+    }
+    const diff = await diffAppManifestPaths(filePaths)
+    if (!diff.loadable) {
+      ElMessage.error(diff.blockers?.[0] || 'Manifest 差异存在阻断项，不能同步')
+      return
+    }
+    if (diff.summary.create + diff.summary.update + diff.summary.disable + diff.summary.conflict === 0) {
+      ElMessage.success(`${app.app_name} 已是最新 Manifest`)
+      return
+    }
+    runtimeManifestPreviewApp.value = app
+    runtimeManifestPreviewDiff.value = diff
+    runtimeManifestPreviewFilePaths.value = filePaths
+    runtimeManifestPreviewVisible.value = true
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : 'Manifest 更新检查失败')
+  } finally {
+    runtimeManifestSyncingCode.value = ''
+  }
+}
+
+async function confirmRuntimeManifestSync() {
+  if (!runtimeManifestPreviewDiff.value || !runtimeManifestPreviewFilePaths.value.length) return
+  if (!runtimeManifestPreviewDiff.value.loadable) {
+    ElMessage.error(runtimeManifestPreviewDiff.value.blockers?.[0] || 'Manifest 存在阻断项，不能同步')
+    return
+  }
+  runtimeManifestLoading.value = true
+  try {
+    const result = await loadAppManifestPaths(runtimeManifestPreviewFilePaths.value)
+    ElMessage.success(`Manifest 已同步：${result.app_code}`)
+    runtimeManifestPreviewVisible.value = false
+    runtimeManifestPreviewApp.value = null
+    runtimeManifestPreviewDiff.value = null
+    runtimeManifestPreviewFilePaths.value = []
+    await loadApps()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : 'Manifest 同步失败')
+  } finally {
+    runtimeManifestLoading.value = false
   }
 }
 
@@ -1114,6 +1267,7 @@ function openCreateDialog() {
   manifestImportSummary.value = ''
   manifestSelectedFile.value = null
   manifestDiff.value = null
+  manifestScanResult.value = null
   createStep.value = 'basic'
   createDialogVisible.value = true
   void loadOwnerUsers()
@@ -1343,6 +1497,7 @@ async function openDetailDialog(app: AppCenterApp) {
   detailDialogVisible.value = true
   detailLoading.value = true
   detailApp.value = null
+  detailAssetTab.value = 'entries'
   try {
     detailApp.value = await fetchAppCenterApp(app.id)
   } catch (error) {
@@ -1560,15 +1715,36 @@ watch(tenantPickerKeyword, () => {
                     <span>PC Web</span>
                   </div>
                   <div class="app-card__actions">
-                    <button class="app-card__detail app-card__detail--primary" type="button" @click="openDetailDialog(app)">
-                      进入详情
-                    </button>
-                    <button class="app-card__detail" type="button" @click="openEditDialog(app)">编辑</button>
-                    <button class="app-card__detail" type="button" :disabled="app.is_builtin" @click="toggleAppStatus(app)">
-                      {{ app.status === 'DISABLED' ? '启用' : '停用' }}
-                    </button>
-                    <button class="app-card__detail" type="button" disabled>安装记录</button>
-                    <button class="app-card__detail" type="button" disabled>邀请体验</button>
+                    <div class="app-card__actions-main">
+                      <button class="app-card__detail app-card__detail--primary" type="button" @click="openDetailDialog(app)">
+                        进入详情
+                      </button>
+                      <button class="app-card__detail" type="button" @click="openEditDialog(app)">编辑</button>
+                      <button class="app-card__detail" type="button" disabled>邀请体验</button>
+                    </div>
+                    <el-dropdown
+                      trigger="click"
+                      placement="top-end"
+                      popper-class="app-card-more-popper"
+                      :teleported="true"
+                    >
+                      <button class="app-card__more-btn" type="button" aria-label="更多操作">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                      </button>
+                      <template #dropdown>
+                        <el-dropdown-menu>
+                          <el-dropdown-item :disabled="app.is_builtin" @click="toggleAppStatus(app)">
+                            {{ app.status === 'DISABLED' ? '启用' : '停用' }}
+                          </el-dropdown-item>
+                          <el-dropdown-item disabled>安装记录</el-dropdown-item>
+                          <el-dropdown-item :disabled="runtimeManifestSyncingCode === app.app_code" @click="syncRuntimeManifest(app)">
+                            {{ runtimeManifestSyncingCode === app.app_code ? '检查中' : '检查更新' }}
+                          </el-dropdown-item>
+                        </el-dropdown-menu>
+                      </template>
+                    </el-dropdown>
                   </div>
                 </article>
               </div>
@@ -1619,22 +1795,53 @@ watch(tenantPickerKeyword, () => {
           <div class="app-create-mode-panel">
             <div class="app-create-mode-panel__head">
               <strong>创建方式</strong>
-              <span>{{ createMode === 'manifest' ? '已从 Manifest 回填，可继续修改。' : '手工填写应用主档。' }}</span>
+              <span>{{ createMode === 'runtime-scan' ? '扫描当前后端运行目录内的 Manifest。' : createMode === 'manifest-file' ? '已从 Manifest 回填，可继续修改。' : '手工填写应用主档。' }}</span>
             </div>
             <div class="app-create-mode-switch">
-              <button type="button" :class="{ 'is-active': createMode === 'manual' }" @click="createMode = 'manual'">
+              <button type="button" :class="{ 'is-active': createMode === 'manual' }" @click="switchCreateModeManual">
                 手工填写
               </button>
-              <button type="button" :class="{ 'is-active': createMode === 'manifest' }" @click="triggerManifestImport">
+              <button type="button" :class="{ 'is-active': createMode === 'manifest-file' }" @click="triggerManifestImport">
                 <el-icon :size="15"><Upload /></el-icon>
                 选择 Manifest 文件解析
               </button>
+              <button type="button" :class="{ 'is-active': createMode === 'runtime-scan', 'is-loading': manifestScanning }" :disabled="manifestScanning" @click="scanRuntimeManifests">
+                <el-icon :size="15"><Refresh /></el-icon>
+                {{ manifestScanning ? '扫描中...' : '扫描运行目录' }}
+              </button>
             </div>
             <input ref="manifestFileInputRef" class="app-manifest-input" type="file" accept=".json,.yaml,.yml,application/json,application/x-yaml,text/yaml" @change="handleManifestFileChange" />
-            <p v-if="manifestFileName" class="app-create-mode-panel__result">
-              <strong>{{ manifestFileName }}</strong>
+            <p v-if="manifestFileName || manifestImportSummary || manifestScanning" class="app-create-mode-panel__result">
+              <strong>{{ manifestFileName || (createMode === 'runtime-scan' ? '运行目录扫描' : 'Manifest') }}</strong>
               <span>{{ manifestImportSummary }}</span>
             </p>
+            <p v-if="createMode === 'runtime-scan'" class="app-create-mode-panel__hint">
+              新增入口只展示应用库中尚不存在的 Manifest。已有应用的版本同步请回到应用列表，使用对应卡片的“检查更新”。独立部署应用不在本进程目录内，应由独立项目提供 Manifest 文件后上传解析；后续可扩展为远程 Manifest 注册或拉取。
+            </p>
+            <div v-if="manifestScanResult" class="app-manifest-scan">
+              <div class="app-manifest-scan__head">
+                <strong>可新建应用</strong>
+                <span>{{ runtimeCreateGroups.length }} 个新应用 / {{ runtimeSyncGroups.length }} 个已有应用 / {{ manifestScanResult.elapsed_ms }}ms</span>
+              </div>
+              <p class="app-manifest-scan__root">扫描范围：{{ manifestScanResult.scan_root }}</p>
+              <p v-if="runtimeSyncGroups.length" class="app-manifest-scan__root">已有应用不会在新增入口同步：{{ runtimeSyncGroups.map((group) => group.app_name || group.app_code).join('、') }}</p>
+              <p v-if="runtimeCreateGroups.length === 0" class="app-manifest-scan__empty">当前运行目录没有发现可新建应用。</p>
+              <div class="app-manifest-scan__groups">
+                <article v-for="group in runtimeCreateGroups" :key="group.app_code || group.files.map((item) => item.file_path || item.file_name).join('|')" :class="{ 'is-blocked': !group.loadable }">
+                  <div>
+                    <strong>{{ group.app_name || group.app_code || '未识别应用' }}</strong>
+                    <span>{{ group.app_code || '缺少 app_code' }} · 新建导入</span>
+                  </div>
+                  <p>
+                    片段 {{ group.fragment_count }}，main {{ group.main_count }}；
+                    菜单 {{ group.merged.counts.menus }}，权限 {{ group.merged.counts.permissions + group.merged.counts.operations }}，API {{ group.merged.counts.apis }}，套餐功能 {{ group.merged.counts.package_features }}
+                  </p>
+                  <ul v-if="group.blockers.length">
+                    <li v-for="blocker in group.blockers.slice(0, 3)" :key="blocker">{{ blocker }}</li>
+                  </ul>
+                </article>
+              </div>
+            </div>
             <div v-if="manifestDiff" class="app-manifest-diff">
               <div class="app-manifest-diff__head">
                 <span>{{ manifestDiff.mode === 'SYNC' ? '同步预检' : '导入预检' }}</span>
@@ -2285,6 +2492,73 @@ watch(tenantPickerKeyword, () => {
     </NeuroAgentDialog>
 
     <NeuroAgentDialog
+      v-model="runtimeManifestPreviewVisible"
+      title="Manifest 更新对照"
+      icon="↔"
+      size="large"
+      width="860px"
+      height="76vh"
+      :loading="runtimeManifestLoading"
+      :confirm-disabled="runtimeManifestLoading || !runtimeManifestPreviewDiff?.loadable"
+      confirm-text="确认同步"
+      cancel-text="稍后处理"
+      @confirm="confirmRuntimeManifestSync"
+      @cancel="runtimeManifestPreviewVisible = false"
+      @close="runtimeManifestPreviewVisible = false"
+    >
+      <div v-if="runtimeManifestPreviewDiff" class="app-manifest-compare">
+        <header class="app-manifest-compare__head">
+          <div>
+            <strong>{{ runtimeManifestPreviewApp?.app_name || runtimeManifestPreviewDiff.parse.app_name }}</strong>
+            <span>{{ runtimeManifestPreviewDiff.parse.app_code }} · {{ runtimeManifestPreviewDiff.mode === 'SYNC' ? '同步更新' : '新建导入' }}</span>
+          </div>
+          <em :class="{ 'is-blocked': !runtimeManifestPreviewDiff.loadable }">
+            {{ runtimeManifestPreviewDiff.loadable ? '可同步' : '存在阻断' }}
+          </em>
+        </header>
+
+        <div class="app-manifest-compare__stats">
+          <span>纳入治理 {{ runtimeManifestPreviewDiff.summary.create }}</span>
+          <span>更新 {{ runtimeManifestPreviewDiff.summary.update }}</span>
+          <span>不变 {{ runtimeManifestPreviewDiff.summary.no_change }}</span>
+          <span>停用 {{ runtimeManifestPreviewDiff.summary.disable }}</span>
+          <span>冲突 {{ runtimeManifestPreviewDiff.summary.conflict }}</span>
+        </div>
+
+        <section class="app-manifest-compare__columns">
+          <div>当前 Manifest 治理记录</div>
+          <div>运行目录 Manifest 声明</div>
+        </section>
+
+        <div class="app-manifest-compare__list">
+          <article
+            v-for="change in runtimeManifestPreviewChanges"
+            :key="`${change.resource_type}-${change.resource_code}-${change.action}`"
+            class="app-manifest-compare__row"
+            :class="`is-${change.action.toLowerCase()}`"
+          >
+            <div class="app-manifest-compare__side">
+              <b>{{ manifestCurrentText(change.action) }}</b>
+              <strong>{{ change.name || change.resource_code }}</strong>
+              <span>{{ change.resource_type }} / {{ change.resource_code }}</span>
+            </div>
+            <div class="app-manifest-compare__middle">
+              <em>{{ manifestChangeLabel(change.action) }}</em>
+            </div>
+            <div class="app-manifest-compare__side">
+              <b>{{ manifestTargetText(change.action) }}</b>
+              <strong>{{ change.name || change.resource_code }}</strong>
+              <span>{{ change.message }}</span>
+            </div>
+          </article>
+          <p v-if="runtimeManifestPreviewChanges.length === 0" class="app-manifest-compare__empty">
+            当前 Manifest 与应用库一致，没有需要同步的资产差异。
+          </p>
+        </div>
+      </div>
+    </NeuroAgentDialog>
+
+    <NeuroAgentDialog
       v-model="detailDialogVisible"
       title="应用详情"
       icon="📦"
@@ -2399,26 +2673,67 @@ watch(tenantPickerKeyword, () => {
 
         <section class="app-detail-section">
           <div class="app-detail-section__head">
-            <h4>入口、API 与权限</h4>
-            <span>应用资产</span>
+            <h4>Manifest 资产</h4>
+            <span>菜单、权限、API、套餐功能、配额</span>
           </div>
-          <div class="app-detail-assets">
-            <div>
-              <strong>入口</strong>
-              <span>{{ detailApp.asset_config || '工作台入口、管理列表入口、详情入口' }}</span>
+          <div class="app-detail-tabs">
+            <button
+              v-for="tab in detailAssetTabs"
+              :key="tab.key"
+              type="button"
+              :class="{ 'is-active': detailAssetTab === tab.key }"
+              @click="detailAssetTab = tab.key"
+            >
+              {{ tab.label }}
+            </button>
+          </div>
+
+          <div v-if="detailAssetTab === 'entries'" class="app-detail-table">
+            <div class="app-detail-table__row is-head"><span>编码</span><span>名称</span><span>路径</span><span>状态</span></div>
+            <div v-for="entry in detailApp.assets?.entries || []" :key="entry.resource_code" class="app-detail-table__row">
+              <span>{{ entry.resource_code }}</span><strong>{{ entry.name }}</strong><code>{{ entry.path }}</code><em>{{ entry.protection_source ? `保护：${entry.protection_source}` : entry.status }}</em>
             </div>
-            <div>
-              <strong>API</strong>
-              <span>查询 API、状态控制 API、主档维护 API</span>
+            <p v-if="!(detailApp.assets?.entries || []).length">暂无菜单入口资产</p>
+          </div>
+
+          <div v-else-if="detailAssetTab === 'permissions'" class="app-detail-table">
+            <div class="app-detail-table__row is-head"><span>权限码</span><span>名称</span><span>类型</span><span>状态</span></div>
+            <div v-for="permission in detailApp.assets?.permissions || []" :key="permission.permission_code" class="app-detail-table__row">
+              <span>{{ permission.permission_code }}</span><strong>{{ permission.name }}</strong><code>{{ permission.permission_type }}</code><em>{{ permission.protection_source ? `保护：${permission.protection_source}` : permission.status }}</em>
             </div>
-            <div>
-              <strong>权限</strong>
-              <span>查看应用、创建应用、编辑应用、启停应用</span>
+            <p v-if="!(detailApp.assets?.permissions || []).length">暂无权限资产</p>
+          </div>
+
+          <div v-else-if="detailAssetTab === 'apis'" class="app-detail-table">
+            <div class="app-detail-table__row is-head"><span>方法</span><span>路径</span><span>权限码</span><span>状态</span></div>
+            <div v-for="api in detailApp.assets?.apis || []" :key="`${api.method}-${api.path}`" class="app-detail-table__row">
+              <span>{{ api.method }}</span><strong>{{ api.path }}</strong><code>{{ api.permission_code || '公开/未绑定' }}</code><em>{{ api.protection_source ? `保护：${api.protection_source}` : api.status }}</em>
             </div>
-            <div>
-              <strong>套餐资源</strong>
-              <span>基础访问能力、客户端能力、试用与开通能力待配置</span>
+            <p v-if="!(detailApp.assets?.apis || []).length">暂无 API 资产</p>
+          </div>
+
+          <div v-else-if="detailAssetTab === 'features'" class="app-detail-table">
+            <div class="app-detail-table__row is-head"><span>功能码</span><span>名称</span><span>类型</span><span>套餐</span></div>
+            <div v-for="feature in detailApp.assets?.package_features || []" :key="feature.feature_code" class="app-detail-table__row">
+              <span>{{ feature.feature_code }}</span><strong>{{ feature.feature_name }}</strong><code>{{ feature.feature_type }}</code><em>{{ feature.protection_source ? `保护：${feature.protection_source}` : (feature.include_in_package ? '纳入' : '不纳入') }}</em>
             </div>
+            <p v-if="!(detailApp.assets?.package_features || []).length">暂无套餐功能资产</p>
+          </div>
+
+          <div v-else-if="detailAssetTab === 'quotas'" class="app-detail-table">
+            <div class="app-detail-table__row is-head"><span>配额码</span><span>名称</span><span>类型</span><span>单位</span></div>
+            <div v-for="quota in detailApp.assets?.quotas || []" :key="quota.quota_code" class="app-detail-table__row">
+              <span>{{ quota.quota_code }}</span><strong>{{ quota.quota_name }}</strong><code>{{ quota.quota_type }}</code><em>{{ quota.protection_source ? `保护：${quota.protection_source}` : (quota.unit || '—') }}</em>
+            </div>
+            <p v-if="!(detailApp.assets?.quotas || []).length">暂无配额资产</p>
+          </div>
+
+          <div v-else class="app-detail-table">
+            <div class="app-detail-table__row is-head"><span>时间</span><span>动作</span><span>结果</span><span>摘要</span></div>
+            <div v-for="load in detailApp.assets?.manifest_loads || []" :key="load.id" class="app-detail-table__row">
+              <span>{{ formatDateTimeChina(load.created_at) }}</span><strong>{{ load.action }} / {{ load.source_type }}</strong><code>{{ load.status }}</code><em>{{ load.summary || load.error_summary || '—' }}</em>
+            </div>
+            <p v-if="!(detailApp.assets?.manifest_loads || []).length">暂无 Manifest 装载记录</p>
           </div>
         </section>
 
@@ -2726,6 +3041,7 @@ watch(tenantPickerKeyword, () => {
 }
 
 .app-card:hover {
+  z-index: 6;
   border-color: color-mix(in srgb, var(--neuro-primary) 58%, transparent);
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--neuro-primary) 10%, transparent), transparent 70%),
@@ -2739,6 +3055,7 @@ watch(tenantPickerKeyword, () => {
 }
 
 .app-card:focus-within {
+  z-index: 7;
   border-color: color-mix(in srgb, var(--neuro-primary) 62%, transparent);
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--neuro-primary) 58%, transparent),
@@ -2913,10 +3230,18 @@ watch(tenantPickerKeyword, () => {
 
 .app-card__actions {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
   gap: 10px;
   padding-top: 14px;
   border-top: 1px solid color-mix(in srgb, var(--neuro-border) 70%, transparent);
+}
+
+.app-card__actions-main {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .app-card__detail {
@@ -2943,6 +3268,74 @@ watch(tenantPickerKeyword, () => {
   border-color: transparent;
   background: var(--neuro-primary);
   color: #051616;
+}
+
+.app-card__more-btn {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  grid-auto-flow: column;
+  place-content: center;
+  gap: 3px;
+  border: 1px solid color-mix(in srgb, var(--neuro-border) 76%, transparent);
+  border-radius: var(--neuro-radius-sm);
+  background: color-mix(in srgb, var(--neuro-surface-2) 62%, transparent);
+  color: var(--neuro-text-secondary);
+  cursor: pointer;
+  transition:
+    border-color var(--shell-t-fast) var(--shell-ease-standard),
+    background var(--shell-t-fast) var(--shell-ease-standard),
+  color var(--shell-t-fast) var(--shell-ease-standard);
+}
+
+.app-card__more-btn span {
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.app-card__more-btn:hover,
+.app-card__more-btn:focus-visible,
+.el-dropdown.is-opened .app-card__more-btn {
+  border-color: color-mix(in srgb, var(--neuro-primary) 48%, transparent);
+  background: color-mix(in srgb, var(--neuro-primary) 12%, transparent);
+  color: var(--neuro-primary);
+}
+
+:global(.app-card-more-popper.el-popper) {
+  border: 1px solid color-mix(in srgb, var(--neuro-border) 82%, transparent);
+  border-radius: var(--neuro-radius-sm);
+  background: #111827;
+  box-shadow:
+    0 14px 34px color-mix(in srgb, #000 34%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--neuro-primary) 8%, transparent);
+}
+
+:global(.app-card-more-popper .el-dropdown-menu) {
+  min-width: 132px;
+  padding: 6px;
+  border: 0;
+  border-radius: var(--neuro-radius-sm);
+  background: transparent;
+}
+
+:global(.app-card-more-popper .el-dropdown-menu__item) {
+  height: 34px;
+  border-radius: calc(var(--neuro-radius-sm) - 2px);
+  color: var(--neuro-text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+:global(.app-card-more-popper .el-dropdown-menu__item:not(.is-disabled):focus),
+:global(.app-card-more-popper .el-dropdown-menu__item:not(.is-disabled):hover) {
+  background: color-mix(in srgb, var(--neuro-primary) 14%, transparent);
+  color: var(--neuro-primary);
+}
+
+:global(.app-card-more-popper .el-dropdown-menu__item.is-disabled) {
+  color: color-mix(in srgb, var(--neuro-text-secondary) 62%, transparent);
 }
 
 .app-center-empty {
@@ -3118,7 +3511,7 @@ watch(tenantPickerKeyword, () => {
 
 .app-create-mode-switch {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -3143,6 +3536,15 @@ watch(tenantPickerKeyword, () => {
   color: var(--neuro-text);
 }
 
+.app-create-mode-switch button.is-loading .el-icon {
+  animation: app-spin 0.9s linear infinite;
+}
+
+.app-create-mode-switch button:disabled {
+  opacity: 0.78;
+  cursor: not-allowed;
+}
+
 .app-manifest-input {
   display: none;
 }
@@ -3159,6 +3561,113 @@ watch(tenantPickerKeyword, () => {
 .app-create-mode-panel__result strong {
   display: block;
   color: var(--neuro-text);
+}
+
+.app-create-mode-panel__hint {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px dashed color-mix(in srgb, var(--neuro-border) 78%, transparent);
+  border-radius: var(--neuro-radius-sm);
+  color: var(--neuro-text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.app-manifest-scan {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--neuro-border) 80%, transparent);
+  border-radius: var(--neuro-radius-sm);
+  background: color-mix(in srgb, var(--neuro-surface) 70%, transparent);
+}
+
+.app-manifest-scan__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--neuro-text-secondary);
+  font-size: 12px;
+}
+
+.app-manifest-scan__head strong {
+  color: var(--neuro-text);
+  font-size: 14px;
+}
+
+.app-manifest-scan__root {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--neuro-text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.app-manifest-scan__empty {
+  margin: 0;
+  padding: 12px;
+  border: 1px dashed color-mix(in srgb, var(--neuro-border) 82%, transparent);
+  border-radius: var(--neuro-radius-sm);
+  color: var(--neuro-text-secondary);
+  font-size: 13px;
+}
+
+.app-manifest-scan__groups {
+  display: grid;
+  gap: 8px;
+}
+
+@keyframes app-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.app-manifest-scan__groups article {
+  display: grid;
+  gap: 7px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--neuro-primary) 24%, var(--neuro-border));
+  border-radius: var(--neuro-radius-sm);
+  background: color-mix(in srgb, var(--neuro-primary) 7%, var(--neuro-surface));
+}
+
+.app-manifest-scan__groups article.is-blocked {
+  border-color: color-mix(in srgb, #f97373 42%, var(--neuro-border));
+  background: color-mix(in srgb, #f97373 8%, var(--neuro-surface));
+}
+
+.app-manifest-scan__groups article > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.app-manifest-scan__groups strong {
+  color: var(--neuro-text);
+  font-size: 14px;
+}
+
+.app-manifest-scan__groups span,
+.app-manifest-scan__groups p,
+.app-manifest-scan__groups li {
+  color: var(--neuro-text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.app-manifest-scan__groups p,
+.app-manifest-scan__groups ul {
+  margin: 0;
+}
+
+.app-manifest-scan__groups ul {
+  padding-left: 18px;
 }
 
 .app-manifest-diff {
@@ -4237,8 +4746,7 @@ watch(tenantPickerKeyword, () => {
   gap: 10px;
 }
 
-.app-detail-fields > div,
-.app-detail-assets > div {
+.app-detail-fields > div {
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -4253,15 +4761,13 @@ watch(tenantPickerKeyword, () => {
   grid-column: 1 / -1;
 }
 
-.app-detail-fields span,
-.app-detail-assets span {
+.app-detail-fields span {
   color: var(--neuro-text-secondary);
   font-size: 12px;
   font-weight: 800;
 }
 
-.app-detail-fields strong,
-.app-detail-assets strong {
+.app-detail-fields strong {
   min-width: 0;
   color: var(--neuro-text);
   line-height: 1.45;
@@ -4333,10 +4839,245 @@ watch(tenantPickerKeyword, () => {
   line-height: 1.65;
 }
 
-.app-detail-assets {
+.app-manifest-compare {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.app-manifest-compare__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--neuro-border) 82%, transparent);
+  border-radius: var(--neuro-radius-sm);
+  background: color-mix(in srgb, var(--neuro-surface-2) 62%, transparent);
+}
+
+.app-manifest-compare__head div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.app-manifest-compare__head strong {
+  color: var(--neuro-text);
+  font-size: 17px;
+  font-weight: 950;
+}
+
+.app-manifest-compare__head span {
+  color: var(--neuro-text-secondary);
+  font-size: 13px;
+}
+
+.app-manifest-compare__head em {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--neuro-success) 20%, transparent);
+  color: var(--neuro-success);
+  font-style: normal;
+  font-weight: 900;
+}
+
+.app-manifest-compare__head em.is-blocked {
+  background: color-mix(in srgb, #f97373 18%, transparent);
+  color: #fca5a5;
+}
+
+.app-manifest-compare__stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.app-manifest-compare__stats span {
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--neuro-border) 72%, transparent);
+  border-radius: var(--neuro-radius-sm);
+  background: color-mix(in srgb, var(--neuro-surface) 70%, transparent);
+  color: var(--neuro-text-secondary);
+  font-size: 13px;
+  font-weight: 850;
+  text-align: center;
+}
+
+.app-manifest-compare__columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 10px;
+}
+
+.app-manifest-compare__columns div {
+  padding: 9px 12px;
+  border-radius: var(--neuro-radius-sm);
+  background: color-mix(in srgb, var(--neuro-primary) 11%, var(--neuro-surface));
+  color: var(--neuro-text);
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.app-manifest-compare__list {
+  min-height: 0;
+  max-height: 46vh;
+  display: grid;
+  gap: 10px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.app-manifest-compare__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 82px minmax(0, 1fr);
+  gap: 10px;
+  align-items: stretch;
+}
+
+.app-manifest-compare__side {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--neuro-border) 72%, transparent);
+  border-radius: var(--neuro-radius-sm);
+  background: color-mix(in srgb, var(--neuro-surface) 76%, transparent);
+}
+
+.app-manifest-compare__side b {
+  color: var(--neuro-text-secondary);
+  font-size: 12px;
+}
+
+.app-manifest-compare__side strong {
+  min-width: 0;
+  color: var(--neuro-text);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.app-manifest-compare__side span {
+  min-width: 0;
+  color: var(--neuro-text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.app-manifest-compare__middle {
+  display: grid;
+  place-items: center;
+}
+
+.app-manifest-compare__middle em {
+  width: 64px;
+  padding: 6px 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--neuro-primary) 15%, transparent);
+  color: var(--neuro-primary);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 950;
+  text-align: center;
+}
+
+.app-manifest-compare__row.is-create .app-manifest-compare__middle em {
+  background: color-mix(in srgb, var(--neuro-success) 16%, transparent);
+  color: var(--neuro-success);
+}
+
+.app-manifest-compare__row.is-conflict .app-manifest-compare__middle em {
+  background: color-mix(in srgb, #f97373 16%, transparent);
+  color: #fca5a5;
+}
+
+.app-manifest-compare__empty {
+  margin: 0;
+  padding: 18px;
+  border: 1px dashed color-mix(in srgb, var(--neuro-border) 80%, transparent);
+  border-radius: var(--neuro-radius-sm);
+  color: var(--neuro-text-secondary);
+  text-align: center;
+}
+
+.app-detail-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.app-detail-tabs button {
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--neuro-border) 76%, transparent);
+  border-radius: var(--neuro-radius-sm);
+  background: color-mix(in srgb, var(--neuro-surface) 76%, transparent);
+  color: var(--neuro-text-secondary);
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.app-detail-tabs button:hover,
+.app-detail-tabs button.is-active {
+  border-color: color-mix(in srgb, var(--neuro-primary) 58%, transparent);
+  background: color-mix(in srgb, var(--neuro-primary) 11%, var(--neuro-surface));
+  color: var(--neuro-text);
+}
+
+.app-detail-table {
+  display: grid;
+  gap: 7px;
+}
+
+.app-detail-table__row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(130px, 0.8fr) minmax(160px, 1.1fr) minmax(180px, 1.2fr) minmax(80px, 0.55fr);
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--neuro-border) 72%, transparent);
+  border-radius: var(--neuro-radius-sm);
+  background: color-mix(in srgb, var(--neuro-surface) 84%, transparent);
+}
+
+.app-detail-table__row.is-head {
+  background: color-mix(in srgb, var(--neuro-primary) 10%, var(--neuro-surface));
+  color: var(--neuro-text-secondary);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.app-detail-table__row span,
+.app-detail-table__row strong,
+.app-detail-table__row code,
+.app-detail-table__row em {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.app-detail-table__row span {
+  color: var(--neuro-text-secondary);
+}
+
+.app-detail-table__row strong {
+  color: var(--neuro-text);
+}
+
+.app-detail-table__row code,
+.app-detail-table__row em {
+  color: var(--neuro-text-secondary);
+  font-style: normal;
+}
+
+.app-detail-table > p {
+  margin: 0;
+  padding: 16px;
+  border: 1px dashed color-mix(in srgb, var(--neuro-border) 70%, transparent);
+  border-radius: var(--neuro-radius-sm);
+  color: var(--neuro-text-secondary);
 }
 
 @media (max-width: 980px) {
@@ -4378,6 +5119,10 @@ watch(tenantPickerKeyword, () => {
   .app-create-checks {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .app-create-mode-switch {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
@@ -4417,9 +5162,16 @@ watch(tenantPickerKeyword, () => {
   }
 
   .app-create-steps,
+  .app-create-mode-switch,
   .app-create-checks,
   .app-create-review {
     grid-template-columns: 1fr;
+  }
+
+  .app-manifest-scan__groups article > div {
+    flex-direction: column;
+    gap: 3px;
+    align-items: flex-start;
   }
 
   .app-create-panel__head,
@@ -4439,8 +5191,11 @@ watch(tenantPickerKeyword, () => {
     text-align: left;
   }
 
-  .app-detail-fields,
-  .app-detail-assets {
+  .app-detail-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .app-detail-table__row {
     grid-template-columns: 1fr;
   }
 }

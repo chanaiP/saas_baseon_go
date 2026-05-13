@@ -139,6 +139,64 @@ func (r *AppRepository) ClientsByAppID(ctx context.Context, appID uint64) ([]mod
 	return rows, err
 }
 
+func (r *AppRepository) EntriesByAppCode(ctx context.Context, appCode string) ([]models.SysAppEntry, error) {
+	var rows []models.SysAppEntry
+	err := r.db.WithContext(ctx).
+		Where("app_code = ? AND deleted_at IS NULL", appCode).
+		Order("sort_order ASC, id ASC").
+		Find(&rows).Error
+	return rows, err
+}
+
+func (r *AppRepository) APIsByAppCode(ctx context.Context, appCode string) ([]models.SysAppAPI, error) {
+	var rows []models.SysAppAPI
+	err := r.db.WithContext(ctx).
+		Where("app_code = ? AND deleted_at IS NULL", appCode).
+		Order("method ASC, path ASC, id ASC").
+		Find(&rows).Error
+	return rows, err
+}
+
+func (r *AppRepository) PermissionsByAppCode(ctx context.Context, appCode string) ([]models.SysAppPermission, error) {
+	var rows []models.SysAppPermission
+	err := r.db.WithContext(ctx).
+		Where("app_code = ? AND deleted_at IS NULL", appCode).
+		Order("permission_type ASC, permission_code ASC, id ASC").
+		Find(&rows).Error
+	return rows, err
+}
+
+func (r *AppRepository) PackageFeaturesByAppCode(ctx context.Context, appCode string) ([]models.SysAppPackageFeature, error) {
+	var rows []models.SysAppPackageFeature
+	err := r.db.WithContext(ctx).
+		Where("app_code = ? AND deleted_at IS NULL", appCode).
+		Order("feature_type ASC, feature_code ASC, id ASC").
+		Find(&rows).Error
+	return rows, err
+}
+
+func (r *AppRepository) QuotasByAppCode(ctx context.Context, appCode string) ([]models.SysAppQuota, error) {
+	var rows []models.SysAppQuota
+	err := r.db.WithContext(ctx).
+		Where("app_code = ? AND deleted_at IS NULL", appCode).
+		Order("quota_code ASC, id ASC").
+		Find(&rows).Error
+	return rows, err
+}
+
+func (r *AppRepository) ManifestLoadsByAppCode(ctx context.Context, appCode string, limit int) ([]models.SysAppManifestLoad, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	var rows []models.SysAppManifestLoad
+	err := r.db.WithContext(ctx).
+		Where("app_code = ? AND deleted_at IS NULL", appCode).
+		Order("created_at DESC, id DESC").
+		Limit(limit).
+		Find(&rows).Error
+	return rows, err
+}
+
 func (r *AppRepository) Stats(ctx context.Context) (dto.AppStatsResponse, error) {
 	countApps := func(where string, args ...interface{}) (int64, error) {
 		query := r.db.WithContext(ctx).Model(&models.SysApp{}).Where("deleted_at IS NULL")

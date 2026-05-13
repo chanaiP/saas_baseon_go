@@ -2,7 +2,7 @@ WITH platform_tenants AS (
   SELECT id
   FROM tenant
   WHERE deleted_at IS NULL
-    AND (is_platform = true OR is_platform_tenant = true OR code = 'platform')
+    AND (is_platform_tenant = true OR code = 'platform')
 ),
 operation_rows AS (
   SELECT *
@@ -51,7 +51,7 @@ WITH platform_tenants AS (
   SELECT id
   FROM tenant
   WHERE deleted_at IS NULL
-    AND (is_platform = true OR is_platform_tenant = true OR code = 'platform')
+    AND (is_platform_tenant = true OR code = 'platform')
 )
 UPDATE permission p
 SET name = '应用-Manifest 装载',
@@ -75,7 +75,7 @@ WITH platform_tenants AS (
   SELECT id
   FROM tenant
   WHERE deleted_at IS NULL
-    AND (is_platform = true OR is_platform_tenant = true OR code = 'platform')
+    AND (is_platform_tenant = true OR code = 'platform')
 )
 INSERT INTO role_permission (role_id, permission_id, created_at)
 SELECT rp.role_id, op.id, now()

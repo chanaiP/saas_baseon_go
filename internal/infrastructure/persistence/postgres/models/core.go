@@ -136,6 +136,8 @@ type RolePermission struct {
 	CustomUserIDsJSON         *string   `gorm:"column:custom_user_ids_json;type:text"`
 	CustomBusinessUnitIDsJSON *string   `gorm:"column:custom_business_unit_ids_json;type:text"`
 	BUDataAccessMode          *string   `gorm:"column:bu_data_access_mode;type:varchar(32)"`
+	Source                    string    `gorm:"column:source;type:varchar(32);not null;default:'MANUAL'"`
+	SourceRef                 *string   `gorm:"column:source_ref;type:varchar(128)"`
 	CreatedAt                 time.Time `gorm:"column:created_at;not null"`
 }
 

@@ -121,6 +121,7 @@ type AppResponse struct {
 	CreatedAt        time.Time           `json:"created_at"`
 	UpdatedAt        time.Time           `json:"updated_at"`
 	Clients          []AppClientResponse `json:"clients"`
+	Assets           *AppAssetsResponse  `json:"assets,omitempty"`
 }
 
 type AppClientResponse struct {
@@ -133,6 +134,107 @@ type AppClientResponse struct {
 	ConfigNote *string   `json:"config_note"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+type AppAssetsResponse struct {
+	Entries         []AppEntryResponse          `json:"entries"`
+	APIs            []AppAPIResponse            `json:"apis"`
+	Permissions     []AppPermissionResponse     `json:"permissions"`
+	PackageFeatures []AppPackageFeatureResponse `json:"package_features"`
+	Quotas          []AppQuotaResponse          `json:"quotas"`
+	ManifestLoads   []AppManifestLoadRecord     `json:"manifest_loads"`
+}
+
+type AppEntryResponse struct {
+	ResourceCode     string     `json:"resource_code"`
+	Name             string     `json:"name"`
+	Path             string     `json:"path"`
+	ParentCode       *string    `json:"parent_code"`
+	SortOrder        int        `json:"sort_order"`
+	PlatformOnly     bool       `json:"platform_only"`
+	TenantVisible    bool       `json:"tenant_visible"`
+	TenantEditable   bool       `json:"tenant_editable"`
+	IncludeInPackage bool       `json:"include_in_package"`
+	FeatureCode      *string    `json:"feature_code"`
+	DataPermMode     string     `json:"data_perm_mode"`
+	Status           string     `json:"status"`
+	LastSyncedAt     *time.Time `json:"last_synced_at,omitempty"`
+	ProtectionSource *string    `json:"protection_source,omitempty"`
+	ProtectionReason *string    `json:"protection_reason,omitempty"`
+	ProtectedAt      *time.Time `json:"protected_at,omitempty"`
+}
+
+type AppAPIResponse struct {
+	Method           string     `json:"method"`
+	Path             string     `json:"path"`
+	PermissionCode   *string    `json:"permission_code"`
+	Public           bool       `json:"public"`
+	Audit            bool       `json:"audit"`
+	Status           string     `json:"status"`
+	LastSyncedAt     *time.Time `json:"last_synced_at,omitempty"`
+	ProtectionSource *string    `json:"protection_source,omitempty"`
+	ProtectionReason *string    `json:"protection_reason,omitempty"`
+	ProtectedAt      *time.Time `json:"protected_at,omitempty"`
+}
+
+type AppPermissionResponse struct {
+	PermissionCode   string     `json:"permission_code"`
+	Name             string     `json:"name"`
+	PermissionType   string     `json:"permission_type"`
+	MenuCode         *string    `json:"menu_code"`
+	PlatformOnly     bool       `json:"platform_only"`
+	IncludeInPackage bool       `json:"include_in_package"`
+	DataPermMode     string     `json:"data_perm_mode"`
+	Status           string     `json:"status"`
+	LastSyncedAt     *time.Time `json:"last_synced_at,omitempty"`
+	ProtectionSource *string    `json:"protection_source,omitempty"`
+	ProtectionReason *string    `json:"protection_reason,omitempty"`
+	ProtectedAt      *time.Time `json:"protected_at,omitempty"`
+}
+
+type AppPackageFeatureResponse struct {
+	FeatureCode      string     `json:"feature_code"`
+	FeatureName      string     `json:"feature_name"`
+	FeatureType      string     `json:"feature_type"`
+	ParentCode       *string    `json:"parent_code"`
+	SourceCode       *string    `json:"source_code"`
+	PackagePolicy    string     `json:"package_policy"`
+	IncludeInPackage bool       `json:"include_in_package"`
+	Status           string     `json:"status"`
+	LastSyncedAt     *time.Time `json:"last_synced_at,omitempty"`
+	ProtectionSource *string    `json:"protection_source,omitempty"`
+	ProtectionReason *string    `json:"protection_reason,omitempty"`
+	ProtectedAt      *time.Time `json:"protected_at,omitempty"`
+}
+
+type AppQuotaResponse struct {
+	QuotaCode        string     `json:"quota_code"`
+	QuotaName        string     `json:"quota_name"`
+	QuotaType        string     `json:"quota_type"`
+	Unit             *string    `json:"unit"`
+	PeriodType       *string    `json:"period_type"`
+	IncludeInPackage bool       `json:"include_in_package"`
+	Status           string     `json:"status"`
+	LastSyncedAt     *time.Time `json:"last_synced_at,omitempty"`
+	ProtectionSource *string    `json:"protection_source,omitempty"`
+	ProtectionReason *string    `json:"protection_reason,omitempty"`
+	ProtectedAt      *time.Time `json:"protected_at,omitempty"`
+}
+
+type AppManifestLoadRecord struct {
+	ID              uint64    `json:"id"`
+	Action          string    `json:"action"`
+	SourceType      string    `json:"source_type"`
+	SourceName      *string   `json:"source_name"`
+	ManifestVersion string    `json:"manifest_version"`
+	ManifestHash    string    `json:"manifest_hash"`
+	FragmentRole    string    `json:"fragment_role"`
+	Status          string    `json:"status"`
+	Summary         *string   `json:"summary"`
+	ErrorSummary    *string   `json:"error_summary"`
+	OperatorUserID  uint64    `json:"operator_user_id"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 type AppListResponse struct {
@@ -163,10 +265,11 @@ type ManifestParseRequest struct {
 }
 
 type ManifestLoadRequest struct {
-	FileName   string `json:"file_name"`
-	FilePath   string `json:"file_path"`
-	Content    string `json:"content"`
-	SourceType string `json:"source_type"`
+	FileName   string   `json:"file_name"`
+	FilePath   string   `json:"file_path"`
+	FilePaths  []string `json:"file_paths"`
+	Content    string   `json:"content"`
+	SourceType string   `json:"source_type"`
 }
 
 type ManifestScanRequest struct {
@@ -175,9 +278,25 @@ type ManifestScanRequest struct {
 
 type ManifestScanResponse struct {
 	Items           []ManifestParseResponse `json:"items"`
+	Groups          []ManifestScanGroup     `json:"groups"`
 	Total           int                     `json:"total"`
 	ImportableCount int                     `json:"importable_count"`
 	BlockedCount    int                     `json:"blocked_count"`
+	ScanRoot        string                  `json:"scan_root"`
+	ElapsedMs       int64                   `json:"elapsed_ms"`
+}
+
+type ManifestScanGroup struct {
+	AppCode       string                  `json:"app_code"`
+	AppName       string                  `json:"app_name"`
+	Mode          string                  `json:"mode"`
+	Loadable      bool                    `json:"loadable"`
+	FragmentCount int                     `json:"fragment_count"`
+	MainCount     int                     `json:"main_count"`
+	Files         []ManifestParseResponse `json:"files"`
+	Merged        ManifestParseResponse   `json:"merged"`
+	Blockers      []string                `json:"blockers"`
+	Warnings      []string                `json:"warnings"`
 }
 
 type ManifestParseResponse struct {
@@ -192,6 +311,7 @@ type ManifestParseResponse struct {
 	Source          string              `json:"source"`
 	Status          string              `json:"status"`
 	DeploymentMode  string              `json:"deployment_mode"`
+	CommModes       []string            `json:"communication_modes"`
 	VisibilityScope string              `json:"visibility_scope"`
 	ChargePolicy    string              `json:"charge_policy"`
 	BillingMode     string              `json:"billing_mode"`

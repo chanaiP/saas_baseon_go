@@ -1,0 +1,133 @@
+manifest_version: "1.0"
+fragment_role: main
+app:
+  app_code: model-manager
+  app_name: 模型管理
+  app_type: AI_APP
+  source: MANIFEST
+  status: INITIATED
+  icon: Cpu
+  deployment_mode: MERGED
+  visibility_scope: TENANT
+  charge_policy: FREE
+  billing_mode: NONE
+  package_policy: IN_PACKAGE
+  version: 0.1.0
+  description: 统一登记、查看和发布平台可用 AI 模型
+  detail_description: 模型管理用于维护平台内可用模型的基础信息、发布状态、调用策略和治理入口。当前版本用于验证应用注册、菜单、权限、套餐能力和 API 声明的闭环。
+  backend_dir: internal/apps/model_manager
+  frontend_dir: frontend/src/apps/model-manager
+clients:
+  - PC_WEB
+  - API_ONLY
+menus:
+  - code: model_manage
+    name: 模型管理
+    path: /model-manager
+    sort_order: 40
+    tenant_visible: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: model_manage
+    data_perm_mode: ORG
+operations:
+  - code: model_create
+    name: 模型-新增
+    menu_code: model_manage
+    permission_code: model:create
+    include_in_package: true
+    feature_code: button_model_create
+  - code: model_publish
+    name: 模型-发布
+    menu_code: model_manage
+    permission_code: model:publish
+    include_in_package: true
+    feature_code: button_model_publish
+  - code: model_archive
+    name: 模型-归档
+    menu_code: model_manage
+    permission_code: model:archive
+    include_in_package: true
+    feature_code: button_model_archive
+permissions:
+  - code: /model-manager
+    name: 模型管理
+    type: MENU
+    menu_code: model_manage
+    include_in_package: true
+    data_perm_mode: ORG
+  - code: model:create
+    name: 模型-新增
+    type: OPERATION
+    menu_code: model_manage
+    include_in_package: true
+    data_perm_mode: ORG
+  - code: model:publish
+    name: 模型-发布
+    type: OPERATION
+    menu_code: model_manage
+    include_in_package: true
+    data_perm_mode: ORG
+  - code: model:archive
+    name: 模型-归档
+    type: OPERATION
+    menu_code: model_manage
+    include_in_package: true
+    data_perm_mode: ORG
+apis:
+  - method: GET
+    path: /api/model-manager/models
+    permission_code: /model-manager
+  - method: POST
+    path: /api/model-manager/models
+    permission_code: model:create
+    audit: true
+  - method: POST
+    path: /api/model-manager/models/{id}/publish
+    permission_code: model:publish
+    audit: true
+  - method: POST
+    path: /api/model-manager/models/{id}/archive
+    permission_code: model:archive
+    audit: true
+package_features:
+  - feature_code: model_manage
+    feature_name: 模型管理
+    feature_type: MENU
+    source_code: /model-manager
+    package_policy: IN_PACKAGE
+    include_in_package: true
+    description: 模型列表、详情和治理入口
+  - feature_code: button_model_create
+    feature_name: 模型-新增
+    feature_type: OPERATION
+    parent_code: model_manage
+    source_code: model:create
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: button_model_publish
+    feature_name: 模型-发布
+    feature_type: OPERATION
+    parent_code: model_manage
+    source_code: model:publish
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: button_model_archive
+    feature_name: 模型-归档
+    feature_type: OPERATION
+    parent_code: model_manage
+    source_code: model:archive
+    package_policy: IN_PACKAGE
+    include_in_package: true
+quotas:
+  - quota_code: model_count
+    quota_name: 模型数量
+    quota_type: STATIC
+    unit: 个
+    period_type: TOTAL
+    include_in_package: true
+    description: 当前租户可维护的模型数量上限
+documents:
+  - code: model-manager-readme
+    name: 模型管理说明
+    url: docs/apps/model-manager.md

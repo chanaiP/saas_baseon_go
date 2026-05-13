@@ -101,7 +101,7 @@ func (h *IdentityHandler) MenuOverrides(c *gin.Context) {
 	_ = h.tenantScope().Query(user.TenantID).Order("id asc").Find(&rows).Error
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, gin.H{"id": row.ID, "tenant_id": row.TenantID, "permission_id": row.PermissionID, "custom_name": row.CustomName, "custom_icon": row.CustomIcon, "enabled": row.Enabled, "visible": row.Visible, "sort_order": row.SortOrder})
+		items = append(items, gin.H{"id": row.ID, "tenant_id": row.TenantID, "permission_id": row.PermissionID, "custom_name": row.CustomName, "custom_icon": row.CustomIcon, "enabled": row.Enabled, "visible": row.Visible, "sort_order": row.SortOrder, "source": row.Source, "source_ref": row.SourceRef})
 	}
 	response.OK(c, gin.H{"tenant_id": user.TenantID, "overrides": items})
 }
@@ -161,6 +161,7 @@ func (h *IdentityHandler) SaveMenuOverrides(c *gin.Context) {
 			row.Enabled = item.Enabled
 			row.Visible = item.Visible
 			row.SortOrder = item.SortOrder
+			row.Source = "MANUAL"
 			if row.ID == 0 {
 				if err := tx.Create(&row).Error; err != nil {
 					return err

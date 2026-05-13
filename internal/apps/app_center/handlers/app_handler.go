@@ -181,11 +181,11 @@ func (h *AppHandler) DiffManifest(c *gin.Context) {
 		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "请先登录")
 		return
 	}
-	fileName, filePath, content, ok := readManifestPayload(c)
+	req, ok := readManifestRequest(c)
 	if !ok {
 		return
 	}
-	result, err := h.service.DiffManifest(c.Request.Context(), userID, fileName, filePath, content)
+	result, err := h.service.DiffManifestRequest(c.Request.Context(), userID, req)
 	if err != nil {
 		writeAppError(c, err)
 		return
@@ -245,27 +245,32 @@ func (h *AppHandler) ScanManifests(c *gin.Context) {
 	response.OK(c, result)
 }
 
-func readManifestPayload(c *gin.Context) (string, string, []byte, bool) {
+func readManifestRequest(c *gin.Context) (dto.ManifestLoadRequest, bool) {
 	if file, err := c.FormFile("file"); err == nil {
 		opened, openErr := file.Open()
 		if openErr != nil {
 			response.Error(c, http.StatusBadRequest, response.CodeBadRequest, "Manifest 文件读取失败")
-			return "", "", nil, false
+			return dto.ManifestLoadRequest{}, false
 		}
 		defer opened.Close()
 		raw, readErr := io.ReadAll(opened)
 		if readErr != nil {
 			response.Error(c, http.StatusBadRequest, response.CodeBadRequest, "Manifest 文件读取失败")
-			return "", "", nil, false
+			return dto.ManifestLoadRequest{}, false
 		}
-		return file.Filename, "", raw, true
+		return dto.ManifestLoadRequest{FileName: file.Filename, Content: string(raw)}, true
 	}
 	var req dto.ManifestLoadRequest
 	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequest, "请上传 Manifest 文件或提供 content")
-		return "", "", nil, false
+		return dto.ManifestLoadRequest{}, false
 	}
-	return req.FileName, req.FilePath, []byte(req.Content), true
+	return req, true
+}
+
+func readManifestPayload(c *gin.Context) (string, string, []byte, bool) {
+	req, ok := readManifestRequest(c)
+	return req.FileName, req.FilePath, []byte(req.Content), ok
 }
 
 func currentUserID(c *gin.Context) (uint64, bool) {
