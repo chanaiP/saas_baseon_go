@@ -340,5 +340,6 @@ AI 能力中心走合并部署，后端路由随主服务启动，前端路由�
 - `sys_app.app_code=ai-capability-center`，`visibility_scope=PLATFORM_ONLY`，`charge_mode=NON_SELLABLE`，`billing_mode=NONE`。
 - `sys_app_entry` 中只有 7 个平台菜单：总览、供应商、模型目录、AI 场景、基础路由、策略中心、系统设置。
 - `permission` 中 7 个菜单权限均为平台权限，不作为套餐功能点；`ai_capability_center:manage` 是配置写权限，`ai_gateway:invoke` 是业务调用权限。
+- 平台专属应用装载后，平台 `admin` 角色应自动获得该应用菜单、配置管理和 Gateway 调用权限，避免菜单可见但 API 403。
 - `saas_feature` 和 `sys_app_quota` 不应出现 `ai-capability-center` 的套餐功能点或套餐配额。
 - 前端页面内部不渲染二级 tab，左侧菜单是唯一导航入口。

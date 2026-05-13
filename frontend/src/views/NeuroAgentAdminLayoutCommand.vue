@@ -3401,6 +3401,38 @@ const toggleFullscreen = () => {
     font-size: 11px;
   }
 }
+
+@media (max-width: 768px) {
+  .neuro-interface {
+    padding-left: 0;
+  }
+
+  .neuro-synapse-panel {
+    display: none;
+  }
+
+  .content-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px 14px;
+  }
+
+  .content-breadcrumb,
+  .content-actions {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .content-breadcrumb,
+  .content-actions {
+    flex-wrap: wrap;
+  }
+
+  .content-main {
+    padding: 14px;
+  }
+}
 </style>
 
 <style>

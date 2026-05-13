@@ -280,6 +280,7 @@ func TestAppCenterLoadPlatformOnlyManifestKeepsAssetsOutOfPackages(t *testing.T)
 	db := newAppCenterTestDB(t)
 	require.NoError(t, db.Create(&models.Tenant{ID: 1, Code: "platform", Name: "平台主体", IsPlatform: true, Status: 1}).Error)
 	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
+	require.NoError(t, db.Create(&models.Role{ID: 1, TenantID: 1, Code: "admin", Name: "超级管理员", Status: 1}).Error)
 
 	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "internal", "apps", "ai_capability_center", "app.manifest.yaml"))
 	require.NoError(t, err)
@@ -318,6 +319,17 @@ func TestAppCenterLoadPlatformOnlyManifestKeepsAssetsOutOfPackages(t *testing.T)
 	var quotas int64
 	require.NoError(t, db.Model(&models.SysAppQuota{}).Where("app_code = ? AND status = ?", "ai-capability-center", "ACTIVE").Count(&quotas).Error)
 	require.Zero(t, quotas)
+
+	var permissionCount int64
+	require.NoError(t, db.Model(&models.Permission{}).Where("app_code = ? AND enabled = ?", "ai-capability-center", true).Count(&permissionCount).Error)
+	require.Equal(t, int64(9), permissionCount)
+
+	var rolePermissionCount int64
+	require.NoError(t, db.Table("role_permission rp").
+		Joins("JOIN permission p ON p.id = rp.permission_id").
+		Where("rp.role_id = ? AND p.app_code = ? AND p.deleted_at IS NULL", 1, "ai-capability-center").
+		Count(&rolePermissionCount).Error)
+	require.Equal(t, permissionCount, rolePermissionCount)
 }
 
 func TestAppCenterParseManifestBlocksExistingAppCodeForNewImport(t *testing.T) {
@@ -863,6 +875,8 @@ func newAppCenterTestDB(t *testing.T) *gorm.DB {
 		&models.SysAppPackageFeature{},
 		&models.SysAppQuota{},
 		&models.Permission{},
+		&models.Role{},
+		&models.RolePermission{},
 		&models.SaasFeature{},
 		&models.SaasQuota{},
 		&models.Tenant{},

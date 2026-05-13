@@ -129,6 +129,9 @@ func seedCoreData(db *gorm.DB) error {
 	if err := seedBuiltinApps(db); err != nil {
 		return err
 	}
+	if err := seedPlatformAdminRolePermissions(db, tenant.ID, role.ID); err != nil {
+		return err
+	}
 	if err := seedSystemParams(db, tenant.ID); err != nil {
 		return err
 	}
@@ -449,6 +452,20 @@ func seedPermissionParentIDs(db *gorm.DB, tenantID uint64) error {
 		if err := db.Model(&models.Permission{}).
 			Where("tenant_id = ? AND path = ? AND deleted_at IS NULL", tenantID, childPath).
 			Update("parent_id", parent.ID).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func seedPlatformAdminRolePermissions(db *gorm.DB, tenantID uint64, roleID uint64) error {
+	var permissions []models.Permission
+	if err := db.Where("tenant_id = ? AND enabled = ? AND deleted_at IS NULL", tenantID, true).Find(&permissions).Error; err != nil {
+		return err
+	}
+	for _, permission := range permissions {
+		link := models.RolePermission{RoleID: roleID, PermissionID: permission.ID}
+		if err := db.Where("role_id = ? AND permission_id = ?", roleID, permission.ID).FirstOrCreate(&link).Error; err != nil {
 			return err
 		}
 	}

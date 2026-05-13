@@ -1587,6 +1587,8 @@ onMounted(loadData)
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 .ai-dashboard,
@@ -1608,6 +1610,7 @@ onMounted(loadData)
   border: 1px solid var(--neuro-border);
   background: var(--neuro-surface);
   border-radius: 8px;
+  min-width: 0;
   padding: 14px;
 }
 
@@ -1636,6 +1639,7 @@ onMounted(loadData)
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
+  min-width: 0;
 }
 
 .ai-share-list {
@@ -1675,6 +1679,10 @@ onMounted(loadData)
 
 .ai-table {
   width: 100%;
+}
+
+.ai-table :deep(.el-table__inner-wrapper) {
+  min-width: 0;
 }
 
 .ai-provider-workbench .ai-panel {
@@ -1732,6 +1740,11 @@ onMounted(loadData)
   text-align: left;
 }
 
+.ai-provider-rail button strong,
+.ai-provider-rail button span {
+  overflow-wrap: anywhere;
+}
+
 .ai-provider-rail button + button {
   margin-top: 6px;
 }
@@ -1786,6 +1799,7 @@ onMounted(loadData)
 .ai-model-stats div {
   border: 1px solid var(--neuro-border);
   border-radius: 8px;
+  min-width: 0;
   padding: 10px;
 }
 
@@ -1896,6 +1910,21 @@ onMounted(loadData)
 
   .ai-toolbar .el-input {
     max-width: none;
+  }
+
+  .ai-panel {
+    overflow-x: auto;
+  }
+
+  .ai-table {
+    min-width: 720px;
+  }
+
+  .ai-settings-metrics div,
+  .ai-security-grid div,
+  .ai-model-stats div,
+  .ai-metrics article {
+    overflow-wrap: anywhere;
   }
 
   .ai-form {

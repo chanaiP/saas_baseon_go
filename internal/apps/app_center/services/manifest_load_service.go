@@ -114,6 +114,9 @@ func (s *AppService) LoadManifest(ctx context.Context, viewerID uint64, req dto.
 		if err := s.syncManifestPermissions(tx, env, now); err != nil {
 			return markLoadFailed(tx, load.ID, err)
 		}
+		if err := s.grantPlatformManifestPermissions(tx, env); err != nil {
+			return markLoadFailed(tx, load.ID, err)
+		}
 		if err := s.syncManifestPackageCenter(tx, env, now); err != nil {
 			return markLoadFailed(tx, load.ID, err)
 		}
@@ -1236,6 +1239,35 @@ func (s *AppService) syncManifestPermissions(tx *gorm.DB, env manifestEnvelope, 
 			UpdatedAt:        now,
 		}
 		if err := upsertPermissionByPath(tx, &row); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *AppService) grantPlatformManifestPermissions(tx *gorm.DB, env manifestEnvelope) error {
+	if !strings.EqualFold(defaultString(env.parse.VisibilityScope, env.manifest.App.VisibilityScope), "PLATFORM_ONLY") {
+		return nil
+	}
+	platformTenantID, err := platformTenantID(tx)
+	if err != nil {
+		return err
+	}
+	var role models.Role
+	if err := tx.Where("tenant_id = ? AND code = ? AND deleted_at IS NULL", platformTenantID, "admin").First(&role).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return err
+	}
+	var permissions []models.Permission
+	if err := tx.Where("tenant_id = ? AND app_code = ? AND enabled = ? AND deleted_at IS NULL", platformTenantID, env.parse.AppCode, true).Find(&permissions).Error; err != nil {
+		return err
+	}
+	source := "MANIFEST"
+	for _, permission := range permissions {
+		link := models.RolePermission{RoleID: role.ID, PermissionID: permission.ID, Source: source, SourceRef: &env.parse.AppCode}
+		if err := tx.Where("role_id = ? AND permission_id = ?", role.ID, permission.ID).FirstOrCreate(&link).Error; err != nil {
 			return err
 		}
 	}
