@@ -224,6 +224,43 @@ type ScenarioImportResult struct {
 	Scenarios int `json:"scenarios"`
 }
 
+type RouteImportRequest struct {
+	BaseRoutes  []RouteImportBaseRoute  `json:"base_routes"`
+	RouteModels []RouteImportRouteModel `json:"route_models"`
+}
+
+type RouteImportBaseRoute struct {
+	RouteCode      string                  `json:"route_code"`
+	RouteName      string                  `json:"route_name"`
+	CapabilityCode string                  `json:"capability_code"`
+	ModelType      string                  `json:"model_type"`
+	Strategy       string                  `json:"strategy"`
+	TimeoutMS      int                     `json:"timeout_ms"`
+	MaxRetry       int                     `json:"max_retry"`
+	Description    string                  `json:"description"`
+	Status         string                  `json:"status"`
+	RouteModels    []RouteImportRouteModel `json:"route_models"`
+}
+
+type RouteImportRouteModel struct {
+	BaseRouteID   string `json:"base_route_id"`
+	BaseRouteCode string `json:"base_route_code"`
+	ModelID       string `json:"model_id"`
+	ProviderCode  string `json:"provider_code"`
+	ModelCode     string `json:"model_code"`
+	Role          string `json:"role"`
+	Priority      int    `json:"priority"`
+	Weight        int    `json:"weight"`
+	MaxRetry      int    `json:"max_retry"`
+	TimeoutMS     int    `json:"timeout_ms"`
+	Status        string `json:"status"`
+}
+
+type RouteImportResult struct {
+	BaseRoutes  int `json:"base_routes"`
+	RouteModels int `json:"route_models"`
+}
+
 type HealthCheck struct {
 	Name    string `json:"name"`
 	Status  string `json:"status"`
@@ -398,6 +435,54 @@ func (s *Service) ImportScenarios(ctx context.Context, userID uint64, req Scenar
 		return ScenarioImportResult{}, err
 	}
 	s.Audit(ctx, userID, "ai_scenario", "import", "批量导入 AI 场景", result)
+	return result, nil
+}
+
+func (s *Service) ImportRoutes(ctx context.Context, userID uint64, req RouteImportRequest) (RouteImportResult, error) {
+	now := time.Now()
+	result := RouteImportResult{}
+	if len(req.BaseRoutes) == 0 && len(req.RouteModels) == 0 {
+		return result, ErrInvalidInput
+	}
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		modelIDs := map[string]string{}
+		routeIDs := map[string]string{}
+		if err := loadModelIDs(ctx, tx, modelIDs); err != nil {
+			return err
+		}
+		if err := loadBaseRouteIDs(ctx, tx, routeIDs); err != nil {
+			return err
+		}
+		for _, item := range req.BaseRoutes {
+			route, err := upsertBaseRouteImport(ctx, tx, item, now)
+			if err != nil {
+				return err
+			}
+			result.BaseRoutes++
+			routeIDs[route.RouteCode] = route.ID
+			for _, routeModel := range item.RouteModels {
+				routeModel.BaseRouteCode = route.RouteCode
+				if err := upsertRouteModelImport(ctx, tx, routeIDs, modelIDs, routeModel, now); err != nil {
+					return err
+				}
+				result.RouteModels++
+			}
+		}
+		if err := loadBaseRouteIDs(ctx, tx, routeIDs); err != nil {
+			return err
+		}
+		for _, item := range req.RouteModels {
+			if err := upsertRouteModelImport(ctx, tx, routeIDs, modelIDs, item, now); err != nil {
+				return err
+			}
+			result.RouteModels++
+		}
+		return nil
+	})
+	if err != nil {
+		return RouteImportResult{}, err
+	}
+	s.Audit(ctx, userID, "ai_base_route", "import", "整体导入基础路由和模型池", result)
 	return result, nil
 }
 
@@ -950,7 +1035,7 @@ func (s *Service) CreateResource(ctx context.Context, userID uint64, resource st
 		if err := decodePayload(payload, &row); err != nil {
 			return nil, err
 		}
-		if !s.capabilityExists(ctx, row.CapabilityCode) {
+		if !s.capabilityExists(ctx, row.CapabilityCode) || !validRouteStrategy(row.Strategy) || row.TimeoutMS <= 0 || row.MaxRetry < 0 {
 			return nil, ErrInvalidInput
 		}
 		row.CreatedAt = now
@@ -965,7 +1050,8 @@ func (s *Service) CreateResource(ctx context.Context, userID uint64, resource st
 		if err := decodePayload(payload, &row); err != nil {
 			return nil, err
 		}
-		if !s.exists(ctx, &models.AIBaseRoute{}, row.BaseRouteID) || !s.exists(ctx, &models.AIModel{}, row.ModelID) {
+		if !s.exists(ctx, &models.AIBaseRoute{}, row.BaseRouteID) || !s.exists(ctx, &models.AIModel{}, row.ModelID) ||
+			!validRouteModelRole(row.Role) || row.Priority <= 0 || row.Weight <= 0 || row.MaxRetry < 0 || row.TimeoutMS <= 0 {
 			return nil, ErrInvalidInput
 		}
 		row.CreatedAt = now
@@ -1167,8 +1253,12 @@ func (s *Service) DeleteResource(ctx context.Context, userID uint64, resource, i
 			s.hasReferences(ctx, &models.AITenantStrategyPolicy{}, "default_base_route_id = ? OR override_base_route_id = ?", id, id) {
 			return ErrResourceInUse
 		}
-		model = &models.AIBaseRoute{}
 		module = "ai_base_route"
+		if err := s.deleteBaseRouteCascade(ctx, id, now); err != nil {
+			return err
+		}
+		s.Audit(ctx, userID, module, "delete", "删除基础路由："+id, map[string]string{"id": id})
+		return nil
 	case "route-models":
 		model = &models.AIBaseRouteModel{}
 		module = "ai_base_route_model"
@@ -1582,6 +1672,103 @@ func loadPolicyIDs(ctx context.Context, tx *gorm.DB, policyIDs map[string]string
 	return nil
 }
 
+func loadBaseRouteIDs(ctx context.Context, tx *gorm.DB, routeIDs map[string]string) error {
+	var rows []models.AIBaseRoute
+	if err := tx.WithContext(ctx).Where("deleted_at IS NULL").Find(&rows).Error; err != nil {
+		return err
+	}
+	for _, row := range rows {
+		routeIDs[row.RouteCode] = row.ID
+	}
+	return nil
+}
+
+func upsertBaseRouteImport(ctx context.Context, tx *gorm.DB, item RouteImportBaseRoute, now time.Time) (models.AIBaseRoute, error) {
+	row := models.AIBaseRoute{
+		RouteCode:      strings.TrimSpace(item.RouteCode),
+		RouteName:      strings.TrimSpace(item.RouteName),
+		CapabilityCode: strings.TrimSpace(item.CapabilityCode),
+		ModelType:      strings.TrimSpace(item.ModelType),
+		Strategy:       defaultString(item.Strategy, "fallback"),
+		TimeoutMS:      defaultInt(item.TimeoutMS, 30000),
+		MaxRetry:       item.MaxRetry,
+		Description:    strings.TrimSpace(item.Description),
+		Status:         defaultString(item.Status, "active"),
+	}
+	if row.RouteCode == "" || row.RouteName == "" || row.CapabilityCode == "" || row.ModelType == "" || !validRouteStrategy(row.Strategy) {
+		return models.AIBaseRoute{}, ErrInvalidInput
+	}
+	if row.TimeoutMS <= 0 || row.MaxRetry < 0 || !capabilityExistsTx(ctx, tx, row.CapabilityCode) {
+		return models.AIBaseRoute{}, ErrInvalidInput
+	}
+	var existing models.AIBaseRoute
+	err := tx.WithContext(ctx).Where("route_code = ? AND deleted_at IS NULL", row.RouteCode).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		row.ID = uuid.NewString()
+		row.CreatedAt = now
+		row.UpdatedAt = now
+		if err := tx.Create(&row).Error; err != nil {
+			return models.AIBaseRoute{}, err
+		}
+		return row, nil
+	}
+	if err != nil {
+		return models.AIBaseRoute{}, err
+	}
+	row.ID = existing.ID
+	row.CreatedAt = existing.CreatedAt
+	row.UpdatedAt = now
+	err = tx.Model(&existing).Updates(map[string]interface{}{
+		"route_name": row.RouteName, "capability_code": row.CapabilityCode, "model_type": row.ModelType,
+		"strategy": row.Strategy, "timeout_ms": row.TimeoutMS, "max_retry": row.MaxRetry,
+		"description": row.Description, "status": row.Status, "updated_at": now,
+	}).Error
+	return row, err
+}
+
+func upsertRouteModelImport(ctx context.Context, tx *gorm.DB, routeIDs, modelIDs map[string]string, item RouteImportRouteModel, now time.Time) error {
+	baseRouteID := strings.TrimSpace(item.BaseRouteID)
+	if baseRouteID == "" {
+		baseRouteID = routeIDs[strings.TrimSpace(item.BaseRouteCode)]
+	}
+	modelID := strings.TrimSpace(item.ModelID)
+	if modelID == "" {
+		modelID = modelIDs[modelKey(item.ProviderCode, item.ModelCode)]
+	}
+	row := models.AIBaseRouteModel{
+		BaseRouteID: baseRouteID,
+		ModelID:     modelID,
+		Role:        defaultString(item.Role, "candidate"),
+		Priority:    defaultInt(item.Priority, 1),
+		Weight:      defaultInt(item.Weight, 100),
+		MaxRetry:    item.MaxRetry,
+		TimeoutMS:   defaultInt(item.TimeoutMS, 30000),
+		Status:      defaultString(item.Status, "active"),
+	}
+	if row.BaseRouteID == "" || row.ModelID == "" || !validRouteModelRole(row.Role) ||
+		row.Priority <= 0 || row.Weight <= 0 || row.MaxRetry < 0 || row.TimeoutMS <= 0 {
+		return ErrInvalidInput
+	}
+	if !existsTx(ctx, tx, &models.AIBaseRoute{}, row.BaseRouteID) || !existsTx(ctx, tx, &models.AIModel{}, row.ModelID) {
+		return ErrInvalidInput
+	}
+	var existing models.AIBaseRouteModel
+	err := tx.WithContext(ctx).Where("base_route_id = ? AND model_id = ? AND role = ? AND deleted_at IS NULL", row.BaseRouteID, row.ModelID, row.Role).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		row.ID = uuid.NewString()
+		row.CreatedAt = now
+		row.UpdatedAt = now
+		return tx.Create(&row).Error
+	}
+	if err != nil {
+		return err
+	}
+	return tx.Model(&existing).Updates(map[string]interface{}{
+		"priority": row.Priority, "weight": row.Weight, "max_retry": row.MaxRetry,
+		"timeout_ms": row.TimeoutMS, "status": row.Status, "updated_at": now,
+	}).Error
+}
+
 func upsertScenarioImport(ctx context.Context, tx *gorm.DB, item ScenarioImportItem, now time.Time) error {
 	row := models.AIScenario{
 		AppCode:            strings.TrimSpace(item.AppCode),
@@ -1677,6 +1864,26 @@ func (s *Service) deleteProviderAccountCascade(ctx context.Context, id string, n
 			return err
 		}
 		res := tx.Model(&models.AIProviderAccount{}).Where("id = ? AND deleted_at IS NULL", id).Updates(map[string]interface{}{"deleted_at": now, "updated_at": now, "status": "inactive"})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return ErrNotFound
+		}
+		return nil
+	})
+}
+
+func (s *Service) deleteBaseRouteCascade(ctx context.Context, id string, now time.Time) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var route models.AIBaseRoute
+		if err := tx.Where("id = ? AND deleted_at IS NULL", id).First(&route).Error; err != nil {
+			return ErrNotFound
+		}
+		if err := tx.Model(&models.AIBaseRouteModel{}).Where("base_route_id = ? AND deleted_at IS NULL", id).Updates(map[string]interface{}{"deleted_at": now, "updated_at": now, "status": "inactive"}).Error; err != nil {
+			return err
+		}
+		res := tx.Model(&models.AIBaseRoute{}).Where("id = ? AND deleted_at IS NULL", id).Updates(map[string]interface{}{"deleted_at": now, "updated_at": now, "status": "inactive"})
 		if res.Error != nil {
 			return res.Error
 		}
@@ -1795,6 +2002,31 @@ func defaultString(value, fallback string) string {
 		return fallback
 	}
 	return strings.TrimSpace(value)
+}
+
+func defaultInt(value, fallback int) int {
+	if value == 0 {
+		return fallback
+	}
+	return value
+}
+
+func validRouteStrategy(strategy string) bool {
+	switch strings.TrimSpace(strategy) {
+	case "fixed", "fallback", "priority", "load_balance", "cost_first", "quality_first", "latency_first", "quota_aware", "tenant_custom", "capability_match":
+		return true
+	default:
+		return false
+	}
+}
+
+func validRouteModelRole(role string) bool {
+	switch strings.TrimSpace(role) {
+	case "primary", "fallback", "candidate":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Service) Audit(ctx context.Context, userID uint64, module, action, summary string, detail interface{}) {

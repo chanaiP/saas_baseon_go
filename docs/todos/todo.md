@@ -96,13 +96,13 @@
 
 ## 8. 菜单五：基础路由
 
-- [ ] 后端：基础路由导入接口支持 base-routes 和 route-models 批量 upsert。
-- [ ] 后端：基础路由导入校验能力字典、模型存在、模型池权重/优先级合法。
-- [ ] 后端：删除基础路由时阻断被 AI 场景或租户策略引用，并处理模型池子资源。
+- [x] 后端：基础路由导入接口支持 base-routes 和 route-models 批量 upsert。
+- [x] 后端：基础路由导入校验能力字典、模型存在、模型池权重/优先级合法。
+- [x] 后端：删除基础路由时阻断被 AI 场景或租户策略引用，并处理模型池子资源。
 - [ ] 基础路由页提供模型池编辑器，支持 role、priority、weight、retry、timeout。
 - [ ] 基础路由页策略枚举覆盖 fixed/fallback/priority/load_balance/cost_first/quality_first/latency_first/quota_aware/tenant_custom/capability_match。
-- [ ] 文档：补充基础路由和模型池导入 payload 示例。
-- [ ] 测试：补充基础路由批量 upsert、模型池校验、引用阻断单测。
+- [x] 文档：补充基础路由和模型池导入 payload 示例。
+- [x] 测试：补充基础路由批量 upsert、模型池校验、引用阻断单测。
 - [ ] Review：检查模型池编辑交互、策略枚举、删除边界。
 
 ## 9. 菜单六：策略中心

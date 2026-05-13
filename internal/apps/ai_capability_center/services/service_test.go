@@ -401,6 +401,118 @@ func TestImportScenariosRollsBackOnInvalidReference(t *testing.T) {
 	require.Equal(t, int64(0), count)
 }
 
+func TestImportRoutesUpsertsBaseRoutesAndModelPool(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "chat_completion", "tokens")
+	seedProvider(t, db, "openai")
+	model := seedModel(t, db, "openai", "gpt-4.1")
+	service := NewService(db)
+	ctx := context.Background()
+
+	result, err := service.ImportRoutes(ctx, 7, RouteImportRequest{
+		BaseRoutes: []RouteImportBaseRoute{{
+			RouteCode: "chat-default", RouteName: "对话默认路由", CapabilityCode: "chat_completion", ModelType: "text",
+			Strategy: "fallback", TimeoutMS: 30000, MaxRetry: 2,
+			RouteModels: []RouteImportRouteModel{{
+				ProviderCode: "openai", ModelCode: "gpt-4.1", Role: "primary", Priority: 1, Weight: 100, TimeoutMS: 25000,
+			}},
+		}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, RouteImportResult{BaseRoutes: 1, RouteModels: 1}, result)
+
+	var route models.AIBaseRoute
+	require.NoError(t, db.Where("route_code = ? AND deleted_at IS NULL", "chat-default").First(&route).Error)
+	require.Equal(t, "fallback", route.Strategy)
+	var routeModel models.AIBaseRouteModel
+	require.NoError(t, db.Where("base_route_id = ? AND model_id = ? AND role = ? AND deleted_at IS NULL", route.ID, model.ID, "primary").First(&routeModel).Error)
+	require.Equal(t, 100, routeModel.Weight)
+	require.Equal(t, 25000, routeModel.TimeoutMS)
+
+	result, err = service.ImportRoutes(ctx, 7, RouteImportRequest{
+		BaseRoutes: []RouteImportBaseRoute{{
+			RouteCode: "chat-default", RouteName: "对话优先路由", CapabilityCode: "chat_completion", ModelType: "text",
+			Strategy: "priority", TimeoutMS: 45000, MaxRetry: 1,
+		}},
+		RouteModels: []RouteImportRouteModel{{
+			BaseRouteCode: "chat-default", ProviderCode: "openai", ModelCode: "gpt-4.1", Role: "primary", Priority: 2, Weight: 80, MaxRetry: 1, TimeoutMS: 35000,
+		}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, RouteImportResult{BaseRoutes: 1, RouteModels: 1}, result)
+
+	var count int64
+	require.NoError(t, db.Model(&models.AIBaseRoute{}).Where("route_code = ? AND deleted_at IS NULL", "chat-default").Count(&count).Error)
+	require.Equal(t, int64(1), count)
+	require.NoError(t, db.Model(&models.AIBaseRouteModel{}).Where("base_route_id = ? AND model_id = ? AND role = ? AND deleted_at IS NULL", route.ID, model.ID, "primary").Count(&count).Error)
+	require.Equal(t, int64(1), count)
+	require.NoError(t, db.Where("id = ?", route.ID).First(&route).Error)
+	require.Equal(t, "对话优先路由", route.RouteName)
+	require.Equal(t, "priority", route.Strategy)
+	require.NoError(t, db.Where("id = ?", routeModel.ID).First(&routeModel).Error)
+	require.Equal(t, 2, routeModel.Priority)
+	require.Equal(t, 80, routeModel.Weight)
+}
+
+func TestImportRoutesRollsBackOnInvalidModelPool(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "chat_completion", "tokens")
+	service := NewService(db)
+	ctx := context.Background()
+
+	_, err := service.ImportRoutes(ctx, 7, RouteImportRequest{
+		BaseRoutes: []RouteImportBaseRoute{{
+			RouteCode: "chat-default", RouteName: "对话默认路由", CapabilityCode: "chat_completion", ModelType: "text",
+			Strategy: "load_balance", TimeoutMS: 30000,
+			RouteModels: []RouteImportRouteModel{{
+				ModelID: "missing-model", Role: "primary", Priority: 1, Weight: 100, TimeoutMS: 25000,
+			}},
+		}},
+	})
+	require.ErrorIs(t, err, ErrInvalidInput)
+
+	var count int64
+	require.NoError(t, db.Model(&models.AIBaseRoute{}).Where("route_code = ?", "chat-default").Count(&count).Error)
+	require.Equal(t, int64(0), count)
+	require.NoError(t, db.Model(&models.AIBaseRouteModel{}).Count(&count).Error)
+	require.Equal(t, int64(0), count)
+}
+
+func TestDeleteBaseRouteBlocksReferencesAndCascadesModelPool(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "chat_completion", "tokens")
+	seedProvider(t, db, "openai")
+	model := seedModel(t, db, "openai", "gpt-4.1")
+	route := seedBaseRoute(t, db, "route-chat", "chat_completion")
+	now := time.Now()
+	routeModel := models.AIBaseRouteModel{
+		ID: "route-model-primary", BaseRouteID: route.ID, ModelID: model.ID, Role: "primary", Priority: 1, Weight: 100, TimeoutMS: 30000, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&routeModel).Error)
+	scenario := models.AIScenario{
+		ID: "scenario-route", AppCode: "product_center", AppName: "商品中心", AIScenarioCode: "copy_gen", AIScenarioName: "文案生成",
+		ScenarioType: "text", CapabilityCode: "chat_completion", ModelType: "text", DefaultBaseRouteID: route.ID, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&scenario).Error)
+
+	service := NewService(db)
+	err := service.DeleteResource(context.Background(), 7, "base-routes", route.ID)
+	require.ErrorIs(t, err, ErrResourceInUse)
+
+	require.NoError(t, db.Model(&models.AIScenario{}).Where("id = ?", scenario.ID).Update("deleted_at", now).Error)
+	err = service.DeleteResource(context.Background(), 7, "base-routes", route.ID)
+	require.NoError(t, err)
+
+	var deletedRoute models.AIBaseRoute
+	require.NoError(t, db.Where("id = ?", route.ID).First(&deletedRoute).Error)
+	require.NotNil(t, deletedRoute.DeletedAt)
+	var deletedRouteModel models.AIBaseRouteModel
+	require.NoError(t, db.Where("id = ?", routeModel.ID).First(&deletedRouteModel).Error)
+	require.NotNil(t, deletedRouteModel.DeletedAt)
+}
+
 func TestDeleteScenarioBlocksUsageAndStrategyReferences(t *testing.T) {
 	db := newAICapabilityTestDB(t)
 	seedCapability(t, db, "chat_completion", "tokens")
@@ -595,6 +707,20 @@ func newAICapabilityTestDB(t *testing.T) *gorm.DB {
 		updated_at DATETIME NOT NULL,
 		deleted_at DATETIME
 	)`).Error)
+	require.NoError(t, db.Exec(`CREATE TABLE ai_base_route_models (
+		id TEXT PRIMARY KEY,
+		base_route_id TEXT NOT NULL,
+		model_id TEXT NOT NULL,
+		role TEXT NOT NULL,
+		priority INTEGER NOT NULL DEFAULT 1,
+		weight INTEGER NOT NULL DEFAULT 100,
+		max_retry INTEGER NOT NULL DEFAULT 0,
+		timeout_ms INTEGER NOT NULL DEFAULT 30000,
+		status TEXT NOT NULL DEFAULT 'active',
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL,
+		deleted_at DATETIME
+	)`).Error)
 	require.NoError(t, db.Exec(`CREATE TABLE ai_scenarios (
 		id TEXT PRIMARY KEY,
 		app_code TEXT NOT NULL,
@@ -704,6 +830,20 @@ func seedProvider(t *testing.T, db *gorm.DB, providerCode string) models.AIProvi
 	}
 	require.NoError(t, db.Create(&provider).Error)
 	return provider
+}
+
+func seedModel(t *testing.T, db *gorm.DB, providerCode, modelCode string) models.AIModel {
+	t.Helper()
+	var provider models.AIProvider
+	require.NoError(t, db.Where("code = ? AND deleted_at IS NULL", providerCode).First(&provider).Error)
+	now := time.Now()
+	model := models.AIModel{
+		ID: "model-" + providerCode + "-" + modelCode, ProviderID: provider.ID, ModelCode: modelCode, ModelName: modelCode,
+		ModelType: "text", Capabilities: []string{"chat_completion"}, Status: "active", DefaultFor: []string{},
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&model).Error)
+	return model
 }
 
 func seedProviderAccountAPI(t *testing.T, db *gorm.DB, providerCode, accountName string) (models.AIProvider, models.AIProviderAccount, models.AIProviderAPI) {

@@ -215,3 +215,50 @@ AI 场景通过 `POST /api/ai-capability-center/scenarios/import` 批量注册�
   ]
 }
 ```
+
+## 基础路由批量导入
+
+基础路由通过 `POST /api/ai-capability-center/routes/import` 一次性导入基础路由和模型池。导入在单个事务内执行，按 `route_code` 幂等 upsert 基础路由，按 `base_route + model + role` 幂等 upsert 模型池节点。基础路由会校验能力字典存在，策略只允许 `fixed/fallback/priority/load_balance/cost_first/quality_first/latency_first/quota_aware/tenant_custom/capability_match`；模型池会校验模型存在，且 `role` 只允许 `primary/fallback/candidate`，`priority/weight/timeout_ms` 必须为正数，`max_retry` 不能为负数。任一引用或数值不合法时整批回滚。
+
+```json
+{
+  "base_routes": [
+    {
+      "route_code": "chat-default",
+      "route_name": "对话默认路由",
+      "capability_code": "chat_completion",
+      "model_type": "text",
+      "strategy": "fallback",
+      "timeout_ms": 30000,
+      "max_retry": 2,
+      "description": "平台默认对话生成模型池",
+      "status": "active",
+      "route_models": [
+        {
+          "provider_code": "openai",
+          "model_code": "gpt-4.1",
+          "role": "primary",
+          "priority": 1,
+          "weight": 100,
+          "max_retry": 1,
+          "timeout_ms": 25000,
+          "status": "active"
+        }
+      ]
+    }
+  ],
+  "route_models": [
+    {
+      "base_route_code": "chat-default",
+      "provider_code": "openai",
+      "model_code": "gpt-4.1-mini",
+      "role": "fallback",
+      "priority": 2,
+      "weight": 60,
+      "max_retry": 1,
+      "timeout_ms": 20000,
+      "status": "active"
+    }
+  ]
+}
+```
