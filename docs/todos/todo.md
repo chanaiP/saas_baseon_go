@@ -3,7 +3,7 @@
 > 分支：`codex/ai-capability-center`
 > 原型：`/Users/chen.ai/Project/ai-model-center-demo-v10-tenant-strategy-dashboard.zip`
 > 需求：`/Users/chen.ai/Project/ai_model_center_requirement_design.md`
-> 交付口径：独立“用量统计”页面已按产品决策删除；总览页承接用量趋势、成本结构、租户排行，用量明细保留为后端数据源。
+> 交付口径：AI 能力中心属于业务中台的平台能力，仅平台可见和管理；非售卖、非订阅、非套餐能力。独立“用量统计”页面已按产品决策删除；总览页承接用量趋势、成本结构、租户排行，用量明细保留为后端数据源。
 
 ## 0. 方案与范围
 
@@ -12,16 +12,18 @@
 - [x] 确认菜单收敛为 7 个：总览、供应商、模型目录、AI 场景、基础路由、策略中心、系统设置。
 - [x] 删除独立用量统计菜单、路由、套餐功能点和前端入口。
 - [x] 保留 `usage-records` 后端资源，作为总览和 Gateway 调用审计的数据源。
+- [x] 明确应用定位为业务中台平台能力：`PLATFORM_ONLY + NON_SELLABLE + billing_mode=NONE + package_policy=NON_SELLABLE`。
 
 ## 1. 应用装载与权限
 
 - [x] 新增 `internal/apps/ai_capability_center/app.manifest.yaml`。
 - [x] 声明 7 个菜单和 AI Gateway 调用权限。
 - [x] 声明配置管理权限 `ai_capability_center:manage`。
-- [x] 声明 API 权限矩阵、套餐功能点和配额。
+- [x] 声明 API 权限矩阵，不声明套餐功能点和配额。
 - [x] 验证 Manifest 可被应用中心解析。
-- [x] 复核 manifest 菜单、权限、套餐功能点与删除用量统计页后的最终口径一致。
-- [x] 在本地应用中心数据库执行 manifest 装载闭环，确认后台应用记录、菜单、权限、API、套餐功能点和配额已写入。
+- [x] 复核 manifest 菜单、权限、非售卖、非套餐与删除用量统计页后的最终口径一致。
+- [x] 在本地应用中心数据库执行 manifest 装载闭环，确认后台应用记录、菜单、权限、API 已写入，套餐功能点和配额不再纳入。
+- [x] 修复 Manifest 装载中 `false` 布尔值被数据库默认值覆盖的问题，确保平台菜单、权限和套餐开关按声明落库。
 
 ## 2. 基础后端与数据库
 

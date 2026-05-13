@@ -108,6 +108,9 @@ func (s *AppService) LoadManifest(ctx context.Context, viewerID uint64, req dto.
 		if err := s.syncManifestAssets(tx, env, now); err != nil {
 			return markLoadFailed(tx, load.ID, err)
 		}
+		if err := s.disableMissingManifestAssets(tx, env, now); err != nil {
+			return markLoadFailed(tx, load.ID, err)
+		}
 		if err := s.syncManifestPermissions(tx, env, now); err != nil {
 			return markLoadFailed(tx, load.ID, err)
 		}
@@ -744,7 +747,7 @@ func (s *AppService) syncManifestAssets(tx *gorm.DB, env manifestEnvelope, now t
 			Path:              strings.TrimSpace(menu.Path),
 			ParentCode:        cleanOptionalString(&menu.ParentCode),
 			SortOrder:         menu.SortOrder,
-			PlatformOnly:      menu.PlatformOnly,
+			PlatformOnly:      manifestAssetPlatformOnly(env, menu.PlatformOnly),
 			TenantVisible:     menu.TenantVisible,
 			TenantEditable:    menu.TenantEditable,
 			IncludeInPackage:  menu.IncludeInPackage,
@@ -787,7 +790,7 @@ func (s *AppService) syncManifestAssets(tx *gorm.DB, env manifestEnvelope, now t
 			Name:              strings.TrimSpace(op.Name),
 			PermissionType:    "OPERATION",
 			MenuCode:          cleanOptionalString(&op.MenuCode),
-			PlatformOnly:      op.PlatformOnly,
+			PlatformOnly:      manifestAssetPlatformOnly(env, op.PlatformOnly),
 			IncludeInPackage:  op.IncludeInPackage,
 			DataPermMode:      "NONE",
 			ManifestHash:      env.parse.ManifestHash,
@@ -808,7 +811,7 @@ func (s *AppService) syncManifestAssets(tx *gorm.DB, env manifestEnvelope, now t
 			Name:              strings.TrimSpace(perm.Name),
 			PermissionType:    defaultString(perm.Type, "PERMISSION"),
 			MenuCode:          cleanOptionalString(&perm.MenuCode),
-			PlatformOnly:      perm.PlatformOnly,
+			PlatformOnly:      manifestAssetPlatformOnly(env, perm.PlatformOnly),
 			IncludeInPackage:  perm.IncludeInPackage,
 			DataPermMode:      defaultString(perm.DataPermMode, "ORG"),
 			ManifestHash:      env.parse.ManifestHash,
@@ -868,13 +871,170 @@ func (s *AppService) syncManifestAssets(tx *gorm.DB, env manifestEnvelope, now t
 	return nil
 }
 
+func (s *AppService) disableMissingManifestAssets(tx *gorm.DB, env manifestEnvelope, now time.Time) error {
+	declaredMenus := map[string]struct{}{}
+	for _, menu := range env.manifest.Menus {
+		declaredMenus[strings.TrimSpace(menu.Code)] = struct{}{}
+	}
+	if err := disableMissingManifestRows(tx, &models.SysAppEntry{}, env.parse.AppCode, "resource_code", declaredMenus, now); err != nil {
+		return err
+	}
+
+	declaredAPIs := map[string]struct{}{}
+	for _, api := range env.manifest.APIs {
+		key := strings.ToUpper(strings.TrimSpace(api.Method)) + " " + strings.TrimSpace(api.Path)
+		declaredAPIs[key] = struct{}{}
+	}
+	if err := disableMissingManifestAPIs(tx, env.parse.AppCode, declaredAPIs, now); err != nil {
+		return err
+	}
+
+	declaredPermissions := map[string]struct{}{}
+	for _, op := range env.manifest.Operations {
+		declaredPermissions[strings.TrimSpace(defaultString(op.PermissionCode, op.Code))] = struct{}{}
+	}
+	for _, perm := range env.manifest.Permissions {
+		declaredPermissions[strings.TrimSpace(perm.Code)] = struct{}{}
+	}
+	if err := disableMissingManifestRows(tx, &models.SysAppPermission{}, env.parse.AppCode, "permission_code", declaredPermissions, now); err != nil {
+		return err
+	}
+
+	declaredFeatures := map[string]struct{}{}
+	for _, feature := range env.manifest.PackageFeatures {
+		declaredFeatures[strings.TrimSpace(feature.FeatureCode)] = struct{}{}
+	}
+	staleFeatures, err := staleManifestPackageFeatureCodes(tx, env.parse.AppCode, declaredFeatures)
+	if err != nil {
+		return err
+	}
+	if err := disableMissingManifestRows(tx, &models.SysAppPackageFeature{}, env.parse.AppCode, "feature_code", declaredFeatures, now); err != nil {
+		return err
+	}
+	if len(staleFeatures) > 0 {
+		if err := tx.Model(&models.SaasFeature{}).
+			Where("app_code = ? AND feature_code IN ?", env.parse.AppCode, staleFeatures).
+			Updates(map[string]interface{}{"status": 0, "updated_at": now}).Error; err != nil {
+			return err
+		}
+	}
+
+	declaredQuotas := map[string]struct{}{}
+	for _, quota := range env.manifest.Quotas {
+		declaredQuotas[strings.TrimSpace(quota.QuotaCode)] = struct{}{}
+	}
+	staleQuotas, err := staleManifestQuotaCodes(tx, env.parse.AppCode, declaredQuotas)
+	if err != nil {
+		return err
+	}
+	if err := disableMissingManifestRows(tx, &models.SysAppQuota{}, env.parse.AppCode, "quota_code", declaredQuotas, now); err != nil {
+		return err
+	}
+	if len(staleQuotas) > 0 {
+		if err := tx.Model(&models.SaasQuota{}).
+			Where("quota_code IN ?", staleQuotas).
+			Updates(map[string]interface{}{"status": 0, "updated_at": now}).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func disableMissingManifestRows(tx *gorm.DB, model interface{}, appCode string, codeColumn string, declared map[string]struct{}, now time.Time) error {
+	query := tx.Model(model).
+		Where("app_code = ? AND managed_by_manifest = ? AND status = ? AND manifest_hash <> ? AND deleted_at IS NULL", appCode, true, "ACTIVE", legacyManifestBaselineHash)
+	if len(declared) > 0 {
+		query = query.Where(codeColumn+" NOT IN ?", mapKeys(declared))
+	}
+	return query.Updates(map[string]interface{}{"status": "DISABLED", "updated_at": now, "last_synced_at": now}).Error
+}
+
+func disableMissingManifestAPIs(tx *gorm.DB, appCode string, declared map[string]struct{}, now time.Time) error {
+	var rows []models.SysAppAPI
+	if err := tx.Where("app_code = ? AND managed_by_manifest = ? AND status = ? AND manifest_hash <> ? AND deleted_at IS NULL", appCode, true, "ACTIVE", legacyManifestBaselineHash).Find(&rows).Error; err != nil {
+		return err
+	}
+	for _, row := range rows {
+		key := strings.ToUpper(strings.TrimSpace(row.Method)) + " " + strings.TrimSpace(row.Path)
+		if _, ok := declared[key]; ok {
+			continue
+		}
+		if err := tx.Model(&models.SysAppAPI{}).
+			Where("id = ?", row.ID).
+			Updates(map[string]interface{}{"status": "DISABLED", "updated_at": now, "last_synced_at": now}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func staleManifestPackageFeatureCodes(tx *gorm.DB, appCode string, declared map[string]struct{}) ([]string, error) {
+	var rows []models.SysAppPackageFeature
+	if err := tx.Where("app_code = ? AND managed_by_manifest = ? AND status = ? AND manifest_hash <> ? AND deleted_at IS NULL", appCode, true, "ACTIVE", legacyManifestBaselineHash).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	codes := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if _, ok := declared[row.FeatureCode]; ok {
+			continue
+		}
+		codes = append(codes, row.FeatureCode)
+	}
+	return codes, nil
+}
+
+func staleManifestQuotaCodes(tx *gorm.DB, appCode string, declared map[string]struct{}) ([]string, error) {
+	var rows []models.SysAppQuota
+	if err := tx.Where("app_code = ? AND managed_by_manifest = ? AND status = ? AND manifest_hash <> ? AND deleted_at IS NULL", appCode, true, "ACTIVE", legacyManifestBaselineHash).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	codes := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if _, ok := declared[row.QuotaCode]; ok {
+			continue
+		}
+		codes = append(codes, row.QuotaCode)
+	}
+	return codes, nil
+}
+
+func mapKeys(values map[string]struct{}) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		if strings.TrimSpace(key) == "" {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	return keys
+}
+
 func upsertManifestAsset[T any](tx *gorm.DB, row T, _ []clause.Column) error {
 	switch value := any(row).(type) {
 	case models.SysAppEntry:
 		var existing models.SysAppEntry
 		err := tx.Where("app_code = ? AND resource_code = ? AND deleted_at IS NULL", value.AppCode, value.ResourceCode).First(&existing).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return tx.Create(&value).Error
+			platformOnly := value.PlatformOnly
+			tenantVisible := value.TenantVisible
+			tenantEditable := value.TenantEditable
+			includeInPackage := value.IncludeInPackage
+			featureCode := value.FeatureCode
+			dataPermMode := value.DataPermMode
+			status := value.Status
+			if err := tx.Create(&value).Error; err != nil {
+				return err
+			}
+			return tx.Model(&models.SysAppEntry{}).Where("app_code = ? AND resource_code = ? AND deleted_at IS NULL", value.AppCode, value.ResourceCode).Updates(map[string]interface{}{
+				"platform_only":      platformOnly,
+				"tenant_visible":     tenantVisible,
+				"tenant_editable":    tenantEditable,
+				"include_in_package": includeInPackage,
+				"feature_code":       featureCode,
+				"data_perm_mode":     dataPermMode,
+				"status":             status,
+			}).Error
 		}
 		if err != nil {
 			return err
@@ -889,7 +1049,7 @@ func upsertManifestAsset[T any](tx *gorm.DB, row T, _ []clause.Column) error {
 		var existing models.SysAppAPI
 		err := tx.Where("app_code = ? AND method = ? AND path = ? AND deleted_at IS NULL", value.AppCode, value.Method, value.Path).First(&existing).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return tx.Create(&value).Error
+			return tx.Select("*").Create(&value).Error
 		}
 		if err != nil {
 			return err
@@ -904,7 +1064,19 @@ func upsertManifestAsset[T any](tx *gorm.DB, row T, _ []clause.Column) error {
 		var existing models.SysAppPermission
 		err := tx.Where("app_code = ? AND permission_code = ? AND deleted_at IS NULL", value.AppCode, value.PermissionCode).First(&existing).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return tx.Create(&value).Error
+			platformOnly := value.PlatformOnly
+			includeInPackage := value.IncludeInPackage
+			dataPermMode := value.DataPermMode
+			status := value.Status
+			if err := tx.Create(&value).Error; err != nil {
+				return err
+			}
+			return tx.Model(&models.SysAppPermission{}).Where("app_code = ? AND permission_code = ? AND deleted_at IS NULL", value.AppCode, value.PermissionCode).Updates(map[string]interface{}{
+				"platform_only":      platformOnly,
+				"include_in_package": includeInPackage,
+				"data_perm_mode":     dataPermMode,
+				"status":             status,
+			}).Error
 		}
 		if err != nil {
 			return err
@@ -919,7 +1091,17 @@ func upsertManifestAsset[T any](tx *gorm.DB, row T, _ []clause.Column) error {
 		var existing models.SysAppPackageFeature
 		err := tx.Where("app_code = ? AND feature_code = ? AND deleted_at IS NULL", value.AppCode, value.FeatureCode).First(&existing).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return tx.Create(&value).Error
+			includeInPackage := value.IncludeInPackage
+			packagePolicy := value.PackagePolicy
+			status := value.Status
+			if err := tx.Create(&value).Error; err != nil {
+				return err
+			}
+			return tx.Model(&models.SysAppPackageFeature{}).Where("app_code = ? AND feature_code = ? AND deleted_at IS NULL", value.AppCode, value.FeatureCode).Updates(map[string]interface{}{
+				"include_in_package": includeInPackage,
+				"package_policy":     packagePolicy,
+				"status":             status,
+			}).Error
 		}
 		if err != nil {
 			return err
@@ -934,7 +1116,15 @@ func upsertManifestAsset[T any](tx *gorm.DB, row T, _ []clause.Column) error {
 		var existing models.SysAppQuota
 		err := tx.Where("app_code = ? AND quota_code = ? AND deleted_at IS NULL", value.AppCode, value.QuotaCode).First(&existing).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return tx.Create(&value).Error
+			includeInPackage := value.IncludeInPackage
+			status := value.Status
+			if err := tx.Create(&value).Error; err != nil {
+				return err
+			}
+			return tx.Model(&models.SysAppQuota{}).Where("app_code = ? AND quota_code = ? AND deleted_at IS NULL", value.AppCode, value.QuotaCode).Updates(map[string]interface{}{
+				"include_in_package": includeInPackage,
+				"status":             status,
+			}).Error
 		}
 		if err != nil {
 			return err
@@ -969,7 +1159,7 @@ func (s *AppService) syncManifestPermissions(tx *gorm.DB, env manifestEnvelope, 
 			SortOrder:        menu.SortOrder,
 			Enabled:          true,
 			Visible:          menu.TenantVisible,
-			IsPlatformOnly:   menu.PlatformOnly,
+			IsPlatformOnly:   manifestAssetPlatformOnly(env, menu.PlatformOnly),
 			IsPackageFeature: menu.IncludeInPackage,
 			TenantEditable:   menu.TenantEditable,
 			AppCode:          env.parse.AppCode,
@@ -1010,7 +1200,7 @@ func (s *AppService) syncManifestPermissions(tx *gorm.DB, env manifestEnvelope, 
 			PermType:         2,
 			Enabled:          true,
 			Visible:          false,
-			IsPlatformOnly:   op.PlatformOnly,
+			IsPlatformOnly:   manifestAssetPlatformOnly(env, op.PlatformOnly),
 			IsPackageFeature: op.IncludeInPackage,
 			AppCode:          env.parse.AppCode,
 			FeatureCode:      cleanOptionalString(&op.FeatureCode),
@@ -1037,7 +1227,7 @@ func (s *AppService) syncManifestPermissions(tx *gorm.DB, env manifestEnvelope, 
 			PermType:         manifestPermType(perm.Type),
 			Enabled:          true,
 			Visible:          false,
-			IsPlatformOnly:   perm.PlatformOnly,
+			IsPlatformOnly:   manifestAssetPlatformOnly(env, perm.PlatformOnly),
 			IsPackageFeature: perm.IncludeInPackage,
 			AppCode:          env.parse.AppCode,
 			FeatureType:      cleanOptionalString(&perm.Type),
@@ -1056,7 +1246,27 @@ func upsertPermissionByPath(tx *gorm.DB, row *models.Permission) error {
 	var existing models.Permission
 	err := tx.Where("tenant_id = ? AND path = ? AND deleted_at IS NULL", row.TenantID, row.Path).First(&existing).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return tx.Create(row).Error
+		enabled := row.Enabled
+		visible := row.Visible
+		isPlatformOnly := row.IsPlatformOnly
+		isPackageFeature := row.IsPackageFeature
+		tenantEditable := row.TenantEditable
+		featureCode := row.FeatureCode
+		featureType := row.FeatureType
+		dataPermMode := row.DataPermMode
+		if err := tx.Create(row).Error; err != nil {
+			return err
+		}
+		return tx.Model(&models.Permission{}).Where("tenant_id = ? AND path = ? AND deleted_at IS NULL", row.TenantID, row.Path).Updates(map[string]interface{}{
+			"enabled":            enabled,
+			"visible":            visible,
+			"is_platform_only":   isPlatformOnly,
+			"is_package_feature": isPackageFeature,
+			"tenant_editable":    tenantEditable,
+			"feature_code":       featureCode,
+			"feature_type":       featureType,
+			"data_perm_mode":     dataPermMode,
+		}).Error
 	}
 	if err != nil {
 		return err
@@ -1198,6 +1408,10 @@ func manifestChargeMode(chargePolicy string, billingMode string) string {
 		return "SUBSCRIPTION"
 	}
 	return mode
+}
+
+func manifestAssetPlatformOnly(env manifestEnvelope, declared bool) bool {
+	return declared || strings.EqualFold(defaultString(env.parse.VisibilityScope, env.manifest.App.VisibilityScope), "PLATFORM_ONLY")
 }
 
 func manifestClientName(code string) string {

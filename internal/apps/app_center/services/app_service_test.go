@@ -266,8 +266,58 @@ func TestAppCenterParseAICapabilityCenterManifest(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, result.Valid)
 	require.Equal(t, "ai-capability-center", result.AppCode)
+	require.Equal(t, "PLATFORM_ONLY", result.VisibilityScope)
+	require.Equal(t, "NON_SELLABLE", result.ChargePolicy)
+	require.Equal(t, "NONE", result.BillingMode)
+	require.Equal(t, "NON_SELLABLE", result.PackagePolicy)
 	require.Equal(t, 7, result.Counts.Menus)
+	require.Equal(t, 0, result.Counts.PackageFeatures)
+	require.Equal(t, 0, result.Counts.Quotas)
 	require.NotEmpty(t, result.ManifestHash)
+}
+
+func TestAppCenterLoadPlatformOnlyManifestKeepsAssetsOutOfPackages(t *testing.T) {
+	db := newAppCenterTestDB(t)
+	require.NoError(t, db.Create(&models.Tenant{ID: 1, Code: "platform", Name: "平台主体", IsPlatform: true, Status: 1}).Error)
+	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "internal", "apps", "ai_capability_center", "app.manifest.yaml"))
+	require.NoError(t, err)
+
+	service := NewAppService(repositories.NewAppRepository(db))
+	loaded, err := service.LoadManifest(context.Background(), 1, dto.ManifestLoadRequest{
+		FileName:   "app.manifest.yaml",
+		Content:    string(raw),
+		SourceType: "LOCAL_FILE",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "SUCCESS", loaded.Status)
+
+	var app models.SysApp
+	require.NoError(t, db.Where("app_code = ?", "ai-capability-center").First(&app).Error)
+	require.Equal(t, "PLATFORM_ONLY", app.VisibilityScope)
+	require.Equal(t, "NON_SELLABLE", app.ChargeMode)
+	require.True(t, app.IsPlatformOnly)
+
+	var tenantVisibleMenus int64
+	require.NoError(t, db.Model(&models.SysAppEntry{}).
+		Where("app_code = ? AND (platform_only = ? OR tenant_visible = ? OR include_in_package = ? OR data_perm_mode <> ?)", "ai-capability-center", false, true, true, "NONE").
+		Count(&tenantVisibleMenus).Error)
+	require.Zero(t, tenantVisibleMenus)
+
+	var packagedPermissions int64
+	require.NoError(t, db.Model(&models.Permission{}).
+		Where("app_code = ? AND (is_platform_only = ? OR visible = ? OR is_package_feature = ? OR data_perm_mode <> ?)", "ai-capability-center", false, true, true, "NONE").
+		Count(&packagedPermissions).Error)
+	require.Zero(t, packagedPermissions)
+
+	var packageFeatures int64
+	require.NoError(t, db.Model(&models.SaasFeature{}).Where("app_code = ? AND status = ?", "ai-capability-center", 1).Count(&packageFeatures).Error)
+	require.Zero(t, packageFeatures)
+
+	var quotas int64
+	require.NoError(t, db.Model(&models.SysAppQuota{}).Where("app_code = ? AND status = ?", "ai-capability-center", "ACTIVE").Count(&quotas).Error)
+	require.Zero(t, quotas)
 }
 
 func TestAppCenterParseManifestBlocksExistingAppCodeForNewImport(t *testing.T) {
@@ -663,7 +713,11 @@ func TestAppCenterDiffManifestMarksMissingAssetsAsDisable(t *testing.T) {
 	require.NoError(t, db.Create(&models.SysApp{AppCode: "ops-console", AppName: "运营控制台", AppType: "BUSINESS_APP", Source: "MANIFEST", Status: "INITIATED", ChargeMode: "SUBSCRIPTION", VisibilityScope: "TENANT", DeploymentMode: "MERGED"}).Error)
 	require.NoError(t, db.Create(&models.SysAppEntry{AppCode: "ops-console", ResourceCode: "old_menu", Name: "旧菜单", ManagedByManifest: true, Status: "ACTIVE"}).Error)
 	require.NoError(t, db.Create(&models.SysAppAPI{AppCode: "ops-console", Method: "GET", Path: "/api/old", ManagedByManifest: true, Status: "ACTIVE"}).Error)
+	require.NoError(t, db.Create(&models.SysAppPermission{AppCode: "ops-console", PermissionCode: "old_perm", Name: "旧权限", ManagedByManifest: true, Status: "ACTIVE"}).Error)
 	require.NoError(t, db.Create(&models.SysAppPackageFeature{AppCode: "ops-console", FeatureCode: "old_feature", FeatureName: "旧功能", ManagedByManifest: true, Status: "ACTIVE"}).Error)
+	require.NoError(t, db.Create(&models.SysAppQuota{AppCode: "ops-console", QuotaCode: "old_quota", QuotaName: "旧配额", ManagedByManifest: true, Status: "ACTIVE"}).Error)
+	require.NoError(t, db.Create(&models.SaasFeature{FeatureCode: "old_feature", FeatureName: "旧功能", FeatureType: "MENU", AppCode: "ops-console", Status: 1}).Error)
+	require.NoError(t, db.Create(&models.SaasQuota{QuotaCode: "old_quota", QuotaName: "旧配额", QuotaType: "STATIC", Status: 1}).Error)
 
 	manifest := `manifest_version: "1.0"
 fragment_role: main
@@ -703,7 +757,45 @@ package_features:
 	}
 	require.True(t, disabled["old_menu"])
 	require.True(t, disabled["GET /api/old"])
+	require.True(t, disabled["old_perm"])
 	require.True(t, disabled["old_feature"])
+	require.True(t, disabled["old_quota"])
+
+	loaded, err := service.LoadManifest(context.Background(), 1, dto.ManifestLoadRequest{
+		FileName:   "app.manifest.yaml",
+		Content:    manifest,
+		SourceType: "UPLOAD",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "SUCCESS", loaded.Status)
+
+	var oldMenu models.SysAppEntry
+	require.NoError(t, db.Where("app_code = ? AND resource_code = ?", "ops-console", "old_menu").First(&oldMenu).Error)
+	require.Equal(t, "DISABLED", oldMenu.Status)
+
+	var oldAPI models.SysAppAPI
+	require.NoError(t, db.Where("app_code = ? AND method = ? AND path = ?", "ops-console", "GET", "/api/old").First(&oldAPI).Error)
+	require.Equal(t, "DISABLED", oldAPI.Status)
+
+	var oldPermission models.SysAppPermission
+	require.NoError(t, db.Where("app_code = ? AND permission_code = ?", "ops-console", "old_perm").First(&oldPermission).Error)
+	require.Equal(t, "DISABLED", oldPermission.Status)
+
+	var oldFeature models.SysAppPackageFeature
+	require.NoError(t, db.Where("app_code = ? AND feature_code = ?", "ops-console", "old_feature").First(&oldFeature).Error)
+	require.Equal(t, "DISABLED", oldFeature.Status)
+
+	var oldQuota models.SysAppQuota
+	require.NoError(t, db.Where("app_code = ? AND quota_code = ?", "ops-console", "old_quota").First(&oldQuota).Error)
+	require.Equal(t, "DISABLED", oldQuota.Status)
+
+	var packageFeature models.SaasFeature
+	require.NoError(t, db.Where("feature_code = ?", "old_feature").First(&packageFeature).Error)
+	require.Equal(t, 0, packageFeature.Status)
+
+	var packageQuota models.SaasQuota
+	require.NoError(t, db.Where("quota_code = ?", "old_quota").First(&packageQuota).Error)
+	require.Equal(t, 0, packageQuota.Status)
 }
 
 func TestAppCenterDiffBlocksProtectedManifestAssetOverwrite(t *testing.T) {
