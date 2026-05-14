@@ -89,37 +89,52 @@ onMounted(loadData)
       <header class="ai-card__header">
         <div>
           <h3>供应商管理</h3>
-          <p class="ai-card__description">先选供应商，再维护该供应商下的接入账号和 API。</p>
+          <p class="ai-card__description">统一维护公有云、私有化和自建模型供应商，并关联接入账号与 API。</p>
         </div>
       </header>
       <div class="ai-card__body">
         <div class="ai-toolbar">
           <el-input v-model="keyword" clearable placeholder="搜索供应商、code、endpoint" @change="loadData" />
         </div>
-        <div class="ai-provider-layout">
-          <aside class="ai-provider-rail">
-            <div
-              v-for="provider in filteredProviders"
-              :key="rowId(provider)"
-              class="ai-provider-item"
-              :class="{ active: rowId(provider) === rowId(selectedProvider) }"
-            >
-              <button class="ai-provider-select" @click="selectedProviderId = rowId(provider); selectedAccountId = ''">
-                <strong>{{ text(provider.name) }}</strong>
-                <small>{{ text(provider.code) }}</small>
-                <span>{{ providerStats(rowId(provider)).accountCount }} 个账号 · {{ providerStats(rowId(provider)).activeApiCount }} 个启用 API</span>
-              </button>
-              <AiResourceActions resource="providers" :row="provider" @saved="loadData" />
-            </div>
-          </aside>
-          <section>
-            <div class="ai-metric-grid">
-              <div class="ai-mini-stat"><span>接入账号</span><strong>{{ currentAccounts.length }}</strong></div>
-              <div class="ai-mini-stat"><span>API 数量</span><strong>{{ currentApis.length }}</strong></div>
-              <div class="ai-mini-stat"><span>API 聚合 QPS</span><strong>{{ activeApiQps }}</strong></div>
-              <div class="ai-mini-stat"><span>月预算</span><strong>{{ moneyText(selectedProvider?.monthly_budget) }}</strong></div>
-            </div>
-          </section>
+        <div class="ai-table">
+          <el-table :data="filteredProviders" border v-loading="loading" @row-click="(row: AiRow) => { selectedProviderId = rowId(row); selectedAccountId = '' }">
+            <el-table-column label="供应商" min-width="190">
+              <template #default="{ row }">
+                <span class="ai-table-cell-main">
+                  <strong>{{ text(row.name) }}</strong>
+                  <small>{{ text(row.code) }}</small>
+                </span>
+              </template>
+            </el-table-column>
+            <el-table-column label="Endpoint" min-width="240"><template #default="{ row }">{{ text(row.base_url) }}</template></el-table-column>
+            <el-table-column label="鉴权" width="110"><template #default="{ row }"><el-tag>{{ text(row.auth_type) }}</el-tag></template></el-table-column>
+            <el-table-column label="账号 / API" width="150">
+              <template #default="{ row }">{{ providerStats(rowId(row)).accountCount }} 个账号 / {{ providerStats(rowId(row)).apiCount }} 个 API</template>
+            </el-table-column>
+            <el-table-column label="QPS / 月预算" width="145">
+              <template #default="{ row }">
+                <span class="ai-table-cell-main"><strong>{{ numberText(row.qps_limit) }} QPS</strong><small>{{ moneyText(row.monthly_budget) }}</small></span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="128" fixed="right"><template #default="{ row }"><AiResourceActions resource="providers" :row="row" @saved="loadData" /></template></el-table-column>
+          </el-table>
+        </div>
+      </div>
+    </section>
+
+    <section class="ai-card">
+      <header class="ai-card__header">
+        <div>
+          <h3>当前供应商：{{ text(selectedProvider?.name) }}</h3>
+          <p class="ai-card__description">先选供应商，再维护该供应商下的接入账号和 API。</p>
+        </div>
+      </header>
+      <div class="ai-card__body">
+        <div class="ai-metric-grid">
+          <div class="ai-mini-stat"><span>接入账号</span><strong>{{ currentAccounts.length }}</strong></div>
+          <div class="ai-mini-stat"><span>API 数量</span><strong>{{ currentApis.length }}</strong></div>
+          <div class="ai-mini-stat"><span>API 聚合 QPS</span><strong>{{ activeApiQps }}</strong></div>
+          <div class="ai-mini-stat"><span>月预算</span><strong>{{ moneyText(selectedProvider?.monthly_budget) }}</strong></div>
         </div>
       </div>
     </section>
@@ -138,7 +153,7 @@ onMounted(loadData)
           <el-table-column label="密钥别名" min-width="160"><template #default="{ row }">{{ text(row.key_alias) }}</template></el-table-column>
           <el-table-column label="额度使用" width="180"><template #default="{ row }">{{ numberText(row.used_quota) }} / {{ numberText(row.quota_limit) }}</template></el-table-column>
           <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ text(row.status) }}</el-tag></template></el-table-column>
-          <el-table-column label="操作" width="200">
+          <el-table-column label="操作" width="190" fixed="right">
             <template #default="{ row }">
               <div class="ai-row-actions">
                 <el-button link type="primary" @click="selectedAccountId = rowId(row)">筛选 API</el-button>
@@ -170,7 +185,7 @@ onMounted(loadData)
           <el-table-column label="能力" min-width="180"><template #default="{ row }">{{ text(row.capabilities) }}</template></el-table-column>
           <el-table-column label="QPS / 超时" width="150"><template #default="{ row }">{{ numberText(row.qps_limit) }} / {{ numberText(row.timeout_ms) }}ms</template></el-table-column>
           <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ text(row.status) }}</el-tag></template></el-table-column>
-          <el-table-column label="操作" width="140"><template #default="{ row }"><AiResourceActions resource="apis" :row="row" @saved="loadData" /></template></el-table-column>
+          <el-table-column label="操作" width="128" fixed="right"><template #default="{ row }"><AiResourceActions resource="apis" :row="row" @saved="loadData" /></template></el-table-column>
         </el-table>
       </div>
     </section>
