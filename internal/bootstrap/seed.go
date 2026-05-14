@@ -357,6 +357,8 @@ func seedPermissions(db *gorm.DB, tenantID uint64) ([]models.Permission, error) 
 	items = append(items,
 		seedPermission{Name: "首页-数据范围", Path: "data:home", Type: 4, Hidden: true, PackageFeature: false, FeatureType: "DATA", DataPermMode: "NONE"},
 		seedPermission{Name: "权限管理-数据范围", Path: "data:perm", Type: 4, Hidden: true, PackageFeature: false, FeatureType: "DATA", DataPermMode: "ORG"},
+		seedPermission{Name: "字典类型-数据范围", Path: "data:dict_type", Type: 4, PackageFeature: false, FeatureType: "DATA", DataPermMode: "ORG"},
+		seedPermission{Name: "字典项-数据范围", Path: "data:dict_item", Type: 4, PackageFeature: false, FeatureType: "DATA", DataPermMode: "ORG"},
 	)
 
 	out := make([]models.Permission, 0, len(items))
