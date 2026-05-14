@@ -86,7 +86,14 @@ html:not(.dark) .ai-prototype {
   white-space: nowrap;
 }
 
+.ai-prototype .neuro-page-shell__panel {
+  background: transparent !important;
+  background-image: none !important;
+  backdrop-filter: none;
+}
+
 .ai-prototype .neuro-page-shell__panel-body {
+  background: transparent !important;
   gap: 0 !important;
 }
 
