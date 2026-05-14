@@ -366,13 +366,13 @@ onMounted(loadData)
               <div class="ai-mini-stat"><span>当前账号</span><strong>{{ selectedAccount ? text(selectedAccount.account_name) : '全部' }}</strong></div>
             </div>
             <el-table :data="currentApis" border v-loading="loading">
-              <el-table-column label="API" min-width="220"><template #default="{ row }"><span class="ai-table-cell-main"><strong>{{ text(row.api_name) }}</strong><small>{{ text(row.api_path) }}</small></span></template></el-table-column>
-              <el-table-column label="类型" width="120"><template #default="{ row }"><el-tag>{{ text(row.api_type) }}</el-tag></template></el-table-column>
-              <el-table-column label="能力" min-width="180"><template #default="{ row }">{{ text(row.capabilities) }}</template></el-table-column>
+              <el-table-column label="API" min-width="260" :show-overflow-tooltip="false"><template #default="{ row }"><span class="ai-table-cell-main"><strong>{{ text(row.api_name) }}</strong><small>{{ text(row.api_path) }}</small></span></template></el-table-column>
+              <el-table-column label="类型" width="120" :show-overflow-tooltip="false"><template #default="{ row }"><el-tag>{{ text(row.api_type) }}</el-tag></template></el-table-column>
+              <el-table-column label="能力" min-width="180" :show-overflow-tooltip="false"><template #default="{ row }"><span class="ai-wrap-text">{{ text(row.capabilities) }}</span></template></el-table-column>
               <el-table-column label="QPS / 超时" width="150"><template #default="{ row }">{{ numberText(row.qps_limit) }} / {{ numberText(row.timeout_ms) }}ms</template></el-table-column>
-              <el-table-column label="连通性" width="180">
+              <el-table-column label="连通性" width="190" :show-overflow-tooltip="false">
                 <template #default="{ row }">
-                  <span class="ai-table-cell-main">
+                  <span class="ai-table-cell-main ai-health-cell">
                     <el-tag :type="statusType(row.health_status)">{{ statusText(row.health_status, '未检测') }}</el-tag>
                     <small>{{ text(row.health_message, '未检测') }}</small>
                   </span>

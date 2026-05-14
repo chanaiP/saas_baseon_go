@@ -637,6 +637,16 @@ html:not(.dark) .ai-prototype {
   line-height: 1.45;
 }
 
+.ai-prototype .ai-table td.el-table__cell .cell,
+.ai-prototype .ai-table th.el-table__cell .cell {
+  min-width: 0;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
 .ai-prototype .ai-table .el-table__empty-block {
   background: var(--ai-table-row-bg);
 }
@@ -735,11 +745,15 @@ html:not(.dark) .ai-prototype .el-tag.el-tag--info {
   display: grid;
   gap: 3px;
   min-width: 0;
+  max-width: 100%;
 }
 
 .ai-table-cell-main strong {
   font-size: 13px;
   line-height: 1.45;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .ai-table-cell-main small {
@@ -747,6 +761,28 @@ html:not(.dark) .ai-prototype .el-tag.el-tag--info {
   font-size: 12px;
   line-height: 1.45;
   overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+}
+
+.ai-wrap-text {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+}
+
+.ai-health-cell .el-tag {
+  display: inline-flex;
+  justify-content: center;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ai-code-block,
