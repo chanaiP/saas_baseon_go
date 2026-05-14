@@ -20,6 +20,7 @@ const accounts = ref(emptyPage())
 const apis = ref(emptyPage())
 const selectedProviderId = ref('')
 const selectedAccountId = ref('')
+const accountScopeAll = ref(true)
 const importVisible = ref(false)
 const createVisible = ref(false)
 const connectivityChecking = ref(false)
@@ -27,12 +28,12 @@ const connectivityChecking = ref(false)
 const filteredProviders = computed(() => providers.value.items.filter((row) => includesKeyword(row, keyword.value, ['name', 'code', 'base_url', 'owner'])))
 const selectedProvider = computed(() => providers.value.items.find((row) => rowId(row) === selectedProviderId.value))
 const currentAccounts = computed(() => {
-  if (!selectedProviderId.value) return accounts.value.items
+  if (accountScopeAll.value || !selectedProviderId.value) return accounts.value.items
   return accounts.value.items.filter((row) => String(row.provider_id || '') === selectedProviderId.value)
 })
 const currentApis = computed(() => apis.value.items.filter((row) => {
-  const matchesProvider = !selectedProviderId.value || String(row.provider_id || '') === selectedProviderId.value
   const matchesAccount = !selectedAccountId.value || String(row.account_id || '') === selectedAccountId.value
+  const matchesProvider = accountScopeAll.value || !selectedProviderId.value || String(row.provider_id || '') === selectedProviderId.value
   return matchesProvider && matchesAccount
 }))
 const activeApiQps = computed(() => currentApis.value.reduce((sum, row) => sum + Number(row.qps_limit ?? 0), 0))
@@ -41,12 +42,21 @@ const activeApiCount = computed(() => currentApis.value.filter((row) => row.stat
 const accountQuotaTotal = computed(() => currentAccounts.value.reduce((sum, row) => sum + Number(row.quota_limit ?? 0), 0))
 const selectedAccount = computed(() => currentAccounts.value.find((row) => rowId(row) === selectedAccountId.value))
 const accountScopeTitle = computed(() => {
-  if (selectedProvider.value) return `${text(selectedProvider.value.name)}的接入账号`
+  if (accountScopeAll.value || !selectedProvider.value) return '所有接入账号'
+  return `${text(selectedProvider.value.name)}的接入账号`
+})
+const accountScopeDescription = computed(() => {
+  if (!selectedProvider.value) return '默认显示所有账号；选择左侧供应商后，可切换为该供应商账号或回到所有账号。'
+  if (accountScopeAll.value) return `已选中 ${text(selectedProvider.value.name)}，当前仍显示所有账号。`
+  return `当前只显示 ${text(selectedProvider.value.name)} 下的账号；可切回所有账号。`
+})
+const providerAccountScopeText = computed(() => {
+  if (selectedProvider.value) return `${text(selectedProvider.value.name)}账号`
   return '所有接入账号'
 })
 const apiScopeTitle = computed(() => {
   if (selectedAccount.value) return `${text(selectedAccount.value.account_name)} 的 API`
-  if (selectedProvider.value) return `${text(selectedProvider.value.name)}的 API`
+  if (!accountScopeAll.value && selectedProvider.value) return `${text(selectedProvider.value.name)}的 API`
   return '所有 API'
 })
 
@@ -70,8 +80,9 @@ async function loadData() {
     if (selectedProviderId.value && !providerPage.items.some((row) => rowId(row) === selectedProviderId.value)) {
       selectedProviderId.value = ''
       selectedAccountId.value = ''
+      accountScopeAll.value = true
     }
-    if (selectedAccountId.value && !accountPage.items.some((row) => rowId(row) === selectedAccountId.value)) {
+    if (selectedAccountId.value && !currentAccounts.value.some((row) => rowId(row) === selectedAccountId.value)) {
       selectedAccountId.value = ''
     }
   } catch (error) {
@@ -82,12 +93,26 @@ async function loadData() {
 }
 
 function selectProvider(providerId: string) {
-  selectedProviderId.value = selectedProviderId.value === providerId ? '' : providerId
+  const selectingSameProvider = selectedProviderId.value === providerId
+  selectedProviderId.value = selectingSameProvider ? '' : providerId
+  accountScopeAll.value = selectingSameProvider
   selectedAccountId.value = ''
 }
 
 function clearProvider() {
   selectedProviderId.value = ''
+  selectedAccountId.value = ''
+  accountScopeAll.value = true
+}
+
+function showAllAccounts() {
+  accountScopeAll.value = true
+  selectedAccountId.value = ''
+}
+
+function showProviderAccounts() {
+  if (!selectedProviderId.value) return
+  accountScopeAll.value = false
   selectedAccountId.value = ''
 }
 
@@ -145,7 +170,6 @@ onMounted(loadData)
         <div class="ai-card__body">
           <div class="ai-toolbar ai-provider-toolbar">
             <el-input v-model="keyword" clearable placeholder="搜索供应商、code、endpoint" @change="loadData" />
-            <button class="ai-ghost-button" :class="{ active: !selectedProviderId }" @click="clearProvider">全部</button>
           </div>
           <div v-loading="loading" class="ai-provider-card-list">
             <div
@@ -190,9 +214,13 @@ onMounted(loadData)
           <header class="ai-card__header">
             <div>
               <h3>{{ accountScopeTitle }}</h3>
-              <p class="ai-card__description">默认显示所有账号；选择左侧供应商后，只显示该供应商账号。</p>
+              <p class="ai-card__description">{{ accountScopeDescription }}</p>
             </div>
-            <button v-if="selectedProviderId" class="ai-ghost-button" @click="clearProvider">查看全部供应商</button>
+            <div class="ai-segmented">
+              <button :class="{ active: accountScopeAll }" @click="showAllAccounts">全部账号</button>
+              <button v-if="selectedProviderId" :class="{ active: !accountScopeAll }" @click="showProviderAccounts">{{ providerAccountScopeText }}</button>
+              <button v-if="selectedProviderId" @click="clearProvider">取消供应商</button>
+            </div>
           </header>
           <div class="ai-card__body">
             <div class="ai-metric-grid ai-provider-summary-grid">
@@ -233,7 +261,7 @@ onMounted(loadData)
             </div>
             <div class="ai-segmented">
               <button :disabled="connectivityChecking" @click="checkConnectivity">{{ connectivityChecking ? '检测中' : '检测连通性' }}</button>
-              <button :class="{ active: !selectedAccountId }" @click="selectedAccountId = ''">全部账号</button>
+              <button :class="{ active: !selectedAccountId }" @click="selectedAccountId = ''">全部 API</button>
               <button v-for="account in currentAccounts" :key="rowId(account)" :class="{ active: selectedAccountId === rowId(account) }" @click="selectAccount(rowId(account))">
                 {{ text(account.account_name) }}
               </button>
