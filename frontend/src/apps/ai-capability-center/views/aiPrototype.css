@@ -348,7 +348,7 @@ html:not(.dark) .ai-prototype {
 
 .ai-provider-toolbar {
   align-items: stretch;
-  margin-bottom: 12px;
+  margin-bottom: 18px;
 }
 
 .ai-provider-toolbar .el-input {
@@ -363,7 +363,7 @@ html:not(.dark) .ai-prototype {
   max-height: calc(100vh - 270px);
   min-height: 360px;
   overflow: auto;
-  padding-right: 4px;
+  padding: 2px 4px 2px 0;
 }
 
 .ai-provider-card {
@@ -389,7 +389,7 @@ html:not(.dark) .ai-prototype {
 }
 
 .ai-provider-card:hover {
-  transform: translateY(-1px);
+  transform: translateY(-0.5px);
 }
 
 .ai-provider-card__top,
