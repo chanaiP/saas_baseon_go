@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
@@ -133,6 +134,9 @@ func seedCoreData(db *gorm.DB) error {
 		return err
 	}
 	if err := seedSystemParams(db, tenant.ID); err != nil {
+		return err
+	}
+	if err := seedAIProviderCatalog(db); err != nil {
 		return err
 	}
 	return seedAuditSamples(db, tenant.ID, user.ID)
@@ -891,6 +895,564 @@ func seedAuditSamples(db *gorm.DB, tenantID uint64, userID uint64) error {
 	}
 	audit := models.AuditLog{TenantID: &tenantID, UserID: &userID, Module: "bootstrap", Action: "seed", Summary: "初始化 Go DDD 项目基础数据"}
 	return db.Where("module = ? AND action = ? AND summary = ?", audit.Module, audit.Action, audit.Summary).FirstOrCreate(&audit).Error
+}
+
+type aiProviderSeed struct {
+	name          string
+	code          string
+	providerType  string
+	baseURL       string
+	authType      string
+	region        string
+	qpsLimit      int
+	monthlyBudget float64
+	owner         string
+	apis          []aiAPISeed
+	models        []aiModelSeed
+}
+
+type aiAPISeed struct {
+	name         string
+	path         string
+	apiType      string
+	capabilities []string
+	qpsLimit     int
+	timeoutMS    int
+}
+
+type aiModelSeed struct {
+	code          string
+	name          string
+	modelType     string
+	capabilities  []string
+	contextWindow int
+	unit          string
+	latencyP95    int
+	successRate   float64
+	defaultFor    []string
+	prices        []aiPriceSeed
+}
+
+type aiPriceSeed struct {
+	featureKey  string
+	featureName string
+	capability  string
+	billingUnit string
+	costPrice   float64
+	salePrice   float64
+	platformFee float64
+}
+
+func seedAIProviderCatalog(db *gorm.DB) error {
+	if err := pruneLegacyAIProviderDemoData(db); err != nil {
+		return err
+	}
+	providers := []aiProviderSeed{
+		{
+			name: "OpenAI 官方账号", code: "openai", providerType: "public_cloud", baseURL: "https://api.openai.com", authType: "api_key", region: "global", qpsLimit: 600, monthlyBudget: 100000, owner: "平台 AI 基础设施组",
+			apis: []aiAPISeed{
+				{name: "chat.completions", path: "/v1/chat/completions", apiType: "chat", capabilities: []string{"chat_completion", "text_generation", "tool_calling"}, qpsLimit: 240, timeoutMS: 30000},
+				{name: "responses", path: "/v1/responses", apiType: "chat", capabilities: []string{"chat_completion", "text_generation", "multimodal"}, qpsLimit: 160, timeoutMS: 45000},
+				{name: "embeddings", path: "/v1/embeddings", apiType: "embedding", capabilities: []string{"embedding"}, qpsLimit: 300, timeoutMS: 15000},
+				{name: "images.generations", path: "/v1/images/generations", apiType: "image", capabilities: []string{"image_generation"}, qpsLimit: 60, timeoutMS: 90000},
+			},
+			models: []aiModelSeed{
+				{code: "gpt-4o-mini", name: "GPT-4o mini", modelType: "text", capabilities: []string{"chat_completion", "text_generation", "tool_calling"}, contextWindow: 128000, unit: "1K tokens", latencyP95: 1200, successRate: 99.90, defaultFor: []string{"chat_completion"}, prices: defaultTextPrices("chat_completion", 0.0012, 0.0024)},
+				{code: "text-embedding-3-small", name: "text-embedding-3-small", modelType: "embedding", capabilities: []string{"embedding"}, contextWindow: 8191, unit: "1K tokens", latencyP95: 600, successRate: 99.95, defaultFor: []string{"embedding"}, prices: defaultTextPrices("embedding", 0.00015, 0.00030)},
+				{code: "dall-e-3", name: "DALL-E 3", modelType: "image", capabilities: []string{"image_generation"}, unit: "image", latencyP95: 12000, successRate: 99.50, defaultFor: []string{"image_generation"}, prices: imagePrices(0.28, 0.56)},
+			},
+		},
+		{
+			name: "Azure OpenAI", code: "azure-openai", providerType: "public_cloud", baseURL: "https://{resource}.openai.azure.com", authType: "azure_api_key", region: "global", qpsLimit: 500, monthlyBudget: 80000, owner: "平台 AI 基础设施组",
+			apis:   []aiAPISeed{{name: "chat.completions", path: "/openai/deployments/{deployment}/chat/completions?api-version=2024-06-01", apiType: "chat", capabilities: []string{"chat_completion", "text_generation"}, qpsLimit: 200, timeoutMS: 30000}, {name: "embeddings", path: "/openai/deployments/{deployment}/embeddings?api-version=2024-06-01", apiType: "embedding", capabilities: []string{"embedding"}, qpsLimit: 260, timeoutMS: 15000}},
+			models: []aiModelSeed{{code: "azure-gpt-4o-mini", name: "Azure GPT-4o mini Deployment", modelType: "text", capabilities: []string{"chat_completion", "text_generation"}, contextWindow: 128000, unit: "1K tokens", latencyP95: 1400, successRate: 99.80, defaultFor: []string{"chat_completion"}, prices: defaultTextPrices("chat_completion", 0.0013, 0.0026)}},
+		},
+		{
+			name: "Anthropic Claude", code: "anthropic", providerType: "public_cloud", baseURL: "https://api.anthropic.com", authType: "anthropic", region: "global", qpsLimit: 300, monthlyBudget: 70000, owner: "平台 AI 基础设施组",
+			apis:   []aiAPISeed{{name: "messages", path: "/v1/messages", apiType: "chat", capabilities: []string{"chat_completion", "text_generation", "reasoning"}, qpsLimit: 160, timeoutMS: 45000}},
+			models: []aiModelSeed{{code: "claude-3-haiku-20240307", name: "Claude 3 Haiku", modelType: "text", capabilities: []string{"chat_completion", "text_generation"}, contextWindow: 200000, unit: "1K tokens", latencyP95: 1300, successRate: 99.80, defaultFor: []string{"chat_completion"}, prices: defaultTextPrices("chat_completion", 0.0018, 0.0036)}},
+		},
+		{
+			name: "DeepSeek 官方账号", code: "deepseek", providerType: "public_cloud", baseURL: "https://api.deepseek.com", authType: "api_key", region: "CN", qpsLimit: 500, monthlyBudget: 50000, owner: "平台 AI 基础设施组",
+			apis:   []aiAPISeed{{name: "chat.completions", path: "/v1/chat/completions", apiType: "chat", capabilities: []string{"chat_completion", "text_generation", "reasoning"}, qpsLimit: 260, timeoutMS: 45000}},
+			models: []aiModelSeed{{code: "deepseek-chat", name: "DeepSeek Chat", modelType: "text", capabilities: []string{"chat_completion", "text_generation"}, contextWindow: 64000, unit: "1K tokens", latencyP95: 1500, successRate: 99.70, defaultFor: []string{"chat_completion"}, prices: defaultTextPrices("chat_completion", 0.0008, 0.0016)}, {code: "deepseek-reasoner", name: "DeepSeek Reasoner", modelType: "text", capabilities: []string{"chat_completion", "reasoning"}, contextWindow: 64000, unit: "1K tokens", latencyP95: 2400, successRate: 99.60, defaultFor: []string{"reasoning"}, prices: defaultTextPrices("reasoning", 0.0020, 0.0040)}},
+		},
+		{
+			name: "通义千问 DashScope", code: "dashscope", providerType: "public_cloud", baseURL: "https://dashscope.aliyuncs.com", authType: "dashscope", region: "CN", qpsLimit: 500, monthlyBudget: 60000, owner: "平台 AI 基础设施组",
+			apis:   []aiAPISeed{{name: "generation", path: "/api/v1/services/aigc/text-generation/generation", apiType: "chat", capabilities: []string{"chat_completion", "text_generation"}, qpsLimit: 260, timeoutMS: 30000}, {name: "compatible.chat", path: "/compatible-mode/v1/chat/completions", apiType: "chat", capabilities: []string{"chat_completion", "text_generation"}, qpsLimit: 260, timeoutMS: 30000}, {name: "embeddings", path: "/api/v1/services/embeddings/text-embedding/text-embedding", apiType: "embedding", capabilities: []string{"embedding"}, qpsLimit: 260, timeoutMS: 15000}, {name: "image-synthesis", path: "/api/v1/services/aigc/text2image/image-synthesis", apiType: "image", capabilities: []string{"image_generation"}, qpsLimit: 80, timeoutMS: 90000}},
+			models: []aiModelSeed{{code: "qwen-turbo", name: "通义千问 Turbo", modelType: "text", capabilities: []string{"chat_completion", "text_generation"}, contextWindow: 1000000, unit: "1K tokens", latencyP95: 1300, successRate: 99.70, defaultFor: []string{"chat_completion"}, prices: defaultTextPrices("chat_completion", 0.0006, 0.0012)}, {code: "qwen-plus", name: "通义千问 Plus", modelType: "text", capabilities: []string{"chat_completion", "text_generation", "long_context"}, contextWindow: 131072, unit: "1K tokens", latencyP95: 1600, successRate: 99.70, defaultFor: []string{}, prices: defaultTextPrices("chat_completion", 0.0014, 0.0028)}, {code: "text-embedding-v1", name: "通义文本向量 v1", modelType: "embedding", capabilities: []string{"embedding"}, contextWindow: 8192, unit: "1K tokens", latencyP95: 700, successRate: 99.80, defaultFor: []string{"embedding"}, prices: defaultTextPrices("embedding", 0.00012, 0.00024)}},
+		},
+		{
+			name: "火山方舟", code: "volcengine", providerType: "public_cloud", baseURL: "https://ark.cn-beijing.volces.com", authType: "api_key", region: "CN", qpsLimit: 450, monthlyBudget: 55000, owner: "平台 AI 基础设施组",
+			apis:   []aiAPISeed{{name: "chat.completions", path: "/api/v3/chat/completions", apiType: "chat", capabilities: []string{"chat_completion", "text_generation", "multimodal"}, qpsLimit: 220, timeoutMS: 30000}, {name: "images.generate", path: "/api/v3/images/generations", apiType: "image", capabilities: []string{"image_generation"}, qpsLimit: 80, timeoutMS: 90000}},
+			models: []aiModelSeed{{code: "doubao-lite-4k", name: "豆包 Lite 4K", modelType: "text", capabilities: []string{"chat_completion", "text_generation"}, contextWindow: 4096, unit: "1K tokens", latencyP95: 1200, successRate: 99.70, defaultFor: []string{"chat_completion"}, prices: defaultTextPrices("chat_completion", 0.0005, 0.0010)}, {code: "seedream-3", name: "Seedream 3.0", modelType: "image", capabilities: []string{"image_generation"}, unit: "image", latencyP95: 15000, successRate: 99.20, defaultFor: []string{}, prices: imagePrices(0.18, 0.36)}},
+		},
+		{
+			name: "智谱 GLM", code: "zhipu", providerType: "public_cloud", baseURL: "https://open.bigmodel.cn", authType: "api_key", region: "CN", qpsLimit: 360, monthlyBudget: 40000, owner: "平台 AI 基础设施组",
+			apis:   []aiAPISeed{{name: "chat.completions", path: "/api/paas/v4/chat/completions", apiType: "chat", capabilities: []string{"chat_completion", "text_generation"}, qpsLimit: 200, timeoutMS: 30000}},
+			models: []aiModelSeed{{code: "glm-4-flash", name: "GLM-4-Flash", modelType: "text", capabilities: []string{"chat_completion", "text_generation"}, contextWindow: 128000, unit: "1K tokens", latencyP95: 1300, successRate: 99.60, defaultFor: []string{"chat_completion"}, prices: defaultTextPrices("chat_completion", 0.0004, 0.0008)}},
+		},
+		{
+			name: "Moonshot Kimi", code: "moonshot", providerType: "public_cloud", baseURL: "https://api.moonshot.cn", authType: "api_key", region: "CN", qpsLimit: 300, monthlyBudget: 35000, owner: "平台 AI 基础设施组",
+			apis:   []aiAPISeed{{name: "chat.completions", path: "/v1/chat/completions", apiType: "chat", capabilities: []string{"chat_completion", "text_generation", "long_context"}, qpsLimit: 180, timeoutMS: 45000}},
+			models: []aiModelSeed{{code: "moonshot-v1-8k", name: "Moonshot v1 8K", modelType: "text", capabilities: []string{"chat_completion", "text_generation", "long_context"}, contextWindow: 8192, unit: "1K tokens", latencyP95: 1400, successRate: 99.60, defaultFor: []string{"long_context"}, prices: defaultTextPrices("long_context", 0.0012, 0.0024)}},
+		},
+		{
+			name: "百川智能", code: "baichuan", providerType: "public_cloud", baseURL: "https://api.baichuan-ai.com", authType: "api_key", region: "CN", qpsLimit: 240, monthlyBudget: 30000, owner: "平台 AI 基础设施组",
+			apis:   []aiAPISeed{{name: "chat.completions", path: "/v1/chat/completions", apiType: "chat", capabilities: []string{"chat_completion", "text_generation"}, qpsLimit: 140, timeoutMS: 30000}},
+			models: []aiModelSeed{{code: "Baichuan2-Turbo", name: "Baichuan2 Turbo", modelType: "text", capabilities: []string{"chat_completion", "text_generation"}, contextWindow: 8192, unit: "1K tokens", latencyP95: 1500, successRate: 99.40, defaultFor: []string{}, prices: defaultTextPrices("chat_completion", 0.0010, 0.0020)}},
+		},
+		{
+			name: "MiniMax", code: "minimax", providerType: "public_cloud", baseURL: "https://api.minimax.chat", authType: "api_key", region: "CN", qpsLimit: 240, monthlyBudget: 30000, owner: "平台 AI 基础设施组",
+			apis:   []aiAPISeed{{name: "text.chatcompletion", path: "/v1/text/chatcompletion_v2", apiType: "chat", capabilities: []string{"chat_completion", "text_generation"}, qpsLimit: 140, timeoutMS: 30000}},
+			models: []aiModelSeed{{code: "abab6.5s-chat", name: "abab6.5s-chat", modelType: "text", capabilities: []string{"chat_completion", "text_generation"}, contextWindow: 245760, unit: "1K tokens", latencyP95: 1600, successRate: 99.30, defaultFor: []string{}, prices: defaultTextPrices("chat_completion", 0.0011, 0.0022)}},
+		},
+		{
+			name: "腾讯混元", code: "tencent-hunyuan", providerType: "public_cloud", baseURL: "https://hunyuan.tencentcloudapi.com", authType: "api_key", region: "CN", qpsLimit: 260, monthlyBudget: 32000, owner: "平台 AI 基础设施组",
+			apis:   []aiAPISeed{{name: "ChatCompletions", path: "/", apiType: "chat", capabilities: []string{"chat_completion", "text_generation"}, qpsLimit: 160, timeoutMS: 30000}},
+			models: []aiModelSeed{{code: "hunyuan-lite", name: "Hunyuan Lite", modelType: "text", capabilities: []string{"chat_completion", "text_generation"}, contextWindow: 32768, unit: "1K tokens", latencyP95: 1500, successRate: 99.40, defaultFor: []string{}, prices: defaultTextPrices("chat_completion", 0.0008, 0.0016)}},
+		},
+		{
+			name: "百度千帆", code: "baidu-qianfan", providerType: "public_cloud", baseURL: "https://qianfan.baidubce.com", authType: "api_key", region: "CN", qpsLimit: 260, monthlyBudget: 32000, owner: "平台 AI 基础设施组",
+			apis:   []aiAPISeed{{name: "chat.completions", path: "/v2/chat/completions", apiType: "chat", capabilities: []string{"chat_completion", "text_generation"}, qpsLimit: 160, timeoutMS: 30000}, {name: "embeddings", path: "/v2/embeddings", apiType: "embedding", capabilities: []string{"embedding"}, qpsLimit: 200, timeoutMS: 15000}},
+			models: []aiModelSeed{{code: "ernie-speed-8k", name: "ERNIE Speed 8K", modelType: "text", capabilities: []string{"chat_completion", "text_generation"}, contextWindow: 8192, unit: "1K tokens", latencyP95: 1500, successRate: 99.40, defaultFor: []string{}, prices: defaultTextPrices("chat_completion", 0.0007, 0.0014)}},
+		},
+		{
+			name: "OpenAI Compatible 自建网关", code: "openai-compatible", providerType: "private_or_selfhosted", baseURL: "https://ai-gateway.example.com", authType: "api_key", region: "private", qpsLimit: 1000, monthlyBudget: 120000, owner: "平台 AI 基础设施组",
+			apis:   []aiAPISeed{{name: "chat.completions", path: "/v1/chat/completions", apiType: "chat", capabilities: []string{"chat_completion", "text_generation"}, qpsLimit: 500, timeoutMS: 30000}, {name: "embeddings", path: "/v1/embeddings", apiType: "embedding", capabilities: []string{"embedding"}, qpsLimit: 500, timeoutMS: 15000}},
+			models: []aiModelSeed{{code: "compatible-default-chat", name: "兼容网关默认对话模型", modelType: "text", capabilities: []string{"chat_completion", "text_generation"}, contextWindow: 32000, unit: "1K tokens", latencyP95: 1000, successRate: 99.50, defaultFor: []string{}, prices: defaultTextPrices("chat_completion", 0.0006, 0.0012)}},
+		},
+	}
+	modelByCapability := map[string][]string{}
+	for index, provider := range providers {
+		providerID, err := upsertAIProviderSeed(db, provider, index)
+		if err != nil {
+			return err
+		}
+		if err := upsertAIProviderAccountAndAPIs(db, providerID, provider); err != nil {
+			return err
+		}
+		for _, model := range provider.models {
+			modelID, err := upsertAIModelSeed(db, providerID, model)
+			if err != nil {
+				return err
+			}
+			for _, capability := range model.capabilities {
+				modelByCapability[capability] = append(modelByCapability[capability], modelID)
+			}
+			if err := upsertAIPriceSeeds(db, modelID, model); err != nil {
+				return err
+			}
+		}
+	}
+	if err := seedAICapabilities(db); err != nil {
+		return err
+	}
+	return seedAIRoutesAndScenarios(db, modelByCapability)
+}
+
+func defaultTextPrices(capability string, cost, sale float64) []aiPriceSeed {
+	return []aiPriceSeed{{featureKey: capability + "_tokens", featureName: "Token 用量", capability: capability, billingUnit: "1K tokens", costPrice: cost, salePrice: sale, platformFee: sale - cost}}
+}
+
+func imagePrices(cost, sale float64) []aiPriceSeed {
+	return []aiPriceSeed{{featureKey: "image_generation", featureName: "图片生成", capability: "image_generation", billingUnit: "image", costPrice: cost, salePrice: sale, platformFee: sale - cost}}
+}
+
+func pruneLegacyAIProviderDemoData(db *gorm.DB) error {
+	now := time.Now()
+	if err := db.Exec(`
+		UPDATE ai_base_route_models
+		SET deleted_at = ?, updated_at = ?
+		WHERE deleted_at IS NULL
+		  AND base_route_id IN (
+			SELECT id FROM ai_base_routes
+			WHERE route_code IN ('chat-cost-first', 'image-marketing-default')
+		  )
+	`, now, now).Error; err != nil {
+		return err
+	}
+	if err := db.Model(&models.AIBaseRoute{}).
+		Where("route_code IN ? AND deleted_at IS NULL", []string{"chat-cost-first", "image-marketing-default"}).
+		Updates(map[string]interface{}{"deleted_at": now, "updated_at": now}).Error; err != nil {
+		return err
+	}
+	if err := db.Exec(`
+		UPDATE ai_provider_apis
+		SET deleted_at = ?, updated_at = ?
+		WHERE deleted_at IS NULL
+		  AND account_id IN (
+			SELECT a.id
+			FROM ai_provider_accounts a
+			JOIN ai_providers p ON p.id = a.provider_id
+			WHERE p.code IN ('dashscope', 'volcengine')
+			  AND a.account_name IN ('cn-prod', 'vision-prod')
+			  AND a.deleted_at IS NULL
+		  )
+	`, now, now).Error; err != nil {
+		return err
+	}
+	if err := db.Exec(`
+		UPDATE ai_provider_accounts
+		SET deleted_at = ?, updated_at = ?
+		WHERE deleted_at IS NULL
+		  AND account_name IN ('cn-prod', 'vision-prod')
+		  AND provider_id IN (
+			SELECT id FROM ai_providers WHERE code IN ('dashscope', 'volcengine')
+		  )
+	`, now, now).Error; err != nil {
+		return err
+	}
+	return nil
+}
+
+func upsertAIProviderSeed(db *gorm.DB, seed aiProviderSeed, index int) (string, error) {
+	row := models.AIProvider{
+		Name:          seed.name,
+		Code:          seed.code,
+		Type:          seed.providerType,
+		BaseURL:       seed.baseURL,
+		AuthType:      seed.authType,
+		Status:        "active",
+		Priority:      100 - index,
+		Region:        seed.region,
+		QPSLimit:      seed.qpsLimit,
+		MonthlyBudget: seed.monthlyBudget,
+		Owner:         seed.owner,
+		AITimeFields:  aiNowFields(),
+	}
+	if err := db.Where("code = ? AND deleted_at IS NULL", seed.code).FirstOrCreate(&row).Error; err != nil {
+		return "", err
+	}
+	err := db.Model(&row).Updates(map[string]interface{}{
+		"name":           seed.name,
+		"type":           seed.providerType,
+		"base_url":       seed.baseURL,
+		"auth_type":      seed.authType,
+		"status":         "active",
+		"priority":       100 - index,
+		"region":         seed.region,
+		"qps_limit":      seed.qpsLimit,
+		"monthly_budget": seed.monthlyBudget,
+		"owner":          seed.owner,
+		"updated_at":     time.Now(),
+		"deleted_at":     nil,
+	}).Error
+	return row.ID, err
+}
+
+func upsertAIProviderAccountAndAPIs(db *gorm.DB, providerID string, seed aiProviderSeed) error {
+	account := models.AIProviderAccount{
+		ProviderID:   providerID,
+		AccountName:  "prod-main",
+		Endpoint:     seed.baseURL,
+		KeyAlias:     strings.ToUpper(strings.ReplaceAll(seed.code, "-", "_")) + "_API_KEY",
+		QuotaLimit:   seed.monthlyBudget,
+		UsedQuota:    0,
+		Status:       "active",
+		AITimeFields: aiNowFields(),
+	}
+	if err := db.Where("provider_id = ? AND account_name = ? AND deleted_at IS NULL", providerID, account.AccountName).FirstOrCreate(&account).Error; err != nil {
+		return err
+	}
+	if err := db.Model(&account).Updates(map[string]interface{}{
+		"endpoint":    seed.baseURL,
+		"key_alias":   account.KeyAlias,
+		"quota_limit": seed.monthlyBudget,
+		"status":      "active",
+		"updated_at":  time.Now(),
+		"deleted_at":  nil,
+	}).Error; err != nil {
+		return err
+	}
+	for _, api := range seed.apis {
+		row := models.AIProviderAPI{
+			ProviderID:   providerID,
+			AccountID:    account.ID,
+			APIName:      api.name,
+			APIPath:      api.path,
+			APIType:      api.apiType,
+			Capabilities: api.capabilities,
+			AuthType:     seed.authType,
+			QPSLimit:     api.qpsLimit,
+			TimeoutMS:    api.timeoutMS,
+			Status:       "active",
+			AITimeFields: aiNowFields(),
+		}
+		if err := db.Where("provider_id = ? AND account_id = ? AND api_name = ? AND deleted_at IS NULL", providerID, account.ID, api.name).FirstOrCreate(&row).Error; err != nil {
+			return err
+		}
+		if err := db.Model(&row).Updates(map[string]interface{}{
+			"api_path":     api.path,
+			"api_type":     api.apiType,
+			"capabilities": aiJSONB(api.capabilities),
+			"auth_type":    seed.authType,
+			"qps_limit":    api.qpsLimit,
+			"timeout_ms":   api.timeoutMS,
+			"status":       "active",
+			"updated_at":   time.Now(),
+			"deleted_at":   nil,
+		}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func upsertAIModelSeed(db *gorm.DB, providerID string, seed aiModelSeed) (string, error) {
+	row := models.AIModel{
+		ProviderID:    providerID,
+		ModelCode:     seed.code,
+		ModelName:     seed.name,
+		ModelType:     seed.modelType,
+		Capabilities:  seed.capabilities,
+		ContextWindow: seed.contextWindow,
+		Unit:          seed.unit,
+		LatencyP95:    seed.latencyP95,
+		SuccessRate:   seed.successRate,
+		Status:        "active",
+		DefaultFor:    seed.defaultFor,
+		AITimeFields:  aiNowFields(),
+	}
+	if err := db.Where("provider_id = ? AND model_code = ? AND deleted_at IS NULL", providerID, seed.code).FirstOrCreate(&row).Error; err != nil {
+		return "", err
+	}
+	err := db.Model(&row).Updates(map[string]interface{}{
+		"model_name":     seed.name,
+		"model_type":     seed.modelType,
+		"capabilities":   aiJSONB(seed.capabilities),
+		"context_window": seed.contextWindow,
+		"unit":           seed.unit,
+		"latency_p95":    seed.latencyP95,
+		"success_rate":   seed.successRate,
+		"status":         "active",
+		"default_for":    aiJSONB(seed.defaultFor),
+		"updated_at":     time.Now(),
+		"deleted_at":     nil,
+	}).Error
+	return row.ID, err
+}
+
+func upsertAIPriceSeeds(db *gorm.DB, modelID string, model aiModelSeed) error {
+	for _, price := range model.prices {
+		row := models.AIModelPricePolicy{
+			ModelID:            modelID,
+			FeatureKey:         price.featureKey,
+			FeatureName:        price.featureName,
+			ModelType:          model.modelType,
+			CapabilityCode:     price.capability,
+			BillingMode:        "usage",
+			BillingUnit:        price.billingUnit,
+			PlatformUnit:       price.billingUnit,
+			BaseCostPrice:      price.costPrice,
+			BaseSalePrice:      price.salePrice,
+			BasePlatformAmount: price.platformFee,
+			Currency:           "CNY",
+			Status:             "active",
+			AITimeFields:       aiNowFields(),
+		}
+		if err := db.Where("model_id = ? AND feature_key = ? AND deleted_at IS NULL", modelID, price.featureKey).FirstOrCreate(&row).Error; err != nil {
+			return err
+		}
+		if err := db.Model(&row).Updates(map[string]interface{}{
+			"feature_name":         price.featureName,
+			"model_type":           model.modelType,
+			"capability_code":      price.capability,
+			"billing_mode":         "usage",
+			"billing_unit":         price.billingUnit,
+			"platform_unit":        price.billingUnit,
+			"base_cost_price":      price.costPrice,
+			"base_sale_price":      price.salePrice,
+			"base_platform_amount": price.platformFee,
+			"currency":             "CNY",
+			"status":               "active",
+			"updated_at":           time.Now(),
+			"deleted_at":           nil,
+		}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func seedAICapabilities(db *gorm.DB) error {
+	items := []models.AICapability{
+		{CapabilityCode: "chat_completion", CapabilityName: "对话生成", ScenarioType: "text", ModelType: "text", DefaultBillingUnit: "1K tokens", SupportsTierPricing: true, Description: "通用对话、文案、摘要、问答等文本生成能力", Status: "active", SortOrder: 1, AITimeFields: aiNowFields()},
+		{CapabilityCode: "text_generation", CapabilityName: "文本生成", ScenarioType: "text", ModelType: "text", DefaultBillingUnit: "1K tokens", SupportsTierPricing: true, Description: "面向业务文案、结构化输出和内容生成", Status: "active", SortOrder: 2, AITimeFields: aiNowFields()},
+		{CapabilityCode: "reasoning", CapabilityName: "复杂推理", ScenarioType: "reasoning", ModelType: "text", DefaultBillingUnit: "1K tokens", SupportsTierPricing: true, Description: "多步推理、代码分析和复杂任务规划", Status: "active", SortOrder: 3, AITimeFields: aiNowFields()},
+		{CapabilityCode: "embedding", CapabilityName: "文本向量", ScenarioType: "embedding", ModelType: "embedding", DefaultBillingUnit: "1K tokens", SupportsTierPricing: true, Description: "检索增强、相似度计算、知识库召回", Status: "active", SortOrder: 4, AITimeFields: aiNowFields()},
+		{CapabilityCode: "image_generation", CapabilityName: "图片生成", ScenarioType: "image", ModelType: "image", DefaultBillingUnit: "image", SupportsTierPricing: true, Description: "文生图、营销素材和配图生成", Status: "active", SortOrder: 5, AITimeFields: aiNowFields()},
+		{CapabilityCode: "long_context", CapabilityName: "长上下文", ScenarioType: "text", ModelType: "text", DefaultBillingUnit: "1K tokens", SupportsTierPricing: true, Description: "长文档解析、合同审阅、知识库问答", Status: "active", SortOrder: 6, AITimeFields: aiNowFields()},
+	}
+	for _, item := range items {
+		row := item
+		if err := db.Where("capability_code = ? AND deleted_at IS NULL", item.CapabilityCode).FirstOrCreate(&row).Error; err != nil {
+			return err
+		}
+		if err := db.Model(&row).Updates(map[string]interface{}{
+			"capability_name":       item.CapabilityName,
+			"scenario_type":         item.ScenarioType,
+			"model_type":            item.ModelType,
+			"default_billing_unit":  item.DefaultBillingUnit,
+			"supports_tier_pricing": item.SupportsTierPricing,
+			"description":           item.Description,
+			"status":                "active",
+			"sort_order":            item.SortOrder,
+			"updated_at":            time.Now(),
+			"deleted_at":            nil,
+		}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func seedAIRoutesAndScenarios(db *gorm.DB, modelByCapability map[string][]string) error {
+	routes := []struct {
+		code       string
+		name       string
+		capability string
+		modelType  string
+		strategy   string
+	}{
+		{code: "chat-default", name: "通用对话默认路由", capability: "chat_completion", modelType: "text", strategy: "quality_first"},
+		{code: "reasoning-default", name: "复杂推理默认路由", capability: "reasoning", modelType: "text", strategy: "quality_first"},
+		{code: "embedding-default", name: "向量检索默认路由", capability: "embedding", modelType: "embedding", strategy: "latency_first"},
+		{code: "image-default", name: "图片生成默认路由", capability: "image_generation", modelType: "image", strategy: "cost_first"},
+		{code: "long-context-default", name: "长上下文默认路由", capability: "long_context", modelType: "text", strategy: "quality_first"},
+	}
+	routeIDs := map[string]string{}
+	for _, item := range routes {
+		route := models.AIBaseRoute{
+			RouteCode:      item.code,
+			RouteName:      item.name,
+			CapabilityCode: item.capability,
+			ModelType:      item.modelType,
+			Strategy:       item.strategy,
+			TimeoutMS:      30000,
+			MaxRetry:       2,
+			Status:         "active",
+			AITimeFields:   aiNowFields(),
+		}
+		if err := db.Where("route_code = ? AND deleted_at IS NULL", item.code).FirstOrCreate(&route).Error; err != nil {
+			return err
+		}
+		routeIDs[item.capability] = route.ID
+		if err := db.Model(&route).Updates(map[string]interface{}{
+			"route_name":      item.name,
+			"capability_code": item.capability,
+			"model_type":      item.modelType,
+			"strategy":        item.strategy,
+			"timeout_ms":      30000,
+			"max_retry":       2,
+			"status":          "active",
+			"updated_at":      time.Now(),
+			"deleted_at":      nil,
+		}).Error; err != nil {
+			return err
+		}
+		if err := seedAIRouteModels(db, route.ID, modelByCapability[item.capability]); err != nil {
+			return err
+		}
+	}
+	scenarios := []struct {
+		appCode    string
+		appName    string
+		code       string
+		name       string
+		sceneType  string
+		capability string
+		modelType  string
+		routeID    string
+	}{
+		{appCode: "app-center", appName: "应用中心", code: "app_description_generate", name: "应用说明生成", sceneType: "text", capability: "chat_completion", modelType: "text", routeID: routeIDs["chat_completion"]},
+		{appCode: "integration-center", appName: "第三方集成中心", code: "connector_mapping_reasoning", name: "连接器映射推理", sceneType: "reasoning", capability: "reasoning", modelType: "text", routeID: routeIDs["reasoning"]},
+		{appCode: "data-center", appName: "数据中心", code: "knowledge_embedding", name: "知识库向量化", sceneType: "embedding", capability: "embedding", modelType: "embedding", routeID: routeIDs["embedding"]},
+		{appCode: "workbench", appName: "工作台", code: "poster_image_generate", name: "运营图片生成", sceneType: "image", capability: "image_generation", modelType: "image", routeID: routeIDs["image_generation"]},
+		{appCode: "system-management", appName: "系统管理", code: "policy_doc_review", name: "制度长文审阅", sceneType: "text", capability: "long_context", modelType: "text", routeID: routeIDs["long_context"]},
+	}
+	for _, item := range scenarios {
+		row := models.AIScenario{
+			AppCode:            item.appCode,
+			AppName:            item.appName,
+			AIScenarioCode:     item.code,
+			AIScenarioName:     item.name,
+			ScenarioType:       item.sceneType,
+			CapabilityCode:     item.capability,
+			ModelType:          item.modelType,
+			DefaultBaseRouteID: item.routeID,
+			Status:             "active",
+			AITimeFields:       aiNowFields(),
+		}
+		if err := db.Where("app_code = ? AND ai_scenario_code = ? AND deleted_at IS NULL", item.appCode, item.code).FirstOrCreate(&row).Error; err != nil {
+			return err
+		}
+		if err := db.Model(&row).Updates(map[string]interface{}{
+			"app_name":              item.appName,
+			"ai_scenario_name":      item.name,
+			"scenario_type":         item.sceneType,
+			"capability_code":       item.capability,
+			"model_type":            item.modelType,
+			"default_base_route_id": item.routeID,
+			"status":                "active",
+			"updated_at":            time.Now(),
+			"deleted_at":            nil,
+		}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func seedAIRouteModels(db *gorm.DB, routeID string, modelIDs []string) error {
+	for index, modelID := range modelIDs {
+		role := "fallback"
+		if index == 0 {
+			role = "primary"
+		}
+		row := models.AIBaseRouteModel{
+			BaseRouteID:  routeID,
+			ModelID:      modelID,
+			Role:         role,
+			Weight:       maxInt(100-index*10, 10),
+			Priority:     index + 1,
+			TimeoutMS:    30000,
+			Status:       "active",
+			AITimeFields: aiNowFields(),
+		}
+		if err := db.Where("base_route_id = ? AND model_id = ? AND deleted_at IS NULL", routeID, modelID).FirstOrCreate(&row).Error; err != nil {
+			return err
+		}
+		if err := db.Model(&row).Updates(map[string]interface{}{
+			"role":       role,
+			"weight":     maxInt(100-index*10, 10),
+			"priority":   index + 1,
+			"timeout_ms": 30000,
+			"status":     "active",
+			"updated_at": time.Now(),
+			"deleted_at": nil,
+		}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func aiNowFields() models.AITimeFields {
+	now := time.Now()
+	return models.AITimeFields{CreatedAt: now, UpdatedAt: now}
+}
+
+func aiJSONB(value interface{}) clause.Expr {
+	raw, _ := json.Marshal(value)
+	return gorm.Expr("?::jsonb", string(raw))
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func stringPtr(value string) *string {
