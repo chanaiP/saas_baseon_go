@@ -9,7 +9,7 @@
   --ai-purple: #8d66f7;
   --ai-danger: #ff6b76;
   --ai-card-bg: linear-gradient(180deg, rgba(20, 35, 55, 0.96), var(--ai-panel));
-  --ai-card-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
+  --ai-card-shadow: none;
   --ai-control-bg: rgba(8, 15, 28, 0.48);
   --ai-control-bg-soft: rgba(8, 15, 28, 0.42);
   --ai-control-bg-strong: rgba(7, 13, 24, 0.55);
@@ -47,7 +47,7 @@ html:not(.dark) .ai-prototype {
   --ai-purple: #7c3aed;
   --ai-danger: #dc2626;
   --ai-card-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.9));
-  --ai-card-shadow: 0 18px 46px rgba(15, 23, 42, 0.1);
+  --ai-card-shadow: none;
   --ai-control-bg: rgba(255, 255, 255, 0.76);
   --ai-control-bg-soft: rgba(248, 250, 252, 0.8);
   --ai-control-bg-strong: rgba(248, 250, 252, 0.84);
@@ -394,6 +394,11 @@ html:not(.dark) .ai-prototype {
 .ai-prototype .ai-table .el-scrollbar,
 .ai-prototype .ai-table .el-scrollbar__view {
   background: transparent;
+}
+
+.ai-prototype .ai-table .el-table__fixed,
+.ai-prototype .ai-table .el-table__fixed-right {
+  box-shadow: none;
 }
 
 .ai-prototype .ai-table th.el-table__cell {
