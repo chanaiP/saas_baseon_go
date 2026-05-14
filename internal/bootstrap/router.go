@@ -17,6 +17,7 @@ import (
 	apprepos "saas_baseon_go/internal/apps/app_center/repositories"
 	appservices "saas_baseon_go/internal/apps/app_center/services"
 	ichandlers "saas_baseon_go/internal/apps/integration_center/handlers"
+	icrepos "saas_baseon_go/internal/apps/integration_center/repositories"
 	icservices "saas_baseon_go/internal/apps/integration_center/services"
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/repositories"
 	"saas_baseon_go/internal/interfaces/http/handlers"
@@ -47,7 +48,7 @@ func NewRouter(cfg Config, db *gorm.DB, redisClient *redis.Client) *gin.Engine {
 	aiCapabilityCenterService := aiccservices.NewService(db)
 	aiCapabilityCenterService.StartProviderAPIConnectivityProbe(context.Background(), 10*time.Minute)
 	aiCapabilityCenterHandler := aicchandlers.NewHandler(aiCapabilityCenterService)
-	integrationCenterHandler := ichandlers.NewHandler(icservices.NewService())
+	integrationCenterHandler := ichandlers.NewHandler(icservices.NewService(icrepos.NewRepository(db)))
 
 	router.GET("/health", healthHandler.Check)
 	router.GET("/health/live", healthHandler.Live)

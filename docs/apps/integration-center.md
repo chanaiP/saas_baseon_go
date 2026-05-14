@@ -63,4 +63,12 @@ Manifest 声明平台后台管理菜单：
 
 ## 初始化
 
-生产初始化通过当前 schema baseline 和增量迁移执行。`000052_integration_center_manifest_seed` 将 `integration-center` 从规划状态升级为上线状态，并按 Manifest 基线补齐应用中心资产、菜单权限、套餐功能点和配额模板；`000053_integration_center_core_schema` 提供平台、服务商应用、租户连接、能力、同步、配额、异常和调用日志等业务表。
+生产初始化通过当前 schema baseline 和增量迁移执行。`000052_integration_center_manifest_seed` 将 `integration-center` 从规划状态升级为上线状态，并按 Manifest 基线补齐应用中心资产、菜单权限、套餐功能点和配额模板；`000053_integration_center_core_schema` 提供平台、服务商应用、租户连接、能力、同步、配额、异常和调用日志等业务表；`000054_integration_center_seed_data` 提供安全、可重复执行的内置平台、能力、服务商应用、配额策略和演示运行数据。
+
+## 运行时数据读取
+
+后端 `internal/apps/integration_center` 按 handler -> service -> repository 分层读取数据库：
+
+- 总览统计来自 `integration_platforms`、`integration_provider_apps`、`integration_tenant_connections`、`integration_alerts`、`integration_api_call_logs` 和 `integration_sync_jobs`。
+- 接入平台、集成工作台、租户连接、同步监控、配额与限流、异常监控和调用日志均有独立查询入口。
+- 初始化数据中的 `credential_ref` 只保存外部密钥引用，例如 `vault://integration-center/wecom-suite-standard`，不保存真实第三方凭据。
