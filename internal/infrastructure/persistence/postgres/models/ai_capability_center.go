@@ -159,15 +159,17 @@ type AIBaseRoute struct {
 func (AIBaseRoute) TableName() string { return "ai_base_routes" }
 
 type AIBaseRouteModel struct {
-	ID          string `json:"id" gorm:"primaryKey;column:id;type:uuid;default:gen_random_uuid()"`
-	BaseRouteID string `json:"base_route_id" gorm:"column:base_route_id;type:uuid;not null;index"`
-	ModelID     string `json:"model_id" gorm:"column:model_id;type:uuid;not null;index"`
-	Role        string `json:"role" gorm:"column:role;type:varchar(32);not null"`
-	Priority    int    `json:"priority" gorm:"column:priority;not null;default:1"`
-	Weight      int    `json:"weight" gorm:"column:weight;not null;default:100"`
-	MaxRetry    int    `json:"max_retry" gorm:"column:max_retry;not null;default:0"`
-	TimeoutMS   int    `json:"timeout_ms" gorm:"column:timeout_ms;not null;default:30000"`
-	Status      string `json:"status" gorm:"column:status;type:varchar(32);not null;default:active"`
+	ID                string `json:"id" gorm:"primaryKey;column:id;type:uuid;default:gen_random_uuid()"`
+	BaseRouteID       string `json:"base_route_id" gorm:"column:base_route_id;type:uuid;not null;index"`
+	ModelID           string `json:"model_id" gorm:"column:model_id;type:uuid;not null;index"`
+	ProviderAccountID string `json:"provider_account_id" gorm:"column:provider_account_id;type:uuid;index"`
+	ProviderAPIID     string `json:"provider_api_id" gorm:"column:provider_api_id;type:uuid;index"`
+	Role              string `json:"role" gorm:"column:role;type:varchar(32);not null"`
+	Priority          int    `json:"priority" gorm:"column:priority;not null;default:1"`
+	Weight            int    `json:"weight" gorm:"column:weight;not null;default:100"`
+	MaxRetry          int    `json:"max_retry" gorm:"column:max_retry;not null;default:0"`
+	TimeoutMS         int    `json:"timeout_ms" gorm:"column:timeout_ms;not null;default:30000"`
+	Status            string `json:"status" gorm:"column:status;type:varchar(32);not null;default:active"`
 	AITimeFields
 }
 

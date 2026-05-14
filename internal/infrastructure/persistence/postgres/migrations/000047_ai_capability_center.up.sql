@@ -154,6 +154,8 @@ CREATE TABLE IF NOT EXISTS ai_base_route_models (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   base_route_id UUID NOT NULL REFERENCES ai_base_routes(id),
   model_id UUID NOT NULL REFERENCES ai_models(id),
+  provider_account_id UUID REFERENCES ai_provider_accounts(id),
+  provider_api_id UUID REFERENCES ai_provider_apis(id),
   role VARCHAR(32) NOT NULL,
   priority INT NOT NULL DEFAULT 1,
   weight INT NOT NULL DEFAULT 100,

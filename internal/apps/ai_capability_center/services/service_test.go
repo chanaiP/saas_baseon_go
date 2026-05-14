@@ -97,7 +97,7 @@ func TestOverviewWarnsWhenScenarioRouteBindingUnavailable(t *testing.T) {
 	require.Contains(t, overview.HealthChecks, HealthCheck{
 		Name:    "AI 场景绑定状态",
 		Status:  "warning",
-		Message: "1 个启用 AI 场景未绑定可用基础路由或模型池节点",
+		Message: "1 个启用 AI 场景未绑定可用基础路由、模型节点或健康 API",
 	})
 }
 
@@ -1046,6 +1046,98 @@ func TestInvokeAppliesTenantStrategyPricingAndUsageRecord(t *testing.T) {
 	require.InDelta(t, 10, updatedQuota.UsedAmount, 0.0001)
 }
 
+func TestInvokeUsesRouteModelBoundProviderAPI(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "chat_completion", "tokens")
+	provider := seedProvider(t, db, "openai")
+	model := seedModel(t, db, provider.Code, "gpt-4.1")
+	route := seedBaseRoute(t, db, "route-bound-api", "chat_completion")
+	seedScenario(t, db, route.ID)
+	now := time.Now()
+	accountA := models.AIProviderAccount{
+		ID: "account-openai-a", ProviderID: provider.ID, AccountName: "prod-a", KeyAlias: "KEY_A", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	accountB := models.AIProviderAccount{
+		ID: "account-openai-b", ProviderID: provider.ID, AccountName: "prod-b", KeyAlias: "KEY_B", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&[]models.AIProviderAccount{accountA, accountB}).Error)
+	apiA := models.AIProviderAPI{
+		ID: "api-openai-a", ProviderID: provider.ID, AccountID: accountA.ID, APIName: "chat-a", APIPath: "/v1/chat/completions", APIType: "chat",
+		Capabilities: []string{"chat_completion"}, AuthType: "api_key", QPSLimit: 10, Status: "active", HealthStatus: "active", HealthCheckedAt: &now,
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	apiB := models.AIProviderAPI{
+		ID: "api-openai-b", ProviderID: provider.ID, AccountID: accountB.ID, APIName: "chat-b", APIPath: "/v1/chat/completions", APIType: "chat",
+		Capabilities: []string{"chat_completion"}, AuthType: "api_key", QPSLimit: 100, Status: "active", HealthStatus: "active", HealthCheckedAt: &now,
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&[]models.AIProviderAPI{apiA, apiB}).Error)
+	require.NoError(t, db.Create(&models.AIBaseRouteModel{
+		ID: "route-model-bound-api", BaseRouteID: route.ID, ModelID: model.ID, ProviderAccountID: accountB.ID, ProviderAPIID: apiB.ID,
+		Role: "primary", Priority: 1, Weight: 100, TimeoutMS: 30000, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+
+	_, err := NewService(db).Invoke(context.Background(), InvokeRequest{
+		TenantID: "tenant-a", AppCode: "product_center", AIScenarioCode: "copy_gen", RequestID: "invoke-bound-api",
+		Params: map[string]interface{}{"usage_amount": 1},
+	})
+	require.NoError(t, err)
+
+	var record models.AIUsageRecord
+	require.NoError(t, db.Where("request_id = ?", "invoke-bound-api").First(&record).Error)
+	require.Equal(t, accountB.ID, record.ProviderAccountID)
+	require.Equal(t, apiB.ID, record.ProviderAPIID)
+}
+
+func TestInvokeSkipsRouteModelWhenBoundAPIUnavailable(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "chat_completion", "tokens")
+	provider := seedProvider(t, db, "openai")
+	model := seedModel(t, db, provider.Code, "gpt-4.1")
+	route := seedBaseRoute(t, db, "route-api-fallback", "chat_completion")
+	seedScenario(t, db, route.ID)
+	now := time.Now()
+	account := models.AIProviderAccount{
+		ID: "account-openai-fallback", ProviderID: provider.ID, AccountName: "prod", KeyAlias: "KEY", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&account).Error)
+	badAPI := models.AIProviderAPI{
+		ID: "api-openai-bad", ProviderID: provider.ID, AccountID: account.ID, APIName: "bad", APIPath: "/bad", APIType: "chat",
+		Capabilities: []string{"chat_completion"}, AuthType: "api_key", Status: "active", HealthStatus: "error",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	goodAPI := models.AIProviderAPI{
+		ID: "api-openai-good", ProviderID: provider.ID, AccountID: account.ID, APIName: "good", APIPath: "/good", APIType: "chat",
+		Capabilities: []string{"chat_completion"}, AuthType: "api_key", Status: "active", HealthStatus: "active", HealthCheckedAt: &now,
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&[]models.AIProviderAPI{badAPI, goodAPI}).Error)
+	require.NoError(t, db.Create(&models.AIBaseRouteModel{
+		ID: "route-model-bad-api", BaseRouteID: route.ID, ModelID: model.ID, ProviderAccountID: account.ID, ProviderAPIID: badAPI.ID,
+		Role: "primary", Priority: 1, Weight: 200, TimeoutMS: 30000, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+	require.NoError(t, db.Create(&models.AIBaseRouteModel{
+		ID: "route-model-good-api", BaseRouteID: route.ID, ModelID: model.ID, ProviderAccountID: account.ID, ProviderAPIID: goodAPI.ID,
+		Role: "fallback", Priority: 2, Weight: 100, TimeoutMS: 30000, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+
+	_, err := NewService(db).Invoke(context.Background(), InvokeRequest{
+		TenantID: "tenant-a", AppCode: "product_center", AIScenarioCode: "copy_gen", RequestID: "invoke-api-fallback",
+		Params: map[string]interface{}{"usage_amount": 1},
+	})
+	require.NoError(t, err)
+
+	var record models.AIUsageRecord
+	require.NoError(t, db.Where("request_id = ?", "invoke-api-fallback").First(&record).Error)
+	require.Equal(t, goodAPI.ID, record.ProviderAPIID)
+}
+
 func newAICapabilityTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
@@ -1221,6 +1313,8 @@ func newAICapabilityTestDB(t *testing.T) *gorm.DB {
 		id TEXT PRIMARY KEY,
 		base_route_id TEXT NOT NULL,
 		model_id TEXT NOT NULL,
+		provider_account_id TEXT,
+		provider_api_id TEXT,
 		role TEXT NOT NULL,
 		priority INTEGER NOT NULL DEFAULT 1,
 		weight INTEGER NOT NULL DEFAULT 100,

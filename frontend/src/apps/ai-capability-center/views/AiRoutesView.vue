@@ -19,6 +19,8 @@ const strategyFilter = ref('all')
 const routes = ref(emptyPage())
 const routeModels = ref(emptyPage())
 const models = ref(emptyPage())
+const accounts = ref(emptyPage())
+const apis = ref(emptyPage())
 const scenarios = ref(emptyPage())
 const strategies = ref(emptyPage())
 const createVisible = ref(false)
@@ -39,6 +41,27 @@ function modelName(modelId: unknown) {
   return text(model?.model_name || model?.model_code || modelId)
 }
 
+function accountName(accountId: unknown) {
+  const id = String(accountId || '')
+  if (!id) return '自动选择账号'
+  const account = accounts.value.items.find((row) => rowId(row) === id)
+  return text(account?.account_name || account?.key_alias || accountId)
+}
+
+function apiName(apiId: unknown) {
+  const id = String(apiId || '')
+  if (!id) return '自动选择 API'
+  const api = apis.value.items.find((row) => rowId(row) === id)
+  return text(api?.api_name || api?.api_path || apiId)
+}
+
+function endpointLabel(node: AiRow) {
+  const account = accountName(node.provider_account_id)
+  const api = apiName(node.provider_api_id)
+  if (account === '自动选择账号' && api === '自动选择 API') return '执行端点：按健康、能力和账号状态自动选择'
+  return `执行端点：${account} / ${api}`
+}
+
 function referenceCount(routeId: unknown) {
   const id = String(routeId || '')
   return scenarios.value.items.filter((row) => String(row.default_base_route_id || '') === id).length
@@ -48,16 +71,20 @@ function referenceCount(routeId: unknown) {
 async function loadData() {
   loading.value = true
   try {
-    const [routePage, routeModelPage, modelPage, scenarioPage, strategyPage] = await Promise.all([
+    const [routePage, routeModelPage, modelPage, accountPage, apiPage, scenarioPage, strategyPage] = await Promise.all([
       fetchAiResource('base-routes', { skip: 0, limit: 200, keyword: keyword.value.trim() }),
       fetchAiResource('route-models', { skip: 0, limit: 200 }),
       fetchAiResource('models', { skip: 0, limit: 200 }),
+      fetchAiResource('accounts', { skip: 0, limit: 500 }),
+      fetchAiResource('apis', { skip: 0, limit: 500 }),
       fetchAiResource('scenarios', { skip: 0, limit: 200 }),
       fetchAiResource('tenant-strategies', { skip: 0, limit: 200 }),
     ])
     routes.value = routePage
     routeModels.value = routeModelPage
     models.value = modelPage
+    accounts.value = accountPage
+    apis.value = apiPage
     scenarios.value = scenarioPage
     strategies.value = strategyPage
   } catch (error) {
@@ -94,7 +121,7 @@ onMounted(loadData)
     </template>
 
     <div class="ai-flow-panel">
-      <div>基础路由</div><span>→</span><div>AI 场景绑定</div><span>→</span><div>租户策略覆盖</div><span>→</span><div>配额限流校验</div><span>→</span><div>执行模型池</div>
+      <div>基础路由</div><span>→</span><div>AI 场景绑定</div><span>→</span><div>租户策略覆盖</div><span>→</span><div>配额限流校验</div><span>→</span><div>模型与端点池</div>
     </div>
 
     <section class="ai-card ai-table">
@@ -133,6 +160,13 @@ onMounted(loadData)
               </span>
             </template>
           </el-table-column>
+          <el-table-column label="执行端点" min-width="260">
+            <template #default="{ row }">
+              <span class="ai-table-cell-main">
+                <small v-for="node in routePool(row.id)" :key="`endpoint-${rowId(node)}`">{{ endpointLabel(node) }}</small>
+              </span>
+            </template>
+          </el-table-column>
           <el-table-column label="引用" width="90"><template #default="{ row }"><strong>{{ referenceCount(row.id) }}</strong></template></el-table-column>
           <el-table-column label="超时 / 重试" width="140"><template #default="{ row }">{{ numberText(row.timeout_ms) }}ms / {{ numberText(row.max_retry) }}</template></el-table-column>
           <el-table-column label="状态" width="100"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ text(row.status) }}</el-tag></template></el-table-column>
@@ -154,7 +188,9 @@ onMounted(loadData)
   → 读取场景 default_base_route
   → 查询租户策略 override_base_route
   → 校验多维配额/限流
-  → 执行最终基础路由的模型池</pre>
+  → 执行最终基础路由的模型池
+  → 按节点绑定或自动策略选择供应商账号/API
+  → 跳过停用账号、停用 API、连通性异常 API</pre>
       </div>
     </section>
 
@@ -167,7 +203,7 @@ onMounted(loadData)
     <AiJsonDialog
       v-model="importVisible"
       title="导入基础路由"
-      :sample="{ base_routes: [{ route_code: 'route_text_low_cost', route_name: '文本低成本基础路由', capability_code: 'chat_completion', model_type: 'text', strategy: 'fallback', route_models: [{ model_id: rowId(models.items[0]), role: 'primary', priority: 1, weight: 100, max_retry: 1, timeout_ms: 25000 }] }] }"
+      :sample="{ base_routes: [{ route_code: 'route_text_low_cost', route_name: '文本低成本基础路由', capability_code: 'chat_completion', model_type: 'text', strategy: 'fallback', route_models: [{ model_id: rowId(models.items[0]), provider_account_id: '', provider_api_id: '', role: 'primary', priority: 1, weight: 100, max_retry: 1, timeout_ms: 25000 }] }] }"
       @submit="importRoutes"
     />
   </NeuroAgentPageShell>

@@ -271,17 +271,19 @@ type RouteImportBaseRoute struct {
 }
 
 type RouteImportRouteModel struct {
-	BaseRouteID   string `json:"base_route_id"`
-	BaseRouteCode string `json:"base_route_code"`
-	ModelID       string `json:"model_id"`
-	ProviderCode  string `json:"provider_code"`
-	ModelCode     string `json:"model_code"`
-	Role          string `json:"role"`
-	Priority      int    `json:"priority"`
-	Weight        int    `json:"weight"`
-	MaxRetry      int    `json:"max_retry"`
-	TimeoutMS     int    `json:"timeout_ms"`
-	Status        string `json:"status"`
+	BaseRouteID       string `json:"base_route_id"`
+	BaseRouteCode     string `json:"base_route_code"`
+	ModelID           string `json:"model_id"`
+	ProviderCode      string `json:"provider_code"`
+	ModelCode         string `json:"model_code"`
+	ProviderAccountID string `json:"provider_account_id"`
+	ProviderAPIID     string `json:"provider_api_id"`
+	Role              string `json:"role"`
+	Priority          int    `json:"priority"`
+	Weight            int    `json:"weight"`
+	MaxRetry          int    `json:"max_retry"`
+	TimeoutMS         int    `json:"timeout_ms"`
+	Status            string `json:"status"`
 }
 
 type RouteImportResult struct {
@@ -1024,27 +1026,25 @@ func (s *Service) scenarioBindingHealth(ctx context.Context) (string, string, er
 	if scenarios == 0 {
 		return "warning", "未注册启用 AI 场景，业务中心无法通过场景编码调用 Gateway", nil
 	}
-	var unavailable int64
-	err = s.db.WithContext(ctx).Table("ai_scenarios AS s").
-		Where("s.status = ? AND s.deleted_at IS NULL", "active").
-		Where(`s.default_base_route_id = ''
-			OR NOT EXISTS (
-				SELECT 1 FROM ai_base_routes AS r
-				WHERE r.id = s.default_base_route_id AND r.status = 'active' AND r.deleted_at IS NULL
-			)
-			OR NOT EXISTS (
-				SELECT 1 FROM ai_base_route_models AS rm
-				JOIN ai_models AS m ON m.id = rm.model_id AND m.status = 'active' AND m.deleted_at IS NULL
-				WHERE rm.base_route_id = s.default_base_route_id AND rm.status = 'active' AND rm.deleted_at IS NULL
-			)`).
-		Count(&unavailable).Error
-	if err != nil {
+	var rows []models.AIScenario
+	if err := s.db.WithContext(ctx).Where("status = ? AND deleted_at IS NULL", "active").Find(&rows).Error; err != nil {
 		return "", "", err
 	}
-	if unavailable > 0 {
-		return "warning", fmt.Sprintf("%d 个启用 AI 场景未绑定可用基础路由或模型池节点", unavailable), nil
+	unavailable := int64(0)
+	for _, scenario := range rows {
+		var route models.AIBaseRoute
+		if err := s.db.WithContext(ctx).Where("id = ? AND status = ? AND deleted_at IS NULL", scenario.DefaultBaseRouteID, "active").First(&route).Error; err != nil {
+			unavailable++
+			continue
+		}
+		if _, _, _, err := s.selectRouteExecutionPlan(ctx, route, scenario); err != nil {
+			unavailable++
+		}
 	}
-	return "active", fmt.Sprintf("%d 个启用 AI 场景已绑定可用基础路由", scenarios), nil
+	if unavailable > 0 {
+		return "warning", fmt.Sprintf("%d 个启用 AI 场景未绑定可用基础路由、模型节点或健康 API", unavailable), nil
+	}
+	return "active", fmt.Sprintf("%d 个启用 AI 场景已绑定可用基础路由和执行端点", scenarios), nil
 }
 
 func (s *Service) countActive(ctx context.Context, model interface{}, where string, args ...interface{}) (int64, error) {
@@ -1593,11 +1593,11 @@ func (s *Service) Invoke(ctx context.Context, req InvokeRequest) (InvokeResponse
 	if err := s.db.WithContext(ctx).Where("id = ? AND status = ? AND deleted_at IS NULL", routeID, "active").First(&route).Error; err != nil {
 		return InvokeResponse{}, ErrNotFound
 	}
-	routeModel, model, err := s.selectRouteModel(ctx, route, scenario)
+	routeModel, model, endpoint, err := s.selectRouteExecutionPlan(ctx, route, scenario)
 	if err != nil {
 		return InvokeResponse{}, err
 	}
-	providerID, accountID, apiID := s.resolveProviderEndpoint(ctx, model.ProviderID, scenario.CapabilityCode)
+	providerID, accountID, apiID := endpoint.ProviderID, endpoint.AccountID, endpoint.APIID
 
 	paramsRaw, _ := json.Marshal(req.Params)
 	inputRaw, _ := json.Marshal(req.Input)
@@ -1759,17 +1759,25 @@ func tenantStrategyMatchScore(row models.AITenantStrategyPolicy, tenantID string
 	return -1
 }
 
-func (s *Service) selectRouteModel(ctx context.Context, route models.AIBaseRoute, scenario models.AIScenario) (models.AIBaseRouteModel, models.AIModel, error) {
+type routeEndpoint struct {
+	ProviderID string
+	AccountID  string
+	APIID      string
+	Score      float64
+}
+
+func (s *Service) selectRouteExecutionPlan(ctx context.Context, route models.AIBaseRoute, scenario models.AIScenario) (models.AIBaseRouteModel, models.AIModel, routeEndpoint, error) {
 	var rows []models.AIBaseRouteModel
 	if err := s.db.WithContext(ctx).Where("base_route_id = ? AND status = ? AND deleted_at IS NULL", route.ID, "active").Find(&rows).Error; err != nil {
-		return models.AIBaseRouteModel{}, models.AIModel{}, err
+		return models.AIBaseRouteModel{}, models.AIModel{}, routeEndpoint{}, err
 	}
 	if len(rows) == 0 {
-		return models.AIBaseRouteModel{}, models.AIModel{}, ErrNotFound
+		return models.AIBaseRouteModel{}, models.AIModel{}, routeEndpoint{}, ErrNotFound
 	}
 	bestScore := -1.0
 	var bestRouteModel models.AIBaseRouteModel
 	var bestModel models.AIModel
+	var bestEndpoint routeEndpoint
 	for _, row := range rows {
 		var model models.AIModel
 		if err := s.db.WithContext(ctx).Where("id = ? AND status = ? AND deleted_at IS NULL", row.ModelID, "active").First(&model).Error; err != nil {
@@ -1778,17 +1786,22 @@ func (s *Service) selectRouteModel(ctx context.Context, route models.AIBaseRoute
 		if scenario.ModelType != "" && model.ModelType != scenario.ModelType {
 			continue
 		}
-		score := routeModelScore(route.Strategy, row, model)
+		endpoint, ok := s.resolveRouteEndpoint(ctx, row, model, scenario.CapabilityCode)
+		if !ok {
+			continue
+		}
+		score := routeModelScore(route.Strategy, row, model) + endpoint.Score
 		if score > bestScore {
 			bestScore = score
 			bestRouteModel = row
 			bestModel = model
+			bestEndpoint = endpoint
 		}
 	}
 	if bestScore < 0 {
-		return models.AIBaseRouteModel{}, models.AIModel{}, ErrNotFound
+		return models.AIBaseRouteModel{}, models.AIModel{}, routeEndpoint{}, ErrNotFound
 	}
-	return bestRouteModel, bestModel, nil
+	return bestRouteModel, bestModel, bestEndpoint, nil
 }
 
 func routeModelScore(strategy string, row models.AIBaseRouteModel, model models.AIModel) float64 {
@@ -1819,24 +1832,93 @@ func routeModelScore(strategy string, row models.AIBaseRouteModel, model models.
 	}
 }
 
-func (s *Service) resolveProviderEndpoint(ctx context.Context, providerID, capabilityCode string) (string, string, string) {
-	var account models.AIProviderAccount
-	if err := s.db.WithContext(ctx).Where("provider_id = ? AND status = ? AND deleted_at IS NULL", providerID, "active").Order("updated_at desc").First(&account).Error; err != nil {
-		return providerID, "", ""
+func (s *Service) resolveRouteEndpoint(ctx context.Context, routeModel models.AIBaseRouteModel, model models.AIModel, capabilityCode string) (routeEndpoint, bool) {
+	accountID := strings.TrimSpace(routeModel.ProviderAccountID)
+	apiID := strings.TrimSpace(routeModel.ProviderAPIID)
+	if apiID != "" {
+		var api models.AIProviderAPI
+		err := s.db.WithContext(ctx).
+			Where("id = ? AND provider_id = ? AND status = ? AND deleted_at IS NULL", apiID, model.ProviderID, "active").
+			First(&api).Error
+		if err != nil || !apiUsable(api, capabilityCode) {
+			return routeEndpoint{}, false
+		}
+		if accountID != "" && api.AccountID != accountID {
+			return routeEndpoint{}, false
+		}
+		if !s.accountUsable(ctx, api.AccountID, model.ProviderID) {
+			return routeEndpoint{}, false
+		}
+		return routeEndpoint{ProviderID: model.ProviderID, AccountID: api.AccountID, APIID: api.ID, Score: endpointHealthScore(api)}, true
 	}
-	var apis []models.AIProviderAPI
-	if err := s.db.WithContext(ctx).Where("provider_id = ? AND account_id = ? AND status = ? AND deleted_at IS NULL", providerID, account.ID, "active").Find(&apis).Error; err != nil {
-		return providerID, account.ID, ""
+
+	accountQuery := s.db.WithContext(ctx).
+		Where("provider_id = ? AND status = ? AND deleted_at IS NULL", model.ProviderID, "active")
+	if accountID != "" {
+		accountQuery = accountQuery.Where("id = ?", accountID)
 	}
-	for _, api := range apis {
-		if containsString(api.Capabilities, capabilityCode) {
-			return providerID, account.ID, api.ID
+	var accounts []models.AIProviderAccount
+	if err := accountQuery.Order("updated_at desc").Find(&accounts).Error; err != nil || len(accounts) == 0 {
+		return routeEndpoint{}, false
+	}
+
+	bestScore := -1.0
+	var best routeEndpoint
+	for _, account := range accounts {
+		var apis []models.AIProviderAPI
+		err := s.db.WithContext(ctx).
+			Where("provider_id = ? AND account_id = ? AND status = ? AND deleted_at IS NULL", model.ProviderID, account.ID, "active").
+			Order("updated_at desc").
+			Find(&apis).Error
+		if err != nil {
+			continue
+		}
+		for _, api := range apis {
+			if !apiUsable(api, capabilityCode) {
+				continue
+			}
+			score := endpointHealthScore(api)
+			if score > bestScore {
+				bestScore = score
+				best = routeEndpoint{ProviderID: model.ProviderID, AccountID: account.ID, APIID: api.ID, Score: score}
+			}
 		}
 	}
-	if len(apis) > 0 {
-		return providerID, account.ID, apis[0].ID
+	return best, bestScore >= 0
+}
+
+func (s *Service) accountUsable(ctx context.Context, accountID, providerID string) bool {
+	var count int64
+	_ = s.db.WithContext(ctx).Model(&models.AIProviderAccount{}).
+		Where("id = ? AND provider_id = ? AND status = ? AND deleted_at IS NULL", accountID, providerID, "active").
+		Count(&count).Error
+	return count > 0
+}
+
+func apiUsable(api models.AIProviderAPI, capabilityCode string) bool {
+	if strings.TrimSpace(api.Status) != "active" || !containsString(api.Capabilities, capabilityCode) {
+		return false
 	}
-	return providerID, account.ID, ""
+	switch strings.TrimSpace(api.HealthStatus) {
+	case "error", "inactive":
+		return false
+	default:
+		return true
+	}
+}
+
+func endpointHealthScore(api models.AIProviderAPI) float64 {
+	score := 0.0
+	if api.HealthStatus == "active" {
+		score += 1000
+	}
+	if api.HealthCheckedAt != nil && time.Since(*api.HealthCheckedAt) <= 10*time.Minute {
+		score += 100
+	}
+	if api.QPSLimit > 0 {
+		score += float64(api.QPSLimit) / 100
+	}
+	return score
 }
 
 func (s *Service) matchPricing(ctx context.Context, model models.AIModel, scenario models.AIScenario, req InvokeRequest) (pricingResult, error) {
@@ -2138,7 +2220,8 @@ func (s *Service) CreateResource(ctx context.Context, userID uint64, resource st
 			return nil, err
 		}
 		if !s.exists(ctx, &models.AIBaseRoute{}, row.BaseRouteID) || !s.exists(ctx, &models.AIModel{}, row.ModelID) ||
-			!validRouteModelRole(row.Role) || row.Priority <= 0 || row.Weight <= 0 || row.MaxRetry < 0 || row.TimeoutMS <= 0 {
+			!validRouteModelRole(row.Role) || row.Priority <= 0 || row.Weight <= 0 || row.MaxRetry < 0 || row.TimeoutMS <= 0 ||
+			!s.routeModelEndpointRefsValid(ctx, row) {
 			return nil, ErrInvalidInput
 		}
 		row.CreatedAt = now
@@ -2269,7 +2352,7 @@ func (s *Service) UpdateResource(ctx context.Context, userID uint64, resource, i
 	case "base-routes":
 		return updateRow[models.AIBaseRoute](ctx, s, userID, resource, id, payload, "ai_base_route", validateBaseRoute)
 	case "route-models":
-		return updateRow[models.AIBaseRouteModel](ctx, s, userID, resource, id, payload, "ai_base_route_model", validateRouteModel)
+		return s.updateRouteModel(ctx, userID, resource, id, payload)
 	case "scenarios":
 		return updateRow[models.AIScenario](ctx, s, userID, resource, id, payload, "ai_scenario", validateScenario)
 	case "tenant-strategies":
@@ -2916,20 +2999,25 @@ func upsertRouteModelImport(ctx context.Context, tx *gorm.DB, routeIDs, modelIDs
 		modelID = modelIDs[modelKey(item.ProviderCode, item.ModelCode)]
 	}
 	row := models.AIBaseRouteModel{
-		BaseRouteID: baseRouteID,
-		ModelID:     modelID,
-		Role:        defaultString(item.Role, "candidate"),
-		Priority:    defaultInt(item.Priority, 1),
-		Weight:      defaultInt(item.Weight, 100),
-		MaxRetry:    item.MaxRetry,
-		TimeoutMS:   defaultInt(item.TimeoutMS, 30000),
-		Status:      defaultString(item.Status, "active"),
+		BaseRouteID:       baseRouteID,
+		ModelID:           modelID,
+		ProviderAccountID: strings.TrimSpace(item.ProviderAccountID),
+		ProviderAPIID:     strings.TrimSpace(item.ProviderAPIID),
+		Role:              defaultString(item.Role, "candidate"),
+		Priority:          defaultInt(item.Priority, 1),
+		Weight:            defaultInt(item.Weight, 100),
+		MaxRetry:          item.MaxRetry,
+		TimeoutMS:         defaultInt(item.TimeoutMS, 30000),
+		Status:            defaultString(item.Status, "active"),
 	}
 	if row.BaseRouteID == "" || row.ModelID == "" || !validRouteModelRole(row.Role) ||
 		row.Priority <= 0 || row.Weight <= 0 || row.MaxRetry < 0 || row.TimeoutMS <= 0 {
 		return ErrInvalidInput
 	}
 	if !existsTx(ctx, tx, &models.AIBaseRoute{}, row.BaseRouteID) || !existsTx(ctx, tx, &models.AIModel{}, row.ModelID) {
+		return ErrInvalidInput
+	}
+	if !routeModelEndpointRefsValidTx(ctx, tx, row) {
 		return ErrInvalidInput
 	}
 	var existing models.AIBaseRouteModel
@@ -2944,6 +3032,7 @@ func upsertRouteModelImport(ctx context.Context, tx *gorm.DB, routeIDs, modelIDs
 		return err
 	}
 	return tx.Model(&existing).Updates(map[string]interface{}{
+		"provider_account_id": nullableString(row.ProviderAccountID), "provider_api_id": nullableString(row.ProviderAPIID),
 		"priority": row.Priority, "weight": row.Weight, "max_retry": row.MaxRetry,
 		"timeout_ms": row.TimeoutMS, "status": row.Status, "updated_at": now,
 	}).Error
@@ -3408,6 +3497,52 @@ func (s *Service) exists(ctx context.Context, model interface{}, id string) bool
 	return count > 0
 }
 
+func (s *Service) routeModelEndpointRefsValid(ctx context.Context, row models.AIBaseRouteModel) bool {
+	return routeModelEndpointRefsValidTx(ctx, s.db, row)
+}
+
+func routeModelEndpointRefsValidTx(ctx context.Context, tx *gorm.DB, row models.AIBaseRouteModel) bool {
+	accountID := strings.TrimSpace(row.ProviderAccountID)
+	apiID := strings.TrimSpace(row.ProviderAPIID)
+	if accountID == "" && apiID == "" {
+		return true
+	}
+	var model models.AIModel
+	if err := tx.WithContext(ctx).Where("id = ? AND deleted_at IS NULL", row.ModelID).First(&model).Error; err != nil {
+		return false
+	}
+	if accountID != "" {
+		var count int64
+		_ = tx.WithContext(ctx).Model(&models.AIProviderAccount{}).
+			Where("id = ? AND provider_id = ? AND deleted_at IS NULL", accountID, model.ProviderID).
+			Count(&count).Error
+		if count == 0 {
+			return false
+		}
+	}
+	if apiID != "" {
+		q := tx.WithContext(ctx).Model(&models.AIProviderAPI{}).
+			Where("id = ? AND provider_id = ? AND deleted_at IS NULL", apiID, model.ProviderID)
+		if accountID != "" {
+			q = q.Where("account_id = ?", accountID)
+		}
+		var count int64
+		_ = q.Count(&count).Error
+		if count == 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func nullableString(value string) interface{} {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	return value
+}
+
 func (s *Service) capabilityExists(ctx context.Context, code string) bool {
 	if strings.TrimSpace(code) == "" {
 		return false
@@ -3494,6 +3629,45 @@ func updateRow[T any](ctx context.Context, s *Service, userID uint64, resource, 
 		return nil, err
 	}
 	s.Audit(ctx, userID, module, "update", "更新 AI 能力中心资源："+resource, map[string]interface{}{"id": id, "before": before, "after": row, "patch": payload})
+	return row, nil
+}
+
+func (s *Service) updateRouteModel(ctx context.Context, userID uint64, resource, id string, payload map[string]interface{}) (interface{}, error) {
+	var before models.AIBaseRouteModel
+	if err := s.db.WithContext(ctx).Where("id = ? AND deleted_at IS NULL", id).First(&before).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	var merged models.AIBaseRouteModel
+	if err := mergePayload(before, payload, &merged); err != nil {
+		return nil, err
+	}
+	if err := validateRouteModel(merged); err != nil {
+		return nil, err
+	}
+	if !s.exists(ctx, &models.AIBaseRoute{}, merged.BaseRouteID) || !s.exists(ctx, &models.AIModel{}, merged.ModelID) || !s.routeModelEndpointRefsValid(ctx, merged) {
+		return nil, ErrInvalidInput
+	}
+	if _, ok := payload["provider_account_id"]; ok {
+		payload["provider_account_id"] = nullableString(merged.ProviderAccountID)
+	}
+	if _, ok := payload["provider_api_id"]; ok {
+		payload["provider_api_id"] = nullableString(merged.ProviderAPIID)
+	}
+	var row models.AIBaseRouteModel
+	res := s.db.WithContext(ctx).Model(&models.AIBaseRouteModel{}).Where("id = ? AND deleted_at IS NULL", id).Updates(payload)
+	if res.Error != nil {
+		return nil, res.Error
+	}
+	if res.RowsAffected == 0 {
+		return nil, ErrNotFound
+	}
+	if err := s.db.WithContext(ctx).Where("id = ? AND deleted_at IS NULL", id).First(&row).Error; err != nil {
+		return nil, err
+	}
+	s.Audit(ctx, userID, "ai_base_route_model", "update", "更新 AI 能力中心资源："+resource, map[string]interface{}{"id": id, "before": before, "after": row, "patch": payload})
 	return row, nil
 }
 
