@@ -1,14 +1,17 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -349,6 +352,22 @@ type APIConnectivityResult struct {
 	Active  int `json:"active"`
 	Warning int `json:"warning"`
 	Error   int `json:"error"`
+}
+
+type apiProbeRow struct {
+	ID              string
+	ProviderCode    string
+	APIName         string
+	APIPath         string
+	APIType         string
+	Capabilities    []string `gorm:"serializer:json"`
+	AuthType        string
+	BaseURL         string
+	Endpoint        string
+	KeyAlias        string
+	EncryptedAPIKey string
+	EncryptedSecret string
+	TimeoutMS       int
 }
 
 func (s *Service) ImportProviders(ctx context.Context, userID uint64, req ProviderImportRequest) (ProviderImportResult, error) {
@@ -817,17 +836,9 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 }
 
 func (s *Service) CheckProviderAPIConnectivity(ctx context.Context, userID uint64) (APIConnectivityResult, error) {
-	type apiProbeRow struct {
-		ID        string
-		APIName   string
-		APIPath   string
-		BaseURL   string
-		Endpoint  string
-		TimeoutMS int
-	}
 	var rows []apiProbeRow
 	if err := s.db.WithContext(ctx).Table("ai_provider_apis AS api").
-		Select("api.id, api.api_name, api.api_path, p.base_url, a.endpoint, api.timeout_ms").
+		Select("api.id, p.code AS provider_code, api.api_name, api.api_path, api.api_type, api.capabilities, COALESCE(NULLIF(api.auth_type, ''), p.auth_type) AS auth_type, p.base_url, a.endpoint, a.key_alias, a.encrypted_api_key, a.encrypted_secret, api.timeout_ms").
 		Joins("JOIN ai_providers AS p ON p.id = api.provider_id AND p.status = ? AND p.deleted_at IS NULL", "active").
 		Joins("JOIN ai_provider_accounts AS a ON a.id = api.account_id AND a.status = ? AND a.deleted_at IS NULL", "active").
 		Where("api.status = ? AND api.deleted_at IS NULL", "active").
@@ -839,7 +850,7 @@ func (s *Service) CheckProviderAPIConnectivity(ctx context.Context, userID uint6
 	for _, row := range rows {
 		client := &http.Client{Timeout: probeTimeout(row.TimeoutMS)}
 		probeURL := providerAPIProbeURL(row.BaseURL, row.Endpoint, row.APIPath)
-		status, message := probeHTTP(ctx, client, probeURL)
+		status, message := probeProviderAPI(ctx, client, row, probeURL)
 		switch status {
 		case "active":
 			result.Active++
@@ -1060,40 +1071,234 @@ func probeTimeout(timeoutMS int) time.Duration {
 	return timeout
 }
 
-func probeHTTP(ctx context.Context, client *http.Client, rawURL string) (string, string) {
+type providerAPIProbe struct {
+	Method      string
+	ContentType string
+	Body        []byte
+}
+
+func probeProviderAPI(ctx context.Context, client *http.Client, api apiProbeRow, rawURL string) (string, string) {
+	return probeHTTP(ctx, client, rawURL, api.ProviderCode, api.AuthType, api.EncryptedAPIKey, api.EncryptedSecret, api.KeyAlias, providerProbePayload(api.ProviderCode, api.APIType, api.Capabilities, api.APIPath, api.APIName))
+}
+
+func probeHTTP(ctx context.Context, client *http.Client, rawURL, providerCode, authType, encryptedAPIKey, encryptedSecret, keyAlias string, probe providerAPIProbe) (string, string) {
 	if rawURL == "" {
 		return "error", "API Endpoint 或路径不合法"
 	}
-	statusCode, err := probeHTTPMethod(ctx, client, http.MethodHead, rawURL)
+	apiKey := resolveProviderAPIKey(encryptedAPIKey, keyAlias)
+	if requiresAPIKey(providerCode, authType) && apiKey == "" {
+		return "error", "未配置 API Key 或 Key Alias 环境变量"
+	}
+	statusCode, responseBody, err := probeHTTPMethod(ctx, client, probe.Method, rawURL, providerCode, authType, apiKey, encryptedSecret, probe)
 	if err != nil {
 		return "error", err.Error()
 	}
-	if statusCode == http.StatusMethodNotAllowed {
-		statusCode, err = probeHTTPMethod(ctx, client, http.MethodGet, rawURL)
-		if err != nil {
-			return "error", err.Error()
-		}
+	if statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden {
+		return "error", fmt.Sprintf("HTTP %d，鉴权失败，请检查 API Key、Secret 或账号权限", statusCode)
 	}
 	if statusCode == http.StatusNotFound {
 		return "warning", fmt.Sprintf("HTTP %d，API 路径可能不可用", statusCode)
 	}
-	if statusCode >= 500 {
-		return "warning", fmt.Sprintf("HTTP %d，供应商服务异常", statusCode)
+	if statusCode == http.StatusTooManyRequests {
+		return "warning", fmt.Sprintf("HTTP %d，供应商限流或额度不足", statusCode)
 	}
-	return "active", fmt.Sprintf("HTTP %d，网络连通", statusCode)
+	if statusCode == http.StatusBadRequest || statusCode == http.StatusUnprocessableEntity {
+		return "active", fmt.Sprintf("HTTP %d，接口可达且鉴权已通过：%s", statusCode, abbreviateProbeBody(responseBody))
+	}
+	if statusCode >= 500 {
+		return "warning", fmt.Sprintf("HTTP %d，供应商服务异常：%s", statusCode, abbreviateProbeBody(responseBody))
+	}
+	if statusCode >= 200 && statusCode < 300 {
+		return "active", fmt.Sprintf("HTTP %d，真实 API 调用连通", statusCode)
+	}
+	return "warning", fmt.Sprintf("HTTP %d，接口返回非预期状态：%s", statusCode, abbreviateProbeBody(responseBody))
 }
 
-func probeHTTPMethod(ctx context.Context, client *http.Client, method, rawURL string) (int, error) {
-	req, err := http.NewRequestWithContext(ctx, method, rawURL, nil)
-	if err != nil {
-		return 0, err
+func probeHTTPMethod(ctx context.Context, client *http.Client, method, rawURL, providerCode, authType, apiKey, secret string, probe providerAPIProbe) (int, string, error) {
+	var body io.Reader
+	if len(probe.Body) > 0 {
+		body = bytes.NewReader(probe.Body)
 	}
+	req, err := http.NewRequestWithContext(ctx, method, rawURL, body)
+	if err != nil {
+		return 0, "", err
+	}
+	if probe.ContentType != "" {
+		req.Header.Set("Content-Type", probe.ContentType)
+	}
+	req.Header.Set("Accept", "application/json")
+	applyProviderAuth(req, providerCode, authType, apiKey, secret)
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	defer resp.Body.Close()
-	return resp.StatusCode, nil
+	rawBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	return resp.StatusCode, string(rawBody), nil
+}
+
+func providerProbePayload(providerCode, apiType string, capabilities []string, apiPath, apiName string) providerAPIProbe {
+	kind := strings.ToLower(strings.Join(append([]string{providerCode, apiType, apiPath, apiName}, capabilities...), " "))
+	switch {
+	case strings.Contains(kind, "dashscope") && strings.Contains(apiPath, "/api/v1/services/"):
+		return jsonProbe(map[string]interface{}{
+			"model": "qwen-turbo",
+			"input": map[string]string{"prompt": "ping"},
+			"parameters": map[string]int{
+				"max_tokens": 1,
+			},
+		})
+	case strings.Contains(kind, "qianfan") || strings.Contains(kind, "baidu"):
+		return jsonProbe(map[string]interface{}{
+			"messages": []map[string]string{
+				{"role": "user", "content": "ping"},
+			},
+			"disable_search": true,
+		})
+	case strings.Contains(kind, "hunyuan") || strings.Contains(kind, "tencent"):
+		return jsonProbe(map[string]interface{}{
+			"Model": "hunyuan-lite",
+			"Messages": []map[string]string{
+				{"Role": "user", "Content": "ping"},
+			},
+			"Stream": false,
+		})
+	case strings.Contains(kind, "minimax"):
+		return jsonProbe(map[string]interface{}{
+			"model": "abab6.5s-chat",
+			"messages": []map[string]string{
+				{"role": "user", "content": "ping"},
+			},
+			"tokens_to_generate": 1,
+		})
+	case strings.Contains(kind, "embedding"):
+		return jsonProbe(map[string]interface{}{
+			"model": providerProbeModel(providerCode, "embedding"),
+			"input": "ping",
+		})
+	case strings.Contains(kind, "image"):
+		return jsonProbe(map[string]interface{}{
+			"model":  providerProbeModel(providerCode, "image"),
+			"prompt": "ping",
+			"n":      1,
+			"size":   "1024x1024",
+		})
+	case strings.Contains(kind, "anthropic") || strings.Contains(apiPath, "/messages"):
+		return jsonProbe(map[string]interface{}{
+			"model":      providerProbeModel(providerCode, "chat"),
+			"max_tokens": 1,
+			"messages": []map[string]string{
+				{"role": "user", "content": "ping"},
+			},
+		})
+	default:
+		return jsonProbe(map[string]interface{}{
+			"model": providerProbeModel(providerCode, "chat"),
+			"messages": []map[string]string{
+				{"role": "user", "content": "ping"},
+			},
+			"max_tokens": 1,
+		})
+	}
+}
+
+func jsonProbe(payload map[string]interface{}) providerAPIProbe {
+	body, _ := json.Marshal(payload)
+	return providerAPIProbe{Method: http.MethodPost, ContentType: "application/json", Body: body}
+}
+
+func providerProbeModel(providerCode, capability string) string {
+	code := strings.ToLower(strings.TrimSpace(providerCode))
+	switch {
+	case strings.Contains(code, "anthropic") || strings.Contains(code, "claude"):
+		return "claude-3-haiku-20240307"
+	case strings.Contains(code, "dashscope") || strings.Contains(code, "aliyun") || strings.Contains(code, "qwen"):
+		if capability == "embedding" {
+			return "text-embedding-v1"
+		}
+		return "qwen-turbo"
+	case strings.Contains(code, "volc") || strings.Contains(code, "doubao") || strings.Contains(code, "ark"):
+		return "doubao-lite-4k"
+	case strings.Contains(code, "deepseek"):
+		return "deepseek-chat"
+	case strings.Contains(code, "zhipu") || strings.Contains(code, "glm"):
+		return "glm-4-flash"
+	case strings.Contains(code, "moonshot") || strings.Contains(code, "kimi"):
+		return "moonshot-v1-8k"
+	case strings.Contains(code, "baichuan"):
+		return "Baichuan2-Turbo"
+	case strings.Contains(code, "minimax"):
+		return "abab6.5s-chat"
+	case strings.Contains(code, "hunyuan") || strings.Contains(code, "tencent"):
+		return "hunyuan-lite"
+	case strings.Contains(code, "azure"):
+		return "gpt-4o-mini"
+	default:
+		if capability == "embedding" {
+			return "text-embedding-3-small"
+		}
+		if capability == "image" {
+			return "dall-e-3"
+		}
+		return "gpt-4o-mini"
+	}
+}
+
+func applyProviderAuth(req *http.Request, providerCode, authType, apiKey, secret string) {
+	auth := strings.ToLower(strings.TrimSpace(authType))
+	code := strings.ToLower(strings.TrimSpace(providerCode))
+	switch {
+	case auth == "none" || auth == "anonymous":
+		return
+	case auth == "x-api-key":
+		req.Header.Set("X-API-Key", apiKey)
+	case auth == "basic":
+		req.SetBasicAuth(apiKey, secret)
+	case auth == "dashscope" || strings.Contains(code, "dashscope") || strings.Contains(code, "qwen") || strings.Contains(code, "aliyun"):
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+		req.Header.Set("X-DashScope-SSE", "disable")
+	case auth == "anthropic" || strings.Contains(code, "anthropic") || strings.Contains(code, "claude"):
+		req.Header.Set("x-api-key", apiKey)
+		req.Header.Set("anthropic-version", "2023-06-01")
+	case strings.Contains(code, "azure"):
+		req.Header.Set("api-key", apiKey)
+	default:
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+}
+
+func requiresAPIKey(providerCode, authType string) bool {
+	auth := strings.ToLower(strings.TrimSpace(authType))
+	switch auth {
+	case "none", "anonymous":
+		return false
+	}
+	if auth == "" && strings.TrimSpace(providerCode) == "" {
+		return false
+	}
+	return true
+}
+
+func resolveProviderAPIKey(encryptedAPIKey, keyAlias string) string {
+	if value := strings.TrimSpace(encryptedAPIKey); value != "" {
+		return value
+	}
+	alias := strings.TrimSpace(keyAlias)
+	if alias == "" {
+		return ""
+	}
+	return strings.TrimSpace(os.Getenv(alias))
+}
+
+func abbreviateProbeBody(body string) string {
+	body = strings.TrimSpace(strings.ReplaceAll(body, "\n", " "))
+	if body == "" {
+		return "无响应体"
+	}
+	if len(body) > 160 {
+		return body[:160] + "..."
+	}
+	return body
 }
 
 func (s *Service) usageTrend(ctx context.Context, start, end time.Time) ([]UsageTrendPoint, error) {
@@ -1770,6 +1975,7 @@ func (s *Service) CreateResource(ctx context.Context, userID uint64, resource st
 		if err := decodePayload(payload, &row); err != nil {
 			return nil, err
 		}
+		applyProviderAccountSecretPayload(payload, &row)
 		if !s.exists(ctx, &models.AIProvider{}, row.ProviderID) || strings.TrimSpace(row.AccountName) == "" || strings.TrimSpace(row.KeyAlias) == "" {
 			return nil, ErrInvalidInput
 		}
@@ -2182,6 +2388,15 @@ func decodePayload(payload map[string]interface{}, target interface{}) error {
 		return err
 	}
 	return json.Unmarshal(raw, target)
+}
+
+func applyProviderAccountSecretPayload(payload map[string]interface{}, row *models.AIProviderAccount) {
+	if value, ok := payload["encrypted_api_key"]; ok {
+		row.EncryptedAPIKey = strings.TrimSpace(fmt.Sprint(value))
+	}
+	if value, ok := payload["encrypted_secret"]; ok {
+		row.EncryptedSecret = strings.TrimSpace(fmt.Sprint(value))
+	}
 }
 
 func upsertProviderImport(ctx context.Context, tx *gorm.DB, item ProviderImportProvider, now time.Time) (models.AIProvider, error) {
@@ -3395,7 +3610,7 @@ func validRouteModelRole(role string) bool {
 }
 
 func (s *Service) Audit(ctx context.Context, userID uint64, module, action, summary string, detail interface{}) {
-	raw, _ := json.Marshal(detail)
+	raw, _ := json.Marshal(maskAIAuditDetail(detail))
 	appCode := ai_capability_center.AppCode
 	now := time.Now()
 	_ = s.db.WithContext(ctx).Create(&models.AuditLog{
@@ -3408,6 +3623,49 @@ func (s *Service) Audit(ctx context.Context, userID uint64, module, action, summ
 		Result:    "success",
 		CreatedAt: now,
 	}).Error
+}
+
+func maskAIAuditDetail(value interface{}) interface{} {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return value
+	}
+	var decoded interface{}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return value
+	}
+	return maskAIAuditValue(decoded)
+}
+
+func maskAIAuditValue(value interface{}) interface{} {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		masked := make(map[string]interface{}, len(typed))
+		for key, item := range typed {
+			if isSensitiveAIKey(key) {
+				masked[key] = "***"
+				continue
+			}
+			masked[key] = maskAIAuditValue(item)
+		}
+		return masked
+	case []interface{}:
+		masked := make([]interface{}, 0, len(typed))
+		for _, item := range typed {
+			masked = append(masked, maskAIAuditValue(item))
+		}
+		return masked
+	default:
+		return value
+	}
+}
+
+func isSensitiveAIKey(key string) bool {
+	normalized := strings.ToLower(key)
+	return strings.Contains(normalized, "api_key") ||
+		strings.Contains(normalized, "secret") ||
+		strings.Contains(normalized, "token") ||
+		strings.Contains(normalized, "authorization")
 }
 
 func stringPtr(value string) *string { return &value }

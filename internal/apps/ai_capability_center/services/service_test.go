@@ -105,7 +105,10 @@ func TestCheckProviderAPIConnectivityPersistsReachableStatus(t *testing.T) {
 	db := newAICapabilityTestDB(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/v1/chat/completions", r.URL.Path)
-		w.WriteHeader(http.StatusUnauthorized)
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "Bearer sk-test", r.Header.Get("Authorization"))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"probe-ok"}`))
 	}))
 	defer server.Close()
 
@@ -117,7 +120,7 @@ func TestCheckProviderAPIConnectivityPersistsReachableStatus(t *testing.T) {
 	}).Error)
 	require.NoError(t, db.Create(&models.AIProviderAccount{
 		ID: "account-prod", ProviderID: "provider-openai", AccountName: "prod-main", Endpoint: server.URL,
-		KeyAlias: "OPENAI_PROD_KEY", Status: "active",
+		KeyAlias: "OPENAI_PROD_KEY", EncryptedAPIKey: "sk-test", Status: "active",
 		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
 	}).Error)
 	require.NoError(t, db.Create(&models.AIProviderAPI{
@@ -134,8 +137,82 @@ func TestCheckProviderAPIConnectivityPersistsReachableStatus(t *testing.T) {
 	var api models.AIProviderAPI
 	require.NoError(t, db.First(&api, "id = ?", "api-chat").Error)
 	require.Equal(t, "active", api.HealthStatus)
-	require.Contains(t, api.HealthMessage, "HTTP 401")
+	require.Contains(t, api.HealthMessage, "HTTP 200")
 	require.NotNil(t, api.HealthCheckedAt)
+}
+
+func TestCheckProviderAPIConnectivityMarksAuthFailureAsError(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":"invalid key"}`))
+	}))
+	defer server.Close()
+
+	now := time.Now()
+	require.NoError(t, db.Create(&models.AIProvider{
+		ID: "provider-deepseek", Name: "DeepSeek", Code: "deepseek", Type: "public_cloud", BaseURL: server.URL,
+		AuthType: "api_key", Status: "active", Priority: 10,
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+	require.NoError(t, db.Create(&models.AIProviderAccount{
+		ID: "account-deepseek", ProviderID: "provider-deepseek", AccountName: "prod-main", Endpoint: server.URL,
+		KeyAlias: "DEEPSEEK_API_KEY", EncryptedAPIKey: "bad-key", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+	require.NoError(t, db.Create(&models.AIProviderAPI{
+		ID: "api-deepseek-chat", ProviderID: "provider-deepseek", AccountID: "account-deepseek", APIName: "chat.completions",
+		APIPath: "/v1/chat/completions", APIType: "chat", Capabilities: []string{"chat_completion"},
+		AuthType: "api_key", TimeoutMS: 30000, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+
+	result, err := NewService(db).CheckProviderAPIConnectivity(context.Background(), 7)
+	require.NoError(t, err)
+	require.Equal(t, APIConnectivityResult{Total: 1, Error: 1}, result)
+
+	var api models.AIProviderAPI
+	require.NoError(t, db.First(&api, "id = ?", "api-deepseek-chat").Error)
+	require.Equal(t, "error", api.HealthStatus)
+	require.Contains(t, api.HealthMessage, "鉴权失败")
+}
+
+func TestCreateProviderAccountAcceptsSecretPayloadAndMasksAudit(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	service := NewService(db)
+	now := time.Now()
+	require.NoError(t, db.Create(&models.AIProvider{
+		ID: "provider-secret", Name: "OpenAI", Code: "openai", Type: "public_cloud", BaseURL: "https://api.openai.com",
+		AuthType: "api_key", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+
+	created, err := service.CreateResource(context.Background(), 7, "accounts", map[string]interface{}{
+		"provider_id":       "provider-secret",
+		"account_name":      "prod-main",
+		"endpoint":          "https://api.openai.com",
+		"key_alias":         "OPENAI_API_KEY",
+		"encrypted_api_key": "sk-real",
+		"encrypted_secret":  "secret-real",
+		"quota_limit":       1000,
+		"used_quota":        0,
+		"status":            "active",
+	})
+	require.NoError(t, err)
+	account := created.(models.AIProviderAccount)
+	require.Equal(t, "sk-real", account.EncryptedAPIKey)
+
+	var persisted models.AIProviderAccount
+	require.NoError(t, db.First(&persisted, "id = ?", account.ID).Error)
+	require.Equal(t, "sk-real", persisted.EncryptedAPIKey)
+
+	var audit models.AuditLog
+	require.NoError(t, db.Where("module = ? AND action = ?", "ai_provider_account", "create").First(&audit).Error)
+	require.NotNil(t, audit.Detail)
+	require.NotContains(t, *audit.Detail, "sk-real")
+	require.NotContains(t, *audit.Detail, "secret-real")
+	require.Contains(t, *audit.Detail, "prod-main")
 }
 
 func TestImportProvidersUpsertsProviderAccountsAndAPIs(t *testing.T) {
