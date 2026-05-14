@@ -34,7 +34,7 @@ export function numberText(value: unknown) {
 
 export function moneyText(value: unknown) {
   const numeric = Number(value ?? 0)
-  return Number.isFinite(numeric) ? `¥${numeric.toFixed(2)}` : '¥0.00'
+  return Number.isFinite(numeric) ? `¥${numeric.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '¥0.00'
 }
 
 export function percentText(value: unknown) {
