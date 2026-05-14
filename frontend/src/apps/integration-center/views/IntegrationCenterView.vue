@@ -597,8 +597,18 @@
 </template>
 
 <script setup>
-import { computed, defineComponent, h, reactive, ref, watch } from 'vue'
+import { computed, defineComponent, h, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+
+import {
+  fetchIntegrationAlerts,
+  fetchIntegrationLogs,
+  fetchIntegrationPlatforms,
+  fetchIntegrationQuota,
+  fetchIntegrationSyncMonitor,
+  fetchIntegrationTenantConnections,
+  fetchIntegrationWorkspace,
+} from '../api'
 
 const navItems = [
   { key: 'overview', label: '总览', icon: '⌂', action: '刷新总览' },
@@ -650,6 +660,7 @@ const toast = reactive({ show: false, message: '', type: 'success' })
 const drawer = reactive({ open: false, type: '', title: '', subtitle: '', desc: '', data: null })
 const modal = reactive({ open: false, type: '', title: '', subtitle: '' })
 const form = reactive({})
+const backendState = reactive({ loading: false, loaded: false, error: '' })
 
 const platforms = reactive([
   { id: 'wecom', icon: '企', shortName: '企微', name: '企业微信', code: 'wecom', type: '协同办公', accessType: '第三方服务商', owner: '平台集成组', status: 'enabled', tenantVisible: true, officialUrl: 'https://developer.work.weixin.qq.com/', sortWeight: 10, appCount: 2, capabilityCount: 9, connectionCount: 128, alertCount: 5, callsToday: 32680, successRate: 98, description: '企业微信第三方服务商模式，支持组织架构、成员、部门、消息推送、应用安装授权和事件回调。' },
@@ -824,6 +835,10 @@ watch(
   },
 )
 
+onMounted(() => {
+  loadBackendSnapshots()
+})
+
 function switchPage(key) { page.value = key }
 function primaryAction() {
   if (page.value === 'platforms') return openPlatformModal()
@@ -865,6 +880,224 @@ function openUsageDrawer(row) { openDrawer('usage', row.name, '配额用量明�
 function openAlertDrawer(row) { openDrawer('alert', row.title, '异常详情', '异常聚合、影响对象、处理动作与恢复状态。', row) }
 function openLogDrawer(row) { openDrawer('log', row.requestId, '调用日志详情', '请求、响应、耗时、错误码与调用链路。', row) }
 function openSyncDrawer(row) { openDrawer('sync', row.job, '同步任务日志', '查看任务执行记录、失败原因与重试链路。', row) }
+async function loadBackendSnapshots() {
+  backendState.loading = true
+  backendState.error = ''
+  try {
+    const [platformRes, appRes, connectionRes, syncRes, quotaRes, alertRes, logRes] = await Promise.allSettled([
+      fetchIntegrationPlatforms(),
+      fetchIntegrationWorkspace(),
+      fetchIntegrationTenantConnections(),
+      fetchIntegrationSyncMonitor(),
+      fetchIntegrationQuota(),
+      fetchIntegrationAlerts(),
+      fetchIntegrationLogs(),
+    ])
+    applyBackendSection(platformRes, (items) => replaceRows(platforms, items.map(mapBackendPlatform)))
+    applyBackendSection(appRes, (items) => replaceRows(apps, items.map(mapBackendApp)))
+    applyBackendSection(connectionRes, (items) => replaceRows(connections, items.map(mapBackendConnection)))
+    applyBackendSection(syncRes, (items) => replaceRows(syncJobs, items.map(mapBackendSyncJob)))
+    applyBackendSection(quotaRes, (items) => replaceRows(policies, items.map(mapBackendPolicy)))
+    applyBackendSection(alertRes, (items) => replaceRows(alerts, items.map(mapBackendAlert)))
+    applyBackendSection(logRes, (items) => replaceRows(logs, items.map(mapBackendLog)))
+    backendState.loaded = true
+  } catch (error) {
+    backendState.error = error instanceof Error ? error.message : '后端数据加载失败'
+  } finally {
+    backendState.loading = false
+  }
+}
+
+function applyBackendSection(result, apply) {
+  if (result.status !== 'fulfilled') return
+  const items = Array.isArray(result.value?.items) ? result.value.items : []
+  if (items.length) apply(items)
+}
+
+function replaceRows(target, rows) {
+  target.splice(0, target.length, ...rows)
+}
+
+function mapBackendPlatform(row) {
+  const code = row.code || row.platform_code || row.PlatformCode || String(row.ID || row.id || '')
+  return {
+    id: code,
+    icon: String(row.name || row.platform_name || row.PlatformName || code).slice(0, 1),
+    shortName: row.short_name || row.platform_short_name || row.PlatformShortName || row.name || row.platform_name || row.PlatformName,
+    name: row.name || row.platform_name || row.PlatformName || code,
+    code,
+    type: row.platform_type || row.PlatformType || '-',
+    accessType: row.access_mode || row.AccessMode || '-',
+    owner: row.owner_name || row.OwnerName || '-',
+    status: mapStatus(row.status || row.Status),
+    tenantVisible: row.tenant_visible ?? row.TenantVisible ?? false,
+    officialUrl: row.official_url || row.OfficialURL || '',
+    sortWeight: Number(row.sort_order || row.SortOrder || row.id || row.ID || 999),
+    appCount: Number(row.app_count || row.AppCount || 0),
+    capabilityCount: Number(row.capability_count || row.CapabilityCount || 0),
+    connectionCount: Number(row.connection_count || row.ConnectionCount || 0),
+    alertCount: Number(row.open_alert_count || row.OpenAlertCount || 0),
+    callsToday: Number(row.calls_today || row.CallsToday || 0),
+    successRate: Number(row.success_rate || row.SuccessRate || (Number(row.open_alert_count || row.OpenAlertCount || 0) > 0 ? 88 : 99)),
+    description: row.description || row.Description || '由集成中心数据库返回的平台档案。',
+  }
+}
+
+function mapBackendApp(row) {
+  const id = row.app_code || row.AppCode || String(row.id || row.ID || '')
+  const platformId = findPlatformId(row.platform_id || row.PlatformID, row.platform_name || row.PlatformName)
+  return {
+    id,
+    platformId,
+    name: row.app_name || row.AppName || id,
+    type: '服务商应用',
+    env: row.environment || row.Environment || 'prod',
+    status: mapStatus(row.status || row.Status),
+    capabilityCount: Number(row.capability_count || row.CapabilityCount || 0),
+    connectionCount: Number(row.connection_count || row.ConnectionCount || 0),
+    alertCount: Number(row.alert_count || row.AlertCount || 0),
+    callsToday: Number(row.calls_today || row.CallsToday || 0),
+    endpoint: row.endpoint || row.Endpoint || '',
+    authMode: row.auth_mode || row.AuthMode || '-',
+  }
+}
+
+function mapBackendConnection(row) {
+  const platformId = findPlatformId(null, row.platform_name || row.PlatformName)
+  const appId = findAppId(row.provider_app_name || row.ProviderAppName, platformId)
+  return {
+    id: String(row.id || row.ID || row.auth_subject_id || row.AuthSubjectID),
+    tenantName: row.tenant_name || row.TenantName || `租户 ${row.tenant_id || row.TenantID || '-'}`,
+    platformId,
+    appId,
+    authSubject: row.auth_subject_name || row.AuthSubjectName || '-',
+    authStatus: mapAuthStatus(row.auth_status || row.AuthStatus),
+    status: mapConnectionStatus(row.connection_status || row.ConnectionStatus),
+    finalCapabilityCount: Number(row.final_capability_count || row.FinalCapabilityCount || 0),
+    callsToday: Number(row.calls_today || row.CallsToday || 0),
+    lastSync: formatBackendTime(row.last_sync_at || row.LastSyncAt),
+    authScope: [],
+    visibleScope: row.auth_subject_type || row.AuthSubjectType || '-',
+    credentialSummary: '凭证由后端密钥引用托管',
+    finalCapabilities: finalCaps([], false),
+  }
+}
+
+function mapBackendSyncJob(row) {
+  const total = Number(row.total_count || row.TotalCount || 0)
+  const success = Number(row.success_count || row.SuccessCount || 0)
+  return {
+    id: String(row.id || row.ID),
+    connectionId: String(row.tenant_connection_id || row.TenantConnectionID || ''),
+    platformId: 'all',
+    job: row.job_type || row.JobType || '同步任务',
+    tenant: `租户 ${row.tenant_id || row.TenantID || '-'}`,
+    capability: row.capability_code || row.CapabilityCode || '-',
+    mode: row.trigger_mode || row.TriggerMode || '-',
+    cron: '-',
+    status: mapStatus(row.status || row.Status),
+    successRate: total ? Math.round((success / total) * 100) : 0,
+    lastRun: formatBackendTime(row.finished_at || row.FinishedAt || row.started_at || row.StartedAt),
+    nextRun: '-',
+  }
+}
+
+function mapBackendPolicy(row) {
+  return {
+    id: row.policy_code || row.PolicyCode || String(row.id || row.ID),
+    platformId: 'all',
+    name: row.policy_name || row.PolicyName || '-',
+    scope: 'tenant',
+    scopeLabel: '租户级',
+    dailyLimit: Number(row.default_limit || row.DefaultLimit || 0),
+    monthlyLimit: 0,
+    qpsLimit: 0,
+    concurrentLimit: 0,
+    exceedStrategy: row.over_limit_action || row.OverLimitAction || '-',
+    status: mapStatus(row.status || row.Status),
+    priority: 300,
+    isOverride: false,
+  }
+}
+
+function mapBackendAlert(row) {
+  return {
+    id: String(row.id || row.ID),
+    level: row.severity || row.Severity || 'warning',
+    title: row.title || row.Title || '-',
+    message: row.message || row.Message || '',
+    path: row.alert_type || row.AlertType || '-',
+    status: mapAlertStatus(row.status || row.Status),
+    count: 1,
+    lastAt: formatBackendTime(row.last_seen_at || row.LastSeenAt),
+  }
+}
+
+function mapBackendLog(row) {
+  const status = Number(row.http_status || row.HTTPStatus || 0)
+  return {
+    id: String(row.id || row.ID),
+    requestId: row.request_id || row.RequestID || '-',
+    type: normalizeLogType(row.call_type || row.CallType),
+    typeLabel: row.call_type || row.CallType || '第三方 API',
+    platformId: 'all',
+    tenant: row.tenant_id || row.TenantID ? `租户 ${row.tenant_id || row.TenantID}` : '-',
+    method: row.method || row.Method || '-',
+    path: row.endpoint || row.Endpoint || '-',
+    endpoint: row.endpoint || row.Endpoint || '-',
+    success: (row.status || row.Status) === 'success',
+    status,
+    cost: Number(row.duration_ms || row.DurationMS || 0),
+    calledAt: formatBackendTime(row.called_at || row.CalledAt),
+  }
+}
+
+function findPlatformId(platformID, platformName) {
+  const byName = platforms.find(p => p.name === platformName || p.shortName === platformName)
+  if (byName) return byName.id
+  const byIndex = platforms.find(p => String(p.sortWeight) === String(platformID) || String(p.id) === String(platformID))
+  return byIndex?.id || 'all'
+}
+
+function findAppId(appName, platformId) {
+  const app = apps.find(a => a.name === appName && (platformId === 'all' || a.platformId === platformId))
+  return app?.id || 'all'
+}
+
+function mapStatus(status) {
+  if (status === 'online') return 'enabled'
+  if (status === 'connected') return 'enabled'
+  if (status === 'beta') return 'testing'
+  return status || 'draft'
+}
+
+function mapAuthStatus(status) {
+  if (status === 'authorized') return 'valid'
+  return status || 'unknown'
+}
+
+function mapConnectionStatus(status) {
+  if (status === 'connected') return 'connected'
+  if (status === 'inactive') return 'disabled'
+  return status || 'warning'
+}
+
+function mapAlertStatus(status) {
+  if (status === 'open') return 'pending'
+  return status || 'pending'
+}
+
+function normalizeLogType(type) {
+  if (type === 'third_party_api') return 'api'
+  if (type === 'token_refresh') return 'token'
+  if (type === 'webhook') return 'callback'
+  return type || 'api'
+}
+
+function formatBackendTime(value) {
+  if (!value) return '-'
+  return String(value).replace('T', ' ').slice(0, 16)
+}
 function openPlatformModal(platform) {
   const subtitle = '轻量建档 · 密钥、回调、suite_id、能力、租户授权请在平台详情与工作台配置'
   const template = () => ({
