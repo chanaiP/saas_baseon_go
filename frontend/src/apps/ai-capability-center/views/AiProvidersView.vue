@@ -46,9 +46,8 @@ const accountScopeTitle = computed(() => {
   return `${text(selectedProvider.value.name)}的接入账号`
 })
 const accountScopeDescription = computed(() => {
-  if (!selectedProvider.value) return '默认显示所有账号；选择左侧供应商后，可切换为该供应商账号或回到所有账号。'
-  if (accountScopeAll.value) return `已选中 ${text(selectedProvider.value.name)}，当前仍显示所有账号。`
-  return `当前只显示 ${text(selectedProvider.value.name)} 下的账号；可切回所有账号。`
+  if (!selectedProvider.value) return '默认显示所有账号；选择左侧供应商后，右侧自动切换为该供应商账号。'
+  return `当前只显示 ${text(selectedProvider.value.name)} 下的账号；点击全部账号可回到全量视图。`
 })
 const providerAccountScopeText = computed(() => {
   if (selectedProvider.value) return `${text(selectedProvider.value.name)}账号`
@@ -99,13 +98,8 @@ function selectProvider(providerId: string) {
   selectedAccountId.value = ''
 }
 
-function clearProvider() {
-  selectedProviderId.value = ''
-  selectedAccountId.value = ''
-  accountScopeAll.value = true
-}
-
 function showAllAccounts() {
+  selectedProviderId.value = ''
   accountScopeAll.value = true
   selectedAccountId.value = ''
 }
@@ -219,7 +213,6 @@ onMounted(loadData)
             <div class="ai-segmented">
               <button :class="{ active: accountScopeAll }" @click="showAllAccounts">全部账号</button>
               <button v-if="selectedProviderId" :class="{ active: !accountScopeAll }" @click="showProviderAccounts">{{ providerAccountScopeText }}</button>
-              <button v-if="selectedProviderId" @click="clearProvider">取消供应商</button>
             </div>
           </header>
           <div class="ai-card__body">
