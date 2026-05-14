@@ -1,0 +1,6 @@
+ALTER TABLE ai_provider_accounts
+  ADD COLUMN IF NOT EXISTS login_method VARCHAR(32),
+  ADD COLUMN IF NOT EXISTS login_account VARCHAR(200),
+  ADD COLUMN IF NOT EXISTS maintainer VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS maintainer_contact VARCHAR(100);
+

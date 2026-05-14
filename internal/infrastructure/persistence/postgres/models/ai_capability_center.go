@@ -28,16 +28,20 @@ type AIProvider struct {
 func (AIProvider) TableName() string { return "ai_providers" }
 
 type AIProviderAccount struct {
-	ID              string  `json:"id" gorm:"primaryKey;column:id;type:uuid;default:gen_random_uuid()"`
-	ProviderID      string  `json:"provider_id" gorm:"column:provider_id;type:uuid;not null;index"`
-	AccountName     string  `json:"account_name" gorm:"column:account_name;type:varchar(100);not null"`
-	Endpoint        string  `json:"endpoint" gorm:"column:endpoint;type:varchar(500)"`
-	KeyAlias        string  `json:"key_alias" gorm:"column:key_alias;type:varchar(200);not null"`
-	EncryptedAPIKey string  `json:"-" gorm:"column:encrypted_api_key;type:text"`
-	EncryptedSecret string  `json:"-" gorm:"column:encrypted_secret;type:text"`
-	QuotaLimit      float64 `json:"quota_limit" gorm:"column:quota_limit;type:numeric(24,4);not null;default:0"`
-	UsedQuota       float64 `json:"used_quota" gorm:"column:used_quota;type:numeric(24,4);not null;default:0"`
-	Status          string  `json:"status" gorm:"column:status;type:varchar(32);not null;default:active"`
+	ID                string  `json:"id" gorm:"primaryKey;column:id;type:uuid;default:gen_random_uuid()"`
+	ProviderID        string  `json:"provider_id" gorm:"column:provider_id;type:uuid;not null;index"`
+	AccountName       string  `json:"account_name" gorm:"column:account_name;type:varchar(100);not null"`
+	Endpoint          string  `json:"endpoint" gorm:"column:endpoint;type:varchar(500)"`
+	KeyAlias          string  `json:"key_alias" gorm:"column:key_alias;type:varchar(200);not null"`
+	LoginMethod       string  `json:"login_method" gorm:"column:login_method;type:varchar(32)"`
+	LoginAccount      string  `json:"login_account" gorm:"column:login_account;type:varchar(200)"`
+	Maintainer        string  `json:"maintainer" gorm:"column:maintainer;type:varchar(100)"`
+	MaintainerContact string  `json:"maintainer_contact" gorm:"column:maintainer_contact;type:varchar(100)"`
+	EncryptedAPIKey   string  `json:"-" gorm:"column:encrypted_api_key;type:text"`
+	EncryptedSecret   string  `json:"-" gorm:"column:encrypted_secret;type:text"`
+	QuotaLimit        float64 `json:"quota_limit" gorm:"column:quota_limit;type:numeric(24,4);not null;default:0"`
+	UsedQuota         float64 `json:"used_quota" gorm:"column:used_quota;type:numeric(24,4);not null;default:0"`
+	Status            string  `json:"status" gorm:"column:status;type:varchar(32);not null;default:active"`
 	AITimeFields
 }
 

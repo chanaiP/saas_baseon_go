@@ -189,15 +189,19 @@ func TestCreateProviderAccountAcceptsSecretPayloadAndMasksAudit(t *testing.T) {
 	}).Error)
 
 	created, err := service.CreateResource(context.Background(), 7, "accounts", map[string]interface{}{
-		"provider_id":       "provider-secret",
-		"account_name":      "prod-main",
-		"endpoint":          "https://api.openai.com",
-		"key_alias":         "OPENAI_API_KEY",
-		"encrypted_api_key": "sk-real",
-		"encrypted_secret":  "secret-real",
-		"quota_limit":       1000,
-		"used_quota":        0,
-		"status":            "active",
+		"provider_id":        "provider-secret",
+		"account_name":       "prod-main",
+		"endpoint":           "https://api.openai.com",
+		"key_alias":          "OPENAI_API_KEY",
+		"login_method":       "email",
+		"login_account":      "ai-prod@example.com",
+		"maintainer":         "平台 AI 组",
+		"maintainer_contact": "ai@example.com",
+		"encrypted_api_key":  "sk-real",
+		"encrypted_secret":   "secret-real",
+		"quota_limit":        1000,
+		"used_quota":         0,
+		"status":             "active",
 	})
 	require.NoError(t, err)
 	account := created.(models.AIProviderAccount)
@@ -206,6 +210,8 @@ func TestCreateProviderAccountAcceptsSecretPayloadAndMasksAudit(t *testing.T) {
 	var persisted models.AIProviderAccount
 	require.NoError(t, db.First(&persisted, "id = ?", account.ID).Error)
 	require.Equal(t, "sk-real", persisted.EncryptedAPIKey)
+	require.Equal(t, "email", persisted.LoginMethod)
+	require.Equal(t, "ai-prod@example.com", persisted.LoginAccount)
 
 	var audit models.AuditLog
 	require.NoError(t, db.Where("module = ? AND action = ?", "ai_provider_account", "create").First(&audit).Error)
@@ -225,6 +231,7 @@ func TestImportProvidersUpsertsProviderAccountsAndAPIs(t *testing.T) {
 			Name: "OpenAI", Code: "openai", Type: "public_cloud", BaseURL: "https://api.openai.com", Priority: 10,
 			Accounts: []ProviderImportAccount{{
 				AccountName: "prod", Endpoint: "https://api.openai.com", KeyAlias: "OPENAI_API_KEY", EncryptedAPIKey: "ciphertext",
+				LoginMethod: "email", LoginAccount: "openai-prod@example.com", Maintainer: "平台 AI 组", MaintainerContact: "ai@example.com",
 				APIs: []ProviderImportAPI{{
 					APIName: "chat.completions", APIPath: "/v1/chat/completions", APIType: "chat", Capabilities: []string{"chat_completion"}, TimeoutMS: 45000,
 				}},
@@ -243,6 +250,8 @@ func TestImportProvidersUpsertsProviderAccountsAndAPIs(t *testing.T) {
 	require.NoError(t, db.Where("provider_id = ? AND account_name = ? AND deleted_at IS NULL", provider.ID, "prod").First(&account).Error)
 	require.Equal(t, "OPENAI_API_KEY", account.KeyAlias)
 	require.Equal(t, "ciphertext", account.EncryptedAPIKey)
+	require.Equal(t, "email", account.LoginMethod)
+	require.Equal(t, "openai-prod@example.com", account.LoginAccount)
 
 	var api models.AIProviderAPI
 	require.NoError(t, db.Where("provider_id = ? AND account_id = ? AND api_name = ? AND deleted_at IS NULL", provider.ID, account.ID, "chat.completions").First(&api).Error)
@@ -256,6 +265,7 @@ func TestImportProvidersUpsertsProviderAccountsAndAPIs(t *testing.T) {
 		}},
 		Accounts: []ProviderImportAccount{{
 			ProviderCode: "openai", AccountName: "prod", Endpoint: "https://gateway.openai.example", KeyAlias: "OPENAI_PRIMARY", EncryptedAPIKey: "ciphertext-v2",
+			LoginMethod: "oauth", LoginAccount: "github:ai-platform", Maintainer: "平台网关组", MaintainerContact: "gateway@example.com",
 		}},
 		APIs: []ProviderImportAPI{{
 			ProviderCode: "openai", AccountName: "prod", APIName: "chat.completions", APIPath: "/proxy/chat", APIType: "chat", Capabilities: []string{"chat_completion", "embedding"},
@@ -279,6 +289,8 @@ func TestImportProvidersUpsertsProviderAccountsAndAPIs(t *testing.T) {
 	require.NoError(t, db.Where("id = ?", account.ID).First(&account).Error)
 	require.Equal(t, "OPENAI_PRIMARY", account.KeyAlias)
 	require.Equal(t, "ciphertext-v2", account.EncryptedAPIKey)
+	require.Equal(t, "oauth", account.LoginMethod)
+	require.Equal(t, "github:ai-platform", account.LoginAccount)
 	require.NoError(t, db.Where("id = ?", api.ID).First(&api).Error)
 	require.Equal(t, "/proxy/chat", api.APIPath)
 	require.Equal(t, []string{"chat_completion", "embedding"}, api.Capabilities)
@@ -1010,6 +1022,10 @@ func newAICapabilityTestDB(t *testing.T) *gorm.DB {
 		account_name TEXT NOT NULL,
 		endpoint TEXT,
 		key_alias TEXT NOT NULL,
+		login_method TEXT,
+		login_account TEXT,
+		maintainer TEXT,
+		maintainer_contact TEXT,
 		encrypted_api_key TEXT,
 		encrypted_secret TEXT,
 		quota_limit NUMERIC NOT NULL DEFAULT 0,

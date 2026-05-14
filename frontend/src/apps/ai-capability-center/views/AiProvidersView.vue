@@ -65,6 +65,19 @@ function providerStats(providerId: string) {
   return { accountCount, apiCount: apiRows.length, activeApiCount: apiRows.filter((row) => row.status === 'active').length }
 }
 
+function loginMethodText(value: unknown) {
+  const method = text(value, '')
+  const labels: Record<string, string> = {
+    email: '邮箱',
+    phone: '手机',
+    oauth: '第三方登录',
+    cloud_console: '云控制台',
+    service_account: '服务账号',
+    team_account: '团队账号',
+  }
+  return method ? labels[method] || method : '未登记'
+}
+
 async function loadData() {
   loading.value = true
   try {
@@ -242,6 +255,15 @@ onMounted(loadData)
                   </span>
                 </template>
               </el-table-column>
+              <el-table-column label="注册账号" min-width="220">
+                <template #default="{ row }">
+                  <span class="ai-table-cell-main">
+                    <strong>{{ text(row.login_account, '未登记') }}</strong>
+                    <small>{{ loginMethodText(row.login_method) }} · {{ text(row.maintainer, '未指定维护人') }}</small>
+                  </span>
+                </template>
+              </el-table-column>
+              <el-table-column label="维护联系" min-width="160"><template #default="{ row }">{{ text(row.maintainer_contact, '未登记') }}</template></el-table-column>
               <el-table-column label="Endpoint" min-width="220"><template #default="{ row }">{{ text(row.endpoint) }}</template></el-table-column>
               <el-table-column label="额度使用" width="180"><template #default="{ row }">{{ numberText(row.used_quota) }} / {{ numberText(row.quota_limit) }}</template></el-table-column>
               <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ text(row.status) }}</el-tag></template></el-table-column>
@@ -305,7 +327,7 @@ onMounted(loadData)
       v-model="importVisible"
       title="整体导入供应商"
       tip="支持 providers/accounts/apis 一次性导入。"
-      :sample="{ providers: [{ name: 'DeepSeek 官方账号', code: 'deepseek', type: 'public_cloud', base_url: 'https://api.deepseek.com', auth_type: 'api_key', status: 'active', region: 'CN', qps_limit: 500, monthly_budget: 50000, accounts: [{ account_name: 'prod-main', endpoint: 'https://api.deepseek.com', key_alias: 'DEEPSEEK_API_KEY', encrypted_api_key: '', apis: [{ api_name: 'chat.completions', api_path: '/v1/chat/completions', api_type: 'chat', capabilities: ['chat_completion', 'text_generation', 'reasoning'], qps_limit: 260, timeout_ms: 45000 }] }] }, { name: '通义千问 DashScope', code: 'dashscope', type: 'public_cloud', base_url: 'https://dashscope.aliyuncs.com', auth_type: 'dashscope', status: 'active', region: 'CN', qps_limit: 500, monthly_budget: 60000, accounts: [{ account_name: 'prod-main', endpoint: 'https://dashscope.aliyuncs.com', key_alias: 'DASHSCOPE_API_KEY', encrypted_api_key: '', apis: [{ api_name: 'generation', api_path: '/api/v1/services/aigc/text-generation/generation', api_type: 'chat', capabilities: ['chat_completion', 'text_generation'], qps_limit: 260, timeout_ms: 30000 }, { api_name: 'embeddings', api_path: '/api/v1/services/embeddings/text-embedding/text-embedding', api_type: 'embedding', capabilities: ['embedding'], qps_limit: 260, timeout_ms: 15000 }] }] }] }"
+      :sample="{ providers: [{ name: 'DeepSeek 官方账号', code: 'deepseek', type: 'public_cloud', base_url: 'https://api.deepseek.com', auth_type: 'api_key', status: 'active', region: 'CN', qps_limit: 500, monthly_budget: 50000, accounts: [{ account_name: 'prod-main', endpoint: 'https://api.deepseek.com', key_alias: 'DEEPSEEK_API_KEY', login_method: 'email', login_account: 'ai-infra+deepseek@company.example', maintainer: '平台 AI 基础设施组', maintainer_contact: 'ai-infra@company.example', encrypted_api_key: '', apis: [{ api_name: 'chat.completions', api_path: '/v1/chat/completions', api_type: 'chat', capabilities: ['chat_completion', 'text_generation', 'reasoning'], qps_limit: 260, timeout_ms: 45000 }] }] }, { name: '通义千问 DashScope', code: 'dashscope', type: 'public_cloud', base_url: 'https://dashscope.aliyuncs.com', auth_type: 'dashscope', status: 'active', region: 'CN', qps_limit: 500, monthly_budget: 60000, accounts: [{ account_name: 'prod-main', endpoint: 'https://dashscope.aliyuncs.com', key_alias: 'DASHSCOPE_API_KEY', login_method: 'phone', login_account: '13800138000', maintainer: '平台 AI 基础设施组', maintainer_contact: 'ai-infra@company.example', encrypted_api_key: '', apis: [{ api_name: 'generation', api_path: '/api/v1/services/aigc/text-generation/generation', api_type: 'chat', capabilities: ['chat_completion', 'text_generation'], qps_limit: 260, timeout_ms: 30000 }, { api_name: 'embeddings', api_path: '/api/v1/services/embeddings/text-embedding/text-embedding', api_type: 'embedding', capabilities: ['embedding'], qps_limit: 260, timeout_ms: 15000 }] }] }] }"
       @submit="importProviders"
     />
   </NeuroAgentPageShell>

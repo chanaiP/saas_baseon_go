@@ -131,16 +131,20 @@ type ProviderImportProvider struct {
 }
 
 type ProviderImportAccount struct {
-	ProviderCode    string              `json:"provider_code"`
-	AccountName     string              `json:"account_name"`
-	Endpoint        string              `json:"endpoint"`
-	KeyAlias        string              `json:"key_alias"`
-	EncryptedAPIKey string              `json:"encrypted_api_key"`
-	EncryptedSecret string              `json:"encrypted_secret"`
-	QuotaLimit      float64             `json:"quota_limit"`
-	UsedQuota       float64             `json:"used_quota"`
-	Status          string              `json:"status"`
-	APIs            []ProviderImportAPI `json:"apis"`
+	ProviderCode      string              `json:"provider_code"`
+	AccountName       string              `json:"account_name"`
+	Endpoint          string              `json:"endpoint"`
+	KeyAlias          string              `json:"key_alias"`
+	LoginMethod       string              `json:"login_method"`
+	LoginAccount      string              `json:"login_account"`
+	Maintainer        string              `json:"maintainer"`
+	MaintainerContact string              `json:"maintainer_contact"`
+	EncryptedAPIKey   string              `json:"encrypted_api_key"`
+	EncryptedSecret   string              `json:"encrypted_secret"`
+	QuotaLimit        float64             `json:"quota_limit"`
+	UsedQuota         float64             `json:"used_quota"`
+	Status            string              `json:"status"`
+	APIs              []ProviderImportAPI `json:"apis"`
 }
 
 type ProviderImportAPI struct {
@@ -2445,15 +2449,19 @@ func upsertProviderAccountImport(ctx context.Context, tx *gorm.DB, providerIDs m
 		return models.AIProviderAccount{}, ErrInvalidInput
 	}
 	row := models.AIProviderAccount{
-		ProviderID:      providerID,
-		AccountName:     strings.TrimSpace(item.AccountName),
-		Endpoint:        strings.TrimSpace(item.Endpoint),
-		KeyAlias:        strings.TrimSpace(item.KeyAlias),
-		EncryptedAPIKey: strings.TrimSpace(item.EncryptedAPIKey),
-		EncryptedSecret: strings.TrimSpace(item.EncryptedSecret),
-		QuotaLimit:      item.QuotaLimit,
-		UsedQuota:       item.UsedQuota,
-		Status:          defaultString(item.Status, "active"),
+		ProviderID:        providerID,
+		AccountName:       strings.TrimSpace(item.AccountName),
+		Endpoint:          strings.TrimSpace(item.Endpoint),
+		KeyAlias:          strings.TrimSpace(item.KeyAlias),
+		LoginMethod:       strings.TrimSpace(item.LoginMethod),
+		LoginAccount:      strings.TrimSpace(item.LoginAccount),
+		Maintainer:        strings.TrimSpace(item.Maintainer),
+		MaintainerContact: strings.TrimSpace(item.MaintainerContact),
+		EncryptedAPIKey:   strings.TrimSpace(item.EncryptedAPIKey),
+		EncryptedSecret:   strings.TrimSpace(item.EncryptedSecret),
+		QuotaLimit:        item.QuotaLimit,
+		UsedQuota:         item.UsedQuota,
+		Status:            defaultString(item.Status, "active"),
 	}
 	var existing models.AIProviderAccount
 	err := tx.WithContext(ctx).Where("provider_id = ? AND account_name = ? AND deleted_at IS NULL", providerID, row.AccountName).First(&existing).Error
@@ -2470,8 +2478,9 @@ func upsertProviderAccountImport(ctx context.Context, tx *gorm.DB, providerIDs m
 	row.CreatedAt = existing.CreatedAt
 	row.UpdatedAt = now
 	return row, tx.Model(&existing).Updates(map[string]interface{}{
-		"endpoint": row.Endpoint, "key_alias": row.KeyAlias, "encrypted_api_key": row.EncryptedAPIKey,
-		"encrypted_secret": row.EncryptedSecret, "quota_limit": row.QuotaLimit, "used_quota": row.UsedQuota,
+		"endpoint": row.Endpoint, "key_alias": row.KeyAlias, "login_method": row.LoginMethod,
+		"login_account": row.LoginAccount, "maintainer": row.Maintainer, "maintainer_contact": row.MaintainerContact,
+		"encrypted_api_key": row.EncryptedAPIKey, "encrypted_secret": row.EncryptedSecret, "quota_limit": row.QuotaLimit, "used_quota": row.UsedQuota,
 		"status": row.Status, "updated_at": now,
 	}).Error
 }

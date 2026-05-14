@@ -1143,25 +1143,33 @@ func upsertAIProviderSeed(db *gorm.DB, seed aiProviderSeed, index int) (string, 
 
 func upsertAIProviderAccountAndAPIs(db *gorm.DB, providerID string, seed aiProviderSeed) error {
 	account := models.AIProviderAccount{
-		ProviderID:   providerID,
-		AccountName:  "prod-main",
-		Endpoint:     seed.baseURL,
-		KeyAlias:     strings.ToUpper(strings.ReplaceAll(seed.code, "-", "_")) + "_API_KEY",
-		QuotaLimit:   seed.monthlyBudget,
-		UsedQuota:    0,
-		Status:       "active",
-		AITimeFields: aiNowFields(),
+		ProviderID:        providerID,
+		AccountName:       "prod-main",
+		Endpoint:          seed.baseURL,
+		KeyAlias:          strings.ToUpper(strings.ReplaceAll(seed.code, "-", "_")) + "_API_KEY",
+		LoginMethod:       "email",
+		LoginAccount:      "ai-infra+" + seed.code + "@company.example",
+		Maintainer:        "平台 AI 基础设施组",
+		MaintainerContact: "ai-infra@company.example",
+		QuotaLimit:        seed.monthlyBudget,
+		UsedQuota:         0,
+		Status:            "active",
+		AITimeFields:      aiNowFields(),
 	}
 	if err := db.Where("provider_id = ? AND account_name = ? AND deleted_at IS NULL", providerID, account.AccountName).FirstOrCreate(&account).Error; err != nil {
 		return err
 	}
 	if err := db.Model(&account).Updates(map[string]interface{}{
-		"endpoint":    seed.baseURL,
-		"key_alias":   account.KeyAlias,
-		"quota_limit": seed.monthlyBudget,
-		"status":      "active",
-		"updated_at":  time.Now(),
-		"deleted_at":  nil,
+		"endpoint":           seed.baseURL,
+		"key_alias":          account.KeyAlias,
+		"login_method":       account.LoginMethod,
+		"login_account":      account.LoginAccount,
+		"maintainer":         account.Maintainer,
+		"maintainer_contact": account.MaintainerContact,
+		"quota_limit":        seed.monthlyBudget,
+		"status":             "active",
+		"updated_at":         time.Now(),
+		"deleted_at":         nil,
 	}).Error; err != nil {
 		return err
 	}
