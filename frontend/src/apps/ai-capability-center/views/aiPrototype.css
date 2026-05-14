@@ -328,6 +328,11 @@ html:not(.dark) .ai-prototype {
   overflow: visible;
 }
 
+.ai-provider-workspace .ai-card {
+  background: var(--ai-panel);
+  box-shadow: none;
+}
+
 .ai-provider-main {
   display: flex;
   flex-direction: column;
@@ -335,6 +340,10 @@ html:not(.dark) .ai-prototype {
   min-width: 0;
   min-height: 0;
   overflow: visible;
+}
+
+.ai-provider-main > .ai-card {
+  contain: paint;
 }
 
 .ai-provider-sidebar {
@@ -376,6 +385,7 @@ html:not(.dark) .ai-prototype {
   overflow: auto;
   padding: 2px 4px 2px 0;
   overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .ai-provider-card {
@@ -391,17 +401,14 @@ html:not(.dark) .ai-prototype {
   color: var(--ai-text);
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+  contain: paint;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
 }
 
 .ai-provider-card:hover,
 .ai-provider-card.active {
   border-color: var(--ai-cyan);
   background: var(--ai-active-bg);
-}
-
-.ai-provider-card:hover {
-  transform: translateY(-0.5px);
 }
 
 .ai-provider-card__top,

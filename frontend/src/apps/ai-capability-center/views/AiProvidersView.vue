@@ -324,7 +324,7 @@ onMounted(loadData)
               <el-table-column label="Endpoint" min-width="220"><template #default="{ row }">{{ text(row.endpoint) }}</template></el-table-column>
               <el-table-column label="额度使用" width="180"><template #default="{ row }">{{ numberText(row.used_quota) }} / {{ numberText(row.quota_limit) }}</template></el-table-column>
               <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag></template></el-table-column>
-              <el-table-column label="操作" width="190" fixed="right">
+              <el-table-column label="操作" width="190">
                 <template #default="{ row }">
                   <div class="ai-row-actions">
                     <AiResourceActions resource="accounts" :row="row" @saved="loadData" />
@@ -379,7 +379,7 @@ onMounted(loadData)
                 </template>
               </el-table-column>
               <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag></template></el-table-column>
-              <el-table-column label="操作" width="128" fixed="right"><template #default="{ row }"><AiResourceActions resource="apis" :row="row" @saved="loadData" /></template></el-table-column>
+              <el-table-column label="操作" width="128"><template #default="{ row }"><AiResourceActions resource="apis" :row="row" @saved="loadData" /></template></el-table-column>
             </el-table>
             <el-pagination
               v-if="apis.total > apiPageSize"
