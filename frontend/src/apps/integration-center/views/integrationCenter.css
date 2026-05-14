@@ -38,15 +38,18 @@ button { cursor: pointer; }
   --shadow: 0 16px 42px rgba(0, 0, 0, .24);
   min-height: 100%;
   color: var(--text);
-  background: #101826;
+  background: #101826 !important;
 }
 .mini-label, .eyebrow { color: #7f94ae; text-transform: uppercase; letter-spacing: .08em; font-size: 11px; font-weight: 900; }
-.main { padding: 24px 26px 40px; min-width: 0; }
+.main { padding: 24px 26px 40px; min-width: 0; background: #101826; }
+.app-shell.no-page-shell .main { padding: 0 0 40px; }
+.page-section { background: #101826; }
 .topbar { display: flex; justify-content: space-between; align-items: center; gap: 18px; margin-bottom: 20px; }
-.topbar h2 { margin: 4px 0 0; font-size: 26px; }
+.topbar h2 { margin: 4px 0 0; font-size: 24px; }
 .topbar p { margin: 0; }
 .topbar-actions, .toolbar-actions, .actions, .card-actions { display: flex; align-items: center; gap: 8px; }
 button { border: 1px solid var(--line); background: var(--control); color: var(--text); padding: 8px 11px; border-radius: 8px; font-weight: 700; white-space: nowrap; }
+.topbar-actions button { padding: 7px 10px; font-size: 13px; }
 button:hover { border-color: #8ec7d7; color: var(--primary); }
 .primary-btn { background: var(--primary); border-color: var(--primary); color: #fff; }
 .primary-btn:hover { background: var(--primary-dark); color: #fff; }

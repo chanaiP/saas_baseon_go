@@ -1,7 +1,7 @@
 <template>
-  <div class="app-shell">
-    <main class="main">
-      <header class="topbar">
+  <div class="app-shell" :class="{ 'no-page-shell': page !== 'overview' }" style="background: #101826;">
+    <main class="main" style="background: #101826;">
+      <header v-if="page === 'overview'" class="topbar">
         <div>
           <p class="eyebrow">Integration Admin Console</p>
           <h2>{{ currentNav.label }}</h2>

@@ -1,5 +1,9 @@
 <template>
-  <div class="neuro-command-layout" :data-theme="theme">
+  <div
+    class="neuro-command-layout"
+    :class="{ 'is-integration-center-route': isIntegrationCenterRoute }"
+    :data-theme="theme"
+  >
     <!-- 神经背景层 -->
     <div class="neuro-bg-layer">
       <div class="neuro-particle-field">
@@ -2840,6 +2844,19 @@ const toggleFullscreen = () => {
   backdrop-filter: blur(10px);
   display: flex;
   flex-direction: column;
+}
+
+.neuro-command-layout.is-integration-center-route .neuro-bg-layer {
+  display: none;
+}
+
+.neuro-command-layout.is-integration-center-route .neuro-content-field {
+  background: var(--nm-bg-deep);
+  backdrop-filter: none;
+}
+
+.neuro-command-layout.is-integration-center-route .content-main {
+  background: var(--nm-bg-deep);
 }
 
 .neuro-content-field > .content-header {
