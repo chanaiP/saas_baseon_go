@@ -116,6 +116,10 @@ html:not(.dark) .ai-prototype {
   padding: 20px 22px;
 }
 
+.ai-hero-status {
+  margin-bottom: 10px;
+}
+
 .ai-hero-card h2,
 .ai-card h3 {
   margin: 0;
@@ -149,6 +153,12 @@ html:not(.dark) .ai-prototype {
   color: var(--ai-cyan);
   font-size: var(--ai-font-caption);
   font-weight: 700;
+}
+
+.ai-tag.is-warning {
+  border-color: rgba(245, 158, 11, 0.5);
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
 }
 
 .ai-card {

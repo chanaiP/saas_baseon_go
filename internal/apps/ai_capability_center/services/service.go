@@ -759,6 +759,10 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	if err != nil {
 		return Overview{}, err
 	}
+	healthChecks, err := s.gatewayHealthChecks(ctx)
+	if err != nil {
+		return Overview{}, err
+	}
 	var tenantCount int64
 	if err := s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).Where("called_at >= ?", trendStart).Distinct("tenant_id").Count(&tenantCount).Error; err != nil {
 		return Overview{}, err
@@ -779,14 +783,97 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 		UsageTrend:     trend,
 		ModelCostShare: costShare,
 		TenantRanking:  ranking,
-		HealthChecks: []HealthCheck{
-			{Name: "供应商可用状态", Status: "active", Message: "基于供应商启停状态检测"},
-			{Name: "基础路由状态", Status: "active", Message: "启用路由可供 AI 场景绑定"},
-			{Name: "租户策略状态", Status: "active", Message: "策略中心统一维护覆盖、配额和限流"},
-			{Name: "底座操作日志", Status: "active", Message: "配置变更写入 SaaS 底座操作日志"},
-		},
+		HealthChecks:   healthChecks,
 		CoreBaseRoutes: routeRows,
 	}, nil
+}
+
+func (s *Service) gatewayHealthChecks(ctx context.Context) ([]HealthCheck, error) {
+	providers, err := s.countActive(ctx, &models.AIProvider{}, "")
+	if err != nil {
+		return nil, err
+	}
+	accounts, err := s.countActive(ctx, &models.AIProviderAccount{}, "")
+	if err != nil {
+		return nil, err
+	}
+	apis, err := s.countActive(ctx, &models.AIProviderAPI{}, "")
+	if err != nil {
+		return nil, err
+	}
+	routes, err := s.countActive(ctx, &models.AIBaseRoute{}, "")
+	if err != nil {
+		return nil, err
+	}
+	routeModels, err := s.countActive(ctx, &models.AIBaseRouteModel{}, "")
+	if err != nil {
+		return nil, err
+	}
+	strategies, err := s.countActive(ctx, &models.AITenantStrategyPolicy{}, "")
+	if err != nil {
+		return nil, err
+	}
+	quotaRules, err := s.countActive(ctx, &models.AIStrategyQuotaRule{}, "")
+	if err != nil {
+		return nil, err
+	}
+	rateRules, err := s.countActive(ctx, &models.AIStrategyRateLimitRule{}, "")
+	if err != nil {
+		return nil, err
+	}
+	runtimeSettings, err := s.countActive(ctx, &models.AIGatewaySetting{}, "setting_key = ?", "gateway_runtime")
+	if err != nil {
+		return nil, err
+	}
+	securitySettings, err := s.countActive(ctx, &models.AIGatewaySetting{}, "setting_key = ?", "security")
+	if err != nil {
+		return nil, err
+	}
+
+	providerStatus := "active"
+	providerMessage := fmt.Sprintf("%d 个启用供应商、%d 个启用账号、%d 个启用 API", providers, accounts, apis)
+	if providers == 0 || accounts == 0 || apis == 0 {
+		providerStatus = "warning"
+		providerMessage = "缺少启用供应商、账号或 API，Gateway 无法完成真实供应商调用"
+	}
+
+	routeStatus := "active"
+	routeMessage := fmt.Sprintf("%d 条启用基础路由、%d 个启用模型节点", routes, routeModels)
+	if routes == 0 || routeModels == 0 {
+		routeStatus = "warning"
+		routeMessage = "缺少启用基础路由或模型池节点，AI 场景无法完成模型选择"
+	}
+
+	strategyStatus := "active"
+	strategyMessage := fmt.Sprintf("%d 条启用策略、%d 条配额规则、%d 条限流规则", strategies, quotaRules, rateRules)
+	if strategies == 0 {
+		strategyStatus = "warning"
+		strategyMessage = "未配置启用租户策略，Gateway 只能使用场景默认基础路由"
+	}
+
+	auditStatus := "active"
+	auditMessage := "Gateway 运行参数和安全归属配置已启用，写操作进入底座操作日志"
+	if runtimeSettings == 0 || securitySettings == 0 {
+		auditStatus = "warning"
+		auditMessage = "缺少 gateway_runtime 或 security 设置，请在系统设置中补齐"
+	}
+
+	return []HealthCheck{
+		{Name: "供应商可用状态", Status: providerStatus, Message: providerMessage},
+		{Name: "基础路由状态", Status: routeStatus, Message: routeMessage},
+		{Name: "租户策略状态", Status: strategyStatus, Message: strategyMessage},
+		{Name: "底座操作日志", Status: auditStatus, Message: auditMessage},
+	}, nil
+}
+
+func (s *Service) countActive(ctx context.Context, model interface{}, where string, args ...interface{}) (int64, error) {
+	query := s.db.WithContext(ctx).Model(model).Where("status = ? AND deleted_at IS NULL", "active")
+	if where != "" {
+		query = query.Where(where, args...)
+	}
+	var count int64
+	err := query.Count(&count).Error
+	return count, err
 }
 
 func (s *Service) usageTrend(ctx context.Context, start, end time.Time) ([]UsageTrendPoint, error) {

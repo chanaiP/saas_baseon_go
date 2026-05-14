@@ -40,6 +40,12 @@ const trendAreaPath = computed(() => {
   if (!points.length) return ''
   return `${trendPath.value} L ${points[points.length - 1].x} ${chartHeight - chartPadding} L ${points[0].x} ${chartHeight - chartPadding} Z`
 })
+const gatewayChecks = computed(() => overview.value?.health_checks ?? [])
+const gatewayReady = computed(() => gatewayChecks.value.length > 0 && gatewayChecks.value.every((item) => item.status === 'active' || item.status === 'success'))
+const gatewayStatusText = computed(() => {
+  if (!overview.value) return 'AI Gateway 检查中'
+  return gatewayReady.value ? 'AI Gateway 正常运行' : 'AI Gateway 待处理'
+})
 
 async function loadData() {
   loading.value = true
@@ -62,7 +68,9 @@ onMounted(loadData)
 
     <div class="ai-hero-card">
       <div>
-        <span class="ai-tag">AI Gateway 正常运行</span>
+        <div class="ai-hero-status">
+          <span class="ai-tag" :class="{ 'is-warning': overview && !gatewayReady }">{{ gatewayStatusText }}</span>
+        </div>
         <h2>统一管理模型、供应商、基础路由、场景策略、用量与价格</h2>
         <p>业务中心只传租户、应用和 AI 场景；平台完成鉴权、配额校验、模型路由、降级、用量沉淀，配置操作写入底座操作日志。</p>
       </div>
