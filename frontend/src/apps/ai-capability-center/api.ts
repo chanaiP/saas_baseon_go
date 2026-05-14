@@ -67,10 +67,10 @@ export async function importAiTenantStrategies(payload: AiTenantStrategyImportPa
   return unwrap(http.post<ApiResponse<AiTenantStrategyImportResult>>('/api/ai-capability-center/tenant-strategies/import', payload))
 }
 
-export async function checkAiProviderAPIConnectivity(query: Record<string, string | undefined> = {}) {
+export async function checkAiProviderAPIConnectivity(query: Record<string, string | undefined> = {}, payload: Record<string, unknown> = {}) {
   const params: Record<string, string> = {}
   for (const [key, value] of Object.entries(query)) {
     if (value) params[key] = value
   }
-  return unwrap(http.post<ApiResponse<{ total: number; active: number; warning: number; error: number }>>('/api/ai-capability-center/apis/connectivity-check', {}, { params }))
+  return unwrap(http.post<ApiResponse<{ total: number; active: number; warning: number; error: number }>>('/api/ai-capability-center/apis/connectivity-check', payload, { params }))
 }

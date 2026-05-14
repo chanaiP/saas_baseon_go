@@ -695,6 +695,30 @@ html:not(.dark) .ai-prototype .el-tag.el-tag--info {
   padding: 0 4px;
 }
 
+.ai-pagination {
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.ai-prototype .ai-pagination .el-pagination__total,
+.ai-prototype .ai-pagination .el-pagination__sizes,
+.ai-prototype .ai-pagination .el-pager li,
+.ai-prototype .ai-pagination button {
+  color: var(--ai-text);
+}
+
+.ai-prototype .ai-pagination.is-background .el-pager li,
+.ai-prototype .ai-pagination.is-background button {
+  background: var(--ai-control-bg);
+  border: 1px solid var(--ai-border);
+}
+
+.ai-prototype .ai-pagination.is-background .el-pager li.is-active {
+  background: linear-gradient(135deg, var(--ai-cyan), var(--ai-purple));
+  border-color: transparent;
+  color: #fff;
+}
+
 .ai-table-cell-main {
   display: grid;
   gap: 3px;

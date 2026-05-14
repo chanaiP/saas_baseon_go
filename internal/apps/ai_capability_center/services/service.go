@@ -359,8 +359,9 @@ type APIConnectivityResult struct {
 }
 
 type APIConnectivityFilter struct {
-	ProviderID string `json:"provider_id"`
-	AccountID  string `json:"account_id"`
+	ProviderID string   `json:"provider_id"`
+	AccountID  string   `json:"account_id"`
+	APIIDs     []string `json:"api_ids"`
 }
 
 type apiProbeRow struct {
@@ -856,6 +857,9 @@ func (s *Service) CheckProviderAPIConnectivity(ctx context.Context, userID uint6
 	}
 	if strings.TrimSpace(filter.AccountID) != "" {
 		query = query.Where("api.account_id = ?", strings.TrimSpace(filter.AccountID))
+	}
+	if len(filter.APIIDs) > 0 {
+		query = query.Where("api.id IN ?", filter.APIIDs)
 	}
 	if err := query.Find(&rows).Error; err != nil {
 		return APIConnectivityResult{}, err
@@ -1408,26 +1412,59 @@ func usageDateExpression(db *gorm.DB) string {
 }
 
 func (s *Service) ListProviders(ctx context.Context, skip, limit int, keyword string) (PageResult, error) {
-	return listRows[models.AIProvider](ctx, s.db, skip, limit, keyword, []string{"name", "code", "owner", "region"})
+	result, err := listRows[models.AIProvider](ctx, s.db, skip, limit, keyword, []string{"name", "code", "owner", "region"})
+	if err != nil {
+		return PageResult{}, err
+	}
+	stats, err := s.providerCatalogSummary(ctx)
+	if err != nil {
+		return PageResult{}, err
+	}
+	result.Summary = map[string]interface{}{"provider_stats": stats}
+	return result, nil
 }
 
 func (s *Service) ListAccounts(ctx context.Context, skip, limit int, providerID string) (PageResult, error) {
-	q := s.db.WithContext(ctx).Model(&models.AIProviderAccount{}).Where("deleted_at IS NULL")
-	if strings.TrimSpace(providerID) != "" {
-		q = q.Where("provider_id = ?", providerID)
+	query := func() *gorm.DB {
+		q := s.db.WithContext(ctx).Model(&models.AIProviderAccount{}).Where("deleted_at IS NULL")
+		if strings.TrimSpace(providerID) != "" {
+			q = q.Where("provider_id = ?", providerID)
+		}
+		return q
 	}
-	return pageQuery[models.AIProviderAccount](q, skip, limit)
+	summary, err := accountListSummary(query())
+	if err != nil {
+		return PageResult{}, err
+	}
+	result, err := pageQuery[models.AIProviderAccount](query(), skip, limit)
+	if err != nil {
+		return PageResult{}, err
+	}
+	result.Summary = summary
+	return result, nil
 }
 
 func (s *Service) ListAPIs(ctx context.Context, skip, limit int, providerID, accountID string) (PageResult, error) {
-	q := s.db.WithContext(ctx).Model(&models.AIProviderAPI{}).Where("deleted_at IS NULL")
-	if strings.TrimSpace(providerID) != "" {
-		q = q.Where("provider_id = ?", providerID)
+	query := func() *gorm.DB {
+		q := s.db.WithContext(ctx).Model(&models.AIProviderAPI{}).Where("deleted_at IS NULL")
+		if strings.TrimSpace(providerID) != "" {
+			q = q.Where("provider_id = ?", providerID)
+		}
+		if strings.TrimSpace(accountID) != "" {
+			q = q.Where("account_id = ?", accountID)
+		}
+		return q
 	}
-	if strings.TrimSpace(accountID) != "" {
-		q = q.Where("account_id = ?", accountID)
+	summary, err := apiListSummary(query())
+	if err != nil {
+		return PageResult{}, err
 	}
-	return pageQuery[models.AIProviderAPI](q, skip, limit)
+	result, err := pageQuery[models.AIProviderAPI](query(), skip, limit)
+	if err != nil {
+		return PageResult{}, err
+	}
+	result.Summary = summary
+	return result, nil
 }
 
 func (s *Service) ListCapabilities(ctx context.Context, skip, limit int, keyword string) (PageResult, error) {
@@ -2363,6 +2400,75 @@ func listRows[T any](ctx context.Context, db *gorm.DB, skip, limit int, keyword 
 	q := db.WithContext(ctx).Model(new(T)).Where("deleted_at IS NULL")
 	q = keywordQuery(q, keyword, columns)
 	return pageQuery[T](q, skip, limit)
+}
+
+type providerCatalogStat struct {
+	AccountCount   int64 `json:"account_count"`
+	APICount       int64 `json:"api_count"`
+	ActiveAPICount int64 `json:"active_api_count"`
+}
+
+func (s *Service) providerCatalogSummary(ctx context.Context) (map[string]providerCatalogStat, error) {
+	stats := map[string]providerCatalogStat{}
+	var accountRows []struct {
+		ProviderID   string
+		AccountCount int64
+	}
+	if err := s.db.WithContext(ctx).Model(&models.AIProviderAccount{}).
+		Select("provider_id, COUNT(*) AS account_count").
+		Where("deleted_at IS NULL").
+		Group("provider_id").
+		Scan(&accountRows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range accountRows {
+		stat := stats[row.ProviderID]
+		stat.AccountCount = row.AccountCount
+		stats[row.ProviderID] = stat
+	}
+	var apiRows []struct {
+		ProviderID     string
+		APICount       int64
+		ActiveAPICount int64
+	}
+	if err := s.db.WithContext(ctx).Model(&models.AIProviderAPI{}).
+		Select("provider_id, COUNT(*) AS api_count, COALESCE(SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END), 0) AS active_api_count").
+		Where("deleted_at IS NULL").
+		Group("provider_id").
+		Scan(&apiRows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range apiRows {
+		stat := stats[row.ProviderID]
+		stat.APICount = row.APICount
+		stat.ActiveAPICount = row.ActiveAPICount
+		stats[row.ProviderID] = stat
+	}
+	return stats, nil
+}
+
+func accountListSummary(q *gorm.DB) (map[string]interface{}, error) {
+	var row struct {
+		ActiveCount int64
+		QuotaTotal  float64
+	}
+	err := q.Select("COALESCE(SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END), 0) AS active_count, COALESCE(SUM(quota_limit), 0) AS quota_total").Scan(&row).Error
+	if err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{"active_count": row.ActiveCount, "quota_total": row.QuotaTotal}, nil
+}
+
+func apiListSummary(q *gorm.DB) (map[string]interface{}, error) {
+	var row struct {
+		ActiveCount int64
+		QPSTotal    int64
+	}
+	err := q.Select("COALESCE(SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END), 0) AS active_count, COALESCE(SUM(qps_limit), 0) AS qps_total").Scan(&row).Error
+	if err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{"active_count": row.ActiveCount, "qps_total": row.QPSTotal}, nil
 }
 
 func keywordQuery(q *gorm.DB, keyword string, columns []string) *gorm.DB {

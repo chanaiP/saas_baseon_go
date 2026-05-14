@@ -24,23 +24,24 @@ const accountScopeAll = ref(true)
 const importVisible = ref(false)
 const createVisible = ref(false)
 const connectivityChecking = ref(false)
+const accountPage = ref(1)
+const accountPageSize = ref(10)
+const apiPage = ref(1)
+const apiPageSize = ref(10)
 
 const filteredProviders = computed(() => providers.value.items.filter((row) => includesKeyword(row, keyword.value, ['name', 'code', 'base_url', 'owner'])))
 const selectedProvider = computed(() => providers.value.items.find((row) => rowId(row) === selectedProviderId.value))
-const currentAccounts = computed(() => {
-  if (accountScopeAll.value || !selectedProviderId.value) return accounts.value.items
-  return accounts.value.items.filter((row) => String(row.provider_id || '') === selectedProviderId.value)
-})
-const currentApis = computed(() => apis.value.items.filter((row) => {
-  const matchesAccount = !selectedAccountId.value || String(row.account_id || '') === selectedAccountId.value
-  const matchesProvider = accountScopeAll.value || !selectedProviderId.value || String(row.provider_id || '') === selectedProviderId.value
-  return matchesProvider && matchesAccount
-}))
-const activeApiQps = computed(() => currentApis.value.reduce((sum, row) => sum + Number(row.qps_limit ?? 0), 0))
-const activeAccountCount = computed(() => currentAccounts.value.filter((row) => row.status === 'active').length)
-const activeApiCount = computed(() => currentApis.value.filter((row) => row.status === 'active').length)
-const accountQuotaTotal = computed(() => currentAccounts.value.reduce((sum, row) => sum + Number(row.quota_limit ?? 0), 0))
+const currentAccounts = computed(() => accounts.value.items)
+const currentApis = computed(() => apis.value.items)
+const providerListStats = computed(() => summaryRecord(providers.value.summary).provider_stats as Record<string, AiRow> | undefined)
+const activeApiQps = computed(() => Number(summaryRecord(apis.value.summary).qps_total ?? 0))
+const activeAccountCount = computed(() => Number(summaryRecord(accounts.value.summary).active_count ?? 0))
+const activeApiCount = computed(() => Number(summaryRecord(apis.value.summary).active_count ?? 0))
+const accountQuotaTotal = computed(() => Number(summaryRecord(accounts.value.summary).quota_total ?? 0))
 const selectedAccount = computed(() => currentAccounts.value.find((row) => rowId(row) === selectedAccountId.value))
+const accountProviderFilter = computed(() => (!accountScopeAll.value && selectedProviderId.value ? selectedProviderId.value : undefined))
+const apiProviderFilter = computed(() => (!accountScopeAll.value && selectedProviderId.value ? selectedProviderId.value : undefined))
+const apiAccountFilter = computed(() => selectedAccountId.value || undefined)
 const accountScopeTitle = computed(() => {
   if (accountScopeAll.value || !selectedProvider.value) return '所有接入账号'
   return `${text(selectedProvider.value.name)}的接入账号`
@@ -60,9 +61,16 @@ const apiScopeTitle = computed(() => {
 })
 
 function providerStats(providerId: string) {
-  const accountCount = accounts.value.items.filter((row) => String(row.provider_id || '') === providerId).length
-  const apiRows = apis.value.items.filter((row) => String(row.provider_id || '') === providerId)
-  return { accountCount, apiCount: apiRows.length, activeApiCount: apiRows.filter((row) => row.status === 'active').length }
+  const stat = providerListStats.value?.[providerId]
+  return {
+    accountCount: Number(stat?.account_count ?? 0),
+    apiCount: Number(stat?.api_count ?? 0),
+    activeApiCount: Number(stat?.active_api_count ?? 0),
+  }
+}
+
+function summaryRecord(value: unknown) {
+  return value && typeof value === 'object' ? value as AiRow : {}
 }
 
 function loginMethodText(value: unknown) {
@@ -81,14 +89,14 @@ function loginMethodText(value: unknown) {
 async function loadData() {
   loading.value = true
   try {
-    const [providerPage, accountPage, apiPage] = await Promise.all([
+    const [providerPage, accountResult, apiResult] = await Promise.all([
       fetchAiResource('providers', { skip: 0, limit: 200, keyword: keyword.value.trim() }),
-      fetchAiResource('accounts', { skip: 0, limit: 200 }),
-      fetchAiResource('apis', { skip: 0, limit: 200 }),
+      fetchAiResource('accounts', { skip: (accountPage.value - 1) * accountPageSize.value, limit: accountPageSize.value, provider_id: accountProviderFilter.value }),
+      fetchAiResource('apis', { skip: (apiPage.value - 1) * apiPageSize.value, limit: apiPageSize.value, provider_id: apiProviderFilter.value, account_id: apiAccountFilter.value }),
     ])
     providers.value = providerPage
-    accounts.value = accountPage
-    apis.value = apiPage
+    accounts.value = accountResult
+    apis.value = apiResult
     if (selectedProviderId.value && !providerPage.items.some((row) => rowId(row) === selectedProviderId.value)) {
       selectedProviderId.value = ''
       selectedAccountId.value = ''
@@ -109,22 +117,36 @@ function selectProvider(providerId: string) {
   selectedProviderId.value = selectingSameProvider ? '' : providerId
   accountScopeAll.value = selectingSameProvider
   selectedAccountId.value = ''
+  resetAccountPaging()
+  void loadData()
 }
 
 function showAllAccounts() {
   selectedProviderId.value = ''
   accountScopeAll.value = true
   selectedAccountId.value = ''
+  resetAccountPaging()
+  void loadData()
 }
 
 function showProviderAccounts() {
   if (!selectedProviderId.value) return
   accountScopeAll.value = false
   selectedAccountId.value = ''
+  resetAccountPaging()
+  void loadData()
 }
 
 function selectAccount(accountId: string) {
   selectedAccountId.value = selectedAccountId.value === accountId ? '' : accountId
+  apiPage.value = 1
+  void loadData()
+}
+
+function showAllApis() {
+  selectedAccountId.value = ''
+  apiPage.value = 1
+  void loadData()
 }
 
 function accountRowClassName({ row }: { row: AiRow }) {
@@ -146,12 +168,17 @@ async function importProviders(payload: AiRow) {
 }
 
 async function checkConnectivity() {
+  const currentApiIds = currentApis.value.map((row) => rowId(row)).filter(Boolean)
+  if (!currentApiIds.length) {
+    ElMessage.warning('当前列表没有可检测的 API')
+    return
+  }
   connectivityChecking.value = true
   try {
     const result = await checkAiProviderAPIConnectivity({
       provider_id: !accountScopeAll.value && selectedProviderId.value ? selectedProviderId.value : undefined,
       account_id: selectedAccountId.value || undefined,
-    })
+    }, { api_ids: currentApiIds })
     ElMessage.success(`连通性检测完成：本次检测 ${result.total} 个 API，正常 ${result.active} 个，告警 ${result.warning} 个，异常 ${result.error} 个`)
     await loadData()
   } catch (error) {
@@ -159,6 +186,33 @@ async function checkConnectivity() {
   } finally {
     connectivityChecking.value = false
   }
+}
+
+function resetAccountPaging() {
+  accountPage.value = 1
+  apiPage.value = 1
+}
+
+function handleAccountPageChange(page: number) {
+  accountPage.value = page
+  selectedAccountId.value = ''
+  apiPage.value = 1
+  void loadData()
+}
+
+function handleAccountSizeChange(size: number) {
+  accountPageSize.value = size
+  handleAccountPageChange(1)
+}
+
+function handleApiPageChange(page: number) {
+  apiPage.value = page
+  void loadData()
+}
+
+function handleApiSizeChange(size: number) {
+  apiPageSize.value = size
+  handleApiPageChange(1)
 }
 
 onMounted(loadData)
@@ -237,9 +291,9 @@ onMounted(loadData)
           </header>
           <div class="ai-card__body">
             <div class="ai-metric-grid ai-provider-summary-grid">
-              <div class="ai-mini-stat"><span>账号总数</span><strong>{{ currentAccounts.length }}</strong></div>
+              <div class="ai-mini-stat"><span>账号总数</span><strong>{{ accounts.total }}</strong></div>
               <div class="ai-mini-stat"><span>启用账号</span><strong>{{ activeAccountCount }}</strong></div>
-              <div class="ai-mini-stat"><span>API 数量</span><strong>{{ currentApis.length }}</strong></div>
+              <div class="ai-mini-stat"><span>API 数量</span><strong>{{ apis.total }}</strong></div>
               <div class="ai-mini-stat"><span>额度合计</span><strong>{{ moneyText(accountQuotaTotal) }}</strong></div>
             </div>
             <el-table
@@ -278,6 +332,18 @@ onMounted(loadData)
                 </template>
               </el-table-column>
             </el-table>
+            <el-pagination
+              v-if="accounts.total > accountPageSize"
+              v-model:current-page="accountPage"
+              v-model:page-size="accountPageSize"
+              class="ai-pagination"
+              background
+              layout="total, sizes, prev, pager, next"
+              :page-sizes="[10, 20, 50, 100]"
+              :total="accounts.total"
+              @current-change="handleAccountPageChange"
+              @size-change="handleAccountSizeChange"
+            />
           </div>
         </section>
 
@@ -289,12 +355,12 @@ onMounted(loadData)
             </div>
             <div class="ai-segmented">
               <button :disabled="connectivityChecking" @click="checkConnectivity">{{ connectivityChecking ? '检测中' : '检测当前列表' }}</button>
-              <button :class="{ active: !selectedAccountId }" @click="selectedAccountId = ''">全部 API</button>
+              <button :class="{ active: !selectedAccountId }" @click="showAllApis">全部 API</button>
             </div>
           </header>
           <div class="ai-card__body">
             <div class="ai-metric-grid ai-provider-summary-grid">
-              <div class="ai-mini-stat"><span>API 总数</span><strong>{{ currentApis.length }}</strong></div>
+              <div class="ai-mini-stat"><span>API 总数</span><strong>{{ apis.total }}</strong></div>
               <div class="ai-mini-stat"><span>启用 API</span><strong>{{ activeApiCount }}</strong></div>
               <div class="ai-mini-stat"><span>聚合 QPS</span><strong>{{ activeApiQps }}</strong></div>
               <div class="ai-mini-stat"><span>当前账号</span><strong>{{ selectedAccount ? text(selectedAccount.account_name) : '全部' }}</strong></div>
@@ -315,6 +381,18 @@ onMounted(loadData)
               <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag></template></el-table-column>
               <el-table-column label="操作" width="128" fixed="right"><template #default="{ row }"><AiResourceActions resource="apis" :row="row" @saved="loadData" /></template></el-table-column>
             </el-table>
+            <el-pagination
+              v-if="apis.total > apiPageSize"
+              v-model:current-page="apiPage"
+              v-model:page-size="apiPageSize"
+              class="ai-pagination"
+              background
+              layout="total, sizes, prev, pager, next"
+              :page-sizes="[10, 20, 50, 100]"
+              :total="apis.total"
+              @current-change="handleApiPageChange"
+              @size-change="handleApiSizeChange"
+            />
           </div>
         </section>
       </main>

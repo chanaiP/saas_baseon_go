@@ -187,6 +187,52 @@ func TestCheckProviderAPIConnectivityFiltersByAccount(t *testing.T) {
 	require.Nil(t, skipped.HealthCheckedAt)
 }
 
+func TestCheckProviderAPIConnectivityFiltersByAPIIDs(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"probe-ok"}`))
+	}))
+	defer server.Close()
+
+	now := time.Now()
+	require.NoError(t, db.Create(&models.AIProvider{
+		ID: "provider-page", Name: "Paged Provider", Code: "paged", Type: "public_cloud", BaseURL: server.URL,
+		AuthType: "api_key", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+	require.NoError(t, db.Create(&models.AIProviderAccount{
+		ID: "account-page", ProviderID: "provider-page", AccountName: "prod-main", Endpoint: server.URL,
+		KeyAlias: "PAGED_KEY", EncryptedAPIKey: "sk-test", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+	for _, apiID := range []string{"api-page-a", "api-page-b"} {
+		require.NoError(t, db.Create(&models.AIProviderAPI{
+			ID: apiID, ProviderID: "provider-page", AccountID: "account-page", APIName: apiID,
+			APIPath: "/v1/chat/completions", APIType: "chat", Capabilities: []string{"chat_completion"},
+			AuthType: "api_key", TimeoutMS: 30000, Status: "active", HealthStatus: "unknown",
+			AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+		}).Error)
+	}
+
+	result, err := NewService(db).CheckProviderAPIConnectivity(context.Background(), 7, APIConnectivityFilter{APIIDs: []string{"api-page-a"}})
+	require.NoError(t, err)
+	require.Equal(t, APIConnectivityResult{Total: 1, Active: 1}, result)
+	require.Equal(t, 1, calls)
+
+	var checked models.AIProviderAPI
+	require.NoError(t, db.First(&checked, "id = ?", "api-page-a").Error)
+	require.Equal(t, "active", checked.HealthStatus)
+	require.NotNil(t, checked.HealthCheckedAt)
+
+	var skipped models.AIProviderAPI
+	require.NoError(t, db.First(&skipped, "id = ?", "api-page-b").Error)
+	require.Equal(t, "unknown", skipped.HealthStatus)
+	require.Nil(t, skipped.HealthCheckedAt)
+}
+
 func TestCheckProviderAPIConnectivityMarksAuthFailureAsError(t *testing.T) {
 	db := newAICapabilityTestDB(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
