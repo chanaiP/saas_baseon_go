@@ -1,0 +1,340 @@
+.ai-prototype {
+  --ai-panel: rgba(17, 27, 44, 0.94);
+  --ai-panel-soft: rgba(22, 37, 58, 0.82);
+  --ai-border: rgba(92, 122, 160, 0.32);
+  --ai-border-strong: rgba(35, 231, 216, 0.42);
+  --ai-text: #f6fbff;
+  --ai-muted: rgba(214, 225, 240, 0.68);
+  --ai-cyan: #23e7d8;
+  --ai-purple: #8d66f7;
+  --ai-danger: #ff6b76;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  color: var(--ai-text);
+}
+
+.ai-hero-card,
+.ai-card {
+  border: 1px solid var(--ai-border);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(20, 35, 55, 0.96), var(--ai-panel));
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
+}
+
+.ai-hero-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px;
+}
+
+.ai-hero-card h2,
+.ai-card h3 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: 0;
+}
+
+.ai-hero-card p,
+.ai-card__description,
+.ai-muted {
+  color: var(--ai-muted);
+}
+
+.ai-hero-card p {
+  margin: 8px 0 0;
+  max-width: 820px;
+  line-height: 1.7;
+}
+
+.ai-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding: 0 10px;
+  border: 1px solid rgba(35, 231, 216, 0.32);
+  border-radius: 999px;
+  background: rgba(35, 231, 216, 0.1);
+  color: var(--ai-cyan);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ai-card {
+  overflow: hidden;
+}
+
+.ai-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 18px 14px;
+}
+
+.ai-card__description {
+  margin: 6px 0 0;
+  font-size: 13px;
+}
+
+.ai-card__body {
+  padding: 0 18px 18px;
+}
+
+.ai-actions,
+.ai-toolbar,
+.ai-segmented,
+.ai-row-actions,
+.ai-flow-panel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ai-toolbar {
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.ai-toolbar .el-input {
+  max-width: 360px;
+}
+
+.ai-segmented {
+  flex-wrap: wrap;
+}
+
+.ai-segmented button,
+.ai-ghost-button {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--ai-border);
+  border-radius: 8px;
+  background: rgba(8, 15, 28, 0.48);
+  color: var(--ai-text);
+  cursor: pointer;
+}
+
+.ai-segmented button.active,
+.ai-ghost-button.active {
+  border-color: var(--ai-cyan);
+  background: rgba(35, 231, 216, 0.12);
+  color: var(--ai-cyan);
+}
+
+.ai-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ai-mini-stat {
+  min-height: 96px;
+  padding: 16px;
+  border: 1px solid var(--ai-border);
+  border-radius: 8px;
+  background: rgba(14, 22, 37, 0.72);
+}
+
+.ai-mini-stat span {
+  display: block;
+  color: var(--ai-muted);
+  font-size: 13px;
+}
+
+.ai-mini-stat strong {
+  display: block;
+  margin-top: 10px;
+  font-size: 24px;
+}
+
+.ai-dashboard-grid,
+.ai-insight-grid,
+.ai-settings-grid,
+.ai-rule-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.ai-provider-layout,
+.ai-scenario-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 16px;
+}
+
+.ai-provider-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ai-provider-item,
+.ai-provider-select {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  color: var(--ai-text);
+}
+
+.ai-provider-item {
+  padding: 14px;
+  border: 1px solid var(--ai-border);
+  border-radius: 8px;
+  background: rgba(8, 15, 28, 0.42);
+}
+
+.ai-provider-select {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.ai-provider-item.active {
+  border-color: var(--ai-cyan);
+  background: rgba(35, 231, 216, 0.12);
+}
+
+.ai-provider-item small,
+.ai-provider-item span {
+  color: var(--ai-muted);
+}
+
+.ai-table :deep(.el-table),
+.ai-table :deep(.el-table__inner-wrapper),
+.ai-table :deep(th.el-table__cell),
+.ai-table :deep(td.el-table__cell) {
+  background: transparent;
+  color: var(--ai-text);
+}
+
+.ai-table :deep(th.el-table__cell) {
+  background: rgba(35, 231, 216, 0.12);
+}
+
+.ai-table :deep(td.el-table__cell),
+.ai-table :deep(th.el-table__cell) {
+  border-bottom-color: rgba(92, 122, 160, 0.24);
+}
+
+.ai-table-cell-main {
+  display: grid;
+  gap: 4px;
+}
+
+.ai-table-cell-main small {
+  color: var(--ai-muted);
+}
+
+.ai-code-block,
+.ai-chart-list,
+.ai-health-list,
+.ai-setting-list {
+  border: 1px solid var(--ai-border);
+  border-radius: 8px;
+  background: rgba(7, 13, 24, 0.55);
+}
+
+.ai-code-block {
+  margin: 0;
+  padding: 16px;
+  overflow: auto;
+  color: #c9fff7;
+  line-height: 1.7;
+}
+
+.ai-chart-list,
+.ai-health-list,
+.ai-setting-list {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.ai-bar-row {
+  display: grid;
+  grid-template-columns: 120px 1fr 86px;
+  align-items: center;
+  gap: 12px;
+}
+
+.ai-bar {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ai-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--ai-cyan), var(--ai-purple));
+}
+
+.ai-flow-panel {
+  justify-content: center;
+  flex-wrap: wrap;
+  padding: 14px;
+  border: 1px solid var(--ai-border-strong);
+  border-radius: 8px;
+  background: rgba(35, 231, 216, 0.08);
+}
+
+.ai-flow-panel div {
+  padding: 9px 14px;
+  border: 1px solid var(--ai-border);
+  border-radius: 8px;
+  background: rgba(8, 15, 28, 0.58);
+}
+
+.ai-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ai-dialog-tip {
+  margin: 0 0 12px;
+  color: var(--ai-muted);
+}
+
+.ai-json-editor {
+  width: 100%;
+  min-height: 320px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.ai-strong-danger {
+  color: var(--ai-danger);
+}
+
+@media (max-width: 1180px) {
+  .ai-metric-grid,
+  .ai-dashboard-grid,
+  .ai-insight-grid,
+  .ai-settings-grid,
+  .ai-rule-grid,
+  .ai-provider-layout,
+  .ai-scenario-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .ai-hero-card,
+  .ai-card__header,
+  .ai-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ai-metric-grid {
+    grid-template-columns: 1fr;
+  }
+}
