@@ -50,6 +50,22 @@ export function statusType(value: unknown) {
   return 'info'
 }
 
+export function statusText(value: unknown, fallback = '-') {
+  const raw = text(value, '')
+  const labels: Record<string, string> = {
+    active: '正常',
+    success: '成功',
+    warning: '告警',
+    degraded: '降级',
+    error: '异常',
+    failed: '失败',
+    timeout: '超时',
+    inactive: '停用',
+    unknown: '未检测',
+  }
+  return raw ? labels[raw] || raw : fallback
+}
+
 export function settingJSON(row?: AiRow) {
   const value = row?.setting_value
   if (!value) return {} as AiRow

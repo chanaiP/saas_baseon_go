@@ -453,7 +453,18 @@ html:not(.dark) .ai-prototype {
 }
 
 .ai-provider-summary-grid {
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
   margin-bottom: 14px;
+}
+
+.ai-provider-summary-grid .ai-mini-stat {
+  padding: 12px;
+}
+
+.ai-provider-summary-grid .ai-mini-stat strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ai-provider-rail {

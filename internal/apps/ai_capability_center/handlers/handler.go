@@ -199,7 +199,24 @@ func (h *Handler) CheckProviderAPIConnectivity(c *gin.Context) {
 		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "请先登录")
 		return
 	}
-	result, err := h.service.CheckProviderAPIConnectivity(c.Request.Context(), userID)
+	filter := services.APIConnectivityFilter{
+		ProviderID: c.Query("provider_id"),
+		AccountID:  c.Query("account_id"),
+	}
+	if c.Request.Body != nil && c.Request.ContentLength != 0 {
+		var body services.APIConnectivityFilter
+		if err := c.ShouldBindJSON(&body); err != nil {
+			response.Error(c, http.StatusBadRequest, response.CodeBadRequest, "请求参数不合法")
+			return
+		}
+		if body.ProviderID != "" {
+			filter.ProviderID = body.ProviderID
+		}
+		if body.AccountID != "" {
+			filter.AccountID = body.AccountID
+		}
+	}
+	result, err := h.service.CheckProviderAPIConnectivity(c.Request.Context(), userID, filter)
 	if err != nil {
 		writeError(c, err)
 		return

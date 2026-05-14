@@ -46,7 +46,7 @@ func (s *Service) StartProviderAPIConnectivityProbe(ctx context.Context, interva
 			case <-ctx.Done():
 				return
 			case <-timer.C:
-				_, _ = s.CheckProviderAPIConnectivity(ctx, 0)
+				_, _ = s.CheckProviderAPIConnectivity(ctx, 0, APIConnectivityFilter{})
 				timer.Reset(interval)
 			}
 		}
@@ -356,6 +356,11 @@ type APIConnectivityResult struct {
 	Active  int `json:"active"`
 	Warning int `json:"warning"`
 	Error   int `json:"error"`
+}
+
+type APIConnectivityFilter struct {
+	ProviderID string `json:"provider_id"`
+	AccountID  string `json:"account_id"`
 }
 
 type apiProbeRow struct {
@@ -839,14 +844,20 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	}, nil
 }
 
-func (s *Service) CheckProviderAPIConnectivity(ctx context.Context, userID uint64) (APIConnectivityResult, error) {
+func (s *Service) CheckProviderAPIConnectivity(ctx context.Context, userID uint64, filter APIConnectivityFilter) (APIConnectivityResult, error) {
 	var rows []apiProbeRow
-	if err := s.db.WithContext(ctx).Table("ai_provider_apis AS api").
+	query := s.db.WithContext(ctx).Table("ai_provider_apis AS api").
 		Select("api.id, p.code AS provider_code, api.api_name, api.api_path, api.api_type, api.capabilities, COALESCE(NULLIF(api.auth_type, ''), p.auth_type) AS auth_type, p.base_url, a.endpoint, a.key_alias, a.encrypted_api_key, a.encrypted_secret, api.timeout_ms").
 		Joins("JOIN ai_providers AS p ON p.id = api.provider_id AND p.status = ? AND p.deleted_at IS NULL", "active").
 		Joins("JOIN ai_provider_accounts AS a ON a.id = api.account_id AND a.status = ? AND a.deleted_at IS NULL", "active").
-		Where("api.status = ? AND api.deleted_at IS NULL", "active").
-		Find(&rows).Error; err != nil {
+		Where("api.status = ? AND api.deleted_at IS NULL", "active")
+	if strings.TrimSpace(filter.ProviderID) != "" {
+		query = query.Where("api.provider_id = ?", strings.TrimSpace(filter.ProviderID))
+	}
+	if strings.TrimSpace(filter.AccountID) != "" {
+		query = query.Where("api.account_id = ?", strings.TrimSpace(filter.AccountID))
+	}
+	if err := query.Find(&rows).Error; err != nil {
 		return APIConnectivityResult{}, err
 	}
 	now := time.Now()
@@ -874,7 +885,7 @@ func (s *Service) CheckProviderAPIConnectivity(ctx context.Context, userID uint6
 			return APIConnectivityResult{}, err
 		}
 	}
-	s.Audit(ctx, userID, "ai_provider_api", "connectivity_check", "执行 AI API 连通性检测", result)
+	s.Audit(ctx, userID, "ai_provider_api", "connectivity_check", "执行 AI API 连通性检测", map[string]interface{}{"result": result, "filter": filter})
 	return result, nil
 }
 

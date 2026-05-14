@@ -130,7 +130,7 @@ func TestCheckProviderAPIConnectivityPersistsReachableStatus(t *testing.T) {
 		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
 	}).Error)
 
-	result, err := NewService(db).CheckProviderAPIConnectivity(context.Background(), 7)
+	result, err := NewService(db).CheckProviderAPIConnectivity(context.Background(), 7, APIConnectivityFilter{})
 	require.NoError(t, err)
 	require.Equal(t, APIConnectivityResult{Total: 1, Active: 1}, result)
 
@@ -139,6 +139,52 @@ func TestCheckProviderAPIConnectivityPersistsReachableStatus(t *testing.T) {
 	require.Equal(t, "active", api.HealthStatus)
 	require.Contains(t, api.HealthMessage, "HTTP 200")
 	require.NotNil(t, api.HealthCheckedAt)
+}
+
+func TestCheckProviderAPIConnectivityFiltersByAccount(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"probe-ok"}`))
+	}))
+	defer server.Close()
+
+	now := time.Now()
+	require.NoError(t, db.Create(&models.AIProvider{
+		ID: "provider-scope", Name: "Scoped Provider", Code: "scoped", Type: "public_cloud", BaseURL: server.URL,
+		AuthType: "api_key", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+	for _, accountID := range []string{"account-a", "account-b"} {
+		require.NoError(t, db.Create(&models.AIProviderAccount{
+			ID: accountID, ProviderID: "provider-scope", AccountName: accountID, Endpoint: server.URL,
+			KeyAlias: "SCOPED_KEY", EncryptedAPIKey: "sk-test", Status: "active",
+			AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+		}).Error)
+		require.NoError(t, db.Create(&models.AIProviderAPI{
+			ID: "api-" + accountID, ProviderID: "provider-scope", AccountID: accountID, APIName: "chat." + accountID,
+			APIPath: "/v1/chat/completions", APIType: "chat", Capabilities: []string{"chat_completion"},
+			AuthType: "api_key", TimeoutMS: 30000, Status: "active", HealthStatus: "unknown",
+			AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+		}).Error)
+	}
+
+	result, err := NewService(db).CheckProviderAPIConnectivity(context.Background(), 7, APIConnectivityFilter{AccountID: "account-a"})
+	require.NoError(t, err)
+	require.Equal(t, APIConnectivityResult{Total: 1, Active: 1}, result)
+	require.Equal(t, 1, calls)
+
+	var checked models.AIProviderAPI
+	require.NoError(t, db.First(&checked, "id = ?", "api-account-a").Error)
+	require.Equal(t, "active", checked.HealthStatus)
+	require.NotNil(t, checked.HealthCheckedAt)
+
+	var skipped models.AIProviderAPI
+	require.NoError(t, db.First(&skipped, "id = ?", "api-account-b").Error)
+	require.Equal(t, "unknown", skipped.HealthStatus)
+	require.Nil(t, skipped.HealthCheckedAt)
 }
 
 func TestCheckProviderAPIConnectivityMarksAuthFailureAsError(t *testing.T) {
@@ -168,7 +214,7 @@ func TestCheckProviderAPIConnectivityMarksAuthFailureAsError(t *testing.T) {
 		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
 	}).Error)
 
-	result, err := NewService(db).CheckProviderAPIConnectivity(context.Background(), 7)
+	result, err := NewService(db).CheckProviderAPIConnectivity(context.Background(), 7, APIConnectivityFilter{})
 	require.NoError(t, err)
 	require.Equal(t, APIConnectivityResult{Total: 1, Error: 1}, result)
 

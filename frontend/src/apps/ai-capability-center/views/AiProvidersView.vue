@@ -6,7 +6,7 @@ import { Plus, Upload } from '@element-plus/icons-vue'
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
 import { checkAiProviderAPIConnectivity, createAiResource, fetchAiResource, importAiProviders } from '../api'
-import { emptyPage, includesKeyword, moneyText, numberText, rowId, statusType, text, type AiRow } from './viewHelpers'
+import { emptyPage, includesKeyword, moneyText, numberText, rowId, statusText, statusType, text, type AiRow } from './viewHelpers'
 import AiJsonDialog from './AiJsonDialog.vue'
 import AiResourceActions from './AiResourceActions.vue'
 import './aiPrototype.css'
@@ -148,8 +148,11 @@ async function importProviders(payload: AiRow) {
 async function checkConnectivity() {
   connectivityChecking.value = true
   try {
-    const result = await checkAiProviderAPIConnectivity()
-    ElMessage.success(`连通性检测完成：正常 ${result.active} 个，告警 ${result.warning} 个，异常 ${result.error} 个`)
+    const result = await checkAiProviderAPIConnectivity({
+      provider_id: !accountScopeAll.value && selectedProviderId.value ? selectedProviderId.value : undefined,
+      account_id: selectedAccountId.value || undefined,
+    })
+    ElMessage.success(`连通性检测完成：本次检测 ${result.total} 个 API，正常 ${result.active} 个，告警 ${result.warning} 个，异常 ${result.error} 个`)
     await loadData()
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '连通性检测失败')
@@ -199,7 +202,7 @@ onMounted(loadData)
                   <strong>{{ text(provider.name) }}</strong>
                   <small>{{ text(provider.code) }}</small>
                 </span>
-                <el-tag :type="statusType(provider.status)" size="small">{{ text(provider.status) }}</el-tag>
+                <el-tag :type="statusType(provider.status)" size="small">{{ statusText(provider.status) }}</el-tag>
               </span>
               <span class="ai-provider-card__endpoint">{{ text(provider.base_url) }}</span>
               <span class="ai-provider-card__meta">
@@ -266,7 +269,7 @@ onMounted(loadData)
               <el-table-column label="维护联系" min-width="160"><template #default="{ row }">{{ text(row.maintainer_contact, '未登记') }}</template></el-table-column>
               <el-table-column label="Endpoint" min-width="220"><template #default="{ row }">{{ text(row.endpoint) }}</template></el-table-column>
               <el-table-column label="额度使用" width="180"><template #default="{ row }">{{ numberText(row.used_quota) }} / {{ numberText(row.quota_limit) }}</template></el-table-column>
-              <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ text(row.status) }}</el-tag></template></el-table-column>
+              <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag></template></el-table-column>
               <el-table-column label="操作" width="190" fixed="right">
                 <template #default="{ row }">
                   <div class="ai-row-actions">
@@ -285,7 +288,7 @@ onMounted(loadData)
               <p class="ai-card__description">默认显示所有 API；选择账号后，只显示该账号挂载的 API。</p>
             </div>
             <div class="ai-segmented">
-              <button :disabled="connectivityChecking" @click="checkConnectivity">{{ connectivityChecking ? '检测中' : '检测连通性' }}</button>
+              <button :disabled="connectivityChecking" @click="checkConnectivity">{{ connectivityChecking ? '检测中' : '检测当前列表' }}</button>
               <button :class="{ active: !selectedAccountId }" @click="selectedAccountId = ''">全部 API</button>
             </div>
           </header>
@@ -304,12 +307,12 @@ onMounted(loadData)
               <el-table-column label="连通性" width="180">
                 <template #default="{ row }">
                   <span class="ai-table-cell-main">
-                    <el-tag :type="statusType(row.health_status)">{{ text(row.health_status, 'unknown') }}</el-tag>
+                    <el-tag :type="statusType(row.health_status)">{{ statusText(row.health_status, '未检测') }}</el-tag>
                     <small>{{ text(row.health_message, '未检测') }}</small>
                   </span>
                 </template>
               </el-table-column>
-              <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ text(row.status) }}</el-tag></template></el-table-column>
+              <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag></template></el-table-column>
               <el-table-column label="操作" width="128" fixed="right"><template #default="{ row }"><AiResourceActions resource="apis" :row="row" @saved="loadData" /></template></el-table-column>
             </el-table>
           </div>
