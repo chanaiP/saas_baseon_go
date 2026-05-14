@@ -325,6 +325,7 @@ html:not(.dark) .ai-prototype {
   gap: 16px;
   align-items: start;
   min-width: 0;
+  overflow: visible;
 }
 
 .ai-provider-main {
@@ -332,15 +333,23 @@ html:not(.dark) .ai-prototype {
   flex-direction: column;
   gap: 16px;
   min-width: 0;
+  min-height: 0;
+  overflow: visible;
 }
 
 .ai-provider-sidebar {
   position: sticky;
-  top: 14px;
-  max-height: calc(100vh - 120px);
+  top: 96px;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 112px);
+  max-height: calc(100dvh - 112px);
+  min-height: 0;
+  align-self: start;
 }
 
 .ai-provider-sidebar .ai-card__body {
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -357,13 +366,16 @@ html:not(.dark) .ai-prototype {
 }
 
 .ai-provider-card-list {
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: calc(100vh - 270px);
-  min-height: 360px;
+  max-height: calc(100vh - 330px);
+  max-height: calc(100dvh - 330px);
+  min-height: 0;
   overflow: auto;
   padding: 2px 4px 2px 0;
+  overscroll-behavior: contain;
 }
 
 .ai-provider-card {
@@ -890,7 +902,15 @@ html:not(.dark) .ai-prototype .el-tag.el-tag--info {
 
   .ai-provider-sidebar {
     position: static;
+    height: auto;
     max-height: none;
+  }
+
+  .ai-provider-workspace,
+  .ai-provider-main {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
   }
 
   .ai-provider-card-list {
