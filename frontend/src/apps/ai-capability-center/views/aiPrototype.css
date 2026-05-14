@@ -543,6 +543,30 @@ html:not(.dark) .ai-prototype {
   font-size: 13px;
 }
 
+.ai-prototype .el-tag.el-tag--success {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.34);
+  color: #34d399;
+}
+
+.ai-prototype .el-tag.el-tag--warning {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.38);
+  color: #fbbf24;
+}
+
+.ai-prototype .el-tag.el-tag--danger {
+  background: rgba(255, 107, 118, 0.14);
+  border-color: rgba(255, 107, 118, 0.42);
+  color: var(--ai-danger);
+}
+
+.ai-prototype .el-tag.el-tag--info {
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.28);
+  color: var(--ai-muted);
+}
+
 .ai-prototype .ai-table .el-table__inner-wrapper,
 .ai-prototype .ai-table .el-table__body-wrapper,
 .ai-prototype .ai-table .el-scrollbar,
@@ -626,6 +650,34 @@ html:not(.dark) .ai-prototype .ai-table .el-table__body tr:hover > td.el-table__
 .neuro-command-layout[data-theme="light"] .ai-prototype .ai-table .el-table__empty-block,
 html:not(.dark) .ai-prototype .ai-table .el-table__empty-block {
   background: #ffffff;
+}
+
+.neuro-command-layout[data-theme="light"] .ai-prototype .el-tag.el-tag--success,
+html:not(.dark) .ai-prototype .el-tag.el-tag--success {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.26);
+  color: #059669;
+}
+
+.neuro-command-layout[data-theme="light"] .ai-prototype .el-tag.el-tag--warning,
+html:not(.dark) .ai-prototype .el-tag.el-tag--warning {
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.3);
+  color: #b45309;
+}
+
+.neuro-command-layout[data-theme="light"] .ai-prototype .el-tag.el-tag--danger,
+html:not(.dark) .ai-prototype .el-tag.el-tag--danger {
+  background: rgba(220, 38, 38, 0.1);
+  border-color: rgba(220, 38, 38, 0.28);
+  color: var(--ai-danger);
+}
+
+.neuro-command-layout[data-theme="light"] .ai-prototype .el-tag.el-tag--info,
+html:not(.dark) .ai-prototype .el-tag.el-tag--info {
+  background: rgba(100, 116, 139, 0.08);
+  border-color: rgba(100, 116, 139, 0.18);
+  color: #64748b;
 }
 
 .ai-prototype .ai-table .el-button.is-link {
