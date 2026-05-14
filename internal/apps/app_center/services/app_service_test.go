@@ -276,6 +276,26 @@ func TestAppCenterParseAICapabilityCenterManifest(t *testing.T) {
 	require.NotEmpty(t, result.ManifestHash)
 }
 
+func TestAppCenterParseIntegrationCenterManifest(t *testing.T) {
+	db := newAppCenterTestDB(t)
+	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
+	service := NewAppService(repositories.NewAppRepository(db))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "internal", "apps", "integration_center", "app.manifest.yaml"))
+	require.NoError(t, err)
+
+	result, err := service.ParseManifestContent(context.Background(), 1, "app.manifest.yaml", raw)
+	require.NoError(t, err)
+	require.True(t, result.Valid)
+	require.Empty(t, result.Blockers)
+	require.Equal(t, "integration-center", result.AppCode)
+	require.Equal(t, 8, result.Counts.Menus)
+	require.Equal(t, 4, result.Counts.Operations)
+	require.Equal(t, 12, result.Counts.Permissions)
+	require.Equal(t, 8, result.Counts.APIs)
+	require.Equal(t, 2, result.Counts.PackageFeatures)
+	require.Equal(t, 3, result.Counts.Quotas)
+}
+
 func TestAppCenterLoadPlatformOnlyManifestKeepsAssetsOutOfPackages(t *testing.T) {
 	db := newAppCenterTestDB(t)
 	require.NoError(t, db.Create(&models.Tenant{ID: 1, Code: "platform", Name: "平台主体", IsPlatform: true, Status: 1}).Error)

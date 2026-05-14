@@ -1,0 +1,12 @@
+DROP TABLE IF EXISTS integration_api_call_logs;
+DROP TABLE IF EXISTS integration_alerts;
+DROP TABLE IF EXISTS integration_quota_usages;
+DROP TABLE IF EXISTS integration_quota_bindings;
+DROP TABLE IF EXISTS integration_quota_policies;
+DROP TABLE IF EXISTS integration_sync_jobs;
+DROP TABLE IF EXISTS integration_tenant_capabilities;
+DROP TABLE IF EXISTS integration_tenant_connections;
+DROP TABLE IF EXISTS integration_provider_app_capabilities;
+DROP TABLE IF EXISTS integration_provider_apps;
+DROP TABLE IF EXISTS integration_platform_capabilities;
+DROP TABLE IF EXISTS integration_platforms;

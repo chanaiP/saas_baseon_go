@@ -659,7 +659,11 @@ function buildManifestAppMenus(nodes: MenuNode[], bundles: MenuBundle[]): MenuNo
       id: `manifest-app-${appCode}`,
       type: 'directory',
       title: directoryTitle,
-      icon: rootBundle.app_code === 'ai-capability-center' ? 'Cpu' : 'Document',
+      icon: rootBundle.app_code === 'ai-capability-center'
+        ? 'Cpu'
+        : rootBundle.app_code === 'integration-center'
+          ? 'Connection'
+          : 'Document',
       isPlatformOnly: rootBundle.is_platform_only,
       showInAdmin: rootBundle.show_in_admin !== false,
       enabled: true,

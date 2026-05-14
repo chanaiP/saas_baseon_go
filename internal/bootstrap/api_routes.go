@@ -5,10 +5,11 @@ import (
 
 	aicchandlers "saas_baseon_go/internal/apps/ai_capability_center/handlers"
 	apphandlers "saas_baseon_go/internal/apps/app_center/handlers"
+	ichandlers "saas_baseon_go/internal/apps/integration_center/handlers"
 	"saas_baseon_go/internal/interfaces/http/handlers"
 )
 
-func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHandler, paramHandler *handlers.ParamHandler, appHandler *apphandlers.AppHandler, aiCapabilityCenterHandler *aicchandlers.Handler) {
+func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHandler, paramHandler *handlers.ParamHandler, appHandler *apphandlers.AppHandler, aiCapabilityCenterHandler *aicchandlers.Handler, integrationCenterHandler *ichandlers.Handler) {
 	api := router.Group("/api")
 	{
 		api.GET("/auth/captcha", identityHandler.Captcha)
@@ -185,5 +186,17 @@ func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHan
 			ai.DELETE("/:resource/:id", aiCapabilityCenterHandler.Delete)
 		}
 		api.POST("/ai-gateway/v1/invoke", aiCapabilityCenterHandler.Invoke)
+
+		integration := api.Group("/integration-center")
+		{
+			integration.GET("/overview", integrationCenterHandler.Overview)
+			integration.GET("/platforms", integrationCenterHandler.Platforms)
+			integration.GET("/workspace", integrationCenterHandler.Workspace)
+			integration.GET("/tenant-connections", integrationCenterHandler.TenantConnections)
+			integration.GET("/sync-monitor", integrationCenterHandler.SyncMonitor)
+			integration.GET("/quota", integrationCenterHandler.Quota)
+			integration.GET("/alerts", integrationCenterHandler.Alerts)
+			integration.GET("/logs", integrationCenterHandler.Logs)
+		}
 	}
 }

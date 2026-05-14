@@ -1,0 +1,299 @@
+manifest_version: "1.0"
+fragment_role: main
+app:
+  app_code: integration-center
+  app_name: 第三方集成中心
+  app_type: CONNECTOR_APP
+  source: BUILTIN
+  status: ONLINE
+  icon: Connection
+  deployment_mode: MERGED
+  communication_modes:
+    - PLATFORM_API
+    - WEBHOOK
+    - DATA_SYNC
+    - GATEWAY_PROXY
+  visibility_scope: TENANT
+  charge_policy: PAID
+  billing_mode: SUBSCRIPTION
+  package_policy: IN_PACKAGE
+  version: 0.1.0
+  description: 外部平台、服务商应用、授权连接实例、同步任务、配额限流、异常和调用日志的统一治理入口
+  backend_dir: internal/apps/integration_center
+  frontend_dir: frontend/src/apps/integration-center
+clients:
+  - PC_WEB
+  - API_ONLY
+menus:
+  - code: integration_overview
+    name: 第三方集成中心
+    path: /integration-center
+    sort_order: 70
+    platform_only: true
+    tenant_visible: false
+    show_in_admin: true
+    tenant_editable: false
+    include_in_package: false
+    feature_code: integration_overview
+    data_perm_mode: NONE
+  - code: integration_platforms
+    name: 接入平台
+    path: /integration-center/platforms
+    parent_code: integration_overview
+    sort_order: 71
+    platform_only: true
+    tenant_visible: false
+    show_in_admin: true
+    tenant_editable: false
+    include_in_package: false
+    feature_code: integration_platforms
+    data_perm_mode: NONE
+  - code: integration_workspace
+    name: 集成工作台
+    path: /integration-center/workspace
+    parent_code: integration_overview
+    sort_order: 72
+    platform_only: true
+    tenant_visible: false
+    show_in_admin: true
+    tenant_editable: false
+    include_in_package: false
+    feature_code: integration_workspace
+    data_perm_mode: NONE
+  - code: integration_tenant_connections
+    name: 租户连接
+    path: /integration-center/tenant-connections
+    parent_code: integration_overview
+    sort_order: 73
+    platform_only: true
+    tenant_visible: false
+    show_in_admin: true
+    tenant_editable: false
+    include_in_package: false
+    feature_code: integration_tenant_connections
+    data_perm_mode: NONE
+  - code: integration_sync_monitor
+    name: 同步监控
+    path: /integration-center/sync-monitor
+    parent_code: integration_overview
+    sort_order: 74
+    platform_only: true
+    tenant_visible: false
+    show_in_admin: true
+    tenant_editable: false
+    include_in_package: false
+    feature_code: integration_sync_monitor
+    data_perm_mode: NONE
+  - code: integration_quota
+    name: 配额与限流
+    path: /integration-center/quota
+    parent_code: integration_overview
+    sort_order: 75
+    platform_only: true
+    tenant_visible: false
+    show_in_admin: true
+    tenant_editable: false
+    include_in_package: false
+    feature_code: integration_quota
+    data_perm_mode: NONE
+  - code: integration_alerts
+    name: 异常监控
+    path: /integration-center/alerts
+    parent_code: integration_overview
+    sort_order: 76
+    platform_only: true
+    tenant_visible: false
+    show_in_admin: true
+    tenant_editable: false
+    include_in_package: false
+    feature_code: integration_alerts
+    data_perm_mode: NONE
+  - code: integration_logs
+    name: 调用日志
+    path: /integration-center/logs
+    parent_code: integration_overview
+    sort_order: 77
+    platform_only: true
+    tenant_visible: false
+    show_in_admin: true
+    tenant_editable: false
+    include_in_package: false
+    feature_code: integration_logs
+    data_perm_mode: NONE
+operations:
+  - code: integration_platform_manage
+    name: 第三方集成中心-平台配置
+    menu_code: integration_platforms
+    permission_code: integration_center:platform_manage
+    platform_only: true
+    include_in_package: false
+  - code: integration_app_manage
+    name: 第三方集成中心-服务商应用配置
+    menu_code: integration_workspace
+    permission_code: integration_center:app_manage
+    platform_only: true
+    include_in_package: false
+  - code: integration_connection_manage
+    name: 第三方集成中心-连接治理
+    menu_code: integration_tenant_connections
+    permission_code: integration_center:connection_manage
+    platform_only: true
+    include_in_package: false
+  - code: integration_quota_manage
+    name: 第三方集成中心-配额限流配置
+    menu_code: integration_quota
+    permission_code: integration_center:quota_manage
+    platform_only: true
+    include_in_package: false
+permissions:
+  - code: /integration-center
+    name: 第三方集成中心
+    type: MENU
+    menu_code: integration_overview
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: /integration-center/platforms
+    name: 接入平台
+    type: MENU
+    menu_code: integration_platforms
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: /integration-center/workspace
+    name: 集成工作台
+    type: MENU
+    menu_code: integration_workspace
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: /integration-center/tenant-connections
+    name: 租户连接
+    type: MENU
+    menu_code: integration_tenant_connections
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: /integration-center/sync-monitor
+    name: 同步监控
+    type: MENU
+    menu_code: integration_sync_monitor
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: /integration-center/quota
+    name: 配额与限流
+    type: MENU
+    menu_code: integration_quota
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: /integration-center/alerts
+    name: 异常监控
+    type: MENU
+    menu_code: integration_alerts
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: /integration-center/logs
+    name: 调用日志
+    type: MENU
+    menu_code: integration_logs
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: integration_center:platform_manage
+    name: 第三方集成中心-平台配置
+    type: OPERATION
+    menu_code: integration_platforms
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: integration_center:app_manage
+    name: 第三方集成中心-服务商应用配置
+    type: OPERATION
+    menu_code: integration_workspace
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: integration_center:connection_manage
+    name: 第三方集成中心-连接治理
+    type: OPERATION
+    menu_code: integration_tenant_connections
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: integration_center:quota_manage
+    name: 第三方集成中心-配额限流配置
+    type: OPERATION
+    menu_code: integration_quota
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+apis:
+  - method: GET
+    path: /api/integration-center/overview
+    permission_code: /integration-center
+  - method: GET
+    path: /api/integration-center/platforms
+    permission_code: /integration-center/platforms
+  - method: GET
+    path: /api/integration-center/workspace
+    permission_code: /integration-center/workspace
+  - method: GET
+    path: /api/integration-center/tenant-connections
+    permission_code: /integration-center/tenant-connections
+  - method: GET
+    path: /api/integration-center/sync-monitor
+    permission_code: /integration-center/sync-monitor
+  - method: GET
+    path: /api/integration-center/quota
+    permission_code: /integration-center/quota
+  - method: GET
+    path: /api/integration-center/alerts
+    permission_code: /integration-center/alerts
+  - method: GET
+    path: /api/integration-center/logs
+    permission_code: /integration-center/logs
+package_features:
+  - feature_code: integration_tenant_authorization
+    feature_name: 第三方集成授权连接
+    feature_type: FEATURE
+    source_code: integration_tenant_authorization
+    package_policy: IN_PACKAGE
+    include_in_package: true
+    description: 租户侧通过平台服务商应用创建第三方授权连接实例
+  - feature_code: integration_data_sync
+    feature_name: 第三方数据同步
+    feature_type: FEATURE
+    parent_code: integration_tenant_authorization
+    source_code: integration_data_sync
+    package_policy: IN_PACKAGE
+    include_in_package: true
+    description: 第三方平台订单、组织、成员、商品等数据进入数据中心和 Agent 数据源
+quotas:
+  - quota_code: integration_connection_count
+    quota_name: 第三方连接实例数
+    quota_type: STATIC
+    unit: COUNT
+    period_type: NONE
+    include_in_package: true
+    description: 单个租户可创建的第三方连接实例数量
+  - quota_code: integration_api_calls_daily
+    quota_name: 第三方接口日调用量
+    quota_type: CONSUMABLE
+    unit: TIMES
+    period_type: DAY
+    include_in_package: true
+    description: 单个租户第三方接口每日调用总量
+  - quota_code: integration_sync_records_daily
+    quota_name: 第三方同步日记录数
+    quota_type: CONSUMABLE
+    unit: RECORDS
+    period_type: DAY
+    include_in_package: true
+    description: 单个租户第三方同步任务每日写入记录总量
+documents:
+  - code: integration-center-design-v4
+    name: 第三方集成中心方案设计 V4
+    url: docs/apps/integration-center.md
