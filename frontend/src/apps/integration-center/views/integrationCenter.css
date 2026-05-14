@@ -92,8 +92,9 @@ button:hover { border-color: #8ec7d7; color: var(--primary); }
 .ranking-row p { color: var(--muted); margin: 3px 0 0; font-size: 12px; }
 .quota-mini-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 .quota-mini-row p { color: var(--muted); margin: 4px 0; font-size: 12px; }
-.alert-item { display: grid; grid-template-columns: 12px 1fr auto; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.alert-item { display: grid; grid-template-columns: 12px 1fr auto; gap: 12px; align-items: start; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 .alert-item.full { align-items: center; }
+.alert-item > :deep(.status-badge) { align-self: start; justify-self: end; }
 .alert-body p, .alert-item p { color: var(--muted); margin: 5px 0; font-size: 13px; }
 .alert-item small { color: #8da1bb; }
 .alert-dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; background: #64748b; }
