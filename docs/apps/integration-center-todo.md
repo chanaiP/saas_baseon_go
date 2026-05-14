@@ -26,6 +26,7 @@
 - [x] 验证应用中心 Manifest 解析能发现 `integration-center`。
 - [x] 验证 Manifest 解析无 blocker。
 - [x] 补充 Manifest 装载种子迁移 `000052_integration_center_manifest_seed`，同步菜单、权限、API、套餐功能点、配额和平台角色授权。
+- [x] 实际运行 `go run ./cmd/migrate`，确认 `integration-center` Manifest 装载迁移已落库。
 
 ## 后端：应用目录与 API
 
@@ -46,6 +47,8 @@
 - [x] 如仅缺菜单/权限/套餐/配额，优先通过 Manifest 装载同步，不直接手写散落 SQL。
 - [x] 补充业务核心表迁移 `000053_integration_center_core_schema.up.sql` 与 `.down.sql`。
 - [x] 同步更新 `internal/infrastructure/persistence/postgres/schema/current_schema.sql`，纳入集成中心业务核心表。
+- [x] 修正 `000052` 中平台租户字段为 `is_platform_tenant`，避免菜单装载失败。
+- [x] 补充 `000055_bootstrap_verification_baseline`，让 SQL 初始化数据与 bootstrap 校验基线一致。
 - [x] 验证 Manifest 装载不会覆盖人工移出套餐、租户菜单覆盖和角色授权。
 - [x] 验证平台专属能力不进入租户套餐中心，租户可购买能力只来自 `package_features`。
 
@@ -57,6 +60,8 @@
 - [x] 确认平台管理员后台菜单可以看到“第三方集成中心”目录。
 - [x] 确认普通租户菜单受套餐、角色权限和租户覆盖计算，不只靠前端隐藏。
 - [x] 确认菜单路径和权限码与 Manifest、后端接口、前端路由保持一致。
+- [x] 查库确认 `permission` 中已装载 1 个根菜单、7 个子菜单和 4 个操作权限。
+- [x] 查库确认平台角色已获得 12 条 `integration-center` 权限授权。
 
 ## 前端：迁入底座应用目录
 
@@ -184,6 +189,9 @@
 ## 验证
 
 - [x] 运行 `npm run build`。
+- [x] 运行 `go test ./...`。
+- [x] 运行 `go run ./cmd/verify-bootstrap` 并确认 PASS。
+- [x] 查库确认应用中心闭环：入口 8 条、Manifest 权限 12 条、API 矩阵 10 条、套餐功能 2 条、配额 3 条。
 - [x] 启动 Vite dev server。
 - [x] 用浏览器检查桌面宽度下 8 个菜单。
 - [x] 用浏览器检查 1280px 附近布局。

@@ -262,6 +262,7 @@ func seedPermissions(db *gorm.DB, tenantID uint64) ([]models.Permission, error) 
 		{Name: "菜单根节点", Path: "__menu_root__", Type: 1, SortOrder: 0, Hidden: true, PackageFeature: false, FeatureType: "SYSTEM", DataPermMode: "NONE"},
 		{Name: "操作根节点", Path: "__operations_root__", Type: 1, SortOrder: 0, Hidden: true, PackageFeature: false, FeatureType: "SYSTEM", DataPermMode: "NONE"},
 		{Name: "首页", Path: "/home", Type: 3, SortOrder: 0, Hidden: true, PackageFeature: false, FeatureCode: "home", FeatureType: "MENU", DataPermMode: "NONE"},
+		{Name: "首页-查看", Path: "home:view", Type: 2, SortOrder: 0, Hidden: true, PackageFeature: false, FeatureCode: "home", FeatureType: "VIEW", DataPermMode: "NONE"},
 		{Name: "应用列表", Path: "/apps", Type: 3, SortOrder: 1, PlatformOnly: true, PackageFeature: false, FeatureCode: "app_list", FeatureType: "MENU", DataPermMode: "NONE"},
 		{Name: "客户端中心", Path: "/apps/clients", Type: 3, SortOrder: 2, PlatformOnly: true, PackageFeature: false, FeatureCode: "app_clients", FeatureType: "MENU", DataPermMode: "NONE"},
 		{Name: "租户开通总览", Path: "/apps/tenant-openings", Type: 3, SortOrder: 3, PlatformOnly: true, PackageFeature: false, FeatureCode: "app_tenant_openings", FeatureType: "MENU", DataPermMode: "NONE"},
@@ -877,6 +878,9 @@ func seedSystemParams(db *gorm.DB, tenantID uint64) error {
 	params := []models.SystemParam{
 		{TenantID: tenantID, Key: "org.default_company_type", Value: "SUBSIDIARY", Remark: "新建公司默认类型（字典 company_type 的 value，须一致）", ValueType: "string", TenantEditable: true},
 		{TenantID: tenantID, Key: "user.list_default_page_size", Value: "10", Remark: "用户列表默认每页条数", ValueType: "number", TenantEditable: true},
+		{TenantID: tenantID, Key: "security.password_min_length", Value: "8", Remark: "用户密码最小长度", ValueType: "number", TenantEditable: false},
+		{TenantID: tenantID, Key: "security.password_require_complexity", Value: "true", Remark: "用户密码是否要求复杂度校验", ValueType: "boolean", TenantEditable: false},
+		{TenantID: tenantID, Key: "audit.log_retention_days", Value: "180", Remark: "审计日志默认保留天数", ValueType: "number", TenantEditable: false},
 	}
 	for _, param := range params {
 		err := db.Clauses(clause.OnConflict{DoNothing: true}).Where("tenant_id = ? AND param_key = ?", param.TenantID, param.Key).Create(&param).Error

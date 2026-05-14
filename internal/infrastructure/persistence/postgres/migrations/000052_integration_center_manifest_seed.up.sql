@@ -128,7 +128,7 @@ FROM perms
 ON CONFLICT DO NOTHING;
 
 WITH platform_tenant AS (
-  SELECT id AS tenant_id FROM tenant WHERE is_platform = TRUE AND deleted_at IS NULL ORDER BY id LIMIT 1
+  SELECT id AS tenant_id FROM tenant WHERE is_platform_tenant = TRUE AND deleted_at IS NULL ORDER BY id LIMIT 1
 ),
 menus(name, path, sort_order, is_platform_only, is_package_feature, feature_code, data_perm_mode) AS (
   VALUES
@@ -160,7 +160,7 @@ WHERE NOT EXISTS (
 );
 
 WITH platform_tenant AS (
-  SELECT id AS tenant_id FROM tenant WHERE is_platform = TRUE AND deleted_at IS NULL ORDER BY id LIMIT 1
+  SELECT id AS tenant_id FROM tenant WHERE is_platform_tenant = TRUE AND deleted_at IS NULL ORDER BY id LIMIT 1
 ),
 ops(name, path, parent_path) AS (
   VALUES
@@ -191,7 +191,7 @@ WHERE NOT EXISTS (
 );
 
 WITH platform_tenant AS (
-  SELECT id AS tenant_id FROM tenant WHERE is_platform = TRUE AND deleted_at IS NULL ORDER BY id LIMIT 1
+  SELECT id AS tenant_id FROM tenant WHERE is_platform_tenant = TRUE AND deleted_at IS NULL ORDER BY id LIMIT 1
 ),
 root AS (
   SELECT id FROM permission p, platform_tenant
@@ -278,12 +278,18 @@ WHERE NOT EXISTS (
   SELECT 1 FROM saas_quota existing WHERE existing.quota_code = quotas.quota_code
 );
 
-WITH integration_perms AS (
+WITH platform_tenant AS (
+  SELECT id AS tenant_id FROM tenant WHERE is_platform_tenant = TRUE AND deleted_at IS NULL ORDER BY id LIMIT 1
+),
+integration_perms AS (
   SELECT id FROM permission
   WHERE app_code = 'integration-center' AND deleted_at IS NULL
 ),
 platform_roles AS (
-  SELECT id FROM role WHERE tenant_id = 1 AND deleted_at IS NULL
+  SELECT role.id
+  FROM role
+  JOIN platform_tenant ON platform_tenant.tenant_id = role.tenant_id
+  WHERE role.deleted_at IS NULL
 )
 INSERT INTO role_permission (role_id, permission_id, created_at)
 SELECT platform_roles.id, integration_perms.id, now()
