@@ -62,6 +62,8 @@
 - [x] 确认菜单路径和权限码与 Manifest、后端接口、前端路由保持一致。
 - [x] 查库确认 `permission` 中已装载 1 个根菜单、7 个子菜单和 4 个操作权限。
 - [x] 查库确认平台角色已获得 12 条 `integration-center` 权限授权。
+- [x] 运行当前后端 API，登录平台账号后调用 `/api/permissions/menu-bundles`，确认返回 8 个 `integration-center` 后台菜单。
+- [x] 浏览器登录后台，确认顶栏/侧栏已挂载“第三方集成中心”及 8 个菜单入口。
 
 ## 前端：迁入底座应用目录
 
@@ -192,6 +194,7 @@
 - [x] 运行 `go test ./...`。
 - [x] 运行 `go run ./cmd/verify-bootstrap` 并确认 PASS。
 - [x] 查库确认应用中心闭环：入口 8 条、Manifest 权限 12 条、API 矩阵 10 条、套餐功能 2 条、配额 3 条。
+- [x] 真实 HTTP 验证 8 个集成中心接口返回 `code=0`。
 - [x] 启动 Vite dev server。
 - [x] 用浏览器检查桌面宽度下 8 个菜单。
 - [x] 用浏览器检查 1280px 附近布局。
