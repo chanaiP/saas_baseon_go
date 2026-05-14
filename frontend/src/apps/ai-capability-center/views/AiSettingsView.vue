@@ -6,7 +6,7 @@ import { Refresh } from '@element-plus/icons-vue'
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
 import { fetchAiResource } from '../api'
-import { emptyPage, settingJSON, statusType, text } from './viewHelpers'
+import { emptyPage, modelTypeText, settingJSON, statusType, text } from './viewHelpers'
 import AiResourceActions from './AiResourceActions.vue'
 import './aiPrototype.css'
 
@@ -78,7 +78,7 @@ onMounted(loadData)
       <div class="ai-card__body">
         <el-table :data="capabilities.items" border v-loading="loading">
           <el-table-column label="能力" min-width="220"><template #default="{ row }"><span class="ai-table-cell-main"><strong>{{ text(row.capability_name) }}</strong><small>{{ text(row.capability_code) }}</small></span></template></el-table-column>
-          <el-table-column label="场景 / 模型类型" min-width="160"><template #default="{ row }">{{ text(row.scenario_type) }} / {{ text(row.model_type) }}</template></el-table-column>
+          <el-table-column label="场景 / 模型类型" min-width="170"><template #default="{ row }">{{ text(row.scenario_type) }} / {{ modelTypeText(row.model_type) }}</template></el-table-column>
           <el-table-column label="默认用量单位" width="140"><template #default="{ row }">{{ text(row.default_billing_unit) }}</template></el-table-column>
           <el-table-column label="分档价格" width="110"><template #default="{ row }">{{ row.supports_tier_pricing ? '支持' : '不支持' }}</template></el-table-column>
           <el-table-column label="状态" width="100"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ text(row.status) }}</el-tag></template></el-table-column>

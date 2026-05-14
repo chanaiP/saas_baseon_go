@@ -6,7 +6,7 @@ import { Plus, Refresh, Upload } from '@element-plus/icons-vue'
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
 import { createAiResource, fetchAiResource, importAiRoutes } from '../api'
-import { emptyPage, includesKeyword, numberText, rowId, statusType, text, type AiRow } from './viewHelpers'
+import { emptyPage, includesKeyword, modelTypeText, numberText, rowId, statusType, text, type AiRow } from './viewHelpers'
 import AiJsonDialog from './AiJsonDialog.vue'
 import AiResourceActions from './AiResourceActions.vue'
 import './aiPrototype.css'
@@ -126,7 +126,7 @@ onMounted(loadData)
         </div>
         <el-table :data="filtered" border v-loading="loading">
           <el-table-column label="基础路由" min-width="220"><template #default="{ row }"><span class="ai-table-cell-main"><strong>{{ text(row.route_name) }}</strong><small>{{ text(row.route_code) }}</small></span></template></el-table-column>
-          <el-table-column label="能力 / 类型" min-width="170"><template #default="{ row }">{{ text(row.capability_code) }} / {{ text(row.model_type) }}</template></el-table-column>
+          <el-table-column label="能力 / 类型" min-width="180"><template #default="{ row }">{{ text(row.capability_code) }} / {{ modelTypeText(row.model_type) }}</template></el-table-column>
           <el-table-column label="策略" width="130"><template #default="{ row }"><el-tag>{{ text(row.strategy) }}</el-tag></template></el-table-column>
           <el-table-column label="模型池" min-width="280">
             <template #default="{ row }">

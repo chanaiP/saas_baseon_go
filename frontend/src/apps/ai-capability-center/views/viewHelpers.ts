@@ -11,6 +11,22 @@ export function text(value: unknown, fallback = '-') {
   return String(value)
 }
 
+const modelTypeLabels: Record<string, string> = {
+  text: '文本模型',
+  image: '图像模型',
+  embedding: '向量模型',
+  audio: '音频模型',
+  video: '视频模型',
+  multimodal: '多模态模型',
+  rerank: '重排模型',
+  unknown: '未归类模型',
+}
+
+export function modelTypeText(value: unknown, fallback = '-') {
+  const raw = text(value, '')
+  return raw ? modelTypeLabels[raw] || raw : fallback
+}
+
 export function numberText(value: unknown) {
   const numeric = Number(value ?? 0)
   return Number.isFinite(numeric) ? numeric.toLocaleString('zh-CN') : '0'

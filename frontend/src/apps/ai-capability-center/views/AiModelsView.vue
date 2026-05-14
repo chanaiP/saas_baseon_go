@@ -6,7 +6,7 @@ import { Plus, Refresh, Upload } from '@element-plus/icons-vue'
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
 import { createAiResource, fetchAiResource, importAiModels } from '../api'
-import { compactJoin, emptyPage, includesKeyword, moneyText, numberText, rowId, statusType, text, type AiRow } from './viewHelpers'
+import { compactJoin, emptyPage, includesKeyword, modelTypeText, moneyText, numberText, rowId, statusType, text, type AiRow } from './viewHelpers'
 import AiJsonDialog from './AiJsonDialog.vue'
 import AiResourceActions from './AiResourceActions.vue'
 import './aiPrototype.css'
@@ -134,14 +134,14 @@ onMounted(loadData)
               <el-input v-model="keyword" clearable placeholder="搜索当前供应商下的模型、code" />
               <div class="ai-segmented">
                 <button :class="{ active: typeFilter === 'all' }" @click="typeFilter = 'all'">全部</button>
-                <button v-for="modelType in modelTypes" :key="modelType" :class="{ active: typeFilter === modelType }" @click="typeFilter = modelType">{{ modelType }}</button>
+                <button v-for="modelType in modelTypes" :key="modelType" :class="{ active: typeFilter === modelType }" @click="typeFilter = modelType">{{ modelTypeText(modelType) }}</button>
               </div>
             </div>
 
             <div class="ai-table">
               <el-table :data="currentModels" border v-loading="loading" @row-click="(row: AiRow) => selectedModelId = rowId(row)">
                 <el-table-column label="模型" min-width="210"><template #default="{ row }"><span class="ai-table-cell-main"><strong>{{ text(row.model_name) }}</strong><small>{{ text(row.model_code) }}</small></span></template></el-table-column>
-                <el-table-column label="类型" width="110"><template #default="{ row }"><el-tag>{{ text(row.model_type) }}</el-tag></template></el-table-column>
+                <el-table-column label="类型" width="120"><template #default="{ row }"><el-tag>{{ modelTypeText(row.model_type) }}</el-tag></template></el-table-column>
                 <el-table-column label="能力标签" min-width="180"><template #default="{ row }">{{ text(row.capabilities) }}</template></el-table-column>
                 <el-table-column label="上下文" width="120"><template #default="{ row }">{{ numberText(row.context_window) }}</template></el-table-column>
                 <el-table-column label="质量" width="140"><template #default="{ row }">{{ text(row.success_rate) }}% / {{ text(row.latency_p95) }}ms</template></el-table-column>

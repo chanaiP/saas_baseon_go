@@ -7,7 +7,7 @@ import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
 import { fetchAiOverview } from '../api'
 import type { AiOverview } from '../types'
-import { moneyText, numberText, percentText, statusType, text } from './viewHelpers'
+import { modelTypeText, moneyText, numberText, percentText, statusType, text } from './viewHelpers'
 import './aiPrototype.css'
 
 defineOptions({ name: 'AiDashboardView' })
@@ -132,7 +132,7 @@ onMounted(loadData)
         </header>
         <div class="ai-card__body ai-chart-list">
           <div v-for="item in overview?.model_cost_share ?? []" :key="String(item.model_type)" class="ai-bar-row">
-            <span>{{ text(item.model_type) }}</span>
+            <span>{{ modelTypeText(item.model_type) }}</span>
             <span class="ai-bar"><i :style="{ width: `${Math.max(4, (Number(item.cost_amount ?? 0) / costMax) * 100)}%` }" /></span>
             <strong>{{ moneyText(item.cost_amount) }}</strong>
           </div>
