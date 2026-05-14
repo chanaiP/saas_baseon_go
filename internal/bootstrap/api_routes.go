@@ -178,6 +178,7 @@ func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHan
 			ai.POST("/scenarios/import", aiCapabilityCenterHandler.ImportScenarios)
 			ai.POST("/routes/import", aiCapabilityCenterHandler.ImportRoutes)
 			ai.POST("/tenant-strategies/import", aiCapabilityCenterHandler.ImportTenantStrategies)
+			ai.POST("/apis/connectivity-check", aiCapabilityCenterHandler.CheckProviderAPIConnectivity)
 			ai.GET("/:resource", aiCapabilityCenterHandler.List)
 			ai.POST("/:resource", aiCapabilityCenterHandler.Create)
 			ai.PUT("/:resource/:id", aiCapabilityCenterHandler.Update)

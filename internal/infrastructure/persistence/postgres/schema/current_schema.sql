@@ -2508,6 +2508,9 @@ CREATE TABLE IF NOT EXISTS ai_provider_apis (
   timeout_ms INT NOT NULL DEFAULT 30000,
   status VARCHAR(32) NOT NULL DEFAULT 'active',
   last_called_at TIMESTAMPTZ,
+  health_status VARCHAR(32) NOT NULL DEFAULT 'unknown',
+  health_message VARCHAR(500),
+  health_checked_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   deleted_at TIMESTAMPTZ
@@ -2745,6 +2748,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uk_ai_scenarios_app_scenario ON ai_scenarios(a
 
 CREATE INDEX IF NOT EXISTS idx_ai_providers_status ON ai_providers(status) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_ai_provider_apis_provider_account ON ai_provider_apis(provider_id, account_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_ai_provider_apis_health ON ai_provider_apis(health_status, health_checked_at) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_ai_models_provider_status ON ai_models(provider_id, status) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_ai_base_routes_capability_status ON ai_base_routes(capability_code, status) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_ai_usage_tenant_time ON ai_usage_records(tenant_id, called_at DESC);

@@ -1,8 +1,10 @@
 package bootstrap
 
 import (
+	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -41,6 +43,7 @@ func NewRouter(cfg Config, db *gorm.DB, redisClient *redis.Client) *gin.Engine {
 	appService := appservices.NewAppService(appRepo)
 	appHandler := apphandlers.NewAppHandler(appService)
 	aiCapabilityCenterService := aiccservices.NewService(db)
+	aiCapabilityCenterService.StartProviderAPIConnectivityProbe(context.Background(), 10*time.Minute)
 	aiCapabilityCenterHandler := aicchandlers.NewHandler(aiCapabilityCenterService)
 
 	router.GET("/health", healthHandler.Check)
@@ -162,6 +165,7 @@ func openAPISpec() gin.H {
 			"/api/ai-capability-center/scenarios/import":         gin.H{"post": api("ai-capability-center", "批量导入 AI 场景")},
 			"/api/ai-capability-center/routes/import":            gin.H{"post": api("ai-capability-center", "整体导入基础路由和模型池")},
 			"/api/ai-capability-center/tenant-strategies/import": gin.H{"post": api("ai-capability-center", "整体导入租户策略和规则")},
+			"/api/ai-capability-center/apis/connectivity-check":  gin.H{"post": api("ai-capability-center", "AI API 连通性检测")},
 			"/api/ai-capability-center/{resource}":               gin.H{"get": api("ai-capability-center", "AI 能力中心资源列表"), "post": api("ai-capability-center", "新增 AI 能力中心资源")},
 			"/api/ai-capability-center/{resource}/{id}":          gin.H{"put": api("ai-capability-center", "更新 AI 能力中心资源"), "delete": api("ai-capability-center", "删除 AI 能力中心资源")},
 			"/api/ai-gateway/v1/invoke":                          gin.H{"post": api("ai-capability-center", "AI Gateway 调用")},

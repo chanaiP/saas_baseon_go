@@ -5,7 +5,7 @@ import { Plus, Upload } from '@element-plus/icons-vue'
 
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
-import { createAiResource, fetchAiResource, importAiProviders } from '../api'
+import { checkAiProviderAPIConnectivity, createAiResource, fetchAiResource, importAiProviders } from '../api'
 import { emptyPage, includesKeyword, moneyText, numberText, rowId, statusType, text, type AiRow } from './viewHelpers'
 import AiJsonDialog from './AiJsonDialog.vue'
 import AiResourceActions from './AiResourceActions.vue'
@@ -22,6 +22,7 @@ const selectedProviderId = ref('')
 const selectedAccountId = ref('')
 const importVisible = ref(false)
 const createVisible = ref(false)
+const connectivityChecking = ref(false)
 
 const filteredProviders = computed(() => providers.value.items.filter((row) => includesKeyword(row, keyword.value, ['name', 'code', 'base_url', 'owner'])))
 const selectedProvider = computed(() => filteredProviders.value.find((row) => rowId(row) === selectedProviderId.value) ?? filteredProviders.value[0])
@@ -70,6 +71,19 @@ async function importProviders(payload: AiRow) {
   importVisible.value = false
   ElMessage.success(`已导入供应商 ${result.providers} 个、账号 ${result.accounts} 个、API ${result.apis} 个`)
   await loadData()
+}
+
+async function checkConnectivity() {
+  connectivityChecking.value = true
+  try {
+    const result = await checkAiProviderAPIConnectivity()
+    ElMessage.success(`连通性检测完成：正常 ${result.active} 个，告警 ${result.warning} 个，异常 ${result.error} 个`)
+    await loadData()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '连通性检测失败')
+  } finally {
+    connectivityChecking.value = false
+  }
 }
 
 onMounted(loadData)
@@ -175,6 +189,7 @@ onMounted(loadData)
           <p class="ai-card__description">一个接入账号可挂载多个 API，例如文本、图片、向量、视频、Agent Runtime。</p>
         </div>
         <div class="ai-segmented">
+          <button :disabled="connectivityChecking" @click="checkConnectivity">{{ connectivityChecking ? '检测中' : '检测连通性' }}</button>
           <button :class="{ active: !selectedAccountId }" @click="selectedAccountId = ''">全部账号</button>
           <button v-for="account in currentAccounts" :key="rowId(account)" :class="{ active: selectedAccountId === rowId(account) }" @click="selectedAccountId = rowId(account)">
             {{ text(account.account_name) }}
@@ -187,6 +202,14 @@ onMounted(loadData)
           <el-table-column label="类型" width="120"><template #default="{ row }"><el-tag>{{ text(row.api_type) }}</el-tag></template></el-table-column>
           <el-table-column label="能力" min-width="180"><template #default="{ row }">{{ text(row.capabilities) }}</template></el-table-column>
           <el-table-column label="QPS / 超时" width="150"><template #default="{ row }">{{ numberText(row.qps_limit) }} / {{ numberText(row.timeout_ms) }}ms</template></el-table-column>
+          <el-table-column label="连通性" width="180">
+            <template #default="{ row }">
+              <span class="ai-table-cell-main">
+                <el-tag :type="statusType(row.health_status)">{{ text(row.health_status, 'unknown') }}</el-tag>
+                <small>{{ text(row.health_message, '未检测') }}</small>
+              </span>
+            </template>
+          </el-table-column>
           <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ text(row.status) }}</el-tag></template></el-table-column>
           <el-table-column label="操作" width="128" fixed="right"><template #default="{ row }"><AiResourceActions resource="apis" :row="row" @saved="loadData" /></template></el-table-column>
         </el-table>

@@ -3,6 +3,8 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -79,6 +81,61 @@ func TestOverviewReturnsEmptySeriesWithoutUsage(t *testing.T) {
 	require.Len(t, overview.UsageTrend, 7)
 	require.Empty(t, overview.ModelCostShare)
 	require.Empty(t, overview.TenantRanking)
+}
+
+func TestOverviewWarnsWhenScenarioRouteBindingUnavailable(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	now := time.Now()
+	require.NoError(t, db.Create(&models.AIScenario{
+		ID: "scenario-broken", AppCode: "product_center", AppName: "商品中心", AIScenarioCode: "copy_gen", AIScenarioName: "文案生成",
+		ScenarioType: "text", CapabilityCode: "chat_completion", ModelType: "text", DefaultBaseRouteID: "missing-route", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+
+	overview, err := NewService(db).Overview(context.Background())
+	require.NoError(t, err)
+	require.Contains(t, overview.HealthChecks, HealthCheck{
+		Name:    "AI 场景绑定状态",
+		Status:  "warning",
+		Message: "1 个启用 AI 场景未绑定可用基础路由或模型池节点",
+	})
+}
+
+func TestCheckProviderAPIConnectivityPersistsReachableStatus(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/v1/chat/completions", r.URL.Path)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	now := time.Now()
+	require.NoError(t, db.Create(&models.AIProvider{
+		ID: "provider-openai", Name: "OpenAI 企业账号", Code: "openai", Type: "public_cloud", BaseURL: server.URL,
+		AuthType: "api_key", Status: "active", Priority: 10, QPSLimit: 180,
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+	require.NoError(t, db.Create(&models.AIProviderAccount{
+		ID: "account-prod", ProviderID: "provider-openai", AccountName: "prod-main", Endpoint: server.URL,
+		KeyAlias: "OPENAI_PROD_KEY", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+	require.NoError(t, db.Create(&models.AIProviderAPI{
+		ID: "api-chat", ProviderID: "provider-openai", AccountID: "account-prod", APIName: "chat.completions",
+		APIPath: "/v1/chat/completions", APIType: "chat", Capabilities: []string{"chat_completion"},
+		AuthType: "api_key", QPSLimit: 160, TimeoutMS: 30000, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+
+	result, err := NewService(db).CheckProviderAPIConnectivity(context.Background(), 7)
+	require.NoError(t, err)
+	require.Equal(t, APIConnectivityResult{Total: 1, Active: 1}, result)
+
+	var api models.AIProviderAPI
+	require.NoError(t, db.First(&api, "id = ?", "api-chat").Error)
+	require.Equal(t, "active", api.HealthStatus)
+	require.Contains(t, api.HealthMessage, "HTTP 401")
+	require.NotNil(t, api.HealthCheckedAt)
 }
 
 func TestImportProvidersUpsertsProviderAccountsAndAPIs(t *testing.T) {
@@ -898,6 +955,9 @@ func newAICapabilityTestDB(t *testing.T) *gorm.DB {
 		timeout_ms INTEGER NOT NULL DEFAULT 30000,
 		status TEXT NOT NULL DEFAULT 'active',
 		last_called_at DATETIME,
+		health_status TEXT NOT NULL DEFAULT 'unknown',
+		health_message TEXT,
+		health_checked_at DATETIME,
 		created_at DATETIME NOT NULL,
 		updated_at DATETIME NOT NULL,
 		deleted_at DATETIME

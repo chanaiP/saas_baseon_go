@@ -66,3 +66,7 @@ export async function importAiRoutes(payload: AiRouteImportPayload) {
 export async function importAiTenantStrategies(payload: AiTenantStrategyImportPayload) {
   return unwrap(http.post<ApiResponse<AiTenantStrategyImportResult>>('/api/ai-capability-center/tenant-strategies/import', payload))
 }
+
+export async function checkAiProviderAPIConnectivity() {
+  return unwrap(http.post<ApiResponse<{ total: number; active: number; warning: number; error: number }>>('/api/ai-capability-center/apis/connectivity-check'))
+}

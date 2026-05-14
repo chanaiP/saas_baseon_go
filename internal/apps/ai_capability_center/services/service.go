@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -27,6 +29,25 @@ type Service struct {
 
 func NewService(db *gorm.DB) *Service {
 	return &Service{db: db}
+}
+
+func (s *Service) StartProviderAPIConnectivityProbe(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		return
+	}
+	go func() {
+		timer := time.NewTimer(30 * time.Second)
+		defer timer.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-timer.C:
+				_, _ = s.CheckProviderAPIConnectivity(ctx, 0)
+				timer.Reset(interval)
+			}
+		}
+	}()
 }
 
 type PageResult struct {
@@ -321,6 +342,13 @@ type HealthCheck struct {
 	Name    string `json:"name"`
 	Status  string `json:"status"`
 	Message string `json:"message"`
+}
+
+type APIConnectivityResult struct {
+	Total   int `json:"total"`
+	Active  int `json:"active"`
+	Warning int `json:"warning"`
+	Error   int `json:"error"`
 }
 
 func (s *Service) ImportProviders(ctx context.Context, userID uint64, req ProviderImportRequest) (ProviderImportResult, error) {
@@ -788,6 +816,53 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	}, nil
 }
 
+func (s *Service) CheckProviderAPIConnectivity(ctx context.Context, userID uint64) (APIConnectivityResult, error) {
+	type apiProbeRow struct {
+		ID        string
+		APIName   string
+		APIPath   string
+		BaseURL   string
+		Endpoint  string
+		TimeoutMS int
+	}
+	var rows []apiProbeRow
+	if err := s.db.WithContext(ctx).Table("ai_provider_apis AS api").
+		Select("api.id, api.api_name, api.api_path, p.base_url, a.endpoint, api.timeout_ms").
+		Joins("JOIN ai_providers AS p ON p.id = api.provider_id AND p.status = ? AND p.deleted_at IS NULL", "active").
+		Joins("JOIN ai_provider_accounts AS a ON a.id = api.account_id AND a.status = ? AND a.deleted_at IS NULL", "active").
+		Where("api.status = ? AND api.deleted_at IS NULL", "active").
+		Find(&rows).Error; err != nil {
+		return APIConnectivityResult{}, err
+	}
+	now := time.Now()
+	result := APIConnectivityResult{Total: len(rows)}
+	for _, row := range rows {
+		client := &http.Client{Timeout: probeTimeout(row.TimeoutMS)}
+		probeURL := providerAPIProbeURL(row.BaseURL, row.Endpoint, row.APIPath)
+		status, message := probeHTTP(ctx, client, probeURL)
+		switch status {
+		case "active":
+			result.Active++
+		case "warning":
+			result.Warning++
+		default:
+			result.Error++
+		}
+		if err := s.db.WithContext(ctx).Model(&models.AIProviderAPI{}).
+			Where("id = ? AND deleted_at IS NULL", row.ID).
+			Updates(map[string]interface{}{
+				"health_status":     status,
+				"health_message":    message,
+				"health_checked_at": now,
+				"updated_at":        now,
+			}).Error; err != nil {
+			return APIConnectivityResult{}, err
+		}
+	}
+	s.Audit(ctx, userID, "ai_provider_api", "connectivity_check", "执行 AI API 连通性检测", result)
+	return result, nil
+}
+
 func (s *Service) gatewayHealthChecks(ctx context.Context) ([]HealthCheck, error) {
 	providers, err := s.countActive(ctx, &models.AIProvider{}, "")
 	if err != nil {
@@ -801,11 +876,19 @@ func (s *Service) gatewayHealthChecks(ctx context.Context) ([]HealthCheck, error
 	if err != nil {
 		return nil, err
 	}
+	apiHealthStatus, apiHealthMessage, err := s.apiConnectivityHealth(ctx)
+	if err != nil {
+		return nil, err
+	}
 	routes, err := s.countActive(ctx, &models.AIBaseRoute{}, "")
 	if err != nil {
 		return nil, err
 	}
 	routeModels, err := s.countActive(ctx, &models.AIBaseRouteModel{}, "")
+	if err != nil {
+		return nil, err
+	}
+	scenarioStatus, scenarioMessage, err := s.scenarioBindingHealth(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -860,10 +943,78 @@ func (s *Service) gatewayHealthChecks(ctx context.Context) ([]HealthCheck, error
 
 	return []HealthCheck{
 		{Name: "供应商可用状态", Status: providerStatus, Message: providerMessage},
+		{Name: "API 连通性", Status: apiHealthStatus, Message: apiHealthMessage},
 		{Name: "基础路由状态", Status: routeStatus, Message: routeMessage},
+		{Name: "AI 场景绑定状态", Status: scenarioStatus, Message: scenarioMessage},
 		{Name: "租户策略状态", Status: strategyStatus, Message: strategyMessage},
 		{Name: "底座操作日志", Status: auditStatus, Message: auditMessage},
 	}, nil
+}
+
+func (s *Service) apiConnectivityHealth(ctx context.Context) (string, string, error) {
+	activeAPIs, err := s.countActive(ctx, &models.AIProviderAPI{}, "")
+	if err != nil {
+		return "", "", err
+	}
+	if activeAPIs == 0 {
+		return "warning", "未配置启用 API，Gateway 无法完成供应商调用", nil
+	}
+	staleBefore := time.Now().Add(-15 * time.Minute)
+	var stale, warningCount, errorCount int64
+	if err := s.db.WithContext(ctx).Model(&models.AIProviderAPI{}).
+		Where("status = ? AND deleted_at IS NULL", "active").
+		Where("health_checked_at IS NULL OR health_checked_at < ?", staleBefore).
+		Count(&stale).Error; err != nil {
+		return "", "", err
+	}
+	if err := s.db.WithContext(ctx).Model(&models.AIProviderAPI{}).
+		Where("status = ? AND deleted_at IS NULL AND health_status = ?", "active", "warning").
+		Count(&warningCount).Error; err != nil {
+		return "", "", err
+	}
+	if err := s.db.WithContext(ctx).Model(&models.AIProviderAPI{}).
+		Where("status = ? AND deleted_at IS NULL AND health_status = ?", "active", "error").
+		Count(&errorCount).Error; err != nil {
+		return "", "", err
+	}
+	if errorCount > 0 {
+		return "error", fmt.Sprintf("%d 个启用 API 连通性失败，请检查 Endpoint、网络或 API 路径", errorCount), nil
+	}
+	if warningCount > 0 || stale > 0 {
+		return "warning", fmt.Sprintf("%d 个 API 告警，%d 个 API 未在 15 分钟内完成连通性检测", warningCount, stale), nil
+	}
+	return "active", fmt.Sprintf("%d 个启用 API 最近 15 分钟连通性正常", activeAPIs), nil
+}
+
+func (s *Service) scenarioBindingHealth(ctx context.Context) (string, string, error) {
+	scenarios, err := s.countActive(ctx, &models.AIScenario{}, "")
+	if err != nil {
+		return "", "", err
+	}
+	if scenarios == 0 {
+		return "warning", "未注册启用 AI 场景，业务中心无法通过场景编码调用 Gateway", nil
+	}
+	var unavailable int64
+	err = s.db.WithContext(ctx).Table("ai_scenarios AS s").
+		Where("s.status = ? AND s.deleted_at IS NULL", "active").
+		Where(`s.default_base_route_id = ''
+			OR NOT EXISTS (
+				SELECT 1 FROM ai_base_routes AS r
+				WHERE r.id = s.default_base_route_id AND r.status = 'active' AND r.deleted_at IS NULL
+			)
+			OR NOT EXISTS (
+				SELECT 1 FROM ai_base_route_models AS rm
+				JOIN ai_models AS m ON m.id = rm.model_id AND m.status = 'active' AND m.deleted_at IS NULL
+				WHERE rm.base_route_id = s.default_base_route_id AND rm.status = 'active' AND rm.deleted_at IS NULL
+			)`).
+		Count(&unavailable).Error
+	if err != nil {
+		return "", "", err
+	}
+	if unavailable > 0 {
+		return "warning", fmt.Sprintf("%d 个启用 AI 场景未绑定可用基础路由或模型池节点", unavailable), nil
+	}
+	return "active", fmt.Sprintf("%d 个启用 AI 场景已绑定可用基础路由", scenarios), nil
 }
 
 func (s *Service) countActive(ctx context.Context, model interface{}, where string, args ...interface{}) (int64, error) {
@@ -874,6 +1025,75 @@ func (s *Service) countActive(ctx context.Context, model interface{}, where stri
 	var count int64
 	err := query.Count(&count).Error
 	return count, err
+}
+
+func providerAPIProbeURL(baseURL, endpoint, apiPath string) string {
+	if raw := strings.TrimSpace(apiPath); strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") {
+		return raw
+	}
+	base := strings.TrimSpace(endpoint)
+	if base == "" {
+		base = strings.TrimSpace(baseURL)
+	}
+	parsedBase, err := url.Parse(base)
+	if err != nil || parsedBase.Scheme == "" || parsedBase.Host == "" {
+		return ""
+	}
+	parsedPath, err := url.Parse(strings.TrimSpace(apiPath))
+	if err != nil {
+		return ""
+	}
+	return parsedBase.ResolveReference(parsedPath).String()
+}
+
+func probeTimeout(timeoutMS int) time.Duration {
+	if timeoutMS <= 0 {
+		return 3 * time.Second
+	}
+	timeout := time.Duration(timeoutMS) * time.Millisecond
+	if timeout < time.Second {
+		return time.Second
+	}
+	if timeout > 10*time.Second {
+		return 10 * time.Second
+	}
+	return timeout
+}
+
+func probeHTTP(ctx context.Context, client *http.Client, rawURL string) (string, string) {
+	if rawURL == "" {
+		return "error", "API Endpoint 或路径不合法"
+	}
+	statusCode, err := probeHTTPMethod(ctx, client, http.MethodHead, rawURL)
+	if err != nil {
+		return "error", err.Error()
+	}
+	if statusCode == http.StatusMethodNotAllowed {
+		statusCode, err = probeHTTPMethod(ctx, client, http.MethodGet, rawURL)
+		if err != nil {
+			return "error", err.Error()
+		}
+	}
+	if statusCode == http.StatusNotFound {
+		return "warning", fmt.Sprintf("HTTP %d，API 路径可能不可用", statusCode)
+	}
+	if statusCode >= 500 {
+		return "warning", fmt.Sprintf("HTTP %d，供应商服务异常", statusCode)
+	}
+	return "active", fmt.Sprintf("HTTP %d，网络连通", statusCode)
+}
+
+func probeHTTPMethod(ctx context.Context, client *http.Client, method, rawURL string) (int, error) {
+	req, err := http.NewRequestWithContext(ctx, method, rawURL, nil)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode, nil
 }
 
 func (s *Service) usageTrend(ctx context.Context, start, end time.Time) ([]UsageTrendPoint, error) {

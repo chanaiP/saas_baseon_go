@@ -48,6 +48,9 @@ CREATE TABLE IF NOT EXISTS ai_provider_apis (
   timeout_ms INT NOT NULL DEFAULT 30000,
   status VARCHAR(32) NOT NULL DEFAULT 'active',
   last_called_at TIMESTAMPTZ,
+  health_status VARCHAR(32) NOT NULL DEFAULT 'unknown',
+  health_message VARCHAR(500),
+  health_checked_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   deleted_at TIMESTAMPTZ

@@ -44,18 +44,21 @@ type AIProviderAccount struct {
 func (AIProviderAccount) TableName() string { return "ai_provider_accounts" }
 
 type AIProviderAPI struct {
-	ID           string     `json:"id" gorm:"primaryKey;column:id;type:uuid;default:gen_random_uuid()"`
-	ProviderID   string     `json:"provider_id" gorm:"column:provider_id;type:uuid;not null;index"`
-	AccountID    string     `json:"account_id" gorm:"column:account_id;type:uuid;not null;index"`
-	APIName      string     `json:"api_name" gorm:"column:api_name;type:varchar(150);not null"`
-	APIPath      string     `json:"api_path" gorm:"column:api_path;type:varchar(500);not null"`
-	APIType      string     `json:"api_type" gorm:"column:api_type;type:varchar(32);not null;index"`
-	Capabilities []string   `json:"capabilities" gorm:"column:capabilities;serializer:json;type:jsonb;not null"`
-	AuthType     string     `json:"auth_type" gorm:"column:auth_type;type:varchar(32);not null"`
-	QPSLimit     int        `json:"qps_limit" gorm:"column:qps_limit;not null;default:0"`
-	TimeoutMS    int        `json:"timeout_ms" gorm:"column:timeout_ms;not null;default:30000"`
-	Status       string     `json:"status" gorm:"column:status;type:varchar(32);not null;default:active"`
-	LastCalledAt *time.Time `json:"last_called_at" gorm:"column:last_called_at"`
+	ID              string     `json:"id" gorm:"primaryKey;column:id;type:uuid;default:gen_random_uuid()"`
+	ProviderID      string     `json:"provider_id" gorm:"column:provider_id;type:uuid;not null;index"`
+	AccountID       string     `json:"account_id" gorm:"column:account_id;type:uuid;not null;index"`
+	APIName         string     `json:"api_name" gorm:"column:api_name;type:varchar(150);not null"`
+	APIPath         string     `json:"api_path" gorm:"column:api_path;type:varchar(500);not null"`
+	APIType         string     `json:"api_type" gorm:"column:api_type;type:varchar(32);not null;index"`
+	Capabilities    []string   `json:"capabilities" gorm:"column:capabilities;serializer:json;type:jsonb;not null"`
+	AuthType        string     `json:"auth_type" gorm:"column:auth_type;type:varchar(32);not null"`
+	QPSLimit        int        `json:"qps_limit" gorm:"column:qps_limit;not null;default:0"`
+	TimeoutMS       int        `json:"timeout_ms" gorm:"column:timeout_ms;not null;default:30000"`
+	Status          string     `json:"status" gorm:"column:status;type:varchar(32);not null;default:active"`
+	LastCalledAt    *time.Time `json:"last_called_at" gorm:"column:last_called_at"`
+	HealthStatus    string     `json:"health_status" gorm:"column:health_status;type:varchar(32);not null;default:unknown"`
+	HealthMessage   string     `json:"health_message" gorm:"column:health_message;type:varchar(500)"`
+	HealthCheckedAt *time.Time `json:"health_checked_at" gorm:"column:health_checked_at"`
 	AITimeFields
 }
 

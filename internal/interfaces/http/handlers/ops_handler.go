@@ -166,6 +166,7 @@ func (h *IdentityHandler) MonitorScheduledJobs(c *gin.Context) {
 			{"id": "redis-session", "name": "Redis 会话与会话校验", "schedule": "随请求读写", "status": "运行中"},
 			{"id": "captcha", "name": "验证码存储", "schedule": "Redis TTL 300s", "status": "运行中"},
 			{"id": "login-fail", "name": "登录失败计数", "schedule": "Redis TTL 900s", "status": "运行中"},
+			{"id": "ai-api-connectivity", "name": "AI API 连通性检测", "schedule": "每 10 分钟", "status": "运行中"},
 		},
 		"note": "以下为当前与 Redis 相关的内置行为说明；周期性报表、清理等可接入 APScheduler 后在此登记展示。",
 	})
