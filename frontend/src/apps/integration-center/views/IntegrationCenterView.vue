@@ -10,7 +10,6 @@
         <div class="topbar-actions">
           <button class="ghost-btn" @click="globalSearchOpen = true">全局搜索</button>
           <button class="ghost-btn" @click="runHealthCheck('全局')">全局连通性检测</button>
-          <button class="primary-btn" @click="primaryAction">{{ currentNav.action }}</button>
         </div>
       </header>
 
@@ -375,8 +374,9 @@
       </section>
     </main>
 
-    <div v-if="drawer.open" class="drawer-mask" @click="closeDrawer"></div>
-    <aside v-if="drawer.open" class="drawer">
+    <Teleport to="body">
+      <div v-if="drawer.open" class="drawer-mask" @click="closeDrawer"></div>
+      <aside v-if="drawer.open" class="drawer">
       <div class="drawer-head">
         <div>
           <p class="eyebrow">{{ drawer.subtitle }}</p>
@@ -495,10 +495,10 @@
       <div v-if="['capability','policy','usage','alert','log','sync'].includes(drawer.type)" class="drawer-body">
         <section class="drawer-card"><h4>对象详情</h4><pre>{{ pretty(drawer.data) }}</pre></section>
       </div>
-    </aside>
+      </aside>
 
-    <div v-if="modal.open" class="modal-mask" @click.self="closeModal">
-      <section class="modal-card" :class="{ large: modal.type === 'platform' }">
+      <div v-if="modal.open" class="modal-mask" @click.self="closeModal">
+        <section class="modal-card" :class="{ large: modal.type === 'platform' }">
         <div class="modal-head">
           <div><p class="eyebrow">{{ modal.subtitle }}</p><h3>{{ modal.title }}</h3></div>
           <button class="icon-btn" @click="closeModal">×</button>
@@ -549,22 +549,23 @@
           <button class="primary-btn" @click="savePlatformFromForm(true)">保存并配置应用</button>
         </div>
         <div v-else class="modal-actions"><button class="ghost-btn" @click="closeModal">取消</button><button class="primary-btn" @click="saveModal">保存</button></div>
-      </section>
-    </div>
+        </section>
+      </div>
 
-    <div v-if="globalSearchOpen" class="modal-mask" @click.self="globalSearchOpen = false">
-      <section class="modal-card large">
-        <div class="modal-head"><div><p class="eyebrow">Global Search</p><h3>全局搜索</h3></div><button class="icon-btn" @click="globalSearchOpen = false">×</button></div>
-        <div class="search-box full"><span>⌕</span><input v-model="globalKeyword" autofocus placeholder="搜索平台、应用、租户、连接实例、request_id" /></div>
-        <div class="global-results">
-          <article v-for="item in globalResults" :key="item.key" @click="openGlobalResult(item)">
-            <span>{{ item.type }}</span><strong>{{ item.title }}</strong><p>{{ item.desc }}</p>
-          </article>
-        </div>
-      </section>
-    </div>
+      <div v-if="globalSearchOpen" class="modal-mask" @click.self="globalSearchOpen = false">
+        <section class="modal-card large">
+          <div class="modal-head"><div><p class="eyebrow">Global Search</p><h3>全局搜索</h3></div><button class="icon-btn" @click="globalSearchOpen = false">×</button></div>
+          <div class="search-box full"><span>⌕</span><input v-model="globalKeyword" autofocus placeholder="搜索平台、应用、租户、连接实例、request_id" /></div>
+          <div class="global-results">
+            <article v-for="item in globalResults" :key="item.key" @click="openGlobalResult(item)">
+              <span>{{ item.type }}</span><strong>{{ item.title }}</strong><p>{{ item.desc }}</p>
+            </article>
+          </div>
+        </section>
+      </div>
 
-    <Transition name="toast"><div v-if="toast.show" :class="['toast-box', toast.type]">{{ toast.message }}</div></Transition>
+      <Transition name="toast"><div v-if="toast.show" :class="['toast-box', toast.type]">{{ toast.message }}</div></Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -585,7 +586,7 @@ import {
 } from '../api'
 
 const navItems = [
-  { key: 'overview', label: '总览', icon: '⌂', action: '刷新总览' },
+  { key: 'overview', label: '总览', icon: '⌂', action: '' },
   { key: 'platforms', label: '接入平台', icon: '▣', action: '新增平台' },
   { key: 'workspace', label: '集成工作台', icon: '⌘', action: '新增应用' },
   { key: 'tenantConnections', label: '租户连接', icon: '⇄', action: '刷新列表' },
