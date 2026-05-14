@@ -375,8 +375,8 @@
     </main>
 
     <Teleport to="body">
-      <div v-if="drawer.open" class="drawer-mask" @click="closeDrawer"></div>
-      <aside v-if="drawer.open" class="drawer">
+      <div v-if="drawer.open" class="integration-portal integration-overlay-mask drawer-mask" @click="closeDrawer"></div>
+      <aside v-if="drawer.open" class="integration-portal integration-drawer drawer">
       <div class="drawer-head">
         <div>
           <p class="eyebrow">{{ drawer.subtitle }}</p>
@@ -497,8 +497,8 @@
       </div>
       </aside>
 
-      <div v-if="modal.open" class="modal-mask" @click.self="closeModal">
-        <section class="modal-card" :class="{ large: modal.type === 'platform' }">
+      <div v-if="modal.open" class="integration-portal integration-overlay-mask modal-mask" @click.self="closeModal">
+        <section class="integration-modal-card modal-card" :class="{ large: modal.type === 'platform' }">
         <div class="modal-head">
           <div><p class="eyebrow">{{ modal.subtitle }}</p><h3>{{ modal.title }}</h3></div>
           <button class="icon-btn" @click="closeModal">×</button>
@@ -552,8 +552,8 @@
         </section>
       </div>
 
-      <div v-if="globalSearchOpen" class="modal-mask" @click.self="globalSearchOpen = false">
-        <section class="modal-card large">
+      <div v-if="globalSearchOpen" class="integration-portal integration-overlay-mask modal-mask" @click.self="globalSearchOpen = false">
+        <section class="integration-modal-card modal-card large">
           <div class="modal-head"><div><p class="eyebrow">Global Search</p><h3>全局搜索</h3></div><button class="icon-btn" @click="globalSearchOpen = false">×</button></div>
           <div class="search-box full"><span>⌕</span><input v-model="globalKeyword" autofocus placeholder="搜索平台、应用、租户、连接实例、request_id" /></div>
           <div class="global-results">
@@ -564,7 +564,7 @@
         </section>
       </div>
 
-      <Transition name="toast"><div v-if="toast.show" :class="['toast-box', toast.type]">{{ toast.message }}</div></Transition>
+      <Transition name="toast"><div v-if="toast.show" :class="['integration-portal', 'integration-toast-box', 'toast-box', toast.type]">{{ toast.message }}</div></Transition>
     </Teleport>
   </div>
 </template>
