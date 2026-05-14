@@ -571,6 +571,19 @@ html:not(.dark) .ai-prototype {
   background: var(--el-table-row-hover-bg-color);
 }
 
+.ai-prototype .ai-table .el-table__body tr.ai-selectable-row {
+  cursor: pointer;
+}
+
+.ai-prototype .ai-table .el-table__body tr.ai-selectable-row:hover > td.el-table__cell,
+.ai-prototype .ai-table .el-table__body tr.ai-selectable-row.is-selected > td.el-table__cell {
+  background: var(--ai-active-bg);
+}
+
+.ai-prototype .ai-table .el-table__body tr.ai-selectable-row.is-selected > td.el-table__cell:first-child {
+  box-shadow: inset 3px 0 0 var(--ai-cyan);
+}
+
 .ai-prototype .ai-table td.el-table__cell,
 .ai-prototype .ai-table th.el-table__cell {
   border-bottom-color: var(--ai-table-border);

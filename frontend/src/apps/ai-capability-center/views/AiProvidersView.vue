@@ -114,6 +114,10 @@ function selectAccount(accountId: string) {
   selectedAccountId.value = selectedAccountId.value === accountId ? '' : accountId
 }
 
+function accountRowClassName({ row }: { row: AiRow }) {
+  return selectedAccountId.value === rowId(row) ? 'ai-selectable-row is-selected' : 'ai-selectable-row'
+}
+
 async function createProvider(payload: AiRow) {
   await createAiResource('providers', payload)
   createVisible.value = false
@@ -222,7 +226,14 @@ onMounted(loadData)
               <div class="ai-mini-stat"><span>API 数量</span><strong>{{ currentApis.length }}</strong></div>
               <div class="ai-mini-stat"><span>额度合计</span><strong>{{ moneyText(accountQuotaTotal) }}</strong></div>
             </div>
-            <el-table :data="currentAccounts" border v-loading="loading" row-key="id" @row-click="(row: AiRow) => selectAccount(rowId(row))">
+            <el-table
+              :data="currentAccounts"
+              border
+              v-loading="loading"
+              row-key="id"
+              :row-class-name="accountRowClassName"
+              @row-click="(row: AiRow) => selectAccount(rowId(row))"
+            >
               <el-table-column label="账号" min-width="180">
                 <template #default="{ row }">
                   <span class="ai-table-cell-main">
@@ -237,7 +248,6 @@ onMounted(loadData)
               <el-table-column label="操作" width="190" fixed="right">
                 <template #default="{ row }">
                   <div class="ai-row-actions">
-                    <el-button link type="primary" @click.stop="selectAccount(rowId(row))">{{ selectedAccountId === rowId(row) ? '取消筛选' : '筛选 API' }}</el-button>
                     <AiResourceActions resource="accounts" :row="row" @saved="loadData" />
                   </div>
                 </template>
@@ -255,9 +265,6 @@ onMounted(loadData)
             <div class="ai-segmented">
               <button :disabled="connectivityChecking" @click="checkConnectivity">{{ connectivityChecking ? '检测中' : '检测连通性' }}</button>
               <button :class="{ active: !selectedAccountId }" @click="selectedAccountId = ''">全部 API</button>
-              <button v-for="account in currentAccounts" :key="rowId(account)" :class="{ active: selectedAccountId === rowId(account) }" @click="selectAccount(rowId(account))">
-                {{ text(account.account_name) }}
-              </button>
             </div>
           </header>
           <div class="ai-card__body">

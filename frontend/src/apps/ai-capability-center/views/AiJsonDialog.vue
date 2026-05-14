@@ -38,6 +38,7 @@ function submit() {
     :model-value="modelValue"
     :title="title"
     width="760px"
+    append-to-body
     @update:model-value="emit('update:modelValue', $event)"
   >
     <p v-if="tip" class="ai-dialog-tip">{{ tip }}</p>
