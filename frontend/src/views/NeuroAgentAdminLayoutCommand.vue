@@ -354,7 +354,10 @@
           </div>
         </div>
 
-        <div class="content-main">
+        <div
+          class="content-main"
+          :style="isIntegrationCenterRoute ? { background: '#111827', backgroundImage: 'none' } : undefined"
+        >
           <router-view v-slot="{ Component }" :key="routerViewKey">
             <keep-alive :include="cachedPages">
               <component :is="Component" />
@@ -2851,12 +2854,13 @@ const toggleFullscreen = () => {
 }
 
 .neuro-command-layout.is-integration-center-route .neuro-content-field {
-  background: var(--nm-bg-deep);
+  background: #0f172a;
   backdrop-filter: none;
 }
 
 .neuro-command-layout.is-integration-center-route .content-main {
-  background: var(--nm-bg-deep);
+  background: #0f172a;
+  background-image: none;
 }
 
 .neuro-content-field > .content-header {

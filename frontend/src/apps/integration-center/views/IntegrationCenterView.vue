@@ -1,10 +1,11 @@
 <template>
-  <div class="app-shell" :class="{ 'no-page-shell': page !== 'overview' }" style="background: #101826;">
-    <main class="main" style="background: #101826;">
+  <div class="app-shell no-page-shell" style="background: #0f172a;">
+    <main class="main" style="background: #0f172a;">
       <header v-if="page === 'overview'" class="topbar">
         <div>
-          <p class="eyebrow">Integration Admin Console</p>
-          <h2>{{ currentNav.label }}</h2>
+          <span class="overview-tag">Integration Admin Console</span>
+          <h2>第三方集成中心总览</h2>
+          <p>统一管理接入平台、服务商应用、租户连接、同步任务、配额限流与异常闭环。</p>
         </div>
         <div class="topbar-actions">
           <button class="ghost-btn" @click="globalSearchOpen = true">全局搜索</button>
