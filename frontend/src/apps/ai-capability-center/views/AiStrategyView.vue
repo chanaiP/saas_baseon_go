@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Plus, Refresh, Upload } from '@element-plus/icons-vue'
+import { Plus, Upload } from '@element-plus/icons-vue'
 
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
@@ -81,7 +81,6 @@ onMounted(loadData)
     <template #title>策略中心</template>
     <template #subtitle>一条租户策略统一表达路由覆盖、多维配额、多维限流和超限动作。</template>
     <template #actions>
-      <el-button :icon="Refresh" :loading="loading" @click="loadData">刷新</el-button>
       <el-button :icon="Upload" @click="importVisible = true">导入策略</el-button>
       <el-button type="primary" :icon="Plus" @click="createVisible = true">新增策略</el-button>
     </template>
@@ -93,7 +92,6 @@ onMounted(loadData)
           <p class="ai-card__description">以租户策略为主对象，不再把配额/限流拆成独立主页面。</p>
         </div>
         <div class="ai-actions">
-          <el-button :icon="Refresh" :loading="loading" @click="loadData">刷新</el-button>
           <el-button :icon="Upload" @click="importVisible = true">导入策略</el-button>
           <el-button type="primary" :icon="Plus" @click="createVisible = true">新增策略</el-button>
         </div>

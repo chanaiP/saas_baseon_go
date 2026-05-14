@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Plus, Refresh, Upload } from '@element-plus/icons-vue'
+import { Plus, Upload } from '@element-plus/icons-vue'
 
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
@@ -96,7 +96,6 @@ onMounted(loadData)
     <template #title>AI 场景</template>
     <template #subtitle>业务使用模型能力前，必须注册 app_code + ai_scenario_code，并绑定默认基础路由。</template>
     <template #actions>
-      <el-button :icon="Refresh" :loading="loading" @click="loadData">刷新</el-button>
       <el-button :icon="Upload" @click="importVisible = true">导入场景</el-button>
       <el-button type="primary" :icon="Plus" @click="createVisible = true">新增场景</el-button>
     </template>
@@ -108,7 +107,6 @@ onMounted(loadData)
           <p class="ai-card__description">Agent 只作为场景类型，工具编排、人工确认和审批由 Agent 工厂维护。</p>
         </div>
         <div class="ai-actions">
-          <el-button :icon="Refresh" :loading="loading" @click="loadData">刷新</el-button>
           <el-button :icon="Upload" @click="importVisible = true">导入场景</el-button>
           <el-button type="primary" :icon="Plus" @click="createVisible = true">新增场景</el-button>
         </div>

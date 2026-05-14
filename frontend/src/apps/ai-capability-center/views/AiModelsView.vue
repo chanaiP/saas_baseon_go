@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Plus, Refresh, Upload } from '@element-plus/icons-vue'
+import { Plus, Upload } from '@element-plus/icons-vue'
 
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
@@ -89,7 +89,6 @@ onMounted(loadData)
     <template #title>模型目录</template>
     <template #subtitle>以供应商为单位维护模型；业务侧只消费模型能力，不直接维护供应商资源。</template>
     <template #actions>
-      <el-button :icon="Refresh" :loading="loading" @click="loadData">刷新</el-button>
       <el-button :icon="Upload" @click="importVisible = true">导入模型</el-button>
       <el-button type="primary" :icon="Plus" @click="createVisible = true">新增模型</el-button>
     </template>
@@ -101,7 +100,6 @@ onMounted(loadData)
           <p class="ai-card__description">按供应商、模型类型、能力标签和质量指标管理可路由模型。</p>
         </div>
         <div class="ai-actions">
-          <el-button :icon="Refresh" :loading="loading" @click="loadData">刷新</el-button>
           <el-button :icon="Upload" @click="importVisible = true">导入模型</el-button>
           <el-button type="primary" :icon="Plus" @click="createVisible = true">新增模型</el-button>
         </div>

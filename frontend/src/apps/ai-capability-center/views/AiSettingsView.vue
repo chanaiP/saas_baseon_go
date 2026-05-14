@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Refresh } from '@element-plus/icons-vue'
 
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
@@ -42,13 +41,10 @@ onMounted(loadData)
   <NeuroAgentPageShell class="ai-prototype" :show-hero="false">
     <template #title>系统设置</template>
     <template #subtitle>维护网关参数、能力字典基线和安全归属。</template>
-    <template #actions>
-      <el-button :icon="Refresh" :loading="loading" @click="loadData">刷新</el-button>
-    </template>
 
     <div class="ai-settings-grid">
       <section class="ai-card">
-        <header class="ai-card__header"><div><h3>网关配置</h3><p class="ai-card__description">统一入口、超时、重试和降级策略。</p></div><el-button :icon="Refresh" :loading="loading" @click="loadData">刷新</el-button></header>
+        <header class="ai-card__header"><div><h3>网关配置</h3><p class="ai-card__description">统一入口、超时、重试和降级策略。</p></div></header>
         <div class="ai-card__body ai-setting-list">
           <div><span class="ai-muted">默认超时</span><strong> {{ text(gatewayRuntime.default_timeout_ms) }}ms</strong></div>
           <div><span class="ai-muted">失败重试</span><strong> {{ text(gatewayRuntime.max_retry) }} 次</strong></div>

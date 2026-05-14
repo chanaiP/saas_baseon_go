@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Refresh } from '@element-plus/icons-vue'
 
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
@@ -60,9 +59,6 @@ onMounted(loadData)
   <NeuroAgentPageShell class="ai-prototype" :show-hero="false">
     <template #title>AI 能力中心</template>
     <template #subtitle>平台调用、成本、成功率、租户排行和健康检查。</template>
-    <template #actions>
-      <el-button :icon="Refresh" :loading="loading" @click="loadData">刷新</el-button>
-    </template>
 
     <div class="ai-hero-card">
       <div>
@@ -71,7 +67,6 @@ onMounted(loadData)
         <p>业务中心只传租户、应用和 AI 场景；平台完成鉴权、配额校验、模型路由、降级、用量沉淀，配置操作写入底座操作日志。</p>
       </div>
       <div class="ai-actions">
-        <el-button :icon="Refresh" :loading="loading" @click="loadData">刷新</el-button>
         <el-button type="primary">新增接入</el-button>
         <el-button>查看用量明细</el-button>
       </div>

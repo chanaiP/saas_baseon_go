@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Plus, Refresh, Upload } from '@element-plus/icons-vue'
+import { Plus, Upload } from '@element-plus/icons-vue'
 
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
@@ -89,7 +89,6 @@ onMounted(loadData)
     <template #title>基础路由</template>
     <template #subtitle>基础路由只定义可复用模型策略，不绑定租户、不绑定具体 AI 场景。</template>
     <template #actions>
-      <el-button :icon="Refresh" :loading="loading" @click="loadData">刷新</el-button>
       <el-button :icon="Upload" @click="importVisible = true">导入基础路由</el-button>
       <el-button type="primary" :icon="Plus" @click="createVisible = true">新增基础路由</el-button>
     </template>
@@ -105,7 +104,6 @@ onMounted(loadData)
           <p class="ai-card__description">AI 场景选择默认基础路由，租户策略中心可按场景覆盖。</p>
         </div>
         <div class="ai-actions">
-          <el-button :icon="Refresh" :loading="loading" @click="loadData">刷新</el-button>
           <el-button :icon="Upload" @click="importVisible = true">导入基础路由</el-button>
           <el-button type="primary" :icon="Plus" @click="createVisible = true">新增基础路由</el-button>
         </div>

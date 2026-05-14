@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Plus, Refresh, Upload } from '@element-plus/icons-vue'
+import { Plus, Upload } from '@element-plus/icons-vue'
 
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
@@ -80,7 +80,6 @@ onMounted(loadData)
     <template #title>供应商</template>
     <template #subtitle>统一维护公有云、私有化和自建模型供应商，并关联接入账号与 API。</template>
     <template #actions>
-      <el-button :icon="Refresh" :loading="loading" @click="loadData">刷新</el-button>
       <el-button :icon="Upload" @click="importVisible = true">整体导入</el-button>
       <el-button type="primary" :icon="Plus" @click="createVisible = true">新增供应商</el-button>
     </template>
@@ -92,7 +91,6 @@ onMounted(loadData)
           <p class="ai-card__description">统一维护公有云、私有化和自建模型供应商，并关联接入账号与 API。</p>
         </div>
         <div class="ai-actions">
-          <el-button :icon="Refresh" :loading="loading" @click="loadData">刷新</el-button>
           <el-button :icon="Upload" @click="importVisible = true">整体导入</el-button>
           <el-button type="primary" :icon="Plus" @click="createVisible = true">新增供应商</el-button>
         </div>
