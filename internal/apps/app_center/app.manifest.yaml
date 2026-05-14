@@ -111,6 +111,41 @@ permissions:
     platform_only: true
     include_in_package: false
     data_perm_mode: NONE
+  - code: /apps/clients
+    name: 客户端中心
+    type: MENU
+    menu_code: app_clients
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: /apps/tenant-openings
+    name: 租户开通总览
+    type: MENU
+    menu_code: app_tenant_openings
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: /apps/trial-invites
+    name: 体验邀请总览
+    type: MENU
+    menu_code: app_trial_invites
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: /apps/manifests
+    name: Manifest 装载记录
+    type: MENU
+    menu_code: app_manifest_loads
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: /apps/audit-logs
+    name: 应用审计日志
+    type: MENU
+    menu_code: app_audit_logs
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
   - code: app:create
     name: 应用-新增
     type: OPERATION

@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc -b && vite build",
+    "build": "node scripts/manifest-parity-check.mjs && vue-tsc -b && vite build",
+    "manifest:check": "node scripts/manifest-parity-check.mjs",
     "security:check": "node scripts/security-check.mjs",
     "preview": "vite preview",
     "test:e2e": "playwright test",

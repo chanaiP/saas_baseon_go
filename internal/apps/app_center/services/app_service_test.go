@@ -229,10 +229,18 @@ menus:
     name: 客户列表
     path: /crm
     include_in_package: true
+    feature_code: crm_manage
+permissions:
+  - code: /crm
+    name: 客户列表
+    type: MENU
+    menu_code: crm_list
+    include_in_package: true
 package_features:
   - feature_code: crm_manage
     feature_name: 客户管理
     feature_type: MENU
+    source_code: crm_list
     include_in_package: true
 quotas:
   - quota_code: max_customers
@@ -274,6 +282,92 @@ func TestAppCenterParseAICapabilityCenterManifest(t *testing.T) {
 	require.Equal(t, 0, result.Counts.PackageFeatures)
 	require.Equal(t, 0, result.Counts.Quotas)
 	require.NotEmpty(t, result.ManifestHash)
+}
+
+func TestAppCenterParseBundledManifestsPassHardGate(t *testing.T) {
+	db := newAppCenterTestDB(t)
+	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
+	service := NewAppService(repositories.NewAppRepository(db))
+
+	manifests := []string{
+		"app_center/app.manifest.yaml",
+		"ai_capability_center/app.manifest.yaml",
+		"model_manager/app.manifest.yaml",
+		"system_management/app.manifest.yaml",
+		"system_monitor/app.manifest.yaml",
+	}
+	for _, manifestPath := range manifests {
+		t.Run(manifestPath, func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "internal", "apps", manifestPath))
+			require.NoError(t, err)
+
+			result, err := service.ParseManifestContent(context.Background(), 1, "app.manifest.yaml", raw)
+
+			require.NoError(t, err)
+			require.True(t, result.Valid, "blockers: %v", result.Blockers)
+		})
+	}
+}
+
+func TestAppCenterParseManifestBlocksMenuWithoutMenuPermission(t *testing.T) {
+	db := newAppCenterTestDB(t)
+	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
+
+	service := NewAppService(repositories.NewAppRepository(db))
+	result, err := service.ParseManifestContent(context.Background(), 1, "crm.manifest.yaml", []byte(`
+manifest_version: "1.0"
+fragment_role: main
+app:
+  app_code: crm-suite
+  app_name: 客户管理
+  app_type: BUSINESS_APP
+  source: MANIFEST
+  status: INITIATED
+  deployment_mode: MERGED
+  visibility_scope: TENANT
+  package_policy: IN_PACKAGE
+clients:
+  - PC_WEB
+menus:
+  - code: crm_list
+    name: 客户列表
+    path: /crm
+`))
+
+	require.NoError(t, err)
+	require.False(t, result.Valid)
+	require.Contains(t, result.Blockers, "菜单 crm_list 的 path 必须声明对应 MENU 权限：/crm")
+}
+
+func TestAppCenterParseManifestBlocksRoutePermissionWithMissingMenu(t *testing.T) {
+	db := newAppCenterTestDB(t)
+	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
+
+	service := NewAppService(repositories.NewAppRepository(db))
+	result, err := service.ParseManifestContent(context.Background(), 1, "crm.manifest.yaml", []byte(`
+manifest_version: "1.0"
+fragment_role: main
+app:
+  app_code: crm-suite
+  app_name: 客户管理
+  app_type: BUSINESS_APP
+  source: MANIFEST
+  status: INITIATED
+  deployment_mode: MERGED
+  visibility_scope: TENANT
+  package_policy: IN_PACKAGE
+clients:
+  - PC_WEB
+permissions:
+  - code: /crm
+    name: 客户列表
+    type: MENU
+    menu_code: crm_list
+`))
+
+	require.NoError(t, err)
+	require.False(t, result.Valid)
+	require.Contains(t, result.Blockers, "权限 /crm 的 menu_code 不存在：crm_list")
 }
 
 func TestAppCenterLoadPlatformOnlyManifestKeepsAssetsOutOfPackages(t *testing.T) {
@@ -516,6 +610,11 @@ menus:
   - code: crm_list
     name: 客户列表
     path: /crm
+permissions:
+  - code: /crm
+    name: 客户列表
+    type: MENU
+    menu_code: crm_list
 package_features:
   - feature_code: crm_manage
     feature_name: 客户管理
@@ -533,6 +632,7 @@ clients:
 operations:
   - code: crm_export
     name: 导出客户
+    menu_code: crm_list
     permission_code: crm:export
 package_features:
   - feature_code: button_crm_export
@@ -630,6 +730,18 @@ operations:
     include_in_package: true
     feature_code: button_ops_export
 permissions:
+  - code: /ops/dashboard
+    name: 运营看板
+    type: MENU
+    menu_code: ops_dashboard
+    include_in_package: true
+    data_perm_mode: ORG
+  - code: ops:export
+    name: 导出看板
+    type: OPERATION
+    menu_code: ops_dashboard
+    include_in_package: true
+    data_perm_mode: NONE
   - code: ops:read
     name: 查看运营数据
     type: OPERATION
@@ -709,7 +821,7 @@ quotas:
 	require.NotNil(t, detail.Assets)
 	require.Len(t, detail.Assets.Entries, 1)
 	require.Len(t, detail.Assets.APIs, 1)
-	require.Len(t, detail.Assets.Permissions, 2)
+	require.Len(t, detail.Assets.Permissions, 3)
 	require.Len(t, detail.Assets.PackageFeatures, 2)
 	require.Len(t, detail.Assets.Quotas, 1)
 	require.Len(t, detail.Assets.ManifestLoads, 1)
@@ -750,9 +862,19 @@ menus:
   - code: ops_dashboard
     name: 运营看板
     path: /ops/dashboard
+    include_in_package: true
+    feature_code: ops_dashboard
+permissions:
+  - code: /ops/dashboard
+    name: 运营看板
+    type: MENU
+    menu_code: ops_dashboard
+    include_in_package: true
 package_features:
   - feature_code: ops_dashboard
     feature_name: 运营看板
+    feature_type: MENU
+    source_code: ops_dashboard
     include_in_package: true
 `
 	service := NewAppService(repositories.NewAppRepository(db))
@@ -845,6 +967,11 @@ menus:
   - code: ops_dashboard
     name: 运营看板
     path: /ops/dashboard
+permissions:
+  - code: /ops/dashboard
+    name: 运营看板
+    type: MENU
+    menu_code: ops_dashboard
 package_features:
   - feature_code: ops_dashboard
     feature_name: 运营看板
