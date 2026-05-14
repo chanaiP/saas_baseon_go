@@ -86,11 +86,11 @@
 
         <div class="synapse-header">
           <h3 class="synapse-title">
-            <span v-if="activePrimary">{{ getPrimaryTitle(activePrimary) }}</span>
+            <span v-if="activeSidebarPrimary">{{ sidebarPrimaryTitle }}</span>
             <span v-else>快捷入口</span>
           </h3>
           <div class="synapse-header-right">
-            <button v-if="activePrimary"
+            <button v-if="activeSidebarPrimary"
                     class="neuro-btn neuro-btn-ghost synapse-back"
                     @click="activePrimary = ''"
                     title="返回快捷入口">
@@ -138,7 +138,7 @@
           @scroll.passive="handleSynapseScroll"
         >
           <!-- 快捷入口（未选中一级菜单时） -->
-          <div v-if="!activePrimary" class="neuron-menu">
+          <div v-if="!activeSidebarPrimary" class="neuron-menu">
             <div class="neuron-menu-container">
               <div v-if="isShortcutEditing" class="shortcut-edit-tip">拖动菜单调整顺序</div>
               <div v-if="isShortcutEditing" class="shortcut-draggable-list">
@@ -214,10 +214,10 @@
           <!-- 二级神经元菜单（选中一级菜单时） -->
           <div v-else class="neuron-menu">
             <div class="neuron-menu-container">
-              <div v-for="(item, index) in getSecondaryMenu(activePrimary)" :key="item.id"
+              <div v-for="(item, index) in sidebarSecondaryMenu" :key="item.id"
                    class="neuron-menu-item"
                    :class="{
-                     'neuron-current': currentPage?.id === item.id
+                     'neuron-current': currentPage?.path === item.path
                    }"
                    @click="navigateTo(item.path, item.title, item.id)"
                    :style="{ '--neuron-delay': index * 0.1 + 's' }">
@@ -226,12 +226,12 @@
                 <div class="neuron-core-wrapper">
                   <div class="neuron-core">
                     <div class="core-inner"></div>
-                    <div class="core-glow" v-if="currentPage?.id === item.id"></div>
-                    <div class="core-pulse" v-if="currentPage?.id === item.id"></div>
+                    <div class="core-glow" v-if="currentPage?.path === item.path"></div>
+                    <div class="core-pulse" v-if="currentPage?.path === item.path"></div>
                   </div>
 
                   <!-- 连接线（除了最后一个） -->
-                  <div class="neuron-connection" v-if="index < getSecondaryMenu(activePrimary).length - 1">
+                  <div class="neuron-connection" v-if="index < sidebarSecondaryMenu.length - 1">
                     <div class="connection-line"></div>
                     <div class="connection-glow"></div>
                   </div>
@@ -245,9 +245,9 @@
                   <!-- Dock 指示器：页面已打开时显示 -->
                   <div v-if="isPageOpen(item.path)"
                        class="dock-indicator"
-                       :class="{ 'is-active': currentPage?.id === item.id }"
+                       :class="{ 'is-active': currentPage?.path === item.path }"
                        @click.stop="closePage(item.path)"
-                       :title="currentPage?.id === item.id ? '点击关闭当前页面' : '点击切换到此页面'">
+                       :title="currentPage?.path === item.path ? '点击关闭当前页面' : '点击切换到此页面'">
                     <span class="indicator-dot"></span>
                   </div>
                 </div>
@@ -673,6 +673,14 @@ const pathToComponentName: Record<string, string> = {
   '/ai-capability-center/routes': 'AiRoutesView',
   '/ai-capability-center/strategy': 'AiStrategyView',
   '/ai-capability-center/settings': 'AiSettingsView',
+  '/integration-center': 'IntegrationCenterOverview',
+  '/integration-center/platforms': 'IntegrationCenterPlatforms',
+  '/integration-center/workspace': 'IntegrationCenterWorkspace',
+  '/integration-center/tenant-connections': 'IntegrationCenterTenantConnections',
+  '/integration-center/sync-monitor': 'IntegrationCenterSyncMonitor',
+  '/integration-center/quota': 'IntegrationCenterQuota',
+  '/integration-center/alerts': 'IntegrationCenterAlerts',
+  '/integration-center/logs': 'IntegrationCenterLogs',
   '/tenants': 'TenantView',
   '/plans': 'PlanManagementView',
   '/organization': 'OrganizationView',
@@ -758,6 +766,24 @@ function findRouteMenuMatch(routePath: string): RouteMenuMatch | null {
   return null
 }
 
+const integrationRouteTitles: Record<string, string> = {
+  '/integration-center': '总览',
+  '/integration-center/platforms': '接入平台',
+  '/integration-center/workspace': '集成工作台',
+  '/integration-center/tenant-connections': '租户连接',
+  '/integration-center/sync-monitor': '同步监控',
+  '/integration-center/quota': '配额与限流',
+  '/integration-center/alerts': '异常监控',
+  '/integration-center/logs': '调用日志',
+}
+
+function fallbackPrimaryIdForRoute(routePath: string): string {
+  if (routePath.startsWith('/integration-center')) {
+    return primaryMenu.value.find((item) => item.title === '第三方集成中心')?.id ?? ''
+  }
+  return ''
+}
+
 function syncNavigationWithRoute(path: string) {
   openPages.value.forEach(p => { p.isActive = false })
 
@@ -785,6 +811,9 @@ function syncNavigationWithRoute(path: string) {
   const match = findRouteMenuMatch(path)
   if (match) {
     activePrimary.value = match.primaryId
+  } else {
+    const fallbackPrimaryId = fallbackPrimaryIdForRoute(path)
+    if (fallbackPrimaryId) activePrimary.value = fallbackPrimaryId
   }
 
   const existingPage = openPages.value.find(p => p.path === path)
@@ -799,7 +828,7 @@ function syncNavigationWithRoute(path: string) {
     return
   }
 
-  const title = match?.menu.title || String(route.meta?.title || '未命名页面')
+  const title = match?.menu.title || integrationRouteTitles[path] || String(route.meta?.title || '未命名页面')
   const page: PageState = {
     id: match?.menu.id || path,
     componentName: getComponentNameByPath(path),
@@ -860,6 +889,31 @@ const getPrimaryTitle = (id: string) => primaryMenu.value.find((item) => item.id
 const getSecondaryMenu = (id: string) => {
   return secondaryMenus.value[id as keyof typeof secondaryMenus.value] || []
 }
+
+const integrationSidebarItems = Object.entries(integrationRouteTitles).map(([path, title]) => ({
+  id: path,
+  title,
+  description: '',
+  path,
+}))
+
+const isIntegrationCenterRoute = computed(() => route.path.startsWith('/integration-center'))
+const activeSidebarPrimary = computed(() =>
+  activePrimary.value || (isIntegrationCenterRoute.value ? '__integration_center_fallback__' : ''),
+)
+const sidebarPrimaryTitle = computed(() =>
+  activePrimary.value ? getPrimaryTitle(activePrimary.value) : (isIntegrationCenterRoute.value ? '第三方集成中心' : ''),
+)
+const sidebarSecondaryMenu = computed(() =>
+  {
+    if (isIntegrationCenterRoute.value) {
+      return integrationSidebarItems
+    }
+
+    const menu = activePrimary.value ? getSecondaryMenu(activePrimary.value) : []
+    return menu
+  },
+)
 
 // 导航到页面
 const navigateTo = (path: string, title: string, id: string) => {
@@ -1348,6 +1402,7 @@ watch(
 onMounted(async () => {
   updateThemeStyles()
   sidebarMenu.normalizeBuiltinTree()
+  syncNavigationWithRoute(route.path)
 
   try {
     await tenantBrand.load()
