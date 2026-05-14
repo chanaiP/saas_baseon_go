@@ -85,7 +85,7 @@ onMounted(loadData)
 </script>
 
 <template>
-  <NeuroAgentPageShell class="ai-prototype">
+  <NeuroAgentPageShell class="ai-prototype" :show-hero="false">
     <template #title>模型目录</template>
     <template #subtitle>以供应商为单位维护模型；业务侧只消费模型能力，不直接维护供应商资源。</template>
     <template #actions>
@@ -99,6 +99,11 @@ onMounted(loadData)
         <div>
           <h3>模型目录</h3>
           <p class="ai-card__description">按供应商、模型类型、能力标签和质量指标管理可路由模型。</p>
+        </div>
+        <div class="ai-actions">
+          <el-button :icon="Refresh" :loading="loading" @click="loadData">刷新</el-button>
+          <el-button :icon="Upload" @click="importVisible = true">导入模型</el-button>
+          <el-button type="primary" :icon="Plus" @click="createVisible = true">新增模型</el-button>
         </div>
       </header>
       <div class="ai-card__body">

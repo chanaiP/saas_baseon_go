@@ -76,7 +76,7 @@ onMounted(loadData)
 </script>
 
 <template>
-  <NeuroAgentPageShell class="ai-prototype">
+  <NeuroAgentPageShell class="ai-prototype" :show-hero="false">
     <template #title>供应商</template>
     <template #subtitle>统一维护公有云、私有化和自建模型供应商，并关联接入账号与 API。</template>
     <template #actions>
@@ -90,6 +90,11 @@ onMounted(loadData)
         <div>
           <h3>供应商管理</h3>
           <p class="ai-card__description">统一维护公有云、私有化和自建模型供应商，并关联接入账号与 API。</p>
+        </div>
+        <div class="ai-actions">
+          <el-button :icon="Refresh" :loading="loading" @click="loadData">刷新</el-button>
+          <el-button :icon="Upload" @click="importVisible = true">整体导入</el-button>
+          <el-button type="primary" :icon="Plus" @click="createVisible = true">新增供应商</el-button>
         </div>
       </header>
       <div class="ai-card__body">
