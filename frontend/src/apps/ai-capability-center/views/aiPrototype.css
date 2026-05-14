@@ -316,6 +316,52 @@
   background: rgba(7, 13, 24, 0.55);
 }
 
+.ai-line-chart {
+  min-height: 260px;
+  padding: 8px 0 0;
+  color: var(--ai-cyan);
+}
+
+.ai-line-chart svg {
+  display: block;
+  width: 100%;
+  height: 260px;
+  overflow: visible;
+}
+
+.ai-chart-grid {
+  stroke: rgba(214, 225, 240, 0.12);
+  stroke-width: 1;
+}
+
+.ai-chart-area {
+  fill: url('#aiTrendArea');
+}
+
+.ai-chart-line {
+  fill: none;
+  stroke: var(--ai-cyan);
+  stroke-width: 3;
+  filter: drop-shadow(0 0 8px rgba(35, 231, 216, 0.28));
+}
+
+.ai-chart-dot {
+  fill: var(--ai-panel);
+  stroke: var(--ai-cyan);
+  stroke-width: 3;
+}
+
+.ai-chart-label {
+  fill: var(--ai-muted);
+  font-size: 12px;
+}
+
+.ai-chart-value {
+  fill: var(--ai-text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .ai-code-block {
   margin: 0;
   padding: 16px;

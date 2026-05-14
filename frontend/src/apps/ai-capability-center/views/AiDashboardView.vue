@@ -15,8 +15,32 @@ defineOptions({ name: 'AiDashboardView' })
 const loading = ref(false)
 const overview = ref<AiOverview | null>(null)
 
-const trendMax = computed(() => Math.max(...(overview.value?.usage_trend ?? []).map((item) => Number(item.calls ?? 0)), 1))
 const costMax = computed(() => Math.max(...(overview.value?.model_cost_share ?? []).map((item) => Number(item.cost_amount ?? 0)), 1))
+const chartWidth = 720
+const chartHeight = 260
+const chartPadding = 36
+const trendPoints = computed(() => {
+  const data = overview.value?.usage_trend ?? []
+  if (!data.length) return []
+  const calls = data.map((item) => Number(item.calls ?? 0))
+  const max = Math.max(...calls)
+  const min = Math.min(...calls)
+  const range = max - min
+  const innerWidth = chartWidth - chartPadding * 2
+  const innerHeight = chartHeight - chartPadding * 2
+  return data.map((item, index) => {
+    const x = chartPadding + (index * innerWidth) / Math.max(data.length - 1, 1)
+    const ratio = range === 0 ? 0.5 : (Number(item.calls ?? 0) - min) / range
+    const y = chartHeight - chartPadding - ratio * innerHeight
+    return { x, y, item }
+  })
+})
+const trendPath = computed(() => trendPoints.value.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' '))
+const trendAreaPath = computed(() => {
+  const points = trendPoints.value
+  if (!points.length) return ''
+  return `${trendPath.value} L ${points[points.length - 1].x} ${chartHeight - chartPadding} L ${points[0].x} ${chartHeight - chartPadding} Z`
+})
 
 async function loadData() {
   loading.value = true
@@ -69,11 +93,32 @@ onMounted(loadData)
             <p class="ai-card__description">近 7 天调用量与成本走势</p>
           </div>
         </header>
-        <div class="ai-card__body ai-chart-list">
-          <div v-for="item in overview?.usage_trend ?? []" :key="String(item.date)" class="ai-bar-row">
-            <span>{{ text(item.date) }}</span>
-            <span class="ai-bar"><i :style="{ width: `${Math.max(4, (Number(item.calls ?? 0) / trendMax) * 100)}%` }" /></span>
-            <strong>{{ numberText(item.calls) }}</strong>
+        <div class="ai-card__body">
+          <div class="ai-line-chart" role="img" aria-label="调用趋势折线图">
+            <svg :viewBox="`0 0 ${chartWidth} ${chartHeight}`">
+              <defs>
+                <linearGradient id="aiTrendArea" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="currentColor" stop-opacity="0.2" />
+                  <stop offset="100%" stop-color="currentColor" stop-opacity="0" />
+                </linearGradient>
+              </defs>
+              <line
+                v-for="tick in [0, 1, 2, 3]"
+                :key="tick"
+                :x1="chartPadding"
+                :x2="chartWidth - chartPadding"
+                :y1="chartPadding + (tick * (chartHeight - chartPadding * 2)) / 3"
+                :y2="chartPadding + (tick * (chartHeight - chartPadding * 2)) / 3"
+                class="ai-chart-grid"
+              />
+              <path v-if="trendAreaPath" :d="trendAreaPath" class="ai-chart-area" />
+              <path v-if="trendPath" :d="trendPath" class="ai-chart-line" />
+              <g v-for="point in trendPoints" :key="String(point.item.date)">
+                <circle :cx="point.x" :cy="point.y" r="4" class="ai-chart-dot" />
+                <text :x="point.x" :y="chartHeight - 10" text-anchor="middle" class="ai-chart-label">{{ text(point.item.date).slice(5) }}</text>
+                <text :x="point.x" :y="Math.max(18, point.y - 10)" text-anchor="middle" class="ai-chart-value">{{ numberText(point.item.calls) }}</text>
+              </g>
+            </svg>
           </div>
         </div>
       </section>
