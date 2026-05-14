@@ -199,3 +199,4 @@
 - [x] 新增 `000054_integration_center_seed_data`，提供安全初始化数据和回滚脚本。
 - [x] 补充 service 单测，验证总览和租户连接按数据库数据返回。
 - [x] 前端 `IntegrationCenterView.vue` 接入 8 个后端查询接口，成功时用数据库数据替换原型列表，失败时保留可预测 fallback。
+- [x] 接入平台新增/编辑走后端 API，API 权限矩阵绑定 `integration_center:platform_manage`。

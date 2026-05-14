@@ -47,6 +47,8 @@ Manifest 声明平台后台管理菜单：
 
 - `GET /api/integration-center/overview` -> `/integration-center`
 - `GET /api/integration-center/platforms` -> `/integration-center/platforms`
+- `POST /api/integration-center/platforms` -> `integration_center:platform_manage`
+- `PUT /api/integration-center/platforms/{code}` -> `integration_center:platform_manage`
 - `GET /api/integration-center/workspace` -> `/integration-center/workspace`
 - `GET /api/integration-center/tenant-connections` -> `/integration-center/tenant-connections`
 - `GET /api/integration-center/sync-monitor` -> `/integration-center/sync-monitor`

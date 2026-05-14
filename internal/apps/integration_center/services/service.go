@@ -2,10 +2,13 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"saas_baseon_go/internal/apps/integration_center/repositories"
+	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 )
 
 type Service struct {
@@ -64,6 +67,20 @@ type SectionSummary struct {
 	AppCode string      `json:"app_code"`
 	Section string      `json:"section"`
 	Items   interface{} `json:"items"`
+}
+
+type PlatformMutationRequest struct {
+	Name          string `json:"name"`
+	ShortName     string `json:"short_name"`
+	Code          string `json:"code"`
+	PlatformType  string `json:"platform_type"`
+	AccessMode    string `json:"access_mode"`
+	Status        string `json:"status"`
+	TenantVisible bool   `json:"tenant_visible"`
+	OwnerName     string `json:"owner_name"`
+	OfficialURL   string `json:"official_url"`
+	SortOrder     int    `json:"sort_order"`
+	Description   string `json:"description"`
 }
 
 func (s *Service) Overview(ctx context.Context) (Overview, error) {
@@ -141,6 +158,62 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 			{"name": "网关代理", "description": "流量经底座鉴权、限流、审计后转发到目标系统。"},
 		},
 	}, nil
+}
+
+func (s *Service) CreatePlatform(ctx context.Context, req PlatformMutationRequest) (repositories.PlatformSummary, error) {
+	if s.repo == nil {
+		return repositories.PlatformSummary{}, errors.New("integration center repository is not configured")
+	}
+	if err := validatePlatformRequest(req, true); err != nil {
+		return repositories.PlatformSummary{}, err
+	}
+	shortName := optionalString(req.ShortName)
+	officialURL := optionalString(req.OfficialURL)
+	ownerName := optionalString(req.OwnerName)
+	description := optionalString(req.Description)
+	platform, err := s.repo.CreatePlatform(ctx, models.IntegrationPlatform{
+		PlatformCode:      normalizePlatformCode(req.Code),
+		PlatformName:      strings.TrimSpace(req.Name),
+		PlatformShortName: shortName,
+		PlatformType:      defaultString(req.PlatformType, "电商平台"),
+		AccessMode:        defaultString(req.AccessMode, "OAuth2"),
+		OfficialURL:       officialURL,
+		Status:            normalizePlatformStatus(req.Status),
+		TenantVisible:     req.TenantVisible,
+		OwnerName:         ownerName,
+		SortOrder:         req.SortOrder,
+		Description:       description,
+	})
+	if err != nil {
+		return repositories.PlatformSummary{}, err
+	}
+	return platformToSummary(platform), nil
+}
+
+func (s *Service) UpdatePlatform(ctx context.Context, code string, req PlatformMutationRequest) (repositories.PlatformSummary, error) {
+	if s.repo == nil {
+		return repositories.PlatformSummary{}, errors.New("integration center repository is not configured")
+	}
+	if err := validatePlatformRequest(req, false); err != nil {
+		return repositories.PlatformSummary{}, err
+	}
+	patch := map[string]interface{}{
+		"platform_name":       strings.TrimSpace(req.Name),
+		"platform_short_name": optionalString(req.ShortName),
+		"platform_type":       defaultString(req.PlatformType, "电商平台"),
+		"access_mode":         defaultString(req.AccessMode, "OAuth2"),
+		"official_url":        optionalString(req.OfficialURL),
+		"status":              normalizePlatformStatus(req.Status),
+		"tenant_visible":      req.TenantVisible,
+		"owner_name":          optionalString(req.OwnerName),
+		"sort_order":          req.SortOrder,
+		"description":         optionalString(req.Description),
+	}
+	platform, err := s.repo.UpdatePlatform(ctx, normalizePlatformCode(code), patch)
+	if err != nil {
+		return repositories.PlatformSummary{}, err
+	}
+	return platformToSummary(platform), nil
 }
 
 func (s *Service) Connectors(ctx context.Context) ([]IntegrationConnector, error) {
@@ -401,4 +474,77 @@ func statusFromCount(count int64) string {
 		return "active"
 	}
 	return "done"
+}
+
+func validatePlatformRequest(req PlatformMutationRequest, requireCode bool) error {
+	if strings.TrimSpace(req.Name) == "" {
+		return errors.New("平台名称不能为空")
+	}
+	if requireCode && normalizePlatformCode(req.Code) == "" {
+		return errors.New("平台编码不能为空")
+	}
+	code := normalizePlatformCode(req.Code)
+	if code != "" {
+		for _, r := range code {
+			if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' && r != '_' {
+				return errors.New("平台编码仅支持小写字母、数字、横线和下划线")
+			}
+		}
+	}
+	return nil
+}
+
+func normalizePlatformCode(code string) string {
+	return strings.ToLower(strings.TrimSpace(code))
+}
+
+func normalizePlatformStatus(status string) string {
+	switch strings.TrimSpace(status) {
+	case "enabled":
+		return "online"
+	case "disabled":
+		return "disabled"
+	case "testing":
+		return "beta"
+	case "maintenance":
+		return "maintenance"
+	case "online", "beta", "draft":
+		return strings.TrimSpace(status)
+	default:
+		return "draft"
+	}
+}
+
+func optionalString(value string) *string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
+
+func defaultString(value string, fallback string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return fallback
+	}
+	return trimmed
+}
+
+func platformToSummary(platform models.IntegrationPlatform) repositories.PlatformSummary {
+	return repositories.PlatformSummary{
+		ID:              platform.ID,
+		Code:            platform.PlatformCode,
+		Name:            platform.PlatformName,
+		ShortName:       platform.PlatformShortName,
+		PlatformType:    platform.PlatformType,
+		AccessMode:      platform.AccessMode,
+		Status:          platform.Status,
+		TenantVisible:   platform.TenantVisible,
+		OwnerName:       platform.OwnerName,
+		AppCount:        0,
+		CapabilityCount: 0,
+		ConnectionCount: 0,
+		OpenAlertCount:  0,
+	}
 }

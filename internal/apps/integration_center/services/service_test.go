@@ -82,6 +82,28 @@ func TestServiceListsTenantConnectionsFromRepository(t *testing.T) {
 	require.Equal(t, "shop-1001", rows[0].AuthSubjectID)
 }
 
+func TestServiceCreatesAndUpdatesPlatform(t *testing.T) {
+	db := newIntegrationCenterTestDB(t)
+	service := NewService(repositories.NewRepository(db))
+
+	created, err := service.CreatePlatform(context.Background(), PlatformMutationRequest{
+		Name: "通用 ERP", Code: "generic-erp", PlatformType: "ERP", AccessMode: "API Key",
+		Status: "enabled", TenantVisible: true, OwnerName: "集成组", SortOrder: 80,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "generic-erp", created.Code)
+	require.Equal(t, "online", created.Status)
+
+	updated, err := service.UpdatePlatform(context.Background(), "generic-erp", PlatformMutationRequest{
+		Name: "通用 ERP 平台", PlatformType: "ERP", AccessMode: "API Key",
+		Status: "maintenance", TenantVisible: false, OwnerName: "平台集成组", SortOrder: 81,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "通用 ERP 平台", updated.Name)
+	require.Equal(t, "maintenance", updated.Status)
+	require.False(t, updated.TenantVisible)
+}
+
 func newIntegrationCenterTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})

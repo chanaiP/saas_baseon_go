@@ -191,6 +191,8 @@ func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHan
 		{
 			integration.GET("/overview", integrationCenterHandler.Overview)
 			integration.GET("/platforms", integrationCenterHandler.Platforms)
+			integration.POST("/platforms", integrationCenterHandler.CreatePlatform)
+			integration.PUT("/platforms/:code", integrationCenterHandler.UpdatePlatform)
 			integration.GET("/workspace", integrationCenterHandler.Workspace)
 			integration.GET("/tenant-connections", integrationCenterHandler.TenantConnections)
 			integration.GET("/sync-monitor", integrationCenterHandler.SyncMonitor)

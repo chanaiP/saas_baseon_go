@@ -291,7 +291,7 @@ func TestAppCenterParseIntegrationCenterManifest(t *testing.T) {
 	require.Equal(t, 8, result.Counts.Menus)
 	require.Equal(t, 4, result.Counts.Operations)
 	require.Equal(t, 12, result.Counts.Permissions)
-	require.Equal(t, 8, result.Counts.APIs)
+	require.Equal(t, 10, result.Counts.APIs)
 	require.Equal(t, 2, result.Counts.PackageFeatures)
 	require.Equal(t, 3, result.Counts.Quotas)
 }

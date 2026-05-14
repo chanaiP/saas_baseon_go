@@ -2,12 +2,15 @@ package repositories
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"gorm.io/gorm"
 
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 )
+
+var ErrPlatformNotFound = errors.New("integration platform not found")
 
 type Repository struct {
 	db *gorm.DB
@@ -121,6 +124,35 @@ func (r *Repository) ListPlatforms(ctx context.Context, limit int) ([]PlatformSu
 		Limit(limit).
 		Scan(&rows).Error
 	return rows, err
+}
+
+func (r *Repository) GetPlatformByCode(ctx context.Context, code string) (models.IntegrationPlatform, error) {
+	var platform models.IntegrationPlatform
+	err := r.active(ctx, &models.IntegrationPlatform{}).Where("platform_code = ?", code).First(&platform).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return models.IntegrationPlatform{}, ErrPlatformNotFound
+	}
+	return platform, err
+}
+
+func (r *Repository) CreatePlatform(ctx context.Context, platform models.IntegrationPlatform) (models.IntegrationPlatform, error) {
+	now := time.Now()
+	platform.CreatedAt = now
+	platform.UpdatedAt = now
+	err := r.db.WithContext(ctx).Create(&platform).Error
+	return platform, err
+}
+
+func (r *Repository) UpdatePlatform(ctx context.Context, code string, patch map[string]interface{}) (models.IntegrationPlatform, error) {
+	platform, err := r.GetPlatformByCode(ctx, code)
+	if err != nil {
+		return models.IntegrationPlatform{}, err
+	}
+	patch["updated_at"] = time.Now()
+	if err := r.db.WithContext(ctx).Model(&platform).Updates(patch).Error; err != nil {
+		return models.IntegrationPlatform{}, err
+	}
+	return r.GetPlatformByCode(ctx, code)
 }
 
 func (r *Repository) ListProviderApps(ctx context.Context, limit int) ([]ProviderAppSummary, error) {

@@ -77,23 +77,25 @@ SELECT
 FROM menu
 ON CONFLICT DO NOTHING;
 
-WITH api(method, path, permission_code) AS (
+WITH api(method, path, permission_code, audit) AS (
   VALUES
-    ('GET', '/api/integration-center/overview', '/integration-center'),
-    ('GET', '/api/integration-center/platforms', '/integration-center/platforms'),
-    ('GET', '/api/integration-center/workspace', '/integration-center/workspace'),
-    ('GET', '/api/integration-center/tenant-connections', '/integration-center/tenant-connections'),
-    ('GET', '/api/integration-center/sync-monitor', '/integration-center/sync-monitor'),
-    ('GET', '/api/integration-center/quota', '/integration-center/quota'),
-    ('GET', '/api/integration-center/alerts', '/integration-center/alerts'),
-    ('GET', '/api/integration-center/logs', '/integration-center/logs')
+    ('GET', '/api/integration-center/overview', '/integration-center', FALSE),
+    ('GET', '/api/integration-center/platforms', '/integration-center/platforms', FALSE),
+    ('POST', '/api/integration-center/platforms', 'integration_center:platform_manage', TRUE),
+    ('PUT', '/api/integration-center/platforms/{code}', 'integration_center:platform_manage', TRUE),
+    ('GET', '/api/integration-center/workspace', '/integration-center/workspace', FALSE),
+    ('GET', '/api/integration-center/tenant-connections', '/integration-center/tenant-connections', FALSE),
+    ('GET', '/api/integration-center/sync-monitor', '/integration-center/sync-monitor', FALSE),
+    ('GET', '/api/integration-center/quota', '/integration-center/quota', FALSE),
+    ('GET', '/api/integration-center/alerts', '/integration-center/alerts', FALSE),
+    ('GET', '/api/integration-center/logs', '/integration-center/logs', FALSE)
 )
 INSERT INTO sys_app_api (
   app_code, method, path, permission_code, public, audit, manifest_hash,
   managed_by_manifest, status, last_synced_at, created_at, updated_at
 )
 SELECT
-  'integration-center', method, path, permission_code, FALSE, FALSE,
+  'integration-center', method, path, permission_code, FALSE, audit,
   'INTEGRATION_CENTER_BASELINE', TRUE, 'ACTIVE', now(), now(), now()
 FROM api
 ON CONFLICT DO NOTHING;

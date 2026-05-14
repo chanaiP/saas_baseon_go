@@ -237,6 +237,14 @@ apis:
   - method: GET
     path: /api/integration-center/platforms
     permission_code: /integration-center/platforms
+  - method: POST
+    path: /api/integration-center/platforms
+    permission_code: integration_center:platform_manage
+    audit: true
+  - method: PUT
+    path: /api/integration-center/platforms/{code}
+    permission_code: integration_center:platform_manage
+    audit: true
   - method: GET
     path: /api/integration-center/workspace
     permission_code: /integration-center/workspace

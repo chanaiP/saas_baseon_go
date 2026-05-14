@@ -601,6 +601,7 @@ import { computed, defineComponent, h, onMounted, reactive, ref, watch } from 'v
 import { useRoute } from 'vue-router'
 
 import {
+  createIntegrationPlatform,
   fetchIntegrationAlerts,
   fetchIntegrationLogs,
   fetchIntegrationPlatforms,
@@ -608,6 +609,7 @@ import {
   fetchIntegrationSyncMonitor,
   fetchIntegrationTenantConnections,
   fetchIntegrationWorkspace,
+  updateIntegrationPlatform,
 } from '../api'
 
 const navItems = [
@@ -1120,7 +1122,7 @@ function openPlatformModal(platform) {
   if (data.shortName === undefined) data.shortName = data.name
   openModal('platform', platform ? '编辑接入平台' : '新增接入平台', subtitle, data)
 }
-function savePlatformFromForm(goWorkspace) {
+async function savePlatformFromForm(goWorkspace) {
   const name = String(form.name || '').trim()
   const code = String(form.code || '').trim()
   if (!name || !code) {
@@ -1146,6 +1148,41 @@ function savePlatformFromForm(goWorkspace) {
     description: String(form.description || ''),
   }
   let savedId = form.id
+  const payload = {
+    name,
+    short_name: shortName,
+    code: slug,
+    platform_type: form.type,
+    access_mode: form.accessType,
+    status: form.status,
+    tenant_visible: form.tenantVisible !== false,
+    owner_name: String(form.owner || '').trim(),
+    official_url: String(form.officialUrl || '').trim(),
+    sort_order: Number(form.sortWeight) || 100,
+    description: String(form.description || ''),
+  }
+  if (backendState.loaded || !backendState.error) {
+    try {
+      const saved = existing
+        ? await updateIntegrationPlatform(existing.code || existing.id, payload)
+        : await createIntegrationPlatform(payload)
+      const mapped = mapBackendPlatform(saved)
+      if (existing) {
+        Object.assign(existing, mapped)
+        savedId = existing.id
+      } else {
+        savedId = mapped.id
+        platforms.push(mapped)
+      }
+      closeModal()
+      notify(existing ? '平台档案已更新' : '平台档案已创建')
+      if (goWorkspace) jumpWorkspace(savedId, 'apps')
+      return
+    } catch (error) {
+      backendState.error = error instanceof Error ? error.message : '接入平台保存失败'
+      notify('后端保存失败，已保留本地编辑结果', 'error')
+    }
+  }
   if (existing) {
     Object.assign(existing, patch)
     savedId = existing.id

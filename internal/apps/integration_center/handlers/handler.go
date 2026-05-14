@@ -40,6 +40,34 @@ func (h *Handler) Platforms(c *gin.Context) {
 	h.section(c, h.service.Platforms)
 }
 
+func (h *Handler) CreatePlatform(c *gin.Context) {
+	var req services.PlatformMutationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	result, err := h.service.CreatePlatform(c.Request.Context(), req)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, result)
+}
+
+func (h *Handler) UpdatePlatform(c *gin.Context) {
+	var req services.PlatformMutationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	result, err := h.service.UpdatePlatform(c.Request.Context(), c.Param("code"), req)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequest, err.Error())
+		return
+	}
+	response.OK(c, result)
+}
+
 func (h *Handler) Workspace(c *gin.Context) {
 	h.section(c, h.service.Workspace)
 }
