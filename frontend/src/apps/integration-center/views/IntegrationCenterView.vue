@@ -1,34 +1,5 @@
 <template>
   <div class="app-shell">
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-logo">集</div>
-        <div>
-          <h1>第三方集成中心</h1>
-          <p>平台侧 · 关系聚合版</p>
-        </div>
-      </div>
-
-      <nav class="nav-list">
-        <button
-          v-for="item in navItems"
-          :key="item.key"
-          :class="['nav-item', { active: page === item.key }]"
-          @click="switchPage(item.key)"
-        >
-          <span>{{ item.icon }}</span>
-          <strong>{{ item.label }}</strong>
-          <em v-if="item.badge">{{ item.badge }}</em>
-        </button>
-      </nav>
-
-      <div class="sidebar-card">
-        <span class="mini-label">关系主线</span>
-        <strong>平台 → 应用 → 连接实例</strong>
-        <p>应用能力连接走「平台 → 应用 → 能力」，租户连接走「平台 → 应用 → 连接实例」。</p>
-      </div>
-    </aside>
-
     <main class="main">
       <header class="topbar">
         <div>
