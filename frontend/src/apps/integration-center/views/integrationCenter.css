@@ -123,10 +123,14 @@ button:hover { border-color: #8ec7d7; color: var(--primary); }
 .alert-dot.warning { background: var(--warning); }
 .alert-dot.info { background: var(--primary); }
 .toolbar { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; box-shadow: var(--shadow); flex-wrap: wrap; }
-.search-box { min-width: 280px; height: 38px; border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; display: flex; align-items: center; gap: 8px; background: var(--surface-strong); }
+.toolbar-query > .search-box,
+.toolbar-query > select,
+.toolbar-actions > button { height: 38px; min-height: 38px; }
+.search-box { min-width: 280px; border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; display: flex; align-items: center; gap: 8px; background: var(--surface-strong); }
 .search-box.full { width: 100%; margin-bottom: 14px; }
-.search-box input { flex: 1; border: 0; outline: 0; background: transparent; }
-select, input, textarea { border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px; background: var(--control); color: var(--text); outline: none; font-size: var(--font-md); }
+.search-box input { flex: 1; min-height: 0; height: 100%; border: 0; outline: 0; background: transparent; }
+select, input, textarea { border: 1px solid var(--line); border-radius: 8px; padding: 0 11px; background: var(--control); color: var(--text); outline: none; font-size: var(--font-md); line-height: 1; }
+textarea { padding: 8px 11px; line-height: 1.5; }
 input::placeholder, textarea::placeholder { color: #758aa5; }
 textarea { min-height: 86px; resize: vertical; }
 .platform-card-grid { --platform-card-min: min(100%, max(340px, calc((100% - 36px) / 3))); display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--platform-card-min), 1fr)); gap: 18px; align-items: stretch; }
