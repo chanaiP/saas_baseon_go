@@ -145,6 +145,9 @@ const customWidth = computed(() => props.width || sizeMap[resolvedSize.value]?.w
 const customHeight = computed(() => props.height || sizeMap[resolvedSize.value]?.h)
 const bodyScrolling = ref(false)
 let scrollTimer: number | undefined
+let scrollLocked = false
+let previousBodyOverflow = ''
+let previousHtmlOverflow = ''
 
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
@@ -194,15 +197,35 @@ function handleBodyScroll() {
   }, 700)
 }
 
+function lockPageScroll() {
+  if (scrollLocked) return
+  previousBodyOverflow = document.body.style.overflow
+  previousHtmlOverflow = document.documentElement.style.overflow
+  document.body.style.overflow = 'hidden'
+  document.documentElement.style.overflow = 'hidden'
+  scrollLocked = true
+}
+
+function unlockPageScroll() {
+  if (!scrollLocked) return
+  document.body.style.overflow = previousBodyOverflow
+  document.documentElement.style.overflow = previousHtmlOverflow
+  scrollLocked = false
+}
+
 onMounted(() => window.addEventListener('keydown', onKeydown))
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
-  document.body.style.overflow = ''
+  unlockPageScroll()
   if (scrollTimer) window.clearTimeout(scrollTimer)
 })
 
 watch(() => props.modelValue, (v) => {
-  document.body.style.overflow = v ? 'hidden' : ''
+  if (v) {
+    lockPageScroll()
+  } else {
+    unlockPageScroll()
+  }
 })
 </script>
 
