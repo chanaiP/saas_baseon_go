@@ -517,72 +517,89 @@
       </div>
       </aside>
 
-      <div v-if="modal.open" class="integration-portal integration-overlay-mask modal-mask" @click.self="closeModal">
-        <section class="integration-modal-card modal-card" :class="{ large: modal.type === 'platform' }">
-        <div class="modal-head">
-          <div><p class="eyebrow">{{ modal.subtitle }}</p><h3>{{ modal.title }}</h3></div>
-          <button class="icon-btn" @click="closeModal">×</button>
+      <NeuroAgentDialog
+        v-model="modal.open"
+        :title="modal.title"
+        icon="🔗"
+        size="fullscreen"
+        width="92vw"
+        height="86vh"
+        :show-confirm="modal.type !== 'platform'"
+        confirm-text="保存"
+        @confirm="saveModal"
+        @cancel="closeModal"
+        @close="closeModal"
+      >
+        <div class="integration-standard-dialog-body">
+          <p v-if="modal.subtitle" class="standard-dialog-subtitle">{{ modal.subtitle }}</p>
+          <div v-if="modal.type === 'platform'" class="form-grid">
+            <label>平台名称<input v-model="form.name" placeholder="如 企业微信、京东电商" /></label>
+            <label>平台简称<input v-model="form.shortName" placeholder="左栏、卡片、表格展示" /></label>
+            <label>平台编码<input v-model="form.code" :readonly="!!form.id" placeholder="wecom、jd… 创建后不建议修改" /></label>
+            <label>平台类型<select v-model="form.type"><option>电商平台</option><option>协同办公</option><option>ERP</option><option>CRM</option><option>WMS</option></select></label>
+            <label>接入方式<select v-model="form.accessType"><option>OAuth2</option><option>第三方服务商</option><option>API Key</option><option>Webhook</option><option>手动密钥</option><option>混合接入</option></select></label>
+            <label>平台状态<select v-model="form.status"><option value="draft">草稿</option><option value="enabled">启用</option><option value="disabled">停用</option><option value="maintenance">维护中</option></select></label>
+            <label>平台 Logo（卡片）<input v-model="form.icon" placeholder="单字或 emoji，用于头像位" /></label>
+            <label>是否对租户可见<select v-model="form.tenantVisible"><option :value="true">是</option><option :value="false">否</option></select></label>
+            <label>负责人 / 维护人<input v-model="form.owner" placeholder="异常归属、对接人" /></label>
+            <label>排序权重<input type="number" v-model.number="form.sortWeight" placeholder="数字越小越靠前" /></label>
+            <label class="span-2">官方开放平台地址<input v-model="form.officialUrl" placeholder="https://…" /></label>
+            <label class="span-2">平台说明<textarea v-model="form.description" placeholder="能力边界、接入注意点等（密钥与回调不在此配置）"></textarea></label>
+          </div>
+          <div v-else-if="modal.type === 'app'" class="form-grid">
+            <label>应用名称<input v-model="form.name" /></label>
+            <label>所属平台<select v-model="form.platformId"><option v-for="p in platforms" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
+            <label>应用类型<select v-model="form.type"><option>第三方服务商应用</option><option>正式应用</option><option>沙箱应用</option><option>专属应用</option></select></label>
+            <label>环境<select v-model="form.env"><option>正式</option><option>沙箱</option><option>测试</option></select></label>
+            <label class="span-2">Endpoint / 授权域名<input v-model="form.endpoint" /></label>
+          </div>
+          <div v-else-if="modal.type === 'policy'" class="form-grid">
+            <label>策略名称<input v-model="form.name" /></label>
+            <label>策略范围<select v-model="form.scope"><option value="platform">平台级</option><option value="provider_app">应用级</option><option value="tenant">租户级</option><option value="connection">连接实例级</option><option value="capability">能力级</option></select></label>
+            <label>日配额<input type="number" v-model.number="form.dailyLimit" /></label>
+            <label>月配额<input type="number" v-model.number="form.monthlyLimit" /></label>
+            <label>QPS<input type="number" v-model.number="form.qpsLimit" /></label>
+            <label>并发<input type="number" v-model.number="form.concurrentLimit" /></label>
+            <label>超限策略<select v-model="form.exceedStrategy"><option>告警</option><option>排队</option><option>降频</option><option>暂停能力</option><option>暂停连接</option><option>拒绝调用</option></select></label>
+            <label>专属覆盖<select v-model="form.isOverride"><option :value="false">否</option><option :value="true">是</option></select></label>
+          </div>
+          <div v-else-if="modal.type === 'override'" class="form-grid">
+            <label class="span-2">覆盖对象<input v-model="form.name" readonly /></label>
+            <label>日配额<input type="number" v-model.number="form.limit" /></label>
+            <label>QPS<input type="number" v-model.number="form.qps" /></label>
+            <label>并发<input type="number" v-model.number="form.concurrent" /></label>
+            <label>有效期<select v-model="form.period"><option>长期有效</option><option>本月有效</option><option>7天临时提额</option></select></label>
+            <label class="span-2">备注<textarea v-model="form.remark"></textarea></label>
+          </div>
+          <div v-else class="modal-empty">该操作会写入模拟数据并触发页面刷新。</div>
         </div>
-        <div v-if="modal.type === 'platform'" class="form-grid">
-          <label>平台名称<input v-model="form.name" placeholder="如 企业微信、京东电商" /></label>
-          <label>平台简称<input v-model="form.shortName" placeholder="左栏、卡片、表格展示" /></label>
-          <label>平台编码<input v-model="form.code" :readonly="!!form.id" placeholder="wecom、jd… 创建后不建议修改" /></label>
-          <label>平台类型<select v-model="form.type"><option>电商平台</option><option>协同办公</option><option>ERP</option><option>CRM</option><option>WMS</option></select></label>
-          <label>接入方式<select v-model="form.accessType"><option>OAuth2</option><option>第三方服务商</option><option>API Key</option><option>Webhook</option><option>手动密钥</option><option>混合接入</option></select></label>
-          <label>平台状态<select v-model="form.status"><option value="draft">草稿</option><option value="enabled">启用</option><option value="disabled">停用</option><option value="maintenance">维护中</option></select></label>
-          <label>平台 Logo（卡片）<input v-model="form.icon" placeholder="单字或 emoji，用于头像位" /></label>
-          <label>是否对租户可见<select v-model="form.tenantVisible"><option :value="true">是</option><option :value="false">否</option></select></label>
-          <label>负责人 / 维护人<input v-model="form.owner" placeholder="异常归属、对接人" /></label>
-          <label>排序权重<input type="number" v-model.number="form.sortWeight" placeholder="数字越小越靠前" /></label>
-          <label class="span-2">官方开放平台地址<input v-model="form.officialUrl" placeholder="https://…" /></label>
-          <label class="span-2">平台说明<textarea v-model="form.description" placeholder="能力边界、接入注意点等（密钥与回调不在此配置）"></textarea></label>
-        </div>
-        <div v-else-if="modal.type === 'app'" class="form-grid">
-          <label>应用名称<input v-model="form.name" /></label>
-          <label>所属平台<select v-model="form.platformId"><option v-for="p in platforms" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
-          <label>应用类型<select v-model="form.type"><option>第三方服务商应用</option><option>正式应用</option><option>沙箱应用</option><option>专属应用</option></select></label>
-          <label>环境<select v-model="form.env"><option>正式</option><option>沙箱</option><option>测试</option></select></label>
-          <label class="span-2">Endpoint / 授权域名<input v-model="form.endpoint" /></label>
-        </div>
-        <div v-else-if="modal.type === 'policy'" class="form-grid">
-          <label>策略名称<input v-model="form.name" /></label>
-          <label>策略范围<select v-model="form.scope"><option value="platform">平台级</option><option value="provider_app">应用级</option><option value="tenant">租户级</option><option value="connection">连接实例级</option><option value="capability">能力级</option></select></label>
-          <label>日配额<input type="number" v-model.number="form.dailyLimit" /></label>
-          <label>月配额<input type="number" v-model.number="form.monthlyLimit" /></label>
-          <label>QPS<input type="number" v-model.number="form.qpsLimit" /></label>
-          <label>并发<input type="number" v-model.number="form.concurrentLimit" /></label>
-          <label>超限策略<select v-model="form.exceedStrategy"><option>告警</option><option>排队</option><option>降频</option><option>暂停能力</option><option>暂停连接</option><option>拒绝调用</option></select></label>
-          <label>专属覆盖<select v-model="form.isOverride"><option :value="false">否</option><option :value="true">是</option></select></label>
-        </div>
-        <div v-else-if="modal.type === 'override'" class="form-grid">
-          <label class="span-2">覆盖对象<input v-model="form.name" readonly /></label>
-          <label>日配额<input type="number" v-model.number="form.limit" /></label>
-          <label>QPS<input type="number" v-model.number="form.qps" /></label>
-          <label>并发<input type="number" v-model.number="form.concurrent" /></label>
-          <label>有效期<select v-model="form.period"><option>长期有效</option><option>本月有效</option><option>7天临时提额</option></select></label>
-          <label class="span-2">备注<textarea v-model="form.remark"></textarea></label>
-        </div>
-        <div v-else class="modal-empty">该操作会写入模拟数据并触发页面刷新。</div>
-        <div v-if="modal.type === 'platform'" class="modal-actions">
-          <button class="ghost-btn" @click="closeModal">取消</button>
-          <button class="ghost-btn" @click="savePlatformFromForm(false)">保存</button>
-          <button class="primary-btn" @click="savePlatformFromForm(true)">保存并配置应用</button>
-        </div>
-        <div v-else class="modal-actions"><button class="ghost-btn" @click="closeModal">取消</button><button class="primary-btn" @click="saveModal">保存</button></div>
-        </section>
-      </div>
+        <template v-if="modal.type === 'platform'" #footer-right>
+          <div class="standard-dialog-actions">
+            <button class="standard-dialog-btn standard-dialog-btn--ghost" @click="closeModal">取消</button>
+            <button class="standard-dialog-btn standard-dialog-btn--ghost" @click="savePlatformFromForm(false)">保存</button>
+            <button class="standard-dialog-btn standard-dialog-btn--primary" @click="savePlatformFromForm(true)">保存并配置应用</button>
+          </div>
+        </template>
+      </NeuroAgentDialog>
 
-      <div v-if="globalSearchOpen" class="integration-portal integration-overlay-mask modal-mask" @click.self="globalSearchOpen = false">
-        <section class="integration-modal-card modal-card large">
-          <div class="modal-head"><div><p class="eyebrow">Global Search</p><h3>全局搜索</h3></div><button class="icon-btn" @click="globalSearchOpen = false">×</button></div>
+      <NeuroAgentDialog
+        v-model="globalSearchOpen"
+        title="全局搜索"
+        icon="⌕"
+        size="large"
+        width="1040px"
+        height="70vh"
+        :show-footer="false"
+      >
+        <div class="integration-standard-dialog-body">
           <div class="search-box full"><span>⌕</span><input v-model="globalKeyword" autofocus placeholder="搜索平台、应用、租户、连接实例、request_id" /></div>
           <div class="global-results">
             <article v-for="item in globalResults" :key="item.key" @click="openGlobalResult(item)">
               <span>{{ item.type }}</span><strong>{{ item.title }}</strong><p>{{ item.desc }}</p>
             </article>
           </div>
-        </section>
-      </div>
+        </div>
+      </NeuroAgentDialog>
     </Teleport>
   </div>
 </template>
@@ -591,6 +608,8 @@
 import { ElMessage } from 'element-plus'
 import { computed, defineComponent, h, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+
+import NeuroAgentDialog from '@/views/components/NeuroAgentDialog.vue'
 
 import {
   checkIntegrationConnectivity,
