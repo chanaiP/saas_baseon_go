@@ -128,16 +128,18 @@ button:hover { border-color: #8ec7d7; color: var(--primary); }
 select, input, textarea { border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px; background: var(--control); color: var(--text); outline: none; font-size: var(--font-md); }
 input::placeholder, textarea::placeholder { color: #758aa5; }
 textarea { min-height: 86px; resize: vertical; }
-.platform-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, max(300px, calc((100% - 48px) / 4))), 1fr)); gap: 14px; }
-.platform-card { padding: 16px; }
-.platform-card-head { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.platform-card-grid { --platform-card-min: clamp(340px, 20vw, 410px); display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--platform-card-min)), 1fr)); gap: 16px; align-items: stretch; }
+.platform-card { min-width: 0; padding: 18px; }
+.platform-card-head { position: relative; display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 12px; align-items: start; min-height: 56px; padding-right: 82px; }
 .platform-card-head > div { min-width: 0; }
+.platform-card-head .avatar.large { width: 48px; height: 48px; }
+.platform-card-head .status-badge { position: absolute; top: 2px; right: 0; }
 .platform-card h3 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-lg); line-height: 1.35; }
 .platform-card p { color: var(--muted); font-size: var(--font-sm); margin: 4px 0 0; }
 .platform-card-head p { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.45; }
-.platform-desc { min-height: 36px; line-height: 1.55; }
+.platform-desc { min-height: 34px; line-height: 1.55; margin-top: 10px; }
 .card-stats { display: grid; gap: 8px; margin: 14px 0; }
-.card-stats.four { grid-template-columns: repeat(4, 1fr); }
+.card-stats.four { grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); }
 .card-stats div, .header-metrics div { background: var(--surface-strong); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
 .card-stats span, .header-metrics span { display: block; color: var(--muted); font-size: var(--font-xs); margin-bottom: 4px; }
 .card-stats b, .header-metrics b { font-size: 17px; }
@@ -202,7 +204,7 @@ tr:hover td { background: rgba(47, 212, 203, .06); }
 .policy-limits span { background: var(--surface-strong); border: 1px solid var(--line); border-radius: 10px; padding: 8px; font-size: var(--font-xs); font-weight: 800; color: var(--text); }
 .policy-card .card-actions { align-items: stretch; }
 .policy-card .card-actions button { flex: 1 1 auto; min-width: 58px; }
-.platform-card .card-actions { gap: 7px; }
+.platform-card .card-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(82px, max-content)); gap: 8px; align-items: center; }
 .platform-card .card-actions button { min-height: 30px; padding: 0 9px; font-size: var(--font-sm); }
 .drawer-mask, .modal-mask { position: fixed; inset: 0; background: rgba(2, 8, 18, .68); z-index: 10040; }
 .drawer { position: fixed; top: 0; right: 0; width: min(980px, calc(100vw - 260px)); height: 100vh; overflow: auto; background: #101827; color: var(--text); z-index: 10050; padding: 22px; box-shadow: -24px 0 70px rgba(0, 0, 0, .42); border-left: 1px solid var(--line); }
