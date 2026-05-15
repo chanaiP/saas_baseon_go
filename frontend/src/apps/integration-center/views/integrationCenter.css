@@ -139,13 +139,13 @@ textarea { min-height: 86px; resize: vertical; }
 .platform-card-head > div { min-width: 0; }
 .platform-card-head .avatar.large { width: 46px; height: 46px; font-size: 18px; }
 .platform-card-head .status-badge { position: absolute; top: 2px; right: 0; }
-.platform-card h3 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 17px; line-height: 1.32; font-weight: 900; }
+.platform-card h3 { margin: 0 0 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 17px; line-height: 1.32; font-weight: 900; }
+.platform-card code { color: var(--muted); font-size: 13px; font-weight: 800; }
 .platform-card p { color: var(--muted); font-size: 12px; margin: 4px 0 0; }
-.platform-meta, .platform-chip-row { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; min-width: 0; }
-.platform-code-pill { display: inline-flex; max-width: 150px; min-height: 24px; align-items: center; border-radius: 6px; padding: 0 8px; background: rgba(47, 212, 203, .14); color: #a9bad0; font-size: 13px; font-weight: 800; line-height: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.platform-chip-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; margin-top: 14px; }
 .meta-chip { display: inline-flex; min-height: 24px; align-items: center; border: 1px solid rgba(105, 161, 255, .52); border-radius: 999px; padding: 0 10px; background: rgba(45, 104, 210, .18); color: #8fb9ff; font-size: 12px; font-weight: 900; line-height: 1; white-space: nowrap; }
 .meta-chip + .meta-chip { border-color: rgba(255, 157, 72, .48); background: rgba(255, 157, 72, .13); color: #ffb46f; }
-.platform-desc { min-height: 32px; line-height: 1.55; margin-top: 10px; }
+.platform-desc { min-height: 32px; line-height: 1.55; margin-top: 12px; }
 .card-stats { display: grid; gap: 8px; margin: 14px 0; }
 .card-stats.four { grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); }
 .card-stats div, .header-metrics div { background: var(--surface-strong); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; }

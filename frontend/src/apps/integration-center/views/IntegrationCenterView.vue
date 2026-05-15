@@ -115,15 +115,13 @@
               <div class="avatar large">{{ platform.icon }}</div>
               <div>
                 <h3>{{ platform.name }}</h3>
-                <p class="platform-meta">
-                  <span class="platform-code-pill">{{ platform.code }}</span>
-                </p>
-                <p class="platform-chip-row">
-                  <span class="meta-chip">{{ platform.type }}</span>
-                  <span class="meta-chip">{{ platform.accessType }}</span>
-                </p>
+                <code>{{ platform.code }}</code>
               </div>
               <StatusBadge :status="platform.status" />
+            </div>
+            <div class="platform-chip-row">
+              <span class="meta-chip">{{ platform.type }}</span>
+              <span class="meta-chip">{{ platform.accessType }}</span>
             </div>
             <p class="platform-desc">{{ platform.description }}</p>
             <div class="card-stats four">
