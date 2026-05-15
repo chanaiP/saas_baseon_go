@@ -15,6 +15,7 @@ export interface DictTypeRow {
 export interface DictItemRow {
   id: number
   dict_type_id: number
+  parent_id?: number | null
   default_label?: string
   default_value?: string
   default_sort_order?: number
@@ -24,6 +25,7 @@ export interface DictItemRow {
   sort_order: number
   enabled?: boolean
   is_override?: boolean
+  is_custom?: boolean
 }
 
 export async function fetchDictTypes(
@@ -81,6 +83,7 @@ export async function fetchDictItems(dictTypeId: number, skip = 0, limit = 20) {
 
 export async function createDictItem(body: {
   dict_type_id: number
+  parent_id?: number | null
   label: string
   value: string
   sort_order?: number
@@ -91,7 +94,7 @@ export async function createDictItem(body: {
 
 export async function updateDictItem(
   id: number,
-  body: { label?: string; value?: string; sort_order?: number; enabled?: boolean },
+  body: { parent_id?: number | null; label?: string; value?: string; sort_order?: number; enabled?: boolean },
 ) {
   return unwrap(http.put<ApiResponse<DictItemRow>>(`/api/dict-items/${id}`, body))
 }

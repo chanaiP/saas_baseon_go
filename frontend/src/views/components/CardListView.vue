@@ -16,10 +16,21 @@
             v-model="searchText"
             type="text"
             class="search-input"
+            :name="searchInputName"
+            autocomplete="off"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="false"
+            inputmode="search"
+            role="searchbox"
+            :readonly="searchReadonly"
             :placeholder="searchPlaceholder"
+            @focus="activateSearchInput"
+            @keydown="markSearchInteraction"
+            @paste="markSearchInteraction"
             @input="onSearch"
           />
-          <button v-if="searchText" class="search-clear" @click="searchText = ''">
+          <button v-if="searchText" class="search-clear" @click="clearSearch">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M18 6 6 18M6 6l12 12" />
             </svg>
@@ -205,7 +216,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, useSlots } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, useSlots } from 'vue'
 import NeuroAgentCard from './NeuroAgentCard.vue'
 
 // === 类型定义 ===
@@ -295,6 +306,9 @@ const hasToolbarFiltersSlot = computed(() => typeof slots['toolbar-filters'] ===
 
 // === 状态 ===
 const searchText = ref('')
+const searchReadonly = ref(true)
+const searchInputName = `card-list-search-${Math.random().toString(36).slice(2)}`
+let hasSearchInteraction = false
 const activeFilter = ref('')
 const layout = ref<'grid' | 'list'>(props.defaultLayout)
 
@@ -322,10 +336,27 @@ const filteredCards = computed(() => {
 })
 
 // === 事件 ===
-let searchTimer: ReturnType<typeof setTimeout>
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+let autofillGuardTimer: ReturnType<typeof setTimeout> | undefined
+
+function markSearchInteraction() {
+  hasSearchInteraction = true
+}
+
+function activateSearchInput() {
+  searchReadonly.value = false
+  markSearchInteraction()
+}
+
 function onSearch() {
-  clearTimeout(searchTimer)
+  if (searchTimer) clearTimeout(searchTimer)
   searchTimer = setTimeout(() => emit('search', searchText.value), 300)
+}
+
+function clearSearch() {
+  searchText.value = ''
+  if (searchTimer) clearTimeout(searchTimer)
+  emit('search', '')
 }
 
 const theme = ref<'dark' | 'light'>('dark')
@@ -335,6 +366,17 @@ onMounted(() => {
   if (layout) {
     theme.value = layout.getAttribute('data-theme') as 'dark' | 'light' || 'dark'
   }
+
+  autofillGuardTimer = setTimeout(() => {
+    if (!hasSearchInteraction && searchText.value) {
+      clearSearch()
+    }
+  }, 120)
+})
+
+onBeforeUnmount(() => {
+  if (searchTimer) clearTimeout(searchTimer)
+  if (autofillGuardTimer) clearTimeout(autofillGuardTimer)
 })
 
 watch(layout, (val) => emit('layout-change', val))

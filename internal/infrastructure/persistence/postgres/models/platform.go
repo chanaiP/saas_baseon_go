@@ -107,6 +107,7 @@ type DictItem struct {
 	ID         uint64     `gorm:"primaryKey;autoIncrement;column:id"`
 	TenantID   uint64     `gorm:"column:tenant_id;not null;index"`
 	DictTypeID uint64     `gorm:"column:dict_type_id;not null;index"`
+	ParentID   *uint64    `gorm:"column:parent_id;index"`
 	Label      string     `gorm:"column:label;type:varchar(200);not null"`
 	Value      string     `gorm:"column:value;type:varchar(200);not null"`
 	SortOrder  int        `gorm:"column:sort_order;not null;default:0"`

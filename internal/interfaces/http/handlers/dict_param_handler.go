@@ -1,13 +1,17 @@
 package handlers
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"io"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm/clause"
 
+	"saas_baseon_go/internal/application/dictionary"
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
+	"saas_baseon_go/internal/infrastructure/persistence/postgres/repositories"
 	"saas_baseon_go/internal/interfaces/http/response"
 )
 
@@ -18,31 +22,24 @@ func (h *IdentityHandler) DictTypes(c *gin.Context) {
 		return
 	}
 	skip, limit := paginationParams(c)
-	var rows []models.DictType
-	forPlatform := user.IsPlatformAdmin || h.viewerHasPlatformScope(user)
-	query := h.visibleDictTypesQuery(user.TenantID, forPlatform)
-	if forPlatform {
+	var platformOnly *bool
+	if h.viewerHasPlatformScope(user) || user.IsPlatformAdmin {
 		if raw := strings.TrimSpace(c.Query("platform_only")); raw != "" {
-			query = query.Where("is_platform_only = ?", raw == "true" || raw == "1")
+			value := raw == "true" || raw == "1"
+			platformOnly = &value
 		}
 	}
-	if keyword := strings.TrimSpace(c.Query("keyword")); keyword != "" {
-		like := "%" + keyword + "%"
-		query = query.Where("dict_type.name LIKE ? OR dict_type.code LIKE ?", like, like)
+	result, err := h.dictionaryService().ListTypes(c.Request.Context(), h.dictionaryViewer(user), dictionary.ListTypesQuery{
+		Keyword:      c.Query("keyword"),
+		PlatformOnly: platformOnly,
+		Skip:         skip,
+		Limit:        limit,
+	})
+	if err != nil {
+		respondBadRequest(c, err)
+		return
 	}
-	var total int64
-	_ = query.Count(&total).Error
-	_ = query.Clauses(clause.OrderBy{
-		Expression: clause.Expr{
-			SQL:  "CASE WHEN dict_type.tenant_id = ? THEN 0 ELSE 1 END, dict_type.id ASC",
-			Vars: []interface{}{user.TenantID},
-		},
-	}).Offset(skip).Limit(limit).Find(&rows).Error
-	items := make([]gin.H, 0, len(rows))
-	for _, row := range rows {
-		items = append(items, dictTypeToJSON(row))
-	}
-	response.OK(c, paginatedWithTotal(items, total, skip, limit))
+	response.OK(c, result)
 }
 
 func (h *IdentityHandler) CreateDictType(c *gin.Context) {
@@ -63,11 +60,15 @@ func (h *IdentityHandler) CreateDictType(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	if body.Scope == "" {
-		body.Scope = "platform"
-	}
-	row := models.DictType{TenantID: user.TenantID, Code: strings.TrimSpace(body.Code), Name: strings.TrimSpace(body.Name), Remark: nullableTrimmed(body.Remark), Scope: body.Scope, TenantEditable: body.TenantEditable, IsPlatformOnly: body.IsPlatformOnly}
-	if err := h.db.Create(&row).Error; err != nil {
+	row, err := h.dictionaryService().CreateType(c.Request.Context(), h.dictionaryViewer(user), dictionary.CreateTypeCommand{
+		Code:           body.Code,
+		Name:           body.Name,
+		Remark:         body.Remark,
+		Scope:          body.Scope,
+		TenantEditable: body.TenantEditable,
+		IsPlatformOnly: body.IsPlatformOnly,
+	})
+	if err != nil {
 		respondBadRequest(c, err)
 		return
 	}
@@ -92,34 +93,24 @@ func (h *IdentityHandler) UpdateDictType(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	updates := map[string]interface{}{}
-	if body.Name != nil {
-		updates["name"] = strings.TrimSpace(*body.Name)
-	}
-	if body.Remark != nil {
-		updates["remark"] = nullableTrimmed(body.Remark)
-	}
-	if body.Scope != nil {
-		updates["scope"] = strings.TrimSpace(*body.Scope)
-	}
-	if body.TenantEditable != nil {
-		updates["tenant_editable"] = *body.TenantEditable
-	}
-	if body.IsPlatformOnly != nil {
-		updates["is_platform_only"] = *body.IsPlatformOnly
-	}
-	var row models.DictType
-	if err := h.tenantScope().ActiveByID(user.TenantID, c.Param("id")).First(&row).Error; err != nil {
+	id := parseUintParam(c, "id")
+	row, err := h.dictionaryService().UpdateType(c.Request.Context(), h.dictionaryViewer(user), id, dictionary.UpdateTypeCommand{
+		Name:           body.Name,
+		Remark:         body.Remark,
+		Scope:          body.Scope,
+		TenantEditable: body.TenantEditable,
+		IsPlatformOnly: body.IsPlatformOnly,
+	})
+	if errors.Is(err, dictionary.ErrNotFound) {
 		response.Error(c, 404, response.CodeNotFound, "不存在")
 		return
 	}
-	if err := h.db.Model(&row).Updates(updates).Error; err != nil {
+	if err != nil {
 		respondBadRequest(c, err)
 		return
 	}
-	_ = h.db.First(&row, row.ID).Error
 	h.audit(c, user.TenantID, user.ID, "dict_type", "update", "编辑字典类型 "+row.Name, gin.H{"id": row.ID, "code": row.Code})
-	response.OK(c, dictTypeToJSON(row))
+	response.OK(c, dictionary.TypeToResponse(row))
 }
 
 func (h *IdentityHandler) DeleteDictType(c *gin.Context) {
@@ -129,16 +120,12 @@ func (h *IdentityHandler) DeleteDictType(c *gin.Context) {
 		return
 	}
 	id := parseUintParam(c, "id")
-	if h.blockDeleteIfReferenced(c, "字典类型", ref(&models.DictItem{}, "字典项", "tenant_id = ? AND dict_type_id = ? AND deleted_at IS NULL", user.TenantID, id)) {
-		return
-	}
-	var row models.DictType
-	if err := h.tenantScope().ActiveByID(user.TenantID, id).First(&row).Error; err != nil {
+	row, err := h.dictionaryService().DeleteType(c.Request.Context(), h.dictionaryViewer(user), id)
+	if errors.Is(err, dictionary.ErrNotFound) {
 		response.Error(c, 404, response.CodeNotFound, "不存在")
 		return
 	}
-	now := time.Now()
-	if err := h.db.Model(&row).Updates(map[string]interface{}{"deleted_at": now, "code": tombstoneUniqueValue(row.Code, row.ID, 64)}).Error; err != nil {
+	if err != nil {
 		respondBadRequest(c, err)
 		return
 	}
@@ -156,18 +143,11 @@ func (h *IdentityHandler) DictItemsByCode(c *gin.Context) {
 	if code == "" {
 		code = c.Query("code")
 	}
-	code = strings.TrimSpace(code)
-	var dictType models.DictType
-	forPlatform := user.IsPlatformAdmin || h.viewerHasPlatformScope(user)
-	if row, err := h.visibleDictTypeByCode(user.TenantID, code, forPlatform); err == nil {
-		dictType = row
-	} else {
-		response.OK(c, gin.H{"code": code, "items": []gin.H{}})
+	code, items, err := h.dictionaryService().ItemsByCode(c.Request.Context(), h.dictionaryViewer(user), code)
+	if err != nil {
+		respondBadRequest(c, err)
 		return
 	}
-	var rows []models.DictItem
-	_ = h.db.Where("tenant_id = ? AND dict_type_id = ? AND deleted_at IS NULL", dictType.TenantID, dictType.ID).Order("sort_order asc, id asc").Find(&rows).Error
-	items := h.dictItemsToJSON(user.TenantID, rows, true)
 	response.OK(c, gin.H{"code": code, "items": items})
 }
 
@@ -178,21 +158,16 @@ func (h *IdentityHandler) DictItems(c *gin.Context) {
 		return
 	}
 	skip, limit := paginationParams(c)
-	var rows []models.DictItem
-	query := h.tenantScope().Active(user.TenantID)
-	if dictTypeID := c.Query("dict_type_id"); dictTypeID != "" {
-		forPlatform := user.IsPlatformAdmin || h.viewerHasPlatformScope(user)
-		dictType, err := h.visibleDictTypeByID(user.TenantID, dictTypeID, forPlatform)
-		if err != nil {
-			response.OK(c, paginatedWithTotal([]gin.H{}, 0, skip, limit))
-			return
-		}
-		query = h.db.Where("tenant_id = ? AND dict_type_id = ? AND deleted_at IS NULL", dictType.TenantID, dictType.ID)
+	var dictTypeID uint64
+	if rawDictTypeID := c.Query("dict_type_id"); rawDictTypeID != "" {
+		dictTypeID = parseTenantIDValue(rawDictTypeID)
 	}
-	var total int64
-	_ = query.Model(&models.DictItem{}).Count(&total).Error
-	_ = query.Order("sort_order asc, id asc").Offset(skip).Limit(limit).Find(&rows).Error
-	response.OK(c, paginatedWithTotal(h.dictItemsToJSON(user.TenantID, rows, false), total, skip, limit))
+	result, err := h.dictionaryService().ListItems(c.Request.Context(), h.dictionaryViewer(user), dictTypeID, skip, limit)
+	if err != nil {
+		respondBadRequest(c, err)
+		return
+	}
+	response.OK(c, result)
 }
 
 func (h *IdentityHandler) CreateDictItem(c *gin.Context) {
@@ -202,26 +177,34 @@ func (h *IdentityHandler) CreateDictItem(c *gin.Context) {
 		return
 	}
 	var body struct {
-		DictTypeID uint64 `json:"dict_type_id"`
-		Label      string `json:"label"`
-		Value      string `json:"value"`
-		SortOrder  int    `json:"sort_order"`
-		Enabled    *bool  `json:"enabled"`
+		DictTypeID uint64  `json:"dict_type_id"`
+		ParentID   *uint64 `json:"parent_id"`
+		Label      string  `json:"label"`
+		Value      string  `json:"value"`
+		SortOrder  int     `json:"sort_order"`
+		Enabled    *bool   `json:"enabled"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	enabled := true
-	if body.Enabled != nil {
-		enabled = *body.Enabled
-	}
-	if err := h.assertDictTypeInTenant(user.TenantID, body.DictTypeID); err != nil {
+	row, err := h.dictionaryService().CreateItem(c.Request.Context(), h.dictionaryViewer(user), dictionary.CreateItemCommand{
+		DictTypeID: body.DictTypeID,
+		ParentID:   body.ParentID,
+		Label:      body.Label,
+		Value:      body.Value,
+		SortOrder:  body.SortOrder,
+		Enabled:    body.Enabled,
+	})
+	if errors.Is(err, dictionary.ErrDictTypeNotFound) {
 		respondBadRequest(c, err)
 		return
 	}
-	row := models.DictItem{TenantID: user.TenantID, DictTypeID: body.DictTypeID, Label: strings.TrimSpace(body.Label), Value: strings.TrimSpace(body.Value), SortOrder: body.SortOrder, Enabled: enabled}
-	if err := h.db.Create(&row).Error; err != nil {
+	if errors.Is(err, dictionary.ErrTenantOverrideOff) {
+		response.Error(c, 403, response.CodeForbidden, "该字典不允许租户新增项")
+		return
+	}
+	if err != nil {
 		respondBadRequest(c, err)
 		return
 	}
@@ -236,44 +219,40 @@ func (h *IdentityHandler) UpdateDictItem(c *gin.Context) {
 		return
 	}
 	var body struct {
+		ParentID  *uint64 `json:"parent_id"`
 		Label     *string `json:"label"`
 		Value     *string `json:"value"`
 		SortOrder *int    `json:"sort_order"`
 		Enabled   *bool   `json:"enabled"`
 	}
-	if err := c.ShouldBindJSON(&body); err != nil {
+	hasParent, err := bindJSONWithField(c, &body, "parent_id")
+	if err != nil {
 		response.Error(c, 400, response.CodeBadRequest, "请求参数错误")
 		return
 	}
-	var row models.DictItem
-	if err := h.db.Where("id = ? AND deleted_at IS NULL", c.Param("id")).First(&row).Error; err != nil {
+	id := parseUintParam(c, "id")
+	row, override, err := h.dictionaryService().UpdateItem(c.Request.Context(), h.dictionaryViewer(user), id, dictionary.UpdateItemCommand{
+		ParentID:  body.ParentID,
+		HasParent: hasParent,
+		Label:     body.Label,
+		Value:     body.Value,
+		SortOrder: body.SortOrder,
+		Enabled:   body.Enabled,
+	})
+	if errors.Is(err, dictionary.ErrNotFound) {
 		response.Error(c, 404, response.CodeNotFound, "不存在")
 		return
 	}
-	forPlatform := user.IsPlatformAdmin || h.viewerHasPlatformScope(user)
-	dictType, err := h.visibleDictTypeByID(user.TenantID, row.DictTypeID, forPlatform)
-	if err != nil || dictType.ID == 0 || dictType.ID != row.DictTypeID || row.TenantID != dictType.TenantID {
-		response.Error(c, 404, response.CodeNotFound, "不存在")
+	if errors.Is(err, dictionary.ErrTenantOverrideOff) {
+		response.Error(c, 403, response.CodeForbidden, "该字典不允许租户覆盖")
 		return
 	}
-	if !user.IsPlatformAdmin {
-		if !dictType.TenantEditable {
-			response.Error(c, 403, response.CodeForbidden, "该字典不允许租户覆盖")
-			return
-		}
-		override := h.upsertTenantDictItemOverride(user.TenantID, row.ID, body.Label, body.Value, body.SortOrder, body.Enabled)
-		h.audit(c, user.TenantID, user.ID, "dict_item", "update", "编辑字典项 "+row.Label, gin.H{"id": row.ID, "value": row.Value})
-		response.OK(c, h.dictItemToJSON(row, override))
-		return
-	}
-	updates := dictItemUpdates(body.Label, body.Value, body.SortOrder, body.Enabled)
-	if err := h.db.Model(&row).Updates(updates).Error; err != nil {
+	if err != nil {
 		respondBadRequest(c, err)
 		return
 	}
-	_ = h.db.First(&row, row.ID).Error
 	h.audit(c, user.TenantID, user.ID, "dict_item", "update", "编辑字典项 "+row.Label, gin.H{"id": row.ID, "value": row.Value})
-	response.OK(c, h.dictItemToJSON(row, nil))
+	response.OK(c, dictionary.ItemToResponse(row, override, user.TenantID))
 }
 
 func (h *IdentityHandler) DeleteDictItem(c *gin.Context) {
@@ -283,13 +262,12 @@ func (h *IdentityHandler) DeleteDictItem(c *gin.Context) {
 		return
 	}
 	id := parseUintParam(c, "id")
-	var row models.DictItem
-	if err := h.tenantScope().ActiveByID(user.TenantID, id).First(&row).Error; err != nil {
+	row, err := h.dictionaryService().DeleteItem(c.Request.Context(), h.dictionaryViewer(user), id)
+	if errors.Is(err, dictionary.ErrNotFound) {
 		response.Error(c, 404, response.CodeNotFound, "不存在")
 		return
 	}
-	now := time.Now()
-	if err := h.db.Model(&row).Updates(map[string]interface{}{"deleted_at": now, "enabled": false}).Error; err != nil {
+	if err != nil {
 		respondBadRequest(c, err)
 		return
 	}
@@ -303,18 +281,48 @@ func (h *IdentityHandler) RestoreDictItem(c *gin.Context) {
 		response.Error(c, 401, response.CodeUnauthorized, "请先登录")
 		return
 	}
-	var row models.DictItem
-	if err := h.db.Where("id = ? AND deleted_at IS NULL", c.Param("id")).First(&row).Error; err != nil {
+	id := parseUintParam(c, "id")
+	row, err := h.dictionaryService().RestoreItem(c.Request.Context(), h.dictionaryViewer(user), id)
+	if errors.Is(err, dictionary.ErrDictItemNotFound) {
 		response.Error(c, 404, response.CodeNotFound, "字典项不存在")
 		return
 	}
-	forPlatform := user.IsPlatformAdmin || h.viewerHasPlatformScope(user)
-	dictType, err := h.visibleDictTypeByID(user.TenantID, row.DictTypeID, forPlatform)
-	if err != nil || row.TenantID != dictType.TenantID {
-		response.Error(c, 404, response.CodeNotFound, "字典项不存在")
+	if err != nil {
+		respondBadRequest(c, err)
 		return
 	}
-	_ = h.db.Where("tenant_id = ? AND dict_item_id = ?", user.TenantID, row.ID).Delete(&models.TenantDictItemOverride{}).Error
 	h.audit(c, user.TenantID, user.ID, "dict_item", "restore", "恢复字典项默认值 "+row.Label, gin.H{"id": row.ID})
-	response.OK(c, h.dictItemToJSON(row, nil))
+	response.OK(c, dictionary.ItemToResponse(row, nil, user.TenantID))
+}
+
+func (h *IdentityHandler) dictionaryService() *dictionary.Service {
+	return dictionary.NewService(repositories.NewDictionaryRepository(h.db))
+}
+
+func (h *IdentityHandler) dictionaryViewer(user models.AppUser) dictionary.Viewer {
+	includePlatformOnly := user.IsPlatformAdmin || h.viewerHasPlatformScope(user)
+	return dictionary.Viewer{
+		TenantID:            user.TenantID,
+		IsPlatformAdmin:     user.IsPlatformAdmin,
+		IncludePlatformOnly: includePlatformOnly,
+		ScopeTenantIDs:      h.permissionScopeTenantIDs(user.TenantID),
+	}
+}
+
+func bindJSONWithField(c *gin.Context, out interface{}, field string) (bool, error) {
+	raw, err := c.GetRawData()
+	if err != nil {
+		return false, err
+	}
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(raw))
+	if err := json.Unmarshal(raw, out); err != nil {
+		return false, err
+	}
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(raw))
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return false, err
+	}
+	_, exists := body[field]
+	return exists, nil
 }

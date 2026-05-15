@@ -325,6 +325,7 @@ CREATE TABLE public.dict_item (
     id bigint NOT NULL,
     tenant_id bigint NOT NULL,
     dict_type_id bigint NOT NULL,
+    parent_id bigint,
     label character varying(200) NOT NULL,
     value character varying(200) NOT NULL,
     sort_order bigint DEFAULT 0 NOT NULL,
@@ -2006,6 +2007,8 @@ CREATE INDEX idx_business_unit_tenant_status_deleted ON public.business_unit USI
 --
 
 CREATE INDEX idx_dict_item_dict_type_id ON public.dict_item USING btree (dict_type_id);
+
+CREATE INDEX idx_dict_item_parent_id ON public.dict_item USING btree (parent_id);
 
 
 --
