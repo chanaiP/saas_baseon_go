@@ -59,8 +59,11 @@ button { cursor: pointer; }
 .topbar h2 { margin: 10px 0 0; font-size: var(--font-xl); line-height: 1.35; letter-spacing: 0; }
 .topbar p { margin: 7px 0 0; max-width: 760px; color: var(--muted); font-size: var(--font-md); line-height: 1.62; }
 .overview-tag { display: inline-flex; align-items: center; border: 1px solid rgba(255, 209, 102, .62); color: var(--warning); background: rgba(255, 209, 102, .08); border-radius: 999px; padding: 3px 9px; font-size: var(--font-xs); font-weight: 900; }
-.topbar-actions, .toolbar-actions, .actions, .card-actions { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.topbar-actions, .toolbar-actions, .toolbar-query, .actions, .card-actions { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.toolbar-query { flex: 1 1 520px; flex-wrap: wrap; justify-content: flex-start; }
+.toolbar-query.compact { flex: 0 1 auto; }
 .toolbar-actions { flex: 0 0 auto; }
+.panel-control-split { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: min(420px, 100%); }
 button { min-height: var(--button-height); border: 1px solid var(--line); background: var(--control); color: var(--text); padding: 0 var(--button-padding-x); border-radius: 8px; font-size: var(--font-md); font-weight: 700; line-height: 1; white-space: nowrap; }
 .topbar-actions { flex: 0 0 auto; align-self: flex-start; }
 .topbar-actions button { min-height: 34px; padding: 0 12px; font-size: var(--font-md); }

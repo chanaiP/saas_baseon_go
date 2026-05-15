@@ -234,6 +234,10 @@ apis:
   - method: GET
     path: /api/integration-center/overview
     permission_code: /integration-center
+  - method: POST
+    path: /api/integration-center/connectivity-check
+    permission_code: integration_center:connection_manage
+    audit: true
   - method: GET
     path: /api/integration-center/platforms
     permission_code: /integration-center/platforms
@@ -248,21 +252,89 @@ apis:
   - method: GET
     path: /api/integration-center/workspace
     permission_code: /integration-center/workspace
+  - method: POST
+    path: /api/integration-center/provider-apps
+    permission_code: integration_center:app_manage
+    audit: true
+  - method: PUT
+    path: /api/integration-center/provider-apps/{code}
+    permission_code: integration_center:app_manage
+    audit: true
+  - method: PATCH
+    path: /api/integration-center/app-capabilities/{id}
+    permission_code: integration_center:app_manage
+    audit: true
   - method: GET
     path: /api/integration-center/tenant-connections
     permission_code: /integration-center/tenant-connections
+  - method: POST
+    path: /api/integration-center/tenant-connections/{id}/refresh
+    permission_code: integration_center:connection_manage
+    audit: true
+  - method: POST
+    path: /api/integration-center/tenant-connections/{id}/pause
+    permission_code: integration_center:connection_manage
+    audit: true
+  - method: POST
+    path: /api/integration-center/tenant-connections/{id}/resume
+    permission_code: integration_center:connection_manage
+    audit: true
+  - method: POST
+    path: /api/integration-center/tenant-connections/{id}/retry
+    permission_code: integration_center:connection_manage
+    audit: true
   - method: GET
     path: /api/integration-center/sync-monitor
     permission_code: /integration-center/sync-monitor
+  - method: POST
+    path: /api/integration-center/sync-jobs/{id}/retry
+    permission_code: integration_center:connection_manage
+    audit: true
+  - method: POST
+    path: /api/integration-center/sync-jobs/{id}/pause
+    permission_code: integration_center:connection_manage
+    audit: true
+  - method: POST
+    path: /api/integration-center/sync-jobs/{id}/resume
+    permission_code: integration_center:connection_manage
+    audit: true
   - method: GET
     path: /api/integration-center/quota
     permission_code: /integration-center/quota
+  - method: POST
+    path: /api/integration-center/quota-policies
+    permission_code: integration_center:quota_manage
+    audit: true
+  - method: PUT
+    path: /api/integration-center/quota-policies/{code}
+    permission_code: integration_center:quota_manage
+    audit: true
+  - method: PATCH
+    path: /api/integration-center/quota-policies/{code}/status
+    permission_code: integration_center:quota_manage
+    audit: true
   - method: GET
     path: /api/integration-center/alerts
     permission_code: /integration-center/alerts
+  - method: POST
+    path: /api/integration-center/alerts/{id}/process
+    permission_code: integration_center:connection_manage
+    audit: true
+  - method: POST
+    path: /api/integration-center/alerts/{id}/resolve
+    permission_code: integration_center:connection_manage
+    audit: true
+  - method: POST
+    path: /api/integration-center/alerts/{id}/ignore
+    permission_code: integration_center:connection_manage
+    audit: true
   - method: GET
     path: /api/integration-center/logs
     permission_code: /integration-center/logs
+  - method: POST
+    path: /api/integration-center/logs/export
+    permission_code: integration_center:connection_manage
+    audit: true
 package_features:
   - feature_code: integration_tenant_authorization
     feature_name: 第三方集成授权连接

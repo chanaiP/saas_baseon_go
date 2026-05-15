@@ -99,10 +99,12 @@
 
       <section v-if="page === 'platforms'" class="page-section">
         <div class="toolbar row-between">
-          <div class="search-box"><span>⌕</span><input v-model="platformKeyword" placeholder="搜索平台名称、code、类型" /></div>
-          <div class="toolbar-actions">
+          <div class="toolbar-query">
+            <div class="search-box"><span>⌕</span><input v-model="platformKeyword" placeholder="搜索平台名称、code、类型" /></div>
             <select v-model="platformTypeFilter"><option value="all">全部类型</option><option value="协同办公">协同办公</option><option value="电商平台">电商平台</option><option value="ERP">ERP</option><option value="CRM">CRM</option><option value="WMS">WMS</option></select>
             <select v-model="platformStatusFilter"><option value="all">全部状态</option><option value="draft">草稿</option><option value="enabled">启用</option><option value="disabled">停用</option><option value="maintenance">维护中</option></select>
+          </div>
+          <div class="toolbar-actions">
             <button class="primary-btn" @click="openPlatformModal()">新增接入平台</button>
           </div>
         </div>
@@ -170,7 +172,7 @@
             <section class="panel relation-upper">
               <div class="panel-head">
                 <div><h3>服务商应用</h3><p>应用基于平台创建，承载密钥、回调、suite_ticket 和能力连接。</p></div>
-                <div class="toolbar-actions"><button class="ghost-btn" @click="clearSelectedApp">全部应用</button><button class="primary-btn" @click="openAppModal()">新增应用</button></div>
+                <div class="panel-control-split"><div class="toolbar-query compact"><button class="ghost-btn" @click="clearSelectedApp">全部应用</button></div><div class="toolbar-actions"><button class="primary-btn" @click="openAppModal()">新增应用</button></div></div>
               </div>
               <div class="app-card-grid">
                 <article v-for="app in workspaceApps" :key="app.id" :class="['mini-card selectable', { selected: workspaceSelectedAppId === app.id }]" @click="selectWorkspaceApp(app.id)">
@@ -244,7 +246,7 @@
                 <h3>服务商应用</h3>
                 <p>未选中平台时展示全部应用；选中平台后只展示当前平台应用。选中应用后，下方只显示该应用下的连接实例。</p>
               </div>
-              <div class="toolbar-actions"><span class="tag">{{ tenantAppsCapabilityTotal }} 能力</span><button class="ghost-btn" @click="clearTenantPlatform">全部应用</button><button class="primary-btn" @click="openAppModal()">新增应用</button></div>
+              <div class="panel-control-split"><div class="toolbar-query compact"><span class="tag">{{ tenantAppsCapabilityTotal }} 能力</span><button class="ghost-btn" @click="clearTenantPlatform">全部应用</button></div><div class="toolbar-actions"><button class="primary-btn" @click="openAppModal()">新增应用</button></div></div>
             </div>
             <div class="app-list-grid">
               <article
@@ -275,8 +277,11 @@
 
       <section v-if="page === 'syncMonitor'" class="page-section">
         <div class="toolbar row-between">
-          <div class="search-box"><span>⌕</span><input v-model="syncKeyword" placeholder="搜索租户、平台、能力、任务" /></div>
-          <div class="toolbar-actions"><select v-model="syncStatus"><option value="all">全部状态</option><option value="success">成功</option><option value="running">执行中</option><option value="failed">失败</option><option value="paused">暂停</option></select></div>
+          <div class="toolbar-query">
+            <div class="search-box"><span>⌕</span><input v-model="syncKeyword" placeholder="搜索租户、平台、能力、任务" /></div>
+            <select v-model="syncStatus"><option value="all">全部状态</option><option value="success">成功</option><option value="running">执行中</option><option value="failed">失败</option><option value="paused">暂停</option></select>
+          </div>
+          <div class="toolbar-actions"></div>
         </div>
         <section class="panel table-panel">
           <DataTable :columns="syncColumns" :rows="filteredSyncJobs" min-width="1180px">
@@ -304,7 +309,7 @@
                 <h3>配额与限流策略</h3>
                 <p>支持平台默认、应用默认、租户通用，以及特殊企业专属覆盖。</p>
               </div>
-              <div class="toolbar-actions"><button class="ghost-btn" @click="resetQuotaFilters">全部</button><button class="primary-btn" @click="openPolicyModal()">新增策略</button></div>
+              <div class="panel-control-split"><div class="toolbar-query compact"><button class="ghost-btn" @click="resetQuotaFilters">全部</button></div><div class="toolbar-actions"><button class="primary-btn" @click="openPolicyModal()">新增策略</button></div></div>
             </div>
             <div class="policy-grid">
               <article v-for="policy in filteredPolicies" :key="policy.id" :class="['policy-card selectable', { selected: selectedPolicyId === policy.id }]" @click="selectedPolicyId = policy.id">
@@ -339,8 +344,11 @@
 
       <section v-if="page === 'alerts'" class="page-section">
         <div class="toolbar row-between">
-          <div class="search-box"><span>⌕</span><input v-model="alertKeyword" placeholder="搜索异常、租户、平台、能力" /></div>
-          <div class="toolbar-actions"><select v-model="alertStatus"><option value="all">全部状态</option><option value="open">待处理</option><option value="processing">处理中</option><option value="resolved">已恢复</option></select></div>
+          <div class="toolbar-query">
+            <div class="search-box"><span>⌕</span><input v-model="alertKeyword" placeholder="搜索异常、租户、平台、能力" /></div>
+            <select v-model="alertStatus"><option value="all">全部状态</option><option value="open">待处理</option><option value="processing">处理中</option><option value="resolved">已恢复</option></select>
+          </div>
+          <div class="toolbar-actions"><button class="ghost-btn" @click="exportLogs">导出日志</button></div>
         </div>
         <section class="panel">
           <div class="alert-list">
@@ -359,8 +367,12 @@
 
       <section v-if="page === 'logs'" class="page-section">
         <div class="toolbar row-between">
-          <div class="search-box"><span>⌕</span><input v-model="logKeyword" placeholder="搜索 request_id、平台、租户、Endpoint、错误码" /></div>
-          <div class="toolbar-actions"><select v-model="logType"><option value="all">全部类型</option><option value="api">第三方 API</option><option value="token">Token 刷新</option><option value="callback">回调接收</option><option value="data_write">数据写入</option></select><select v-model="logSuccess"><option value="all">全部结果</option><option value="success">成功</option><option value="failed">失败</option></select></div>
+          <div class="toolbar-query">
+            <div class="search-box"><span>⌕</span><input v-model="logKeyword" placeholder="搜索 request_id、平台、租户、Endpoint、错误码" /></div>
+            <select v-model="logType"><option value="all">全部类型</option><option value="api">第三方 API</option><option value="token">Token 刷新</option><option value="callback">回调接收</option><option value="data_write">数据写入</option></select>
+            <select v-model="logSuccess"><option value="all">全部结果</option><option value="success">成功</option><option value="failed">失败</option></select>
+          </div>
+          <div class="toolbar-actions"></div>
         </div>
         <section class="panel table-panel">
           <DataTable :columns="logColumns" :rows="filteredLogs" min-width="1220px">
@@ -574,7 +586,11 @@ import { computed, defineComponent, h, onMounted, reactive, ref, watch } from 'v
 import { useRoute } from 'vue-router'
 
 import {
+  checkIntegrationConnectivity,
+  createIntegrationProviderApp,
   createIntegrationPlatform,
+  createIntegrationQuotaPolicy,
+  exportIntegrationLogs,
   fetchIntegrationAlerts,
   fetchIntegrationLogs,
   fetchIntegrationPlatforms,
@@ -582,7 +598,21 @@ import {
   fetchIntegrationSyncMonitor,
   fetchIntegrationTenantConnections,
   fetchIntegrationWorkspace,
+  ignoreIntegrationAlert,
+  pauseIntegrationSyncJob,
+  pauseIntegrationTenantConnection,
+  processIntegrationAlert,
+  refreshIntegrationTenantConnection,
+  resolveIntegrationAlert,
+  resumeIntegrationSyncJob,
+  resumeIntegrationTenantConnection,
+  retryIntegrationSyncJob,
+  retryIntegrationTenantConnection,
+  updateIntegrationAppCapability,
+  updateIntegrationProviderApp,
   updateIntegrationPlatform,
+  updateIntegrationQuotaPolicy,
+  updateIntegrationQuotaPolicyStatus,
 } from '../api'
 
 const navItems = [
@@ -1184,19 +1214,202 @@ function openPolicyModal(policy) { openModal('policy', policy ? '编辑配额策
 function openOverrideModal(row) { openModal('override', '配置专属覆盖', '特殊企业配额覆盖', { name: row.name, limit: row.limit || 300000, qps: 50, concurrent: 10, period: '长期有效', remark: '大客户专属提额' }) }
 function openModal(type, title, subtitle, data) { Object.keys(form).forEach(k => delete form[k]); Object.assign(form, JSON.parse(JSON.stringify(data || {}))); modal.type = type; modal.title = title; modal.subtitle = subtitle; modal.open = true }
 function closeModal() { modal.open = false }
-function saveModal() { notify(`${modal.title}已保存`); closeModal() }
-function toggleAppCapability(row, key) { const target = appCapabilities.find(ac => ac.id === row.id); if (target) target[key] = !target[key]; notify(`${row.name}：${key} 已更新`) }
-function runHealthCheck(target) { notify(`${target}连通性检测已完成：存在 1 条预警`) }
-function refreshConnection(row) { row.authStatus = 'valid'; row.status = 'connected'; notify(`${row.tenantName} 授权状态已刷新`) }
-function pauseConnection(row) { row.status = row.status === 'paused' ? 'connected' : 'paused'; notify(`${row.tenantName} 连接已${row.status === 'paused' ? '暂停' : '恢复'}`) }
-function retryConnection(row) { notify(`${row.tenantName} 同步任务已加入重试队列`) }
-function retrySync(row) { row.status = 'running'; notify(`${row.job} 已开始重试`) }
-function toggleSync(row) { row.status = row.status === 'paused' ? 'running' : 'paused'; notify(`${row.job} 已${row.status === 'paused' ? '暂停' : '恢复'}`) }
-function copyPolicy(policy) { const copy = { ...policy, id: `${policy.id}-copy-${Date.now()}`, name: `${policy.name} - 专属覆盖`, isOverride: true, priority: policy.priority + 200, dailyLimit: Math.round(policy.dailyLimit * 2) }; policies.push(copy); selectedPolicyId.value = copy.id; notify('已复制为专属覆盖策略') }
-function toggleStatus(obj) { obj.status = obj.status === 'enabled' ? 'disabled' : 'enabled'; notify(`${obj.name || obj.title} 已${obj.status === 'enabled' ? '启用' : '停用'}`) }
-function processAlert(alert) { alert.status = 'processing'; notify('异常已标记处理中') }
-function resolveAlert(alert) { alert.status = 'resolved'; notify('异常已标记恢复') }
-function ignoreAlert(alert) { alert.status = 'ignored'; notify('异常已忽略') }
+async function saveModal() {
+  if (modal.type === 'app') return saveAppFromForm()
+  if (modal.type === 'policy') return savePolicyFromForm()
+  notify(`${modal.title}已保存`)
+  closeModal()
+}
+async function saveAppFromForm() {
+  const name = String(form.name || '').trim()
+  const platformId = String(form.platformId || workspacePlatformId.value || '').trim()
+  if (!name || !platformId || platformId === 'all') {
+    notify('请填写应用名称并选择所属平台', 'error')
+    return
+  }
+  const existing = form.id && apps.find(a => a.id === form.id)
+  const code = existing?.id || slugify(form.code || name)
+  const payload = {
+    platform_code: platformId,
+    code,
+    name,
+    app_type: form.type || 'provider_app',
+    auth_mode: form.authMode || form.accessType || 'OAuth2',
+    environment: form.env || 'prod',
+    status: form.status || 'enabled',
+    tenant_visible: form.tenantVisible !== false,
+    callback_url: form.callbackUrl || form.endpoint || '',
+    webhook_url: form.webhookUrl || '',
+    credential_ref: form.credentialRef || '',
+    owner_name: form.owner || '',
+    description: form.description || '',
+  }
+  try {
+    const saved = existing
+      ? await updateIntegrationProviderApp(existing.id, payload)
+      : await createIntegrationProviderApp(payload)
+    const mapped = mapBackendApp(saved)
+    if (existing) Object.assign(existing, mapped)
+    else apps.push(mapped)
+    closeModal()
+    notify(existing ? '服务商应用已更新' : '服务商应用已创建')
+  } catch (error) {
+    notify(error instanceof Error ? error.message : '服务商应用保存失败', 'error')
+  }
+}
+async function savePolicyFromForm() {
+  const name = String(form.name || '').trim()
+  if (!name) {
+    notify('请填写策略名称', 'error')
+    return
+  }
+  const existing = form.id && policies.find(p => p.id === form.id)
+  const code = existing?.id || slugify(form.code || name)
+  const payload = {
+    code,
+    name,
+    quota_code: form.quotaCode || 'integration_api_calls_daily',
+    quota_unit: form.quotaUnit || 'CALL',
+    period_type: form.periodType || 'DAY',
+    default_limit: Number(form.dailyLimit || form.defaultLimit || 0),
+    over_limit_action: form.exceedStrategy || form.overLimitAction || 'reject',
+    status: form.status || 'enabled',
+    description: form.description || '',
+  }
+  try {
+    const saved = existing
+      ? await updateIntegrationQuotaPolicy(existing.id, payload)
+      : await createIntegrationQuotaPolicy(payload)
+    const mapped = mapBackendPolicy(saved)
+    if (existing) Object.assign(existing, mapped)
+    else policies.push(mapped)
+    selectedPolicyId.value = mapped.id
+    closeModal()
+    notify(existing ? '配额策略已更新' : '配额策略已创建')
+  } catch (error) {
+    notify(error instanceof Error ? error.message : '配额策略保存失败', 'error')
+  }
+}
+async function toggleAppCapability(row, key) {
+  const target = appCapabilities.find(ac => ac.id === row.id)
+  if (!target) return
+  const next = !target[key]
+  if (isNumericId(row.id)) {
+    try {
+      await updateIntegrationAppCapability(row.id, { enabled: next })
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '应用能力更新失败', 'error')
+      return
+    }
+  }
+  target[key] = next
+  notify(`${row.name}：${key} 已更新`)
+}
+async function runHealthCheck(target) {
+  try {
+    const result = await checkIntegrationConnectivity(target)
+    notify(result?.message || `${target}连通性检测已完成`)
+  } catch (error) {
+    notify(error instanceof Error ? error.message : '连通性检测失败', 'error')
+  }
+}
+async function exportLogs() {
+  try {
+    const result = await exportIntegrationLogs()
+    notify(result?.message || '调用日志导出任务已创建')
+  } catch (error) {
+    notify(error instanceof Error ? error.message : '调用日志导出失败', 'error')
+  }
+}
+async function refreshConnection(row) {
+  if (isNumericId(row.id)) {
+    try { await refreshIntegrationTenantConnection(row.id) } catch (error) { notify(error instanceof Error ? error.message : '授权刷新失败', 'error'); return }
+  }
+  row.authStatus = 'valid'; row.status = 'connected'; notify(`${row.tenantName} 授权状态已刷新`)
+}
+async function pauseConnection(row) {
+  const willPause = row.status !== 'paused'
+  if (isNumericId(row.id)) {
+    try {
+      await (willPause ? pauseIntegrationTenantConnection(row.id) : resumeIntegrationTenantConnection(row.id))
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '连接状态更新失败', 'error')
+      return
+    }
+  }
+  row.status = willPause ? 'paused' : 'connected'; notify(`${row.tenantName} 连接已${row.status === 'paused' ? '暂停' : '恢复'}`)
+}
+async function retryConnection(row) {
+  if (isNumericId(row.id)) {
+    try { await retryIntegrationTenantConnection(row.id) } catch (error) { notify(error instanceof Error ? error.message : '连接重试失败', 'error'); return }
+  }
+  notify(`${row.tenantName} 同步任务已加入重试队列`)
+}
+async function retrySync(row) {
+  if (isNumericId(row.id)) {
+    try { await retryIntegrationSyncJob(row.id) } catch (error) { notify(error instanceof Error ? error.message : '同步任务重试失败', 'error'); return }
+  }
+  row.status = 'running'; notify(`${row.job} 已开始重试`)
+}
+async function toggleSync(row) {
+  const willPause = row.status !== 'paused'
+  if (isNumericId(row.id)) {
+    try {
+      await (willPause ? pauseIntegrationSyncJob(row.id) : resumeIntegrationSyncJob(row.id))
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '同步任务状态更新失败', 'error')
+      return
+    }
+  }
+  row.status = willPause ? 'paused' : 'running'; notify(`${row.job} 已${row.status === 'paused' ? '暂停' : '恢复'}`)
+}
+async function copyPolicy(policy) {
+  const copy = { ...policy, id: `${policy.id}-copy-${Date.now()}`, name: `${policy.name} - 专属覆盖`, isOverride: true, priority: policy.priority + 200, dailyLimit: Math.round(policy.dailyLimit * 2) }
+  try {
+    const saved = await createIntegrationQuotaPolicy({
+      code: copy.id,
+      name: copy.name,
+      quota_code: 'integration_api_calls_daily',
+      quota_unit: 'CALL',
+      period_type: 'DAY',
+      default_limit: copy.dailyLimit,
+      over_limit_action: copy.exceedStrategy || 'reject',
+      status: 'enabled',
+      description: '由通用策略复制生成的专属覆盖策略。',
+    })
+    policies.push(mapBackendPolicy(saved))
+  } catch (_) {
+    policies.push(copy)
+  }
+  selectedPolicyId.value = copy.id; notify('已复制为专属覆盖策略')
+}
+async function toggleStatus(obj) {
+  const enabled = obj.status !== 'enabled'
+  if (policies.includes(obj)) {
+    try { await updateIntegrationQuotaPolicyStatus(obj.id, enabled) } catch (error) { notify(error instanceof Error ? error.message : '策略状态更新失败', 'error'); return }
+  }
+  obj.status = enabled ? 'enabled' : 'disabled'; notify(`${obj.name || obj.title} 已${obj.status === 'enabled' ? '启用' : '停用'}`)
+}
+async function processAlert(alert) {
+  if (isNumericId(alert.id)) {
+    try { await processIntegrationAlert(alert.id) } catch (error) { notify(error instanceof Error ? error.message : '异常处理失败', 'error'); return }
+  }
+  alert.status = 'processing'; notify('异常已标记处理中')
+}
+async function resolveAlert(alert) {
+  if (isNumericId(alert.id)) {
+    try { await resolveIntegrationAlert(alert.id) } catch (error) { notify(error instanceof Error ? error.message : '异常恢复失败', 'error'); return }
+  }
+  alert.status = 'resolved'; notify('异常已标记恢复')
+}
+async function ignoreAlert(alert) {
+  if (isNumericId(alert.id)) {
+    try { await ignoreIntegrationAlert(alert.id) } catch (error) { notify(error instanceof Error ? error.message : '异常忽略失败', 'error'); return }
+  }
+  alert.status = 'ignored'; notify('异常已忽略')
+}
+function isNumericId(id) { return /^\d+$/.test(String(id || '')) }
+function slugify(value) { return String(value || '').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '') || `item_${Date.now()}` }
 function copyText(text) { navigator?.clipboard?.writeText(text); notify('已复制') }
 function appSecretItems(app) { return [{ label: 'suite_id / app_key', value: app.suiteId || 'app_key_******' }, { label: 'suite_secret / app_secret', value: app.suiteSecret || '****** 加密存储' }, { label: 'Token', value: app.token || '******' }, { label: 'EncodingAESKey', value: app.encodingAesKey || '******' }, { label: 'Endpoint', value: app.endpoint || '-' }] }
 

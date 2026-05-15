@@ -104,6 +104,89 @@ func TestServiceCreatesAndUpdatesPlatform(t *testing.T) {
 	require.False(t, updated.TenantVisible)
 }
 
+func TestServiceCreatesAndUpdatesProviderApp(t *testing.T) {
+	db := newIntegrationCenterTestDB(t)
+	now := time.Now()
+	platform := models.IntegrationPlatform{PlatformCode: "wecom", PlatformName: "企业微信", PlatformType: "协同办公", AccessMode: "OAuth2", Status: "online", CreatedAt: now, UpdatedAt: now}
+	require.NoError(t, db.Create(&platform).Error)
+	service := NewService(repositories.NewRepository(db))
+
+	created, err := service.CreateProviderApp(context.Background(), ProviderAppMutationRequest{
+		PlatformCode: "wecom", Code: "wecom-suite-prod", Name: "企微正式应用", AuthMode: "OAuth2",
+		Environment: "正式", Status: "enabled", TenantVisible: true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "wecom-suite-prod", created.AppCode)
+	require.Equal(t, "online", created.Status)
+
+	updated, err := service.UpdateProviderApp(context.Background(), "wecom-suite-prod", ProviderAppMutationRequest{
+		PlatformCode: "wecom", Name: "企微正式应用 V2", AuthMode: "OAuth2",
+		Environment: "test", Status: "testing", TenantVisible: false,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "企微正式应用 V2", updated.AppName)
+	require.Equal(t, "beta", updated.Status)
+	require.False(t, updated.TenantVisible)
+}
+
+func TestServiceUpdatesOperationalStates(t *testing.T) {
+	db := newIntegrationCenterTestDB(t)
+	now := time.Now()
+	platform := models.IntegrationPlatform{PlatformCode: "jd", PlatformName: "京东", PlatformType: "电商平台", AccessMode: "OAuth2", Status: "online", CreatedAt: now, UpdatedAt: now}
+	require.NoError(t, db.Create(&platform).Error)
+	app := models.IntegrationProviderApp{PlatformID: platform.ID, AppCode: "jd-shop", AppName: "京东店铺", AuthMode: "OAuth2", Status: "online", Environment: "prod", CreatedAt: now, UpdatedAt: now}
+	require.NoError(t, db.Create(&app).Error)
+	connection := models.IntegrationTenantConnection{
+		TenantID: 9, PlatformID: platform.ID, ProviderAppID: app.ID, ConnectionName: "旗舰店",
+		AuthSubjectType: "shop", AuthSubjectID: "shop-1001", AuthSubjectName: "旗舰店",
+		AuthScope: "[]", AuthStatus: "pending", ConnectionStatus: "inactive", TokenStatus: "unknown",
+		CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, db.Create(&connection).Error)
+	job := models.IntegrationSyncJob{
+		TenantID: 9, TenantConnectionID: connection.ID, CapabilityCode: "order_sync",
+		JobType: "incremental", TriggerMode: "manual", Status: "failed", CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, db.Create(&job).Error)
+	alert := models.IntegrationAlert{
+		TenantID: &connection.TenantID, TenantConnectionID: &connection.ID, PlatformID: &platform.ID, ProviderAppID: &app.ID,
+		AlertType: "sync", Severity: "warning", Status: "open", Title: "同步失败", FirstSeenAt: now, LastSeenAt: now,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, db.Create(&alert).Error)
+
+	service := NewService(repositories.NewRepository(db))
+	refreshed, err := service.RefreshTenantConnection(context.Background(), connection.ID)
+	require.NoError(t, err)
+	require.Equal(t, "connected", refreshed.ConnectionStatus)
+	require.Equal(t, "valid", refreshed.TokenStatus)
+
+	retried, err := service.RetrySyncJob(context.Background(), job.ID)
+	require.NoError(t, err)
+	require.Equal(t, "retrying", retried.Status)
+
+	resolved, err := service.ResolveAlert(context.Background(), alert.ID)
+	require.NoError(t, err)
+	require.Equal(t, "resolved", resolved.Status)
+	require.NotNil(t, resolved.ResolvedAt)
+}
+
+func TestServiceCreatesAndTogglesQuotaPolicy(t *testing.T) {
+	db := newIntegrationCenterTestDB(t)
+	service := NewService(repositories.NewRepository(db))
+
+	created, err := service.CreateQuotaPolicy(context.Background(), QuotaPolicyMutationRequest{
+		Code: "api-daily-premium", Name: "高级接口日调用", QuotaCode: "integration_api_calls_daily",
+		QuotaUnit: "CALL", PeriodType: "DAY", DefaultLimit: 200000, OverLimitAction: "queue", Status: "enabled",
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(200000), created.DefaultLimit)
+
+	disabled, err := service.SetQuotaPolicyStatus(context.Background(), "api-daily-premium", false)
+	require.NoError(t, err)
+	require.Equal(t, "disabled", disabled.Status)
+}
+
 func newIntegrationCenterTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})

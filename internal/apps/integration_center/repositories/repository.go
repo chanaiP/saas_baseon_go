@@ -10,7 +10,15 @@ import (
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 )
 
-var ErrPlatformNotFound = errors.New("integration platform not found")
+var (
+	ErrPlatformNotFound    = errors.New("integration platform not found")
+	ErrProviderAppNotFound = errors.New("integration provider app not found")
+	ErrCapabilityNotFound  = errors.New("integration app capability not found")
+	ErrConnectionNotFound  = errors.New("integration tenant connection not found")
+	ErrSyncJobNotFound     = errors.New("integration sync job not found")
+	ErrQuotaPolicyNotFound = errors.New("integration quota policy not found")
+	ErrAlertNotFound       = errors.New("integration alert not found")
+)
 
 type Repository struct {
 	db *gorm.DB
@@ -143,6 +151,52 @@ func (r *Repository) CreatePlatform(ctx context.Context, platform models.Integra
 	return platform, err
 }
 
+func (r *Repository) GetProviderAppByCode(ctx context.Context, code string) (models.IntegrationProviderApp, error) {
+	var app models.IntegrationProviderApp
+	err := r.active(ctx, &models.IntegrationProviderApp{}).Where("app_code = ?", code).First(&app).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return models.IntegrationProviderApp{}, ErrProviderAppNotFound
+	}
+	return app, err
+}
+
+func (r *Repository) CreateProviderApp(ctx context.Context, app models.IntegrationProviderApp) (models.IntegrationProviderApp, error) {
+	now := time.Now()
+	app.CreatedAt = now
+	app.UpdatedAt = now
+	err := r.db.WithContext(ctx).Create(&app).Error
+	return app, err
+}
+
+func (r *Repository) UpdateProviderApp(ctx context.Context, code string, patch map[string]interface{}) (models.IntegrationProviderApp, error) {
+	app, err := r.GetProviderAppByCode(ctx, code)
+	if err != nil {
+		return models.IntegrationProviderApp{}, err
+	}
+	patch["updated_at"] = time.Now()
+	if err := r.db.WithContext(ctx).Model(&app).Updates(patch).Error; err != nil {
+		return models.IntegrationProviderApp{}, err
+	}
+	return r.GetProviderAppByCode(ctx, code)
+}
+
+func (r *Repository) UpdateAppCapability(ctx context.Context, id uint64, patch map[string]interface{}) (models.IntegrationProviderAppCapability, error) {
+	var capability models.IntegrationProviderAppCapability
+	err := r.active(ctx, &models.IntegrationProviderAppCapability{}).Where("id = ?", id).First(&capability).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return models.IntegrationProviderAppCapability{}, ErrCapabilityNotFound
+	}
+	if err != nil {
+		return models.IntegrationProviderAppCapability{}, err
+	}
+	patch["updated_at"] = time.Now()
+	if err := r.db.WithContext(ctx).Model(&capability).Updates(patch).Error; err != nil {
+		return models.IntegrationProviderAppCapability{}, err
+	}
+	err = r.active(ctx, &models.IntegrationProviderAppCapability{}).Where("id = ?", id).First(&capability).Error
+	return capability, err
+}
+
 func (r *Repository) UpdatePlatform(ctx context.Context, code string, patch map[string]interface{}) (models.IntegrationPlatform, error) {
 	platform, err := r.GetPlatformByCode(ctx, code)
 	if err != nil {
@@ -209,6 +263,14 @@ func (r *Repository) ListSyncJobs(ctx context.Context, limit int) ([]models.Inte
 	return rows, err
 }
 
+func (r *Repository) CreateSyncJob(ctx context.Context, job models.IntegrationSyncJob) (models.IntegrationSyncJob, error) {
+	now := time.Now()
+	job.CreatedAt = now
+	job.UpdatedAt = now
+	err := r.db.WithContext(ctx).Create(&job).Error
+	return job, err
+}
+
 func (r *Repository) ListQuotaPolicies(ctx context.Context, limit int) ([]models.IntegrationQuotaPolicy, error) {
 	var rows []models.IntegrationQuotaPolicy
 	err := r.active(ctx, &models.IntegrationQuotaPolicy{}).Order("id ASC").Limit(limit).Find(&rows).Error
@@ -225,6 +287,86 @@ func (r *Repository) ListAPICallLogs(ctx context.Context, limit int) ([]models.I
 	var rows []models.IntegrationAPICallLog
 	err := r.db.WithContext(ctx).Model(&models.IntegrationAPICallLog{}).Order("called_at DESC, id DESC").Limit(limit).Find(&rows).Error
 	return rows, err
+}
+
+func (r *Repository) UpdateTenantConnection(ctx context.Context, id uint64, patch map[string]interface{}) (models.IntegrationTenantConnection, error) {
+	var connection models.IntegrationTenantConnection
+	err := r.active(ctx, &models.IntegrationTenantConnection{}).Where("id = ?", id).First(&connection).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return models.IntegrationTenantConnection{}, ErrConnectionNotFound
+	}
+	if err != nil {
+		return models.IntegrationTenantConnection{}, err
+	}
+	patch["updated_at"] = time.Now()
+	if err := r.db.WithContext(ctx).Model(&connection).Updates(patch).Error; err != nil {
+		return models.IntegrationTenantConnection{}, err
+	}
+	err = r.active(ctx, &models.IntegrationTenantConnection{}).Where("id = ?", id).First(&connection).Error
+	return connection, err
+}
+
+func (r *Repository) UpdateSyncJob(ctx context.Context, id uint64, patch map[string]interface{}) (models.IntegrationSyncJob, error) {
+	var job models.IntegrationSyncJob
+	err := r.active(ctx, &models.IntegrationSyncJob{}).Where("id = ?", id).First(&job).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return models.IntegrationSyncJob{}, ErrSyncJobNotFound
+	}
+	if err != nil {
+		return models.IntegrationSyncJob{}, err
+	}
+	patch["updated_at"] = time.Now()
+	if err := r.db.WithContext(ctx).Model(&job).Updates(patch).Error; err != nil {
+		return models.IntegrationSyncJob{}, err
+	}
+	err = r.active(ctx, &models.IntegrationSyncJob{}).Where("id = ?", id).First(&job).Error
+	return job, err
+}
+
+func (r *Repository) GetQuotaPolicyByCode(ctx context.Context, code string) (models.IntegrationQuotaPolicy, error) {
+	var policy models.IntegrationQuotaPolicy
+	err := r.active(ctx, &models.IntegrationQuotaPolicy{}).Where("policy_code = ?", code).First(&policy).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return models.IntegrationQuotaPolicy{}, ErrQuotaPolicyNotFound
+	}
+	return policy, err
+}
+
+func (r *Repository) CreateQuotaPolicy(ctx context.Context, policy models.IntegrationQuotaPolicy) (models.IntegrationQuotaPolicy, error) {
+	now := time.Now()
+	policy.CreatedAt = now
+	policy.UpdatedAt = now
+	err := r.db.WithContext(ctx).Create(&policy).Error
+	return policy, err
+}
+
+func (r *Repository) UpdateQuotaPolicy(ctx context.Context, code string, patch map[string]interface{}) (models.IntegrationQuotaPolicy, error) {
+	policy, err := r.GetQuotaPolicyByCode(ctx, code)
+	if err != nil {
+		return models.IntegrationQuotaPolicy{}, err
+	}
+	patch["updated_at"] = time.Now()
+	if err := r.db.WithContext(ctx).Model(&policy).Updates(patch).Error; err != nil {
+		return models.IntegrationQuotaPolicy{}, err
+	}
+	return r.GetQuotaPolicyByCode(ctx, code)
+}
+
+func (r *Repository) UpdateAlert(ctx context.Context, id uint64, patch map[string]interface{}) (models.IntegrationAlert, error) {
+	var alert models.IntegrationAlert
+	err := r.active(ctx, &models.IntegrationAlert{}).Where("id = ?", id).First(&alert).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return models.IntegrationAlert{}, ErrAlertNotFound
+	}
+	if err != nil {
+		return models.IntegrationAlert{}, err
+	}
+	patch["updated_at"] = time.Now()
+	if err := r.db.WithContext(ctx).Model(&alert).Updates(patch).Error; err != nil {
+		return models.IntegrationAlert{}, err
+	}
+	err = r.active(ctx, &models.IntegrationAlert{}).Where("id = ?", id).First(&alert).Error
+	return alert, err
 }
 
 func (r *Repository) active(ctx context.Context, model interface{}) *gorm.DB {

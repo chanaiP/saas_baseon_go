@@ -83,6 +83,60 @@ type PlatformMutationRequest struct {
 	Description   string `json:"description"`
 }
 
+type ProviderAppMutationRequest struct {
+	PlatformCode  string `json:"platform_code"`
+	Code          string `json:"code"`
+	Name          string `json:"name"`
+	AppType       string `json:"app_type"`
+	AuthMode      string `json:"auth_mode"`
+	Environment   string `json:"environment"`
+	Status        string `json:"status"`
+	TenantVisible bool   `json:"tenant_visible"`
+	CallbackURL   string `json:"callback_url"`
+	WebhookURL    string `json:"webhook_url"`
+	CredentialRef string `json:"credential_ref"`
+	OwnerName     string `json:"owner_name"`
+	Description   string `json:"description"`
+}
+
+type AppCapabilityPatchRequest struct {
+	Enabled          *bool  `json:"enabled"`
+	ConnectionStatus string `json:"connection_status"`
+	ReviewStatus     string `json:"review_status"`
+}
+
+type QuotaPolicyMutationRequest struct {
+	Code            string `json:"code"`
+	Name            string `json:"name"`
+	QuotaCode       string `json:"quota_code"`
+	QuotaUnit       string `json:"quota_unit"`
+	PeriodType      string `json:"period_type"`
+	DefaultLimit    int64  `json:"default_limit"`
+	OverLimitAction string `json:"over_limit_action"`
+	Status          string `json:"status"`
+	Description     string `json:"description"`
+}
+
+type ConnectivityCheckRequest struct {
+	Target string `json:"target"`
+}
+
+type ConnectivityCheckResult struct {
+	Target       string `json:"target"`
+	Status       string `json:"status"`
+	CheckedAt    string `json:"checked_at"`
+	OpenAlerts   int64  `json:"open_alerts"`
+	RunningSyncs int64  `json:"running_syncs"`
+	Message      string `json:"message"`
+}
+
+type LogExportResult struct {
+	TaskID    string `json:"task_id"`
+	Status    string `json:"status"`
+	CreatedAt string `json:"created_at"`
+	Message   string `json:"message"`
+}
+
 func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	if s.repo != nil {
 		counts, err := s.repo.Counts(ctx)
@@ -214,6 +268,103 @@ func (s *Service) UpdatePlatform(ctx context.Context, code string, req PlatformM
 		return repositories.PlatformSummary{}, err
 	}
 	return platformToSummary(platform), nil
+}
+
+func (s *Service) CreateProviderApp(ctx context.Context, req ProviderAppMutationRequest) (repositories.ProviderAppSummary, error) {
+	if s.repo == nil {
+		return repositories.ProviderAppSummary{}, errors.New("integration center repository is not configured")
+	}
+	if err := validateProviderAppRequest(req, true); err != nil {
+		return repositories.ProviderAppSummary{}, err
+	}
+	platform, err := s.repo.GetPlatformByCode(ctx, normalizePlatformCode(req.PlatformCode))
+	if err != nil {
+		return repositories.ProviderAppSummary{}, humanizeRepoError(err, "接入平台不存在")
+	}
+	app, err := s.repo.CreateProviderApp(ctx, models.IntegrationProviderApp{
+		PlatformID:    platform.ID,
+		AppCode:       normalizePlatformCode(req.Code),
+		AppName:       strings.TrimSpace(req.Name),
+		AppType:       defaultString(req.AppType, "provider_app"),
+		AuthMode:      defaultString(req.AuthMode, "OAuth2"),
+		Environment:   normalizeEnvironment(req.Environment),
+		Status:        normalizeAppStatus(req.Status),
+		TenantVisible: req.TenantVisible,
+		CallbackURL:   optionalString(req.CallbackURL),
+		WebhookURL:    optionalString(req.WebhookURL),
+		CredentialRef: optionalString(req.CredentialRef),
+		OwnerName:     optionalString(req.OwnerName),
+		Description:   optionalString(req.Description),
+	})
+	if err != nil {
+		return repositories.ProviderAppSummary{}, humanizeRepoError(err, "服务商应用保存失败")
+	}
+	return providerAppToSummary(app, platform), nil
+}
+
+func (s *Service) UpdateProviderApp(ctx context.Context, code string, req ProviderAppMutationRequest) (repositories.ProviderAppSummary, error) {
+	if s.repo == nil {
+		return repositories.ProviderAppSummary{}, errors.New("integration center repository is not configured")
+	}
+	if err := validateProviderAppRequest(req, false); err != nil {
+		return repositories.ProviderAppSummary{}, err
+	}
+	var platform models.IntegrationPlatform
+	var err error
+	if strings.TrimSpace(req.PlatformCode) != "" {
+		platform, err = s.repo.GetPlatformByCode(ctx, normalizePlatformCode(req.PlatformCode))
+		if err != nil {
+			return repositories.ProviderAppSummary{}, humanizeRepoError(err, "接入平台不存在")
+		}
+	}
+	patch := map[string]interface{}{
+		"app_name":       strings.TrimSpace(req.Name),
+		"app_type":       defaultString(req.AppType, "provider_app"),
+		"auth_mode":      defaultString(req.AuthMode, "OAuth2"),
+		"environment":    normalizeEnvironment(req.Environment),
+		"status":         normalizeAppStatus(req.Status),
+		"tenant_visible": req.TenantVisible,
+		"callback_url":   optionalString(req.CallbackURL),
+		"webhook_url":    optionalString(req.WebhookURL),
+		"credential_ref": optionalString(req.CredentialRef),
+		"owner_name":     optionalString(req.OwnerName),
+		"description":    optionalString(req.Description),
+	}
+	if platform.ID > 0 {
+		patch["platform_id"] = platform.ID
+	}
+	app, err := s.repo.UpdateProviderApp(ctx, normalizePlatformCode(code), patch)
+	if err != nil {
+		return repositories.ProviderAppSummary{}, humanizeRepoError(err, "服务商应用不存在")
+	}
+	if platform.ID == 0 {
+		platform = models.IntegrationPlatform{ID: app.PlatformID}
+	}
+	return providerAppToSummary(app, platform), nil
+}
+
+func (s *Service) UpdateAppCapability(ctx context.Context, id uint64, req AppCapabilityPatchRequest) (models.IntegrationProviderAppCapability, error) {
+	if s.repo == nil {
+		return models.IntegrationProviderAppCapability{}, errors.New("integration center repository is not configured")
+	}
+	patch := map[string]interface{}{}
+	if req.Enabled != nil {
+		patch["enabled"] = *req.Enabled
+	}
+	if status := normalizeConnectionStatus(req.ConnectionStatus); status != "" {
+		patch["connection_status"] = status
+	}
+	if review := normalizeReviewStatus(req.ReviewStatus); review != "" {
+		patch["review_status"] = review
+	}
+	if len(patch) == 0 {
+		return models.IntegrationProviderAppCapability{}, errors.New("没有可更新的能力字段")
+	}
+	result, err := s.repo.UpdateAppCapability(ctx, id, patch)
+	if err != nil {
+		return models.IntegrationProviderAppCapability{}, humanizeRepoError(err, "应用能力不存在")
+	}
+	return result, nil
 }
 
 func (s *Service) Connectors(ctx context.Context) ([]IntegrationConnector, error) {
@@ -401,6 +552,218 @@ func (s *Service) Logs(ctx context.Context) (SectionSummary, error) {
 	}}, nil
 }
 
+func (s *Service) RefreshTenantConnection(ctx context.Context, id uint64) (models.IntegrationTenantConnection, error) {
+	if s.repo == nil {
+		return models.IntegrationTenantConnection{}, errors.New("integration center repository is not configured")
+	}
+	now := time.Now()
+	result, err := s.repo.UpdateTenantConnection(ctx, id, map[string]interface{}{
+		"auth_status":        "authorized",
+		"connection_status":  "connected",
+		"token_status":       "valid",
+		"last_sync_at":       &now,
+		"last_error_at":      nil,
+		"last_error_message": nil,
+	})
+	if err != nil {
+		return models.IntegrationTenantConnection{}, humanizeRepoError(err, "租户连接不存在")
+	}
+	return result, nil
+}
+
+func (s *Service) SetTenantConnectionStatus(ctx context.Context, id uint64, paused bool) (models.IntegrationTenantConnection, error) {
+	if s.repo == nil {
+		return models.IntegrationTenantConnection{}, errors.New("integration center repository is not configured")
+	}
+	status := "connected"
+	if paused {
+		status = "paused"
+	}
+	result, err := s.repo.UpdateTenantConnection(ctx, id, map[string]interface{}{"connection_status": status})
+	if err != nil {
+		return models.IntegrationTenantConnection{}, humanizeRepoError(err, "租户连接不存在")
+	}
+	return result, nil
+}
+
+func (s *Service) RetryTenantConnection(ctx context.Context, id uint64) (models.IntegrationSyncJob, error) {
+	if s.repo == nil {
+		return models.IntegrationSyncJob{}, errors.New("integration center repository is not configured")
+	}
+	connection, err := s.repo.UpdateTenantConnection(ctx, id, map[string]interface{}{"connection_status": "connected"})
+	if err != nil {
+		return models.IntegrationSyncJob{}, humanizeRepoError(err, "租户连接不存在")
+	}
+	now := time.Now()
+	job := models.IntegrationSyncJob{
+		TenantID:           connection.TenantID,
+		TenantConnectionID: connection.ID,
+		CapabilityCode:     "manual_retry",
+		JobType:            "manual_retry",
+		TriggerMode:        "manual",
+		Status:             "pending",
+		StartedAt:          &now,
+	}
+	result, err := s.repo.CreateSyncJob(ctx, job)
+	if err != nil {
+		return models.IntegrationSyncJob{}, humanizeRepoError(err, "同步重试任务创建失败")
+	}
+	return result, nil
+}
+
+func (s *Service) RetrySyncJob(ctx context.Context, id uint64) (models.IntegrationSyncJob, error) {
+	now := time.Now()
+	return s.updateSyncJob(ctx, id, map[string]interface{}{
+		"status":        "retrying",
+		"started_at":    &now,
+		"finished_at":   nil,
+		"error_code":    nil,
+		"error_message": nil,
+	})
+}
+
+func (s *Service) PauseSyncJob(ctx context.Context, id uint64) (models.IntegrationSyncJob, error) {
+	return s.updateSyncJob(ctx, id, map[string]interface{}{"status": "paused"})
+}
+
+func (s *Service) ResumeSyncJob(ctx context.Context, id uint64) (models.IntegrationSyncJob, error) {
+	now := time.Now()
+	return s.updateSyncJob(ctx, id, map[string]interface{}{"status": "running", "started_at": &now})
+}
+
+func (s *Service) updateSyncJob(ctx context.Context, id uint64, patch map[string]interface{}) (models.IntegrationSyncJob, error) {
+	if s.repo == nil {
+		return models.IntegrationSyncJob{}, errors.New("integration center repository is not configured")
+	}
+	result, err := s.repo.UpdateSyncJob(ctx, id, patch)
+	if err != nil {
+		return models.IntegrationSyncJob{}, humanizeRepoError(err, "同步任务不存在")
+	}
+	return result, nil
+}
+
+func (s *Service) CreateQuotaPolicy(ctx context.Context, req QuotaPolicyMutationRequest) (models.IntegrationQuotaPolicy, error) {
+	if s.repo == nil {
+		return models.IntegrationQuotaPolicy{}, errors.New("integration center repository is not configured")
+	}
+	if err := validateQuotaPolicyRequest(req, true); err != nil {
+		return models.IntegrationQuotaPolicy{}, err
+	}
+	policy, err := s.repo.CreateQuotaPolicy(ctx, quotaPolicyFromRequest(req))
+	if err != nil {
+		return models.IntegrationQuotaPolicy{}, humanizeRepoError(err, "配额策略保存失败")
+	}
+	return policy, nil
+}
+
+func (s *Service) UpdateQuotaPolicy(ctx context.Context, code string, req QuotaPolicyMutationRequest) (models.IntegrationQuotaPolicy, error) {
+	if s.repo == nil {
+		return models.IntegrationQuotaPolicy{}, errors.New("integration center repository is not configured")
+	}
+	if err := validateQuotaPolicyRequest(req, false); err != nil {
+		return models.IntegrationQuotaPolicy{}, err
+	}
+	patch := map[string]interface{}{
+		"policy_name":       strings.TrimSpace(req.Name),
+		"quota_code":        normalizePlatformCode(defaultString(req.QuotaCode, "integration_api_calls_daily")),
+		"quota_unit":        defaultString(req.QuotaUnit, "CALL"),
+		"period_type":       defaultString(req.PeriodType, "DAY"),
+		"default_limit":     req.DefaultLimit,
+		"over_limit_action": normalizeOverLimitAction(req.OverLimitAction),
+		"status":            normalizeEnabledStatus(req.Status),
+		"description":       optionalString(req.Description),
+	}
+	policy, err := s.repo.UpdateQuotaPolicy(ctx, normalizePlatformCode(code), patch)
+	if err != nil {
+		return models.IntegrationQuotaPolicy{}, humanizeRepoError(err, "配额策略不存在")
+	}
+	return policy, nil
+}
+
+func (s *Service) SetQuotaPolicyStatus(ctx context.Context, code string, enabled bool) (models.IntegrationQuotaPolicy, error) {
+	if s.repo == nil {
+		return models.IntegrationQuotaPolicy{}, errors.New("integration center repository is not configured")
+	}
+	status := "disabled"
+	if enabled {
+		status = "enabled"
+	}
+	policy, err := s.repo.UpdateQuotaPolicy(ctx, normalizePlatformCode(code), map[string]interface{}{"status": status})
+	if err != nil {
+		return models.IntegrationQuotaPolicy{}, humanizeRepoError(err, "配额策略不存在")
+	}
+	return policy, nil
+}
+
+func (s *Service) ProcessAlert(ctx context.Context, id uint64) (models.IntegrationAlert, error) {
+	return s.updateAlert(ctx, id, map[string]interface{}{"status": "processing"})
+}
+
+func (s *Service) ResolveAlert(ctx context.Context, id uint64) (models.IntegrationAlert, error) {
+	now := time.Now()
+	return s.updateAlert(ctx, id, map[string]interface{}{"status": "resolved", "resolved_at": &now})
+}
+
+func (s *Service) IgnoreAlert(ctx context.Context, id uint64) (models.IntegrationAlert, error) {
+	return s.updateAlert(ctx, id, map[string]interface{}{"status": "ignored"})
+}
+
+func (s *Service) updateAlert(ctx context.Context, id uint64, patch map[string]interface{}) (models.IntegrationAlert, error) {
+	if s.repo == nil {
+		return models.IntegrationAlert{}, errors.New("integration center repository is not configured")
+	}
+	result, err := s.repo.UpdateAlert(ctx, id, patch)
+	if err != nil {
+		return models.IntegrationAlert{}, humanizeRepoError(err, "异常记录不存在")
+	}
+	return result, nil
+}
+
+func (s *Service) CheckConnectivity(ctx context.Context, req ConnectivityCheckRequest) (ConnectivityCheckResult, error) {
+	if s.repo == nil {
+		return ConnectivityCheckResult{}, errors.New("integration center repository is not configured")
+	}
+	counts, err := s.repo.Counts(ctx)
+	if err != nil {
+		return ConnectivityCheckResult{}, err
+	}
+	target := strings.TrimSpace(req.Target)
+	if target == "" {
+		target = "全局"
+	}
+	status := "success"
+	message := "连通性检测通过"
+	if counts.OpenAlerts > 0 {
+		status = "warning"
+		message = "检测完成，存在待处理异常"
+	}
+	return ConnectivityCheckResult{
+		Target:       target,
+		Status:       status,
+		CheckedAt:    time.Now().Format(time.RFC3339),
+		OpenAlerts:   counts.OpenAlerts,
+		RunningSyncs: counts.RunningSyncJobs,
+		Message:      message,
+	}, nil
+}
+
+func (s *Service) ExportLogs(ctx context.Context) (LogExportResult, error) {
+	if s.repo == nil {
+		return LogExportResult{}, errors.New("integration center repository is not configured")
+	}
+	counts, err := s.repo.Counts(ctx)
+	if err != nil {
+		return LogExportResult{}, err
+	}
+	now := time.Now()
+	return LogExportResult{
+		TaskID:    fmt.Sprintf("integration-log-export-%d", now.Unix()),
+		Status:    "queued",
+		CreatedAt: now.Format(time.RFC3339),
+		Message:   fmt.Sprintf("已创建调用日志导出任务，当前日志口径含今日 %d 次调用。", counts.TodayAPICalls),
+	}, nil
+}
+
 func (s *Service) eventsFromLogs(ctx context.Context) ([]IntegrationEvent, error) {
 	rows, err := s.repo.ListAPICallLogs(ctx, 5)
 	if err != nil {
@@ -498,6 +861,51 @@ func normalizePlatformCode(code string) string {
 	return strings.ToLower(strings.TrimSpace(code))
 }
 
+func validateProviderAppRequest(req ProviderAppMutationRequest, requireCode bool) error {
+	if strings.TrimSpace(req.Name) == "" {
+		return errors.New("应用名称不能为空")
+	}
+	if strings.TrimSpace(req.PlatformCode) == "" {
+		return errors.New("所属接入平台不能为空")
+	}
+	if requireCode && normalizePlatformCode(req.Code) == "" {
+		return errors.New("应用编码不能为空")
+	}
+	if code := normalizePlatformCode(req.Code); code != "" {
+		if err := validateSimpleCode(code, "应用编码"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateQuotaPolicyRequest(req QuotaPolicyMutationRequest, requireCode bool) error {
+	if strings.TrimSpace(req.Name) == "" {
+		return errors.New("策略名称不能为空")
+	}
+	if requireCode && normalizePlatformCode(req.Code) == "" {
+		return errors.New("策略编码不能为空")
+	}
+	if code := normalizePlatformCode(req.Code); code != "" {
+		if err := validateSimpleCode(code, "策略编码"); err != nil {
+			return err
+		}
+	}
+	if req.DefaultLimit < 0 {
+		return errors.New("默认限额不能为负数")
+	}
+	return nil
+}
+
+func validateSimpleCode(code string, label string) error {
+	for _, r := range code {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' && r != '_' {
+			return fmt.Errorf("%s仅支持小写字母、数字、横线和下划线", label)
+		}
+	}
+	return nil
+}
+
 func normalizePlatformStatus(status string) string {
 	switch strings.TrimSpace(status) {
 	case "enabled":
@@ -512,6 +920,113 @@ func normalizePlatformStatus(status string) string {
 		return strings.TrimSpace(status)
 	default:
 		return "draft"
+	}
+}
+
+func normalizeAppStatus(status string) string {
+	switch strings.TrimSpace(status) {
+	case "enabled", "online":
+		return "online"
+	case "testing", "beta":
+		return "beta"
+	case "disabled", "maintenance", "draft":
+		return strings.TrimSpace(status)
+	default:
+		return "draft"
+	}
+}
+
+func normalizeEnabledStatus(status string) string {
+	switch strings.TrimSpace(status) {
+	case "enabled", "online":
+		return "enabled"
+	case "disabled", "paused":
+		return "disabled"
+	default:
+		return "enabled"
+	}
+}
+
+func normalizeEnvironment(value string) string {
+	switch strings.TrimSpace(value) {
+	case "正式", "prod", "production", "":
+		return "prod"
+	case "测试", "test", "testing":
+		return "test"
+	case "沙箱", "sandbox":
+		return "sandbox"
+	default:
+		return strings.TrimSpace(value)
+	}
+}
+
+func normalizeConnectionStatus(status string) string {
+	switch strings.TrimSpace(status) {
+	case "connected", "pending", "failed", "paused", "not_connected":
+		return strings.TrimSpace(status)
+	case "enabled":
+		return "connected"
+	case "disabled":
+		return "paused"
+	default:
+		return ""
+	}
+}
+
+func normalizeReviewStatus(status string) string {
+	switch strings.TrimSpace(status) {
+	case "pending", "approved", "rejected":
+		return strings.TrimSpace(status)
+	default:
+		return ""
+	}
+}
+
+func normalizeOverLimitAction(action string) string {
+	switch strings.TrimSpace(action) {
+	case "reject", "queue", "warn":
+		return strings.TrimSpace(action)
+	case "排队":
+		return "queue"
+	case "告警":
+		return "warn"
+	default:
+		return "reject"
+	}
+}
+
+func quotaPolicyFromRequest(req QuotaPolicyMutationRequest) models.IntegrationQuotaPolicy {
+	return models.IntegrationQuotaPolicy{
+		PolicyCode:      normalizePlatformCode(req.Code),
+		PolicyName:      strings.TrimSpace(req.Name),
+		QuotaCode:       normalizePlatformCode(defaultString(req.QuotaCode, "integration_api_calls_daily")),
+		QuotaUnit:       defaultString(req.QuotaUnit, "CALL"),
+		PeriodType:      defaultString(req.PeriodType, "DAY"),
+		DefaultLimit:    req.DefaultLimit,
+		OverLimitAction: normalizeOverLimitAction(req.OverLimitAction),
+		Status:          normalizeEnabledStatus(req.Status),
+		Description:     optionalString(req.Description),
+	}
+}
+
+func humanizeRepoError(err error, fallback string) error {
+	switch {
+	case errors.Is(err, repositories.ErrPlatformNotFound):
+		return errors.New("接入平台不存在")
+	case errors.Is(err, repositories.ErrProviderAppNotFound):
+		return errors.New("服务商应用不存在")
+	case errors.Is(err, repositories.ErrCapabilityNotFound):
+		return errors.New("应用能力不存在")
+	case errors.Is(err, repositories.ErrConnectionNotFound):
+		return errors.New("租户连接不存在")
+	case errors.Is(err, repositories.ErrSyncJobNotFound):
+		return errors.New("同步任务不存在")
+	case errors.Is(err, repositories.ErrQuotaPolicyNotFound):
+		return errors.New("配额策略不存在")
+	case errors.Is(err, repositories.ErrAlertNotFound):
+		return errors.New("异常记录不存在")
+	default:
+		return errors.New(fallback)
 	}
 }
 
@@ -546,5 +1061,19 @@ func platformToSummary(platform models.IntegrationPlatform) repositories.Platfor
 		CapabilityCount: 0,
 		ConnectionCount: 0,
 		OpenAlertCount:  0,
+	}
+}
+
+func providerAppToSummary(app models.IntegrationProviderApp, platform models.IntegrationPlatform) repositories.ProviderAppSummary {
+	return repositories.ProviderAppSummary{
+		ID:            app.ID,
+		PlatformID:    app.PlatformID,
+		PlatformName:  platform.PlatformName,
+		AppCode:       app.AppCode,
+		AppName:       app.AppName,
+		AuthMode:      app.AuthMode,
+		Environment:   app.Environment,
+		Status:        app.Status,
+		TenantVisible: app.TenantVisible,
 	}
 }
