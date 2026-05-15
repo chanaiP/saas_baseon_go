@@ -241,10 +241,6 @@ tr:hover td { background: rgba(47, 212, 203, .06); }
 .global-results span { color: var(--primary); font-size: var(--font-xs); font-weight: 900; }
 .global-results strong { display: block; margin: 5px 0; }
 .global-results p { color: var(--muted); margin: 0; font-size: var(--font-sm); line-height: 1.55; }
-.toast-box { position: fixed; right: 28px; top: 24px; z-index: 10060; background: #0f172a; color: #fff; padding: 13px 16px; border-radius: 10px; box-shadow: var(--shadow); font-weight: 900; }
-.toast-box.error { background: var(--danger); }
-.toast-enter-active, .toast-leave-active { transition: .2s; }
-.toast-enter-from, .toast-leave-to { opacity: 0; transform: translateY(-8px); }
 :global(.integration-portal) {
   --font-xs: 11px;
   --font-sm: 12px;
@@ -383,7 +379,27 @@ tr:hover td { background: rgba(47, 212, 203, .06); }
 :global(.integration-portal .quota) { height: 8px; border-radius: 999px; background: rgba(148, 163, 184, .18); overflow: hidden; margin: 9px 0; }
 :global(.integration-portal .quota span) { display: block; height: 100%; background: linear-gradient(90deg, #176b87, #2aa6a1); border-radius: inherit; }
 :global(.integration-portal .quota.inline) { width: 90px; height: 7px; display: inline-block; vertical-align: middle; margin: 0 6px 0 0; }
-:global(.integration-toast-box) { z-index: 2147483002 !important; }
+:global(.integration-platform-message.el-message) {
+  z-index: 2147483002 !important;
+  min-width: 220px;
+  max-width: min(520px, calc(100vw - 48px));
+  padding: 10px 14px;
+  border-radius: 8px;
+  border-width: 1px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .22);
+  font-size: 13px;
+  font-weight: 700;
+}
+:global(.integration-platform-message.el-message--success) {
+  --el-message-bg-color: rgba(13, 45, 39, .96);
+  --el-message-border-color: rgba(94, 224, 162, .36);
+  --el-message-text-color: #d9fff0;
+}
+:global(.integration-platform-message.el-message--error) {
+  --el-message-bg-color: rgba(58, 21, 29, .96);
+  --el-message-border-color: rgba(255, 107, 122, .42);
+  --el-message-text-color: #ffe4e8;
+}
 .app-shell :deep(.platform-rail) { position: sticky; top: 20px; max-height: calc(100vh - 44px); overflow: auto; }
 .app-shell :deep(.rail-head) { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
 .app-shell :deep(.rail-head h3) { margin: 0; font-size: var(--font-lg); }

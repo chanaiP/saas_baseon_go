@@ -575,13 +575,12 @@
           </div>
         </section>
       </div>
-
-      <Transition name="toast"><div v-if="toast.show" :class="['integration-portal', 'integration-toast-box', 'toast-box', toast.type]">{{ toast.message }}</div></Transition>
     </Teleport>
   </div>
 </template>
 
 <script setup>
+import { ElMessage } from 'element-plus'
 import { computed, defineComponent, h, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
@@ -661,7 +660,6 @@ const logKeyword = ref('')
 const logType = ref('all')
 const logSuccess = ref('all')
 
-const toast = reactive({ show: false, message: '', type: 'success' })
 const drawer = reactive({ open: false, type: '', title: '', subtitle: '', desc: '', data: null })
 const modal = reactive({ open: false, type: '', title: '', subtitle: '' })
 const form = reactive({})
@@ -872,7 +870,20 @@ function connectionsByApp(appId) { return connections.filter(c => c.appId === ap
 function formatNumber(n) { return Number(n || 0).toLocaleString('zh-CN') }
 function formatLimit(n) { return n ? formatNumber(n) : '-' }
 function pretty(data) { return JSON.stringify(data, null, 2) }
-function notify(message, type = 'success') { toast.message = message; toast.type = type; toast.show = true; setTimeout(() => { toast.show = false }, 2200) }
+function notify(message, type = 'success') {
+  const options = {
+    message,
+    duration: 2200,
+    showClose: false,
+    grouping: true,
+    customClass: 'integration-platform-message',
+  }
+  if (type === 'error') {
+    ElMessage.error(options)
+    return
+  }
+  ElMessage.success(options)
+}
 function closeDrawer() { drawer.open = false; drawer.type = ''; drawer.data = null }
 function openDrawer(type, title, subtitle, desc, data, tab = 'basic') { drawer.type = type; drawer.title = title; drawer.subtitle = subtitle; drawer.desc = desc; drawer.data = data; drawer.open = true; drawerTab.value = tab }
 function openPlatformDrawer(platform) { openDrawer('platform', platform.name, '接入平台详情', '平台是聚合根，应用、能力、连接实例都围绕平台展开。', platform) }
