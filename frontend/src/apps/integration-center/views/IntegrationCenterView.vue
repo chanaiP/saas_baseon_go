@@ -114,8 +114,14 @@
             <div class="platform-card-head">
               <div class="avatar large">{{ platform.icon }}</div>
               <div>
-                <h3>{{ platform.shortName || platform.name }}</h3>
-                <p>{{ platform.name }} · {{ platform.code }} · {{ platform.type }} · {{ platform.accessType }}</p>
+                <h3>{{ platform.name }}</h3>
+                <p class="platform-meta">
+                  <span class="platform-code-pill">{{ platform.code }}</span>
+                </p>
+                <p class="platform-chip-row">
+                  <span class="meta-chip">{{ platform.type }}</span>
+                  <span class="meta-chip">{{ platform.accessType }}</span>
+                </p>
               </div>
               <StatusBadge :status="platform.status" />
             </div>
@@ -127,8 +133,12 @@
               <div><span>异常</span><b>{{ platform.alertCount }}</b></div>
             </div>
             <div class="usage-line">
-              <div class="row-between"><span>今日调用</span><strong>{{ formatNumber(platform.callsToday) }}</strong></div>
-              <div class="progress-line"><span :style="{ width: platform.successRate + '%' }"></span></div>
+              <div class="row-between">
+                <span>成功率</span>
+                <strong>{{ platform.callsToday > 0 ? `${platform.successRate}%` : '暂无调用' }}</strong>
+              </div>
+              <div class="progress-line" :class="{ empty: platform.callsToday <= 0 }"><span :style="{ width: platform.callsToday > 0 ? `${platform.successRate}%` : '0%' }"></span></div>
+              <p>今日 {{ formatNumber(platform.callsToday) }} 次调用</p>
             </div>
             <div class="card-actions wrap">
               <button @click="openPlatformDrawer(platform)">查看详情</button>
