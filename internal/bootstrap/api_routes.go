@@ -5,15 +5,18 @@ import (
 
 	aicchandlers "saas_baseon_go/internal/apps/ai_capability_center/handlers"
 	apphandlers "saas_baseon_go/internal/apps/app_center/handlers"
+	ichandlers "saas_baseon_go/internal/apps/integration_center/handlers"
 	"saas_baseon_go/internal/interfaces/http/handlers"
 )
 
-func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHandler, paramHandler *handlers.ParamHandler, appHandler *apphandlers.AppHandler, aiCapabilityCenterHandler *aicchandlers.Handler) {
+func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHandler, paramHandler *handlers.ParamHandler, appHandler *apphandlers.AppHandler, aiCapabilityCenterHandler *aicchandlers.Handler, integrationCenterHandler *ichandlers.Handler) {
 	api := router.Group("/api")
 	{
 		api.GET("/auth/captcha", identityHandler.Captcha)
 		api.GET("/auth/phone-login-tenants", identityHandler.PhoneLoginTenants)
 		api.POST("/auth/login", identityHandler.Login)
+		api.POST("/integration-center/webhooks/:provider_app_code", integrationCenterHandler.ReceiveWebhook)
+		api.GET("/integration-center/oauth/callback/:provider_app_code", integrationCenterHandler.OAuthCallback)
 		api.GET("/public/tenant-footer", identityHandler.PublicTenantFooter)
 		api.GET("/public", identityHandler.PublicTenantFooter)
 
@@ -186,5 +189,58 @@ func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHan
 		}
 		api.POST("/ai-gateway/v1/invoke", aiCapabilityCenterHandler.Invoke)
 		api.GET("/ai-gateway/v1/video-tasks/:task_id", aiCapabilityCenterHandler.QueryVideoTask)
+
+		integration := api.Group("/integration-center")
+		{
+			integration.GET("/overview", integrationCenterHandler.Overview)
+			integration.POST("/connectivity-check", integrationCenterHandler.CheckConnectivity)
+			integration.POST("/gateway/invoke", integrationCenterHandler.InvokeGateway)
+			integration.GET("/platforms", integrationCenterHandler.Platforms)
+			integration.GET("/platforms/:code", integrationCenterHandler.PlatformDetail)
+			integration.POST("/platforms", integrationCenterHandler.CreatePlatform)
+			integration.PUT("/platforms/:code", integrationCenterHandler.UpdatePlatform)
+			integration.GET("/workspace", integrationCenterHandler.Workspace)
+			integration.GET("/platform-capabilities", integrationCenterHandler.PlatformCapabilities)
+			integration.POST("/platform-capabilities", integrationCenterHandler.CreatePlatformCapability)
+			integration.PUT("/platform-capabilities/:id", integrationCenterHandler.UpdatePlatformCapability)
+			integration.PATCH("/platform-capabilities/:id/disable", integrationCenterHandler.DisablePlatformCapability)
+			integration.GET("/app-capabilities", integrationCenterHandler.AppCapabilities)
+			integration.POST("/provider-apps", integrationCenterHandler.CreateProviderApp)
+			integration.GET("/provider-apps/:code", integrationCenterHandler.ProviderAppDetail)
+			integration.PUT("/provider-apps/:code", integrationCenterHandler.UpdateProviderApp)
+			integration.PATCH("/provider-apps/:code/credential", integrationCenterHandler.RotateProviderAppCredential)
+			integration.PATCH("/app-capabilities/:id", integrationCenterHandler.UpdateAppCapability)
+			integration.GET("/tenant-connections", integrationCenterHandler.TenantConnections)
+			integration.GET("/tenant-connections/:id", integrationCenterHandler.TenantConnectionDetail)
+			integration.POST("/tenant-connections", integrationCenterHandler.CreateTenantConnection)
+			integration.POST("/oauth/start", integrationCenterHandler.StartOAuthAuthorization)
+			integration.GET("/my-connections", integrationCenterHandler.TenantConnections)
+			integration.GET("/my-connections/:id", integrationCenterHandler.TenantConnectionDetail)
+			integration.POST("/my-connections", integrationCenterHandler.CreateTenantConnection)
+			integration.POST("/my-oauth/start", integrationCenterHandler.StartOAuthAuthorization)
+			integration.GET("/my-sync-jobs", integrationCenterHandler.SyncMonitor)
+			integration.GET("/my-sync-jobs/:id", integrationCenterHandler.SyncJobDetail)
+			integration.POST("/tenant-connections/:id/refresh", integrationCenterHandler.RefreshTenantConnection)
+			integration.POST("/tenant-connections/:id/pause", integrationCenterHandler.PauseTenantConnection)
+			integration.POST("/tenant-connections/:id/resume", integrationCenterHandler.ResumeTenantConnection)
+			integration.POST("/tenant-connections/:id/retry", integrationCenterHandler.RetryTenantConnection)
+			integration.GET("/sync-monitor", integrationCenterHandler.SyncMonitor)
+			integration.GET("/sync-jobs/:id", integrationCenterHandler.SyncJobDetail)
+			integration.POST("/sync-jobs/:id/retry", integrationCenterHandler.RetrySyncJob)
+			integration.POST("/sync-jobs/:id/pause", integrationCenterHandler.PauseSyncJob)
+			integration.POST("/sync-jobs/:id/resume", integrationCenterHandler.ResumeSyncJob)
+			integration.GET("/quota", integrationCenterHandler.Quota)
+			integration.GET("/quota-usages", integrationCenterHandler.QuotaUsages)
+			integration.POST("/quota-policies", integrationCenterHandler.CreateQuotaPolicy)
+			integration.PUT("/quota-policies/:code", integrationCenterHandler.UpdateQuotaPolicy)
+			integration.PATCH("/quota-policies/:code/status", integrationCenterHandler.UpdateQuotaPolicyStatus)
+			integration.GET("/alerts", integrationCenterHandler.Alerts)
+			integration.POST("/alerts/:id/process", integrationCenterHandler.ProcessAlert)
+			integration.POST("/alerts/:id/resolve", integrationCenterHandler.ResolveAlert)
+			integration.POST("/alerts/:id/ignore", integrationCenterHandler.IgnoreAlert)
+			integration.GET("/logs", integrationCenterHandler.Logs)
+			integration.GET("/logs/:id", integrationCenterHandler.LogDetail)
+			integration.POST("/logs/export", integrationCenterHandler.ExportLogs)
+		}
 	}
 }

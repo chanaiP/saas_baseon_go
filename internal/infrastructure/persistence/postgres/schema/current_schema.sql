@@ -2420,6 +2420,12 @@ CREATE TABLE IF NOT EXISTS public.sys_app (
     doc_config text,
     release_channel character varying(32),
     release_note text,
+    health_check_url character varying(500),
+    api_base_url character varying(500),
+    webhook_url character varying(500),
+    manifest_hash character varying(128),
+    manifest_version character varying(64),
+    last_manifest_synced_at timestamp with time zone,
     is_builtin boolean DEFAULT false NOT NULL,
     is_platform_only boolean DEFAULT true NOT NULL,
     sort_order integer DEFAULT 0 NOT NULL,
@@ -2455,13 +2461,187 @@ CREATE INDEX IF NOT EXISTS idx_sys_app_deployment_mode_deleted ON public.sys_app
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sys_app_client_app_code ON public.sys_app_client USING btree (app_id, client_code) WHERE (deleted_at IS NULL);
 CREATE INDEX IF NOT EXISTS idx_sys_app_client_app_enabled ON public.sys_app_client USING btree (app_id, enabled, deleted_at);
 
+CREATE TABLE IF NOT EXISTS public.sys_app_manifest_load (
+    id bigserial PRIMARY KEY,
+    app_code character varying(100) NOT NULL,
+    action character varying(32) DEFAULT 'LOAD'::character varying NOT NULL,
+    source_type character varying(32) DEFAULT 'UPLOAD'::character varying NOT NULL,
+    source_name character varying(500),
+    manifest_version character varying(64) DEFAULT '1.0'::character varying NOT NULL,
+    manifest_hash character varying(128) NOT NULL,
+    fragment_role character varying(64) DEFAULT 'main'::character varying NOT NULL,
+    status character varying(32) NOT NULL,
+    summary text,
+    error_summary text,
+    diff_summary text,
+    operator_user_id bigint NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone
+);
+
+CREATE INDEX IF NOT EXISTS idx_sys_app_manifest_load_app_code ON public.sys_app_manifest_load USING btree (app_code);
+CREATE INDEX IF NOT EXISTS idx_sys_app_manifest_load_status ON public.sys_app_manifest_load USING btree (status);
+CREATE INDEX IF NOT EXISTS idx_sys_app_manifest_load_operator ON public.sys_app_manifest_load USING btree (operator_user_id);
+
+CREATE TABLE IF NOT EXISTS public.sys_app_manifest_file (
+    id bigserial PRIMARY KEY,
+    load_id bigint REFERENCES public.sys_app_manifest_load(id),
+    app_code character varying(100) NOT NULL,
+    file_name character varying(255) NOT NULL,
+    file_path character varying(1000),
+    fragment_role character varying(64) DEFAULT 'main'::character varying NOT NULL,
+    manifest_version character varying(64) DEFAULT '1.0'::character varying NOT NULL,
+    manifest_hash character varying(128) NOT NULL,
+    content_summary text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone
+);
+
+CREATE INDEX IF NOT EXISTS idx_sys_app_manifest_file_app_code ON public.sys_app_manifest_file USING btree (app_code);
+CREATE INDEX IF NOT EXISTS idx_sys_app_manifest_file_hash ON public.sys_app_manifest_file USING btree (manifest_hash);
+
+CREATE TABLE IF NOT EXISTS public.sys_app_entry (
+    id bigserial PRIMARY KEY,
+    app_code character varying(100) NOT NULL,
+    resource_code character varying(120) NOT NULL,
+    name character varying(200) NOT NULL,
+    path character varying(500) NOT NULL,
+    parent_code character varying(120),
+    sort_order integer DEFAULT 0 NOT NULL,
+    platform_only boolean DEFAULT false NOT NULL,
+    tenant_visible boolean DEFAULT true NOT NULL,
+    show_in_admin boolean DEFAULT true NOT NULL,
+    tenant_editable boolean DEFAULT false NOT NULL,
+    include_in_package boolean DEFAULT false NOT NULL,
+    feature_code character varying(100),
+    data_perm_mode character varying(16) DEFAULT 'ORG'::character varying NOT NULL,
+    manifest_hash character varying(128) NOT NULL,
+    managed_by_manifest boolean DEFAULT true NOT NULL,
+    protection_source character varying(32),
+    protection_reason character varying(500),
+    protected_at timestamp with time zone,
+    status character varying(32) DEFAULT 'ACTIVE'::character varying NOT NULL,
+    last_synced_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sys_app_entry_code ON public.sys_app_entry USING btree (app_code, resource_code) WHERE (deleted_at IS NULL);
+CREATE INDEX IF NOT EXISTS idx_sys_app_entry_path ON public.sys_app_entry USING btree (path);
+CREATE INDEX IF NOT EXISTS idx_sys_app_entry_status ON public.sys_app_entry USING btree (status);
+
+CREATE TABLE IF NOT EXISTS public.sys_app_api (
+    id bigserial PRIMARY KEY,
+    app_code character varying(100) NOT NULL,
+    method character varying(20) NOT NULL,
+    path character varying(500) NOT NULL,
+    permission_code character varying(120),
+    public boolean DEFAULT false NOT NULL,
+    audit boolean DEFAULT false NOT NULL,
+    manifest_hash character varying(128) NOT NULL,
+    managed_by_manifest boolean DEFAULT true NOT NULL,
+    protection_source character varying(32),
+    protection_reason character varying(500),
+    protected_at timestamp with time zone,
+    status character varying(32) DEFAULT 'ACTIVE'::character varying NOT NULL,
+    last_synced_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sys_app_api_route ON public.sys_app_api USING btree (app_code, method, path) WHERE (deleted_at IS NULL);
+CREATE INDEX IF NOT EXISTS idx_sys_app_api_permission ON public.sys_app_api USING btree (permission_code);
+CREATE INDEX IF NOT EXISTS idx_sys_app_api_status ON public.sys_app_api USING btree (status);
+
+CREATE TABLE IF NOT EXISTS public.sys_app_permission (
+    id bigserial PRIMARY KEY,
+    app_code character varying(100) NOT NULL,
+    permission_code character varying(120) NOT NULL,
+    name character varying(200) NOT NULL,
+    permission_type character varying(32) NOT NULL,
+    menu_code character varying(120),
+    platform_only boolean DEFAULT false NOT NULL,
+    include_in_package boolean DEFAULT false NOT NULL,
+    data_perm_mode character varying(16) DEFAULT 'ORG'::character varying NOT NULL,
+    manifest_hash character varying(128) NOT NULL,
+    managed_by_manifest boolean DEFAULT true NOT NULL,
+    protection_source character varying(32),
+    protection_reason character varying(500),
+    protected_at timestamp with time zone,
+    status character varying(32) DEFAULT 'ACTIVE'::character varying NOT NULL,
+    last_synced_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sys_app_perm_code ON public.sys_app_permission USING btree (app_code, permission_code) WHERE (deleted_at IS NULL);
+CREATE INDEX IF NOT EXISTS idx_sys_app_perm_menu ON public.sys_app_permission USING btree (menu_code);
+CREATE INDEX IF NOT EXISTS idx_sys_app_perm_status ON public.sys_app_permission USING btree (status);
+
+CREATE TABLE IF NOT EXISTS public.sys_app_package_feature (
+    id bigserial PRIMARY KEY,
+    app_code character varying(100) NOT NULL,
+    feature_code character varying(100) NOT NULL,
+    feature_name character varying(200) NOT NULL,
+    feature_type character varying(32) NOT NULL,
+    parent_code character varying(100),
+    source_code character varying(120),
+    package_policy character varying(32) DEFAULT 'IN_PACKAGE'::character varying NOT NULL,
+    include_in_package boolean DEFAULT true NOT NULL,
+    description character varying(500),
+    manifest_hash character varying(128) NOT NULL,
+    managed_by_manifest boolean DEFAULT true NOT NULL,
+    protection_source character varying(32),
+    protection_reason character varying(500),
+    protected_at timestamp with time zone,
+    status character varying(32) DEFAULT 'ACTIVE'::character varying NOT NULL,
+    last_synced_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sys_app_feature_code ON public.sys_app_package_feature USING btree (app_code, feature_code) WHERE (deleted_at IS NULL);
+CREATE INDEX IF NOT EXISTS idx_sys_app_feature_status ON public.sys_app_package_feature USING btree (status);
+
+CREATE TABLE IF NOT EXISTS public.sys_app_quota (
+    id bigserial PRIMARY KEY,
+    app_code character varying(100) NOT NULL,
+    quota_code character varying(100) NOT NULL,
+    quota_name character varying(200) NOT NULL,
+    quota_type character varying(32) NOT NULL,
+    unit character varying(32),
+    period_type character varying(32),
+    include_in_package boolean DEFAULT true NOT NULL,
+    description character varying(500),
+    manifest_hash character varying(128) NOT NULL,
+    managed_by_manifest boolean DEFAULT true NOT NULL,
+    protection_source character varying(32),
+    protection_reason character varying(500),
+    protected_at timestamp with time zone,
+    status character varying(32) DEFAULT 'ACTIVE'::character varying NOT NULL,
+    last_synced_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sys_app_quota_code ON public.sys_app_quota USING btree (app_code, quota_code) WHERE (deleted_at IS NULL);
+CREATE INDEX IF NOT EXISTS idx_sys_app_quota_status ON public.sys_app_quota USING btree (status);
+
 
 
 --
 -- AI capability center schema
 --
 
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+SELECT pg_catalog.set_config('search_path', 'public', false);
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 
 CREATE TABLE IF NOT EXISTS ai_providers (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2771,6 +2951,349 @@ CREATE INDEX IF NOT EXISTS idx_ai_usage_demo_source_time ON ai_usage_records(is_
 CREATE INDEX IF NOT EXISTS idx_ai_usage_provider_request_id ON ai_usage_records(provider_request_id) WHERE provider_request_id IS NOT NULL AND provider_request_id <> '';
 CREATE INDEX IF NOT EXISTS idx_ai_usage_tenant_time ON ai_usage_records(tenant_id, called_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ai_usage_app_scenario_time ON ai_usage_records(app_code, ai_scenario_code, called_at DESC);
+
+CREATE TABLE IF NOT EXISTS integration_platforms (
+  id BIGSERIAL PRIMARY KEY,
+  platform_code VARCHAR(80) NOT NULL,
+  platform_name VARCHAR(120) NOT NULL,
+  platform_short_name VARCHAR(80),
+  platform_type VARCHAR(50) NOT NULL,
+  access_mode VARCHAR(50) NOT NULL,
+  logo_url VARCHAR(500),
+  official_url VARCHAR(500),
+  status VARCHAR(32) NOT NULL DEFAULT 'draft',
+  tenant_visible BOOLEAN NOT NULL DEFAULT FALSE,
+  owner_name VARCHAR(80),
+  sort_order INT NOT NULL DEFAULT 0,
+  description TEXT,
+  created_by BIGINT,
+  updated_by BIGINT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS integration_platform_capabilities (
+  id BIGSERIAL PRIMARY KEY,
+  platform_id BIGINT NOT NULL REFERENCES integration_platforms(id),
+  capability_code VARCHAR(100) NOT NULL,
+  capability_name VARCHAR(120) NOT NULL,
+  capability_type VARCHAR(50) NOT NULL,
+  auth_scope_code VARCHAR(120),
+  data_direction VARCHAR(32) NOT NULL DEFAULT 'pull',
+  status VARCHAR(32) NOT NULL DEFAULT 'enabled',
+  description TEXT,
+  created_by BIGINT,
+  updated_by BIGINT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS integration_provider_apps (
+  id BIGSERIAL PRIMARY KEY,
+  platform_id BIGINT NOT NULL REFERENCES integration_platforms(id),
+  app_code VARCHAR(100) NOT NULL,
+  app_name VARCHAR(150) NOT NULL,
+  app_type VARCHAR(50) NOT NULL DEFAULT 'provider_app',
+  auth_mode VARCHAR(50) NOT NULL,
+  environment VARCHAR(32) NOT NULL DEFAULT 'prod',
+  status VARCHAR(32) NOT NULL DEFAULT 'draft',
+  tenant_visible BOOLEAN NOT NULL DEFAULT FALSE,
+  callback_url VARCHAR(500),
+  webhook_url VARCHAR(500),
+  credential_ref VARCHAR(200),
+  owner_name VARCHAR(80),
+  description TEXT,
+  created_by BIGINT,
+  updated_by BIGINT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS integration_provider_app_capabilities (
+  id BIGSERIAL PRIMARY KEY,
+  provider_app_id BIGINT NOT NULL REFERENCES integration_provider_apps(id),
+  platform_capability_id BIGINT NOT NULL REFERENCES integration_platform_capabilities(id),
+  connection_status VARCHAR(32) NOT NULL DEFAULT 'pending',
+  review_status VARCHAR(32) NOT NULL DEFAULT 'pending',
+  enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  config JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_by BIGINT,
+  updated_by BIGINT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS integration_tenant_connections (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenant(id),
+  platform_id BIGINT NOT NULL REFERENCES integration_platforms(id),
+  provider_app_id BIGINT NOT NULL REFERENCES integration_provider_apps(id),
+  connection_name VARCHAR(180) NOT NULL,
+  auth_subject_type VARCHAR(60) NOT NULL,
+  auth_subject_id VARCHAR(160) NOT NULL,
+  auth_subject_name VARCHAR(180) NOT NULL,
+  auth_scope JSONB NOT NULL DEFAULT '[]'::jsonb,
+  auth_status VARCHAR(32) NOT NULL DEFAULT 'pending',
+  connection_status VARCHAR(32) NOT NULL DEFAULT 'inactive',
+  token_status VARCHAR(32) NOT NULL DEFAULT 'unknown',
+  token_credential_ref VARCHAR(240),
+  authorized_at TIMESTAMPTZ,
+  token_expires_at TIMESTAMPTZ,
+  last_sync_at TIMESTAMPTZ,
+  last_error_at TIMESTAMPTZ,
+  last_error_message TEXT,
+  created_by BIGINT,
+  updated_by BIGINT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS integration_oauth_states (
+  id BIGSERIAL PRIMARY KEY,
+  state VARCHAR(160) NOT NULL UNIQUE,
+  tenant_id BIGINT NOT NULL REFERENCES tenant(id),
+  provider_app_id BIGINT NOT NULL REFERENCES integration_provider_apps(id),
+  platform_id BIGINT NOT NULL REFERENCES integration_platforms(id),
+  redirect_uri VARCHAR(500) NOT NULL,
+  scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
+  status VARCHAR(32) NOT NULL DEFAULT 'pending',
+  expires_at TIMESTAMPTZ NOT NULL,
+  consumed_at TIMESTAMPTZ,
+  created_by BIGINT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS integration_tenant_capabilities (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenant(id),
+  tenant_connection_id BIGINT NOT NULL REFERENCES integration_tenant_connections(id),
+  provider_app_capability_id BIGINT NOT NULL REFERENCES integration_provider_app_capabilities(id),
+  capability_code VARCHAR(100) NOT NULL,
+  capability_name VARCHAR(120) NOT NULL,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  source VARCHAR(32) NOT NULL DEFAULT 'authorization',
+  effective_scope JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_by BIGINT,
+  updated_by BIGINT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS integration_sync_jobs (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenant(id),
+  tenant_connection_id BIGINT NOT NULL REFERENCES integration_tenant_connections(id),
+  capability_code VARCHAR(100) NOT NULL,
+  job_type VARCHAR(50) NOT NULL,
+  trigger_mode VARCHAR(50) NOT NULL DEFAULT 'manual',
+  status VARCHAR(32) NOT NULL DEFAULT 'pending',
+  cursor_value VARCHAR(300),
+  total_count BIGINT NOT NULL DEFAULT 0,
+  success_count BIGINT NOT NULL DEFAULT 0,
+  failed_count BIGINT NOT NULL DEFAULT 0,
+  retry_count INTEGER NOT NULL DEFAULT 0,
+  next_retry_at TIMESTAMPTZ,
+  started_at TIMESTAMPTZ,
+  finished_at TIMESTAMPTZ,
+  error_code VARCHAR(100),
+  error_message TEXT,
+  created_by BIGINT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS integration_sync_records (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenant(id),
+  sync_job_id BIGINT NOT NULL REFERENCES integration_sync_jobs(id),
+  tenant_connection_id BIGINT NOT NULL REFERENCES integration_tenant_connections(id),
+  capability_code VARCHAR(100) NOT NULL,
+  external_id VARCHAR(180) NOT NULL,
+  payload_digest VARCHAR(128) NOT NULL,
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  status VARCHAR(32) NOT NULL DEFAULT 'written',
+  cursor_value VARCHAR(300),
+  written_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS integration_quota_policies (
+  id BIGSERIAL PRIMARY KEY,
+  policy_code VARCHAR(100) NOT NULL,
+  policy_name VARCHAR(150) NOT NULL,
+  quota_code VARCHAR(100) NOT NULL,
+  quota_unit VARCHAR(32) NOT NULL,
+  period_type VARCHAR(32) NOT NULL,
+  default_limit BIGINT NOT NULL DEFAULT 0,
+  over_limit_action VARCHAR(32) NOT NULL DEFAULT 'reject',
+  status VARCHAR(32) NOT NULL DEFAULT 'enabled',
+  description TEXT,
+  created_by BIGINT,
+  updated_by BIGINT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS integration_quota_bindings (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT REFERENCES tenant(id),
+  platform_id BIGINT REFERENCES integration_platforms(id),
+  provider_app_id BIGINT REFERENCES integration_provider_apps(id),
+  tenant_connection_id BIGINT REFERENCES integration_tenant_connections(id),
+  policy_id BIGINT NOT NULL REFERENCES integration_quota_policies(id),
+  override_limit BIGINT,
+  priority INTEGER NOT NULL DEFAULT 0,
+  status VARCHAR(32) NOT NULL DEFAULT 'enabled',
+  created_by BIGINT,
+  updated_by BIGINT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS integration_quota_usages (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenant(id),
+  tenant_connection_id BIGINT REFERENCES integration_tenant_connections(id),
+  quota_code VARCHAR(100) NOT NULL,
+  period_key VARCHAR(64) NOT NULL,
+  used_amount BIGINT NOT NULL DEFAULT 0,
+  limited_count BIGINT NOT NULL DEFAULT 0,
+  last_used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS integration_alerts (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT REFERENCES tenant(id),
+  tenant_connection_id BIGINT REFERENCES integration_tenant_connections(id),
+  platform_id BIGINT REFERENCES integration_platforms(id),
+  provider_app_id BIGINT REFERENCES integration_provider_apps(id),
+  alert_type VARCHAR(60) NOT NULL,
+  severity VARCHAR(32) NOT NULL DEFAULT 'warning',
+  status VARCHAR(32) NOT NULL DEFAULT 'open',
+  title VARCHAR(180) NOT NULL,
+  message TEXT,
+  first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at TIMESTAMPTZ,
+  handled_by BIGINT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS integration_api_call_logs (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT REFERENCES tenant(id),
+  tenant_connection_id BIGINT REFERENCES integration_tenant_connections(id),
+  platform_id BIGINT REFERENCES integration_platforms(id),
+  provider_app_id BIGINT REFERENCES integration_provider_apps(id),
+  request_id VARCHAR(120) NOT NULL,
+  trace_id VARCHAR(120),
+  call_type VARCHAR(60) NOT NULL,
+  method VARCHAR(16),
+  endpoint VARCHAR(500),
+  status VARCHAR(32) NOT NULL,
+  http_status INT,
+  duration_ms INT NOT NULL DEFAULT 0,
+  error_code VARCHAR(120),
+  error_message TEXT,
+  request_digest VARCHAR(128),
+  response_digest VARCHAR(128),
+  called_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  archived_at TIMESTAMPTZ,
+  retention_bucket VARCHAR(64)
+);
+
+CREATE TABLE IF NOT EXISTS integration_webhook_events (
+  id BIGSERIAL PRIMARY KEY,
+  provider_app_id BIGINT NOT NULL REFERENCES integration_provider_apps(id),
+  platform_id BIGINT NOT NULL REFERENCES integration_platforms(id),
+  event_type VARCHAR(120) NOT NULL,
+  idempotency_key VARCHAR(160) NOT NULL,
+  signature VARCHAR(160) NOT NULL,
+  payload_digest VARCHAR(128) NOT NULL,
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  status VARCHAR(32) NOT NULL DEFAULT 'received',
+  received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  processed_at TIMESTAMPTZ,
+  retry_count INT NOT NULL DEFAULT 0,
+  next_retry_at TIMESTAMPTZ,
+  error_message TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uk_integration_platforms_code ON integration_platforms(platform_code) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_integration_platforms_status ON integration_platforms(status, sort_order) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uk_integration_platform_capabilities_code ON integration_platform_capabilities(platform_id, capability_code) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uk_integration_provider_apps_code ON integration_provider_apps(platform_id, app_code) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_integration_provider_apps_status ON integration_provider_apps(platform_id, status) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uk_integration_provider_app_capabilities ON integration_provider_app_capabilities(provider_app_id, platform_capability_id) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uk_integration_tenant_connection_subject ON integration_tenant_connections(tenant_id, platform_id, provider_app_id, auth_subject_type, auth_subject_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_integration_tenant_connections_tenant_status ON integration_tenant_connections(tenant_id, connection_status, updated_at DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_integration_oauth_states_status ON integration_oauth_states(provider_app_id, status, expires_at) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uk_integration_tenant_capabilities ON integration_tenant_capabilities(tenant_connection_id, capability_code) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_integration_sync_jobs_connection_time ON integration_sync_jobs(tenant_connection_id, created_at DESC) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_integration_sync_records_unique_external ON integration_sync_records(tenant_connection_id, capability_code, external_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_integration_sync_records_job_time ON integration_sync_records(sync_job_id, written_at DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_integration_sync_records_tenant_time ON integration_sync_records(tenant_id, written_at DESC) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uk_integration_quota_policies_code ON integration_quota_policies(policy_code) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_integration_quota_bindings_scope ON integration_quota_bindings(tenant_id, platform_id, provider_app_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_integration_quota_bindings_connection ON integration_quota_bindings(tenant_connection_id, priority) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uk_integration_quota_usages_period ON integration_quota_usages(tenant_id, COALESCE(tenant_connection_id, 0), quota_code, period_key);
+CREATE INDEX IF NOT EXISTS idx_integration_alerts_status ON integration_alerts(status, severity, last_seen_at DESC) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uk_integration_api_call_logs_request ON integration_api_call_logs(request_id);
+CREATE INDEX IF NOT EXISTS idx_integration_api_call_logs_trace ON integration_api_call_logs(trace_id) WHERE trace_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_integration_api_call_logs_scope_time ON integration_api_call_logs(tenant_id, platform_id, called_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_integration_webhook_events_idempotency ON integration_webhook_events(provider_app_id, idempotency_key) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_integration_webhook_events_status ON integration_webhook_events(provider_app_id, status, received_at DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_integration_webhook_events_retry ON integration_webhook_events(status, next_retry_at, received_at) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_integration_platforms_updated ON integration_platforms(updated_at DESC, id DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_integration_provider_apps_platform_updated ON integration_provider_apps(platform_id, updated_at DESC, id DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_integration_provider_apps_code_status ON integration_provider_apps(app_code, status) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_integration_platform_capabilities_platform_status ON integration_platform_capabilities(platform_id, status, updated_at DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_integration_provider_app_capabilities_app_status ON integration_provider_app_capabilities(provider_app_id, connection_status, review_status, updated_at DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_integration_tenant_connections_app_status ON integration_tenant_connections(provider_app_id, connection_status, token_status, updated_at DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_integration_sync_jobs_tenant_status_time ON integration_sync_jobs(tenant_id, status, created_at DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_integration_quota_usages_tenant_period ON integration_quota_usages(tenant_id, quota_code, period_key, last_used_at DESC);
+CREATE INDEX IF NOT EXISTS idx_integration_alerts_tenant_status_time ON integration_alerts(tenant_id, status, last_seen_at DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_integration_api_call_logs_request ON integration_api_call_logs(request_id);
+CREATE INDEX IF NOT EXISTS idx_integration_api_call_logs_connection_time ON integration_api_call_logs(tenant_connection_id, called_at DESC);
+CREATE INDEX IF NOT EXISTS idx_integration_api_call_logs_app_time ON integration_api_call_logs(provider_app_id, called_at DESC);
+CREATE INDEX IF NOT EXISTS idx_integration_api_call_logs_active_called ON integration_api_call_logs(called_at DESC) WHERE archived_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_integration_api_call_logs_archived ON integration_api_call_logs(archived_at DESC, retention_bucket) WHERE archived_at IS NOT NULL;
+
+ALTER TABLE integration_platforms ADD CONSTRAINT ck_integration_platforms_status CHECK (status IN ('online', 'beta', 'draft', 'disabled', 'maintenance')) NOT VALID;
+ALTER TABLE integration_provider_apps ADD CONSTRAINT ck_integration_provider_apps_status CHECK (status IN ('online', 'beta', 'draft', 'disabled', 'maintenance')) NOT VALID;
+ALTER TABLE integration_platform_capabilities ADD CONSTRAINT ck_integration_platform_capabilities_status CHECK (status IN ('enabled', 'disabled')) NOT VALID;
+ALTER TABLE integration_provider_app_capabilities ADD CONSTRAINT ck_integration_provider_app_capabilities_connection_status CHECK (connection_status IN ('connected', 'pending', 'failed', 'paused', 'not_connected')) NOT VALID;
+ALTER TABLE integration_provider_app_capabilities ADD CONSTRAINT ck_integration_provider_app_capabilities_review_status CHECK (review_status IN ('pending', 'approved', 'rejected')) NOT VALID;
+ALTER TABLE integration_tenant_connections ADD CONSTRAINT ck_integration_tenant_connections_auth_status CHECK (auth_status IN ('pending', 'authorized', 'failed', 'expired', 'revoked')) NOT VALID;
+ALTER TABLE integration_tenant_connections ADD CONSTRAINT ck_integration_tenant_connections_connection_status CHECK (connection_status IN ('inactive', 'connected', 'paused', 'failed', 'not_connected')) NOT VALID;
+ALTER TABLE integration_tenant_connections ADD CONSTRAINT ck_integration_tenant_connections_token_status CHECK (token_status IN ('unknown', 'valid', 'expired', 'refresh_failed', 'revoked')) NOT VALID;
+ALTER TABLE integration_sync_jobs ADD CONSTRAINT ck_integration_sync_jobs_status CHECK (status IN ('pending', 'running', 'completed', 'failed', 'queued', 'retrying', 'paused')) NOT VALID;
+ALTER TABLE integration_quota_policies ADD CONSTRAINT ck_integration_quota_policies_status CHECK (status IN ('enabled', 'disabled')) NOT VALID;
+ALTER TABLE integration_quota_bindings ADD CONSTRAINT ck_integration_quota_bindings_status CHECK (status IN ('enabled', 'disabled')) NOT VALID;
+ALTER TABLE integration_alerts ADD CONSTRAINT ck_integration_alerts_status CHECK (status IN ('open', 'processing', 'resolved', 'ignored')) NOT VALID;
+ALTER TABLE integration_api_call_logs ADD CONSTRAINT ck_integration_api_call_logs_status CHECK (status IN ('success', 'failed', 'limited')) NOT VALID;
+ALTER TABLE integration_webhook_events ADD CONSTRAINT ck_integration_webhook_events_status CHECK (status IN ('received', 'duplicated', 'processed', 'retrying', 'dead_letter')) NOT VALID;
 
 --
 -- PostgreSQL database dump complete

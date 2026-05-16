@@ -1,0 +1,7 @@
+ALTER TABLE integration_sync_records DROP CONSTRAINT IF EXISTS fk_integration_sync_records_connection;
+ALTER TABLE integration_sync_records DROP CONSTRAINT IF EXISTS fk_integration_sync_records_job;
+ALTER TABLE integration_sync_records DROP CONSTRAINT IF EXISTS fk_integration_sync_records_tenant;
+DROP INDEX IF EXISTS idx_integration_sync_records_tenant_time;
+DROP INDEX IF EXISTS idx_integration_sync_records_job_time;
+DROP INDEX IF EXISTS idx_integration_sync_records_unique_external;
+DROP TABLE IF EXISTS integration_sync_records;

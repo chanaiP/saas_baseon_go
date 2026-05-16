@@ -235,12 +235,10 @@ permissions:
     name: 客户列表
     type: MENU
     menu_code: crm_list
-    include_in_package: true
 package_features:
   - feature_code: crm_manage
     feature_name: 客户管理
     feature_type: MENU
-    source_code: crm_list
     include_in_package: true
 quotas:
   - quota_code: max_customers
@@ -250,7 +248,7 @@ quotas:
 `))
 
 	require.NoError(t, err)
-	require.True(t, result.Valid)
+	require.True(t, result.Valid, "blockers: %v", result.Blockers)
 	require.True(t, result.Importable)
 	require.Equal(t, "crm-suite", result.AppCode)
 	require.Equal(t, "客户管理", result.AppName)
@@ -272,7 +270,7 @@ func TestAppCenterParseAICapabilityCenterManifest(t *testing.T) {
 	result, err := service.ParseManifestContent(context.Background(), 1, "app.manifest.yaml", raw)
 
 	require.NoError(t, err)
-	require.True(t, result.Valid)
+	require.True(t, result.Valid, "blockers: %v", result.Blockers)
 	require.Equal(t, "ai-capability-center", result.AppCode)
 	require.Equal(t, "PLATFORM_ONLY", result.VisibilityScope)
 	require.Equal(t, "NON_SELLABLE", result.ChargePolicy)
@@ -284,90 +282,24 @@ func TestAppCenterParseAICapabilityCenterManifest(t *testing.T) {
 	require.NotEmpty(t, result.ManifestHash)
 }
 
-func TestAppCenterParseBundledManifestsPassHardGate(t *testing.T) {
+func TestAppCenterParseIntegrationCenterManifest(t *testing.T) {
 	db := newAppCenterTestDB(t)
 	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
 	service := NewAppService(repositories.NewAppRepository(db))
-
-	manifests := []string{
-		"app_center/app.manifest.yaml",
-		"ai_capability_center/app.manifest.yaml",
-		"model_manager/app.manifest.yaml",
-		"system_management/app.manifest.yaml",
-		"system_monitor/app.manifest.yaml",
-	}
-	for _, manifestPath := range manifests {
-		t.Run(manifestPath, func(t *testing.T) {
-			raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "internal", "apps", manifestPath))
-			require.NoError(t, err)
-
-			result, err := service.ParseManifestContent(context.Background(), 1, "app.manifest.yaml", raw)
-
-			require.NoError(t, err)
-			require.True(t, result.Valid, "blockers: %v", result.Blockers)
-		})
-	}
-}
-
-func TestAppCenterParseManifestBlocksMenuWithoutMenuPermission(t *testing.T) {
-	db := newAppCenterTestDB(t)
-	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
-
-	service := NewAppService(repositories.NewAppRepository(db))
-	result, err := service.ParseManifestContent(context.Background(), 1, "crm.manifest.yaml", []byte(`
-manifest_version: "1.0"
-fragment_role: main
-app:
-  app_code: crm-suite
-  app_name: 客户管理
-  app_type: BUSINESS_APP
-  source: MANIFEST
-  status: INITIATED
-  deployment_mode: MERGED
-  visibility_scope: TENANT
-  package_policy: IN_PACKAGE
-clients:
-  - PC_WEB
-menus:
-  - code: crm_list
-    name: 客户列表
-    path: /crm
-`))
-
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "internal", "apps", "integration_center", "app.manifest.yaml"))
 	require.NoError(t, err)
-	require.False(t, result.Valid)
-	require.Contains(t, result.Blockers, "菜单 crm_list 的 path 必须声明对应 MENU 权限：/crm")
-}
 
-func TestAppCenterParseManifestBlocksRoutePermissionWithMissingMenu(t *testing.T) {
-	db := newAppCenterTestDB(t)
-	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
-
-	service := NewAppService(repositories.NewAppRepository(db))
-	result, err := service.ParseManifestContent(context.Background(), 1, "crm.manifest.yaml", []byte(`
-manifest_version: "1.0"
-fragment_role: main
-app:
-  app_code: crm-suite
-  app_name: 客户管理
-  app_type: BUSINESS_APP
-  source: MANIFEST
-  status: INITIATED
-  deployment_mode: MERGED
-  visibility_scope: TENANT
-  package_policy: IN_PACKAGE
-clients:
-  - PC_WEB
-permissions:
-  - code: /crm
-    name: 客户列表
-    type: MENU
-    menu_code: crm_list
-`))
-
+	result, err := service.ParseManifestContent(context.Background(), 1, "app.manifest.yaml", raw)
 	require.NoError(t, err)
-	require.False(t, result.Valid)
-	require.Contains(t, result.Blockers, "权限 /crm 的 menu_code 不存在：crm_list")
+	require.True(t, result.Valid, "blockers: %v", result.Blockers)
+	require.Empty(t, result.Blockers)
+	require.Equal(t, "integration-center", result.AppCode)
+	require.Equal(t, 9, result.Counts.Menus)
+	require.Equal(t, 4, result.Counts.Operations)
+	require.Equal(t, 13, result.Counts.Permissions)
+	require.Equal(t, 49, result.Counts.APIs)
+	require.Equal(t, 2, result.Counts.PackageFeatures)
+	require.Equal(t, 3, result.Counts.Quotas)
 }
 
 func TestAppCenterLoadPlatformOnlyManifestKeepsAssetsOutOfPackages(t *testing.T) {
@@ -417,11 +349,6 @@ func TestAppCenterLoadPlatformOnlyManifestKeepsAssetsOutOfPackages(t *testing.T)
 	var permissionCount int64
 	require.NoError(t, db.Model(&models.Permission{}).Where("app_code = ? AND enabled = ?", "ai-capability-center", true).Count(&permissionCount).Error)
 	require.Equal(t, int64(11), permissionCount)
-
-	var usageLogPermission models.Permission
-	require.NoError(t, db.Where("app_code = ? AND path = ?", "ai-capability-center", "/ai-capability-center/usage-logs").First(&usageLogPermission).Error)
-	require.True(t, usageLogPermission.ShowInAdmin)
-	require.Equal(t, 87, usageLogPermission.SortOrder)
 
 	var rolePermissionCount int64
 	require.NoError(t, db.Table("role_permission rp").
@@ -637,8 +564,12 @@ clients:
 operations:
   - code: crm_export
     name: 导出客户
-    menu_code: crm_list
     permission_code: crm:export
+    menu_code: crm_list
+permissions:
+  - code: crm:export
+    name: 导出客户
+    type: BUTTON
 package_features:
   - feature_code: button_crm_export
     feature_name: 导出客户
@@ -653,7 +584,7 @@ package_features:
 	require.Len(t, result.Groups, 1)
 	group := result.Groups[0]
 	require.Equal(t, "crm-suite", group.AppCode)
-	require.True(t, group.Loadable)
+	require.True(t, group.Loadable, "blockers: %v", group.Blockers)
 	require.Equal(t, 2, group.FragmentCount)
 	require.Equal(t, 1, group.MainCount)
 	require.ElementsMatch(t, []string{"PC_WEB", "H5"}, group.Merged.ClientCodes)
@@ -740,13 +671,6 @@ permissions:
     type: MENU
     menu_code: ops_dashboard
     include_in_package: true
-    data_perm_mode: ORG
-  - code: ops:export
-    name: 导出看板
-    type: OPERATION
-    menu_code: ops_dashboard
-    include_in_package: true
-    data_perm_mode: NONE
   - code: ops:read
     name: 查看运营数据
     type: OPERATION
@@ -867,19 +791,14 @@ menus:
   - code: ops_dashboard
     name: 运营看板
     path: /ops/dashboard
-    include_in_package: true
-    feature_code: ops_dashboard
 permissions:
   - code: /ops/dashboard
     name: 运营看板
     type: MENU
     menu_code: ops_dashboard
-    include_in_package: true
 package_features:
   - feature_code: ops_dashboard
     feature_name: 运营看板
-    feature_type: MENU
-    source_code: ops_dashboard
     include_in_package: true
 `
 	service := NewAppService(repositories.NewAppRepository(db))

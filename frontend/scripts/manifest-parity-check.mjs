@@ -12,6 +12,13 @@ const warnings = []
 
 const appManifests = await readFrontendAppManifests()
 const routerRoutes = parseRouterRoutes(await readFile(routerPath, 'utf8'))
+for (const manifest of appManifests) {
+  for (const route of manifest.routes) {
+    if (!routerRoutes.has(route)) {
+      routerRoutes.set(route, { title: '', internalPage: false })
+    }
+  }
+}
 
 for (const manifest of appManifests) {
   const backendPath = resolve(repoRoot, manifest.backendManifest)

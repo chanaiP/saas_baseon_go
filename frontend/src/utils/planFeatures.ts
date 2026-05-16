@@ -18,6 +18,7 @@ const MENU_FEATURE_BY_PATH: Record<string, string> = {
   '/monitor/services': 'system_monitor',
   '/monitor/cache': 'system_monitor',
   '/monitor/cache-keys': 'system_monitor',
+  '/integration-center/my-connections': 'integration_tenant_authorization',
 }
 
 const ACTION_FEATURE_BY_PERMISSION: Record<string, string> = {

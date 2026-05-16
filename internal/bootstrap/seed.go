@@ -262,6 +262,7 @@ func seedPermissions(db *gorm.DB, tenantID uint64) ([]models.Permission, error) 
 		{Name: "菜单根节点", Path: "__menu_root__", Type: 1, SortOrder: 0, Hidden: true, PackageFeature: false, FeatureType: "SYSTEM", DataPermMode: "NONE"},
 		{Name: "操作根节点", Path: "__operations_root__", Type: 1, SortOrder: 0, Hidden: true, PackageFeature: false, FeatureType: "SYSTEM", DataPermMode: "NONE"},
 		{Name: "首页", Path: "/home", Type: 3, SortOrder: 0, Hidden: true, PackageFeature: false, FeatureCode: "home", FeatureType: "MENU", DataPermMode: "NONE"},
+		{Name: "首页-查看", Path: "home:view", Type: 2, SortOrder: 0, Hidden: true, PackageFeature: false, FeatureCode: "home", FeatureType: "VIEW", DataPermMode: "NONE"},
 		{Name: "应用列表", Path: "/apps", Type: 3, SortOrder: 1, PlatformOnly: true, PackageFeature: false, FeatureCode: "app_list", FeatureType: "MENU", DataPermMode: "NONE"},
 		{Name: "客户端中心", Path: "/apps/clients", Type: 3, SortOrder: 2, PlatformOnly: true, PackageFeature: false, FeatureCode: "app_clients", FeatureType: "MENU", DataPermMode: "NONE"},
 		{Name: "租户开通总览", Path: "/apps/tenant-openings", Type: 3, SortOrder: 3, PlatformOnly: true, PackageFeature: false, FeatureCode: "app_tenant_openings", FeatureType: "MENU", DataPermMode: "NONE"},
@@ -356,6 +357,8 @@ func seedPermissions(db *gorm.DB, tenantID uint64) ([]models.Permission, error) 
 	items = append(items,
 		seedPermission{Name: "首页-数据范围", Path: "data:home", Type: 4, Hidden: true, PackageFeature: false, FeatureType: "DATA", DataPermMode: "NONE"},
 		seedPermission{Name: "权限管理-数据范围", Path: "data:perm", Type: 4, Hidden: true, PackageFeature: false, FeatureType: "DATA", DataPermMode: "ORG"},
+		seedPermission{Name: "字典类型-数据范围", Path: "data:dict_type", Type: 4, PackageFeature: false, FeatureType: "DATA", DataPermMode: "ORG"},
+		seedPermission{Name: "字典项-数据范围", Path: "data:dict_item", Type: 4, PackageFeature: false, FeatureType: "DATA", DataPermMode: "ORG"},
 	)
 
 	out := make([]models.Permission, 0, len(items))
@@ -777,7 +780,7 @@ func seedBuiltinApps(db *gorm.DB) error {
 			Icon:            stringPtr("Connection"),
 			AppType:         "CONNECTOR_APP",
 			Source:          "BUILTIN",
-			Status:          "PLANNED",
+			Status:          "ONLINE",
 			ChargeMode:      "SUBSCRIPTION",
 			VisibilityScope: "TENANT",
 			DeploymentMode:  "MERGED",
@@ -877,20 +880,13 @@ func seedSystemParams(db *gorm.DB, tenantID uint64) error {
 	params := []models.SystemParam{
 		{TenantID: tenantID, Key: "org.default_company_type", Value: "SUBSIDIARY", Remark: "新建公司默认类型（字典 company_type 的 value，须一致）", ValueType: "string", TenantEditable: true},
 		{TenantID: tenantID, Key: "user.list_default_page_size", Value: "10", Remark: "用户列表默认每页条数", ValueType: "number", TenantEditable: true},
+		{TenantID: tenantID, Key: "security.password_min_length", Value: "8", Remark: "用户密码最小长度", ValueType: "number", TenantEditable: false},
+		{TenantID: tenantID, Key: "security.password_require_complexity", Value: "true", Remark: "用户密码是否要求复杂度校验", ValueType: "boolean", TenantEditable: false},
+		{TenantID: tenantID, Key: "audit.log_retention_days", Value: "180", Remark: "审计日志默认保留天数", ValueType: "number", TenantEditable: false},
 		{TenantID: tenantID, Key: "ai.gateway.content_record_level", Value: "1", Remark: "AI Gateway 内容记录级别：0 不记录，1 记录概要，2 记录脱敏内容，3 记录完整内容；级别 3 仅允许平台授权排障，必须审计复核并按保留周期清理", ValueType: "number", TenantEditable: false, IsPlatformOnly: true},
 	}
 	for _, param := range params {
-		param.UpdatedAt = time.Now()
-		err := db.Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "tenant_id"}, {Name: "param_key"}},
-			DoUpdates: clause.AssignmentColumns([]string{
-				"remark",
-				"value_type",
-				"tenant_editable",
-				"is_platform_only",
-				"updated_at",
-			}),
-		}).Create(&param).Error
+		err := db.Clauses(clause.OnConflict{DoNothing: true}).Where("tenant_id = ? AND param_key = ?", param.TenantID, param.Key).Create(&param).Error
 		if err != nil && !errors.Is(err, gorm.ErrDuplicatedKey) {
 			return err
 		}
@@ -957,9 +953,6 @@ type aiPriceSeed struct {
 func seedAIProviderCatalog(db *gorm.DB) error {
 	if err := pruneLegacyAIProviderDemoData(db); err != nil {
 		return err
-	}
-	if !seedDemoAIProviderCatalogEnabled() {
-		return nil
 	}
 	providers := []aiProviderSeed{
 		{
@@ -1065,11 +1058,6 @@ func seedAIProviderCatalog(db *gorm.DB) error {
 	return seedAIRoutesAndScenarios(db, modelByCapability)
 }
 
-func seedDemoAIProviderCatalogEnabled() bool {
-	value := strings.TrimSpace(os.Getenv("AI_SEED_DEMO_PROVIDER_CATALOG"))
-	return value == "1" || strings.EqualFold(value, "true") || strings.EqualFold(value, "yes")
-}
-
 func defaultTextPrices(capability string, cost, sale float64) []aiPriceSeed {
 	return []aiPriceSeed{{featureKey: capability + "_tokens", featureName: "Token 用量", capability: capability, billingUnit: "1K tokens", costPrice: cost, salePrice: sale, platformFee: sale - cost}}
 }
@@ -1140,7 +1128,7 @@ func upsertAIProviderSeed(db *gorm.DB, seed aiProviderSeed, index int) (string, 
 		Owner:         seed.owner,
 		AITimeFields:  aiNowFields(),
 	}
-	if err := db.Where("code = ? AND deleted_at IS NULL", seed.code).FirstOrCreate(&row).Error; err != nil {
+	if err := db.Where("code = ?", seed.code).Order("deleted_at IS NULL DESC").FirstOrCreate(&row).Error; err != nil {
 		return "", err
 	}
 	err := db.Model(&row).Updates(map[string]interface{}{
@@ -1174,7 +1162,7 @@ func upsertAIProviderAccountAndAPIs(db *gorm.DB, providerID string, seed aiProvi
 		Status:            "active",
 		AITimeFields:      aiNowFields(),
 	}
-	if err := db.Where("provider_id = ? AND account_name = ? AND deleted_at IS NULL", providerID, account.AccountName).FirstOrCreate(&account).Error; err != nil {
+	if err := db.Where("provider_id = ? AND account_name = ?", providerID, account.AccountName).Order("deleted_at IS NULL DESC").FirstOrCreate(&account).Error; err != nil {
 		return err
 	}
 	if err := db.Model(&account).Updates(map[string]interface{}{
@@ -1203,19 +1191,18 @@ func upsertAIProviderAccountAndAPIs(db *gorm.DB, providerID string, seed aiProvi
 			Status:       "active",
 			AITimeFields: aiNowFields(),
 		}
-		if err := db.Where("provider_id = ? AND account_id = ? AND api_name = ? AND deleted_at IS NULL", providerID, account.ID, api.name).FirstOrCreate(&row).Error; err != nil {
+		if err := db.Where("provider_id = ? AND account_id = ? AND api_name = ?", providerID, account.ID, api.name).Order("deleted_at IS NULL DESC").FirstOrCreate(&row).Error; err != nil {
 			return err
 		}
-		if err := db.Model(&row).Updates(map[string]interface{}{
-			"api_path":     api.path,
-			"api_type":     api.apiType,
-			"capabilities": aiJSONB(api.capabilities),
-			"auth_type":    seed.authType,
-			"qps_limit":    api.qpsLimit,
-			"timeout_ms":   api.timeoutMS,
-			"updated_at":   time.Now(),
-			"deleted_at":   nil,
-		}).Error; err != nil {
+			if err := db.Model(&row).Updates(map[string]interface{}{
+				"api_type":     api.apiType,
+				"capabilities": aiJSONB(api.capabilities),
+				"auth_type":    seed.authType,
+				"qps_limit":    api.qpsLimit,
+				"timeout_ms":   api.timeoutMS,
+				"updated_at":   time.Now(),
+				"deleted_at":   nil,
+			}).Error; err != nil {
 			return err
 		}
 	}
@@ -1237,7 +1224,7 @@ func upsertAIModelSeed(db *gorm.DB, providerID string, seed aiModelSeed) (string
 		DefaultFor:    seed.defaultFor,
 		AITimeFields:  aiNowFields(),
 	}
-	if err := db.Where("provider_id = ? AND model_code = ? AND deleted_at IS NULL", providerID, seed.code).FirstOrCreate(&row).Error; err != nil {
+	if err := db.Where("provider_id = ? AND model_code = ?", providerID, seed.code).Order("deleted_at IS NULL DESC").FirstOrCreate(&row).Error; err != nil {
 		return "", err
 	}
 	err := db.Model(&row).Updates(map[string]interface{}{
@@ -1248,6 +1235,7 @@ func upsertAIModelSeed(db *gorm.DB, providerID string, seed aiModelSeed) (string
 		"unit":           seed.unit,
 		"latency_p95":    seed.latencyP95,
 		"success_rate":   seed.successRate,
+		"status":         "active",
 		"default_for":    aiJSONB(seed.defaultFor),
 		"updated_at":     time.Now(),
 		"deleted_at":     nil,
@@ -1273,7 +1261,7 @@ func upsertAIPriceSeeds(db *gorm.DB, modelID string, model aiModelSeed) error {
 			Status:             "active",
 			AITimeFields:       aiNowFields(),
 		}
-		if err := db.Where("model_id = ? AND feature_key = ? AND deleted_at IS NULL", modelID, price.featureKey).FirstOrCreate(&row).Error; err != nil {
+		if err := db.Where("model_id = ? AND feature_key = ?", modelID, price.featureKey).Order("deleted_at IS NULL DESC").FirstOrCreate(&row).Error; err != nil {
 			return err
 		}
 		if err := db.Model(&row).Updates(map[string]interface{}{
@@ -1287,6 +1275,7 @@ func upsertAIPriceSeeds(db *gorm.DB, modelID string, model aiModelSeed) error {
 			"base_sale_price":      price.salePrice,
 			"base_platform_amount": price.platformFee,
 			"currency":             "CNY",
+			"status":               "active",
 			"updated_at":           time.Now(),
 			"deleted_at":           nil,
 		}).Error; err != nil {
@@ -1307,7 +1296,7 @@ func seedAICapabilities(db *gorm.DB) error {
 	}
 	for _, item := range items {
 		row := item
-		if err := db.Where("capability_code = ? AND deleted_at IS NULL", item.CapabilityCode).FirstOrCreate(&row).Error; err != nil {
+		if err := db.Where("capability_code = ?", item.CapabilityCode).Order("deleted_at IS NULL DESC").FirstOrCreate(&row).Error; err != nil {
 			return err
 		}
 		if err := db.Model(&row).Updates(map[string]interface{}{
@@ -1337,7 +1326,6 @@ func seedAIRoutesAndScenarios(db *gorm.DB, modelByCapability map[string][]string
 		strategy   string
 	}{
 		{code: "chat-default", name: "通用对话默认路由", capability: "chat_completion", modelType: "text", strategy: "quality_first"},
-		{code: "text-generation-default", name: "文本生成默认路由", capability: "text_generation", modelType: "text", strategy: "quality_first"},
 		{code: "reasoning-default", name: "复杂推理默认路由", capability: "reasoning", modelType: "text", strategy: "quality_first"},
 		{code: "embedding-default", name: "向量检索默认路由", capability: "embedding", modelType: "embedding", strategy: "latency_first"},
 		{code: "image-default", name: "图片生成默认路由", capability: "image_generation", modelType: "image", strategy: "cost_first"},
@@ -1356,7 +1344,7 @@ func seedAIRoutesAndScenarios(db *gorm.DB, modelByCapability map[string][]string
 			Status:         "active",
 			AITimeFields:   aiNowFields(),
 		}
-		if err := db.Where("route_code = ? AND deleted_at IS NULL", item.code).FirstOrCreate(&route).Error; err != nil {
+		if err := db.Where("route_code = ?", item.code).Order("deleted_at IS NULL DESC").FirstOrCreate(&route).Error; err != nil {
 			return err
 		}
 		routeIDs[item.capability] = route.ID
@@ -1367,6 +1355,7 @@ func seedAIRoutesAndScenarios(db *gorm.DB, modelByCapability map[string][]string
 			"strategy":        item.strategy,
 			"timeout_ms":      30000,
 			"max_retry":       2,
+			"status":          "active",
 			"updated_at":      time.Now(),
 			"deleted_at":      nil,
 		}).Error; err != nil {
@@ -1405,69 +1394,24 @@ func seedAIRoutesAndScenarios(db *gorm.DB, modelByCapability map[string][]string
 			Status:             "active",
 			AITimeFields:       aiNowFields(),
 		}
-		if err := db.Where("app_code = ? AND ai_scenario_code = ? AND deleted_at IS NULL", item.appCode, item.code).FirstOrCreate(&row).Error; err != nil {
+		if err := db.Where("app_code = ? AND ai_scenario_code = ?", item.appCode, item.code).Order("deleted_at IS NULL DESC").FirstOrCreate(&row).Error; err != nil {
 			return err
 		}
 		if err := db.Model(&row).Updates(map[string]interface{}{
-			"app_name":         item.appName,
-			"ai_scenario_name": item.name,
-			"scenario_type":    item.sceneType,
-			"capability_code":  item.capability,
-			"model_type":       item.modelType,
-			"updated_at":       time.Now(),
-			"deleted_at":       nil,
+			"app_name":              item.appName,
+			"ai_scenario_name":      item.name,
+			"scenario_type":         item.sceneType,
+			"capability_code":       item.capability,
+			"model_type":            item.modelType,
+			"default_base_route_id": item.routeID,
+			"status":                "active",
+			"updated_at":            time.Now(),
+			"deleted_at":            nil,
 		}).Error; err != nil {
 			return err
 		}
 	}
-	return repairSeededAIScenarioRouteBindings(db)
-}
-
-func repairSeededAIScenarioRouteBindings(db *gorm.DB) error {
-	var scenarios []models.AIScenario
-	if err := db.Where("status = ? AND deleted_at IS NULL", "active").Find(&scenarios).Error; err != nil {
-		return err
-	}
-	now := time.Now()
-	for _, scenario := range scenarios {
-		var validCount int64
-		if err := db.Model(&models.AIBaseRoute{}).
-			Where("id = ? AND status = ? AND deleted_at IS NULL", scenario.DefaultBaseRouteID, "active").
-			Count(&validCount).Error; err != nil {
-			return err
-		}
-		if validCount > 0 {
-			continue
-		}
-		var route models.AIBaseRoute
-		err := db.
-			Where("capability_code IN ? AND status = ? AND deleted_at IS NULL", aiRouteRepairCapabilityCandidates(scenario.CapabilityCode), "active").
-			Order("updated_at DESC, id ASC").
-			First(&route).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		if err := db.Model(&models.AIScenario{}).
-			Where("id = ? AND deleted_at IS NULL", scenario.ID).
-			Updates(map[string]interface{}{"default_base_route_id": route.ID, "updated_at": now}).Error; err != nil {
-			return err
-		}
-	}
 	return nil
-}
-
-func aiRouteRepairCapabilityCandidates(capabilityCode string) []string {
-	code := strings.TrimSpace(capabilityCode)
-	if code == "text_generation" {
-		return []string{"text_generation", "chat_completion"}
-	}
-	if code == "" {
-		return []string{""}
-	}
-	return []string{code}
 }
 
 func seedAIRouteModels(db *gorm.DB, routeID string, modelIDs []string) error {
@@ -1476,62 +1420,35 @@ func seedAIRouteModels(db *gorm.DB, routeID string, modelIDs []string) error {
 		if index == 0 {
 			role = "primary"
 		}
-		accountID, apiID, err := aiRouteModelEndpoint(db, modelID)
-		if err != nil {
-			return err
-		}
 		row := models.AIBaseRouteModel{
-			BaseRouteID:       routeID,
-			ModelID:           modelID,
-			ProviderAccountID: accountID,
-			ProviderAPIID:     apiID,
-			Role:              role,
-			Weight:            maxInt(100-index*10, 10),
-			Priority:          index + 1,
-			TimeoutMS:         30000,
-			Status:            "active",
-			AITimeFields:      aiNowFields(),
+			BaseRouteID:  routeID,
+			ModelID:      modelID,
+			Role:         role,
+			Weight:       maxInt(100-index*10, 10),
+			Priority:     index + 1,
+			TimeoutMS:    30000,
+			Status:       "active",
+			AITimeFields: aiNowFields(),
 		}
-		if err := db.Where("base_route_id = ? AND model_id = ? AND deleted_at IS NULL", routeID, modelID).FirstOrCreate(&row).Error; err != nil {
+		if err := db.Omit("provider_account_id", "provider_api_id").
+			Where("base_route_id = ? AND model_id = ?", routeID, modelID).
+			Order("deleted_at IS NULL DESC").
+			FirstOrCreate(&row).Error; err != nil {
 			return err
 		}
 		if err := db.Model(&row).Updates(map[string]interface{}{
-			"provider_account_id": accountID,
-			"provider_api_id":     apiID,
-			"role":                role,
-			"weight":              maxInt(100-index*10, 10),
-			"priority":            index + 1,
-			"timeout_ms":          30000,
-			"updated_at":          time.Now(),
-			"deleted_at":          nil,
+			"role":       role,
+			"weight":     maxInt(100-index*10, 10),
+			"priority":   index + 1,
+			"timeout_ms": 30000,
+			"status":     "active",
+			"updated_at": time.Now(),
+			"deleted_at": nil,
 		}).Error; err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func aiRouteModelEndpoint(db *gorm.DB, modelID string) (string, string, error) {
-	var model models.AIModel
-	if err := db.Where("id = ? AND deleted_at IS NULL", modelID).First(&model).Error; err != nil {
-		return "", "", err
-	}
-	var account models.AIProviderAccount
-	if err := db.Where("provider_id = ? AND status = ? AND deleted_at IS NULL", model.ProviderID, "active").Order("created_at ASC, id ASC").First(&account).Error; err != nil {
-		return "", "", err
-	}
-	var api models.AIProviderAPI
-	query := db.Where("provider_id = ? AND account_id = ? AND status = ? AND deleted_at IS NULL", model.ProviderID, account.ID, "active")
-	if model.ModelType != "" {
-		query = query.Where("api_type = ?", model.ModelType)
-	}
-	if err := query.Order("created_at ASC, id ASC").First(&api).Error; err != nil {
-		query = db.Where("provider_id = ? AND account_id = ? AND status = ? AND deleted_at IS NULL", model.ProviderID, account.ID, "active")
-		if fallbackErr := query.Order("created_at ASC, id ASC").First(&api).Error; fallbackErr != nil {
-			return "", "", err
-		}
-	}
-	return account.ID, api.ID, nil
 }
 
 func aiNowFields() models.AITimeFields {

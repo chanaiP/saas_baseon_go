@@ -1,0 +1,12 @@
+DROP INDEX IF EXISTS idx_integration_api_call_logs_app_time;
+DROP INDEX IF EXISTS idx_integration_api_call_logs_connection_time;
+DROP INDEX IF EXISTS idx_integration_api_call_logs_request;
+DROP INDEX IF EXISTS idx_integration_alerts_tenant_status_time;
+DROP INDEX IF EXISTS idx_integration_quota_usages_tenant_period;
+DROP INDEX IF EXISTS idx_integration_sync_jobs_tenant_status_time;
+DROP INDEX IF EXISTS idx_integration_tenant_connections_app_status;
+DROP INDEX IF EXISTS idx_integration_provider_app_capabilities_app_status;
+DROP INDEX IF EXISTS idx_integration_platform_capabilities_platform_status;
+DROP INDEX IF EXISTS idx_integration_provider_apps_code_status;
+DROP INDEX IF EXISTS idx_integration_provider_apps_platform_updated;
+DROP INDEX IF EXISTS idx_integration_platforms_updated;
