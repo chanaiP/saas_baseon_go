@@ -1,0 +1,8 @@
+ALTER TABLE integration_api_call_logs DROP CONSTRAINT IF EXISTS fk_integration_api_call_logs_tenant;
+ALTER TABLE integration_alerts DROP CONSTRAINT IF EXISTS fk_integration_alerts_tenant;
+ALTER TABLE integration_quota_usages DROP CONSTRAINT IF EXISTS fk_integration_quota_usages_tenant;
+ALTER TABLE integration_quota_bindings DROP CONSTRAINT IF EXISTS fk_integration_quota_bindings_tenant;
+ALTER TABLE integration_sync_jobs DROP CONSTRAINT IF EXISTS fk_integration_sync_jobs_tenant;
+ALTER TABLE integration_tenant_capabilities DROP CONSTRAINT IF EXISTS fk_integration_tenant_capabilities_tenant;
+ALTER TABLE integration_oauth_states DROP CONSTRAINT IF EXISTS fk_integration_oauth_states_tenant;
+ALTER TABLE integration_tenant_connections DROP CONSTRAINT IF EXISTS fk_integration_tenant_connections_tenant;

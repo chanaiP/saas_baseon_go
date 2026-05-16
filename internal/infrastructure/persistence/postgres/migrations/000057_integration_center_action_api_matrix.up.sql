@@ -3,6 +3,7 @@ WITH api(method, path, permission_code, audit) AS (
     ('POST', '/api/integration-center/provider-apps', 'integration_center:app_manage', TRUE),
     ('POST', '/api/integration-center/connectivity-check', 'integration_center:connection_manage', TRUE),
     ('PUT', '/api/integration-center/provider-apps/{code}', 'integration_center:app_manage', TRUE),
+    ('PATCH', '/api/integration-center/provider-apps/{code}/credential', 'integration_center:app_manage', TRUE),
     ('PATCH', '/api/integration-center/app-capabilities/{id}', 'integration_center:app_manage', TRUE),
     ('POST', '/api/integration-center/tenant-connections/{id}/refresh', 'integration_center:connection_manage', TRUE),
     ('POST', '/api/integration-center/tenant-connections/{id}/pause', 'integration_center:connection_manage', TRUE),

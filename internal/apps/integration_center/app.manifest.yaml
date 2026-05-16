@@ -72,6 +72,17 @@ menus:
     include_in_package: false
     feature_code: integration_tenant_connections
     data_perm_mode: NONE
+  - code: integration_my_connections
+    name: 我的第三方连接
+    path: /integration-center/my-connections
+    sort_order: 73
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: integration_tenant_authorization
+    data_perm_mode: TENANT
   - code: integration_sync_monitor
     name: 同步监控
     path: /integration-center/sync-monitor
@@ -174,6 +185,13 @@ permissions:
     platform_only: true
     include_in_package: false
     data_perm_mode: NONE
+  - code: /integration-center/my-connections
+    name: 我的第三方连接
+    type: MENU
+    menu_code: integration_my_connections
+    platform_only: false
+    include_in_package: true
+    data_perm_mode: TENANT
   - code: /integration-center/sync-monitor
     name: 同步监控
     type: MENU
@@ -238,8 +256,15 @@ apis:
     path: /api/integration-center/connectivity-check
     permission_code: integration_center:connection_manage
     audit: true
+  - method: POST
+    path: /api/integration-center/gateway/invoke
+    permission_code: integration_center:connection_manage
+    audit: true
   - method: GET
     path: /api/integration-center/platforms
+    permission_code: /integration-center/platforms
+  - method: GET
+    path: /api/integration-center/platforms/{code}
     permission_code: /integration-center/platforms
   - method: POST
     path: /api/integration-center/platforms
@@ -252,12 +277,37 @@ apis:
   - method: GET
     path: /api/integration-center/workspace
     permission_code: /integration-center/workspace
+  - method: GET
+    path: /api/integration-center/platform-capabilities
+    permission_code: /integration-center/workspace
+  - method: POST
+    path: /api/integration-center/platform-capabilities
+    permission_code: integration_center:platform_manage
+    audit: true
+  - method: PUT
+    path: /api/integration-center/platform-capabilities/{id}
+    permission_code: integration_center:platform_manage
+    audit: true
+  - method: PATCH
+    path: /api/integration-center/platform-capabilities/{id}/disable
+    permission_code: integration_center:platform_manage
+    audit: true
+  - method: GET
+    path: /api/integration-center/app-capabilities
+    permission_code: /integration-center/workspace
   - method: POST
     path: /api/integration-center/provider-apps
     permission_code: integration_center:app_manage
     audit: true
+  - method: GET
+    path: /api/integration-center/provider-apps/{code}
+    permission_code: /integration-center/workspace
   - method: PUT
     path: /api/integration-center/provider-apps/{code}
+    permission_code: integration_center:app_manage
+    audit: true
+  - method: PATCH
+    path: /api/integration-center/provider-apps/{code}/credential
     permission_code: integration_center:app_manage
     audit: true
   - method: PATCH
@@ -267,6 +317,37 @@ apis:
   - method: GET
     path: /api/integration-center/tenant-connections
     permission_code: /integration-center/tenant-connections
+  - method: GET
+    path: /api/integration-center/tenant-connections/{id}
+    permission_code: /integration-center/tenant-connections
+  - method: POST
+    path: /api/integration-center/tenant-connections
+    permission_code: integration_center:connection_manage
+    audit: true
+  - method: POST
+    path: /api/integration-center/oauth/start
+    permission_code: integration_center:connection_manage
+    audit: true
+  - method: GET
+    path: /api/integration-center/my-connections
+    permission_code: /integration-center/my-connections
+  - method: GET
+    path: /api/integration-center/my-connections/{id}
+    permission_code: /integration-center/my-connections
+  - method: POST
+    path: /api/integration-center/my-connections
+    permission_code: /integration-center/my-connections
+    audit: true
+  - method: POST
+    path: /api/integration-center/my-oauth/start
+    permission_code: /integration-center/my-connections
+    audit: true
+  - method: GET
+    path: /api/integration-center/my-sync-jobs
+    permission_code: /integration-center/my-connections
+  - method: GET
+    path: /api/integration-center/my-sync-jobs/{id}
+    permission_code: /integration-center/my-connections
   - method: POST
     path: /api/integration-center/tenant-connections/{id}/refresh
     permission_code: integration_center:connection_manage
@@ -286,6 +367,9 @@ apis:
   - method: GET
     path: /api/integration-center/sync-monitor
     permission_code: /integration-center/sync-monitor
+  - method: GET
+    path: /api/integration-center/sync-jobs/{id}
+    permission_code: /integration-center/sync-monitor
   - method: POST
     path: /api/integration-center/sync-jobs/{id}/retry
     permission_code: integration_center:connection_manage
@@ -300,6 +384,9 @@ apis:
     audit: true
   - method: GET
     path: /api/integration-center/quota
+    permission_code: /integration-center/quota
+  - method: GET
+    path: /api/integration-center/quota-usages
     permission_code: /integration-center/quota
   - method: POST
     path: /api/integration-center/quota-policies
@@ -330,6 +417,9 @@ apis:
     audit: true
   - method: GET
     path: /api/integration-center/logs
+    permission_code: /integration-center/logs
+  - method: GET
+    path: /api/integration-center/logs/{id}
     permission_code: /integration-center/logs
   - method: POST
     path: /api/integration-center/logs/export

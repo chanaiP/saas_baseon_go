@@ -141,6 +141,12 @@ const router = createRouter({
           component: () => import('@/apps/integration-center/views/IntegrationCenterView.vue'),
         },
         {
+          path: 'integration-center/my-connections',
+          name: 'IntegrationCenterMyConnections',
+          meta: { title: '我的第三方连接' },
+          component: () => import('@/apps/integration-center/views/IntegrationCenterView.vue'),
+        },
+        {
           path: 'integration-center/sync-monitor',
           name: 'IntegrationCenterSyncMonitor',
           meta: { title: '同步监控', requiresPlatformAdmin: true },

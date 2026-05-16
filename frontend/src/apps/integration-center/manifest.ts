@@ -7,6 +7,7 @@ export const integrationCenterManifest = {
     '/integration-center/platforms',
     '/integration-center/workspace',
     '/integration-center/tenant-connections',
+    '/integration-center/my-connections',
     '/integration-center/sync-monitor',
     '/integration-center/quota',
     '/integration-center/alerts',

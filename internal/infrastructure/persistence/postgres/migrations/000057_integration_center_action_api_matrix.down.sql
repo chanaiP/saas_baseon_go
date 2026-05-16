@@ -5,6 +5,7 @@ WHERE app_code = 'integration-center'
       '/api/integration-center/provider-apps',
       '/api/integration-center/connectivity-check',
       '/api/integration-center/provider-apps/{code}',
+      '/api/integration-center/provider-apps/{code}/credential',
       '/api/integration-center/app-capabilities/{id}',
       '/api/integration-center/tenant-connections/{id}/refresh',
       '/api/integration-center/tenant-connections/{id}/pause',

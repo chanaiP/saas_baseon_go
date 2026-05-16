@@ -35,6 +35,11 @@ func TestRequiredPermissionForOperationRoutes(t *testing.T) {
 	require.Equal(t, "app:load", requiredPermission("POST", "/api/apps/manifest/diff"))
 	require.Equal(t, "app:load", requiredPermission("POST", "/api/apps/manifest/load"))
 	require.Equal(t, "app:load", requiredPermission("POST", "/api/apps/manifest/scan"))
+	require.Equal(t, "integration_center:connection_manage", requiredPermission("POST", "/api/integration-center/tenant-connections"))
+	require.Equal(t, "integration_center:connection_manage", requiredPermission("POST", "/api/integration-center/oauth/start"))
+	require.Equal(t, "/integration-center/my-connections", requiredPermission("POST", "/api/integration-center/my-connections"))
+	require.Equal(t, "/integration-center/my-connections", requiredPermission("POST", "/api/integration-center/my-oauth/start"))
+	require.Equal(t, "integration_center:connection_manage", requiredPermission("POST", "/api/integration-center/gateway/invoke"))
 }
 
 func TestRequiredPermissionForMenuRoutes(t *testing.T) {
@@ -51,6 +56,11 @@ func TestRequiredPermissionForMenuRoutes(t *testing.T) {
 	require.Equal(t, "/params", requiredPermission("GET", "/api/params/:key"))
 	require.Equal(t, "/roles", requiredPermission("GET", "/api/roles/permission-menu-bundles"))
 	require.Equal(t, "/menus", requiredPermission("GET", "/api/permissions/tree"))
+	require.Equal(t, "/integration-center/tenant-connections", requiredPermission("GET", "/api/integration-center/tenant-connections/:id"))
+	require.Equal(t, "/integration-center/my-connections", requiredPermission("GET", "/api/integration-center/my-connections/:id"))
+	require.Equal(t, "/integration-center/my-connections", requiredPermission("GET", "/api/integration-center/my-sync-jobs/:id"))
+	require.Equal(t, "/integration-center/sync-monitor", requiredPermission("GET", "/api/integration-center/sync-jobs/:id"))
+	require.Equal(t, "/integration-center/logs", requiredPermission("GET", "/api/integration-center/logs/:id"))
 	require.Empty(t, requiredPermission("GET", "/api/dict-types/by-code/:code/items"))
 	require.Empty(t, requiredPermission("GET", "/api/users/me"))
 }
@@ -60,6 +70,8 @@ func TestRouteAllowedFailsClosedForUnclassifiedRoutes(t *testing.T) {
 
 	require.False(t, handler.routeAllowed(testPlatformAdminUser(), "GET", "/api/unclassified"))
 	require.True(t, handler.routeAllowed(testPlatformAdminUser(), "GET", "/api/users/me"))
+	require.True(t, routePermissionOptional("POST", "/api/integration-center/webhooks/:provider_app_code"))
+	require.True(t, routePermissionOptional("GET", "/api/integration-center/oauth/callback/:provider_app_code"))
 	require.False(t, handler.routeAllowed(testPlatformAdminUser(), "GET", "/api/users"))
 }
 

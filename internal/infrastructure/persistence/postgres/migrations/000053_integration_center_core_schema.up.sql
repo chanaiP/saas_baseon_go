@@ -101,7 +101,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uk_integration_provider_app_capabilities
 
 CREATE TABLE IF NOT EXISTS integration_tenant_connections (
   id BIGSERIAL PRIMARY KEY,
-  tenant_id BIGINT NOT NULL,
+  tenant_id BIGINT NOT NULL REFERENCES tenant(id),
   platform_id BIGINT NOT NULL REFERENCES integration_platforms(id),
   provider_app_id BIGINT NOT NULL REFERENCES integration_provider_apps(id),
   connection_name VARCHAR(180) NOT NULL,
@@ -112,6 +112,7 @@ CREATE TABLE IF NOT EXISTS integration_tenant_connections (
   auth_status VARCHAR(32) NOT NULL DEFAULT 'pending',
   connection_status VARCHAR(32) NOT NULL DEFAULT 'inactive',
   token_status VARCHAR(32) NOT NULL DEFAULT 'unknown',
+  token_credential_ref VARCHAR(240),
   authorized_at TIMESTAMPTZ,
   token_expires_at TIMESTAMPTZ,
   last_sync_at TIMESTAMPTZ,
@@ -134,7 +135,7 @@ CREATE INDEX IF NOT EXISTS idx_integration_tenant_connections_tenant_status
 
 CREATE TABLE IF NOT EXISTS integration_tenant_capabilities (
   id BIGSERIAL PRIMARY KEY,
-  tenant_id BIGINT NOT NULL,
+  tenant_id BIGINT NOT NULL REFERENCES tenant(id),
   tenant_connection_id BIGINT NOT NULL REFERENCES integration_tenant_connections(id),
   provider_app_capability_id BIGINT NOT NULL REFERENCES integration_provider_app_capabilities(id),
   capability_code VARCHAR(100) NOT NULL,
@@ -155,7 +156,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uk_integration_tenant_capabilities
 
 CREATE TABLE IF NOT EXISTS integration_sync_jobs (
   id BIGSERIAL PRIMARY KEY,
-  tenant_id BIGINT NOT NULL,
+  tenant_id BIGINT NOT NULL REFERENCES tenant(id),
   tenant_connection_id BIGINT NOT NULL REFERENCES integration_tenant_connections(id),
   capability_code VARCHAR(100) NOT NULL,
   job_type VARCHAR(50) NOT NULL,
@@ -165,6 +166,8 @@ CREATE TABLE IF NOT EXISTS integration_sync_jobs (
   total_count BIGINT NOT NULL DEFAULT 0,
   success_count BIGINT NOT NULL DEFAULT 0,
   failed_count BIGINT NOT NULL DEFAULT 0,
+  retry_count INTEGER NOT NULL DEFAULT 0,
+  next_retry_at TIMESTAMPTZ,
   started_at TIMESTAMPTZ,
   finished_at TIMESTAMPTZ,
   error_code VARCHAR(100),
@@ -203,11 +206,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS uk_integration_quota_policies_code
 
 CREATE TABLE IF NOT EXISTS integration_quota_bindings (
   id BIGSERIAL PRIMARY KEY,
-  tenant_id BIGINT,
+  tenant_id BIGINT REFERENCES tenant(id),
   platform_id BIGINT REFERENCES integration_platforms(id),
   provider_app_id BIGINT REFERENCES integration_provider_apps(id),
+  tenant_connection_id BIGINT REFERENCES integration_tenant_connections(id),
   policy_id BIGINT NOT NULL REFERENCES integration_quota_policies(id),
   override_limit BIGINT,
+  priority INTEGER NOT NULL DEFAULT 0,
   status VARCHAR(32) NOT NULL DEFAULT 'enabled',
   created_by BIGINT,
   updated_by BIGINT,
@@ -220,9 +225,13 @@ CREATE INDEX IF NOT EXISTS idx_integration_quota_bindings_scope
   ON integration_quota_bindings(tenant_id, platform_id, provider_app_id)
   WHERE deleted_at IS NULL;
 
+CREATE INDEX IF NOT EXISTS idx_integration_quota_bindings_connection
+  ON integration_quota_bindings(tenant_connection_id, priority)
+  WHERE deleted_at IS NULL;
+
 CREATE TABLE IF NOT EXISTS integration_quota_usages (
   id BIGSERIAL PRIMARY KEY,
-  tenant_id BIGINT NOT NULL,
+  tenant_id BIGINT NOT NULL REFERENCES tenant(id),
   tenant_connection_id BIGINT REFERENCES integration_tenant_connections(id),
   quota_code VARCHAR(100) NOT NULL,
   period_key VARCHAR(64) NOT NULL,
@@ -238,7 +247,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uk_integration_quota_usages_period
 
 CREATE TABLE IF NOT EXISTS integration_alerts (
   id BIGSERIAL PRIMARY KEY,
-  tenant_id BIGINT,
+  tenant_id BIGINT REFERENCES tenant(id),
   tenant_connection_id BIGINT REFERENCES integration_tenant_connections(id),
   platform_id BIGINT REFERENCES integration_platforms(id),
   provider_app_id BIGINT REFERENCES integration_provider_apps(id),
@@ -262,7 +271,7 @@ CREATE INDEX IF NOT EXISTS idx_integration_alerts_status
 
 CREATE TABLE IF NOT EXISTS integration_api_call_logs (
   id BIGSERIAL PRIMARY KEY,
-  tenant_id BIGINT,
+  tenant_id BIGINT REFERENCES tenant(id),
   tenant_connection_id BIGINT REFERENCES integration_tenant_connections(id),
   platform_id BIGINT REFERENCES integration_platforms(id),
   provider_app_id BIGINT REFERENCES integration_provider_apps(id),

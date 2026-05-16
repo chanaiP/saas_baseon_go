@@ -11,14 +11,15 @@ const repoRoot = path.join(root, '..')
 
 /** 与项目根 .env 中 BASICP_* 一致，避免改端口后 Vite 仍代理到错误地址 */
 function readRepoEnvInt(key: string, fallback: number): number {
+  const ev = process.env[key]
+  if (ev && /^\d+$/.test(ev)) return parseInt(ev, 10)
+
   const envFile = path.join(repoRoot, '.env')
   if (existsSync(envFile)) {
     const text = readFileSync(envFile, 'utf8')
     const m = text.match(new RegExp(`^\\s*${key}\\s*=\\s*(\\d+)\\s*$`, 'm'))
     if (m) return parseInt(m[1], 10)
   }
-  const ev = process.env[key]
-  if (ev && /^\d+$/.test(ev)) return parseInt(ev, 10)
   return fallback
 }
 

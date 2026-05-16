@@ -88,31 +88,51 @@ func (IntegrationProviderAppCapability) TableName() string {
 }
 
 type IntegrationTenantConnection struct {
-	ID               uint64     `gorm:"primaryKey;autoIncrement;column:id"`
-	TenantID         uint64     `gorm:"column:tenant_id;not null;index"`
-	PlatformID       uint64     `gorm:"column:platform_id;not null;index"`
-	ProviderAppID    uint64     `gorm:"column:provider_app_id;not null;index"`
-	ConnectionName   string     `gorm:"column:connection_name;type:varchar(180);not null"`
-	AuthSubjectType  string     `gorm:"column:auth_subject_type;type:varchar(60);not null"`
-	AuthSubjectID    string     `gorm:"column:auth_subject_id;type:varchar(160);not null"`
-	AuthSubjectName  string     `gorm:"column:auth_subject_name;type:varchar(180);not null"`
-	AuthScope        string     `gorm:"column:auth_scope;type:jsonb;not null;default:'[]'"`
-	AuthStatus       string     `gorm:"column:auth_status;type:varchar(32);not null;default:'pending'"`
-	ConnectionStatus string     `gorm:"column:connection_status;type:varchar(32);not null;default:'inactive'"`
-	TokenStatus      string     `gorm:"column:token_status;type:varchar(32);not null;default:'unknown'"`
-	AuthorizedAt     *time.Time `gorm:"column:authorized_at"`
-	TokenExpiresAt   *time.Time `gorm:"column:token_expires_at"`
-	LastSyncAt       *time.Time `gorm:"column:last_sync_at"`
-	LastErrorAt      *time.Time `gorm:"column:last_error_at"`
-	LastErrorMessage *string    `gorm:"column:last_error_message;type:text"`
-	CreatedBy        *uint64    `gorm:"column:created_by"`
-	UpdatedBy        *uint64    `gorm:"column:updated_by"`
-	CreatedAt        time.Time  `gorm:"column:created_at;not null"`
-	UpdatedAt        time.Time  `gorm:"column:updated_at;not null"`
-	DeletedAt        *time.Time `gorm:"column:deleted_at;index"`
+	ID                 uint64     `gorm:"primaryKey;autoIncrement;column:id"`
+	TenantID           uint64     `gorm:"column:tenant_id;not null;index"`
+	PlatformID         uint64     `gorm:"column:platform_id;not null;index"`
+	ProviderAppID      uint64     `gorm:"column:provider_app_id;not null;index"`
+	ConnectionName     string     `gorm:"column:connection_name;type:varchar(180);not null"`
+	AuthSubjectType    string     `gorm:"column:auth_subject_type;type:varchar(60);not null"`
+	AuthSubjectID      string     `gorm:"column:auth_subject_id;type:varchar(160);not null"`
+	AuthSubjectName    string     `gorm:"column:auth_subject_name;type:varchar(180);not null"`
+	AuthScope          string     `gorm:"column:auth_scope;type:jsonb;not null;default:'[]'"`
+	AuthStatus         string     `gorm:"column:auth_status;type:varchar(32);not null;default:'pending'"`
+	ConnectionStatus   string     `gorm:"column:connection_status;type:varchar(32);not null;default:'inactive'"`
+	TokenStatus        string     `gorm:"column:token_status;type:varchar(32);not null;default:'unknown'"`
+	TokenCredentialRef *string    `gorm:"column:token_credential_ref;type:varchar(240)"`
+	AuthorizedAt       *time.Time `gorm:"column:authorized_at"`
+	TokenExpiresAt     *time.Time `gorm:"column:token_expires_at"`
+	LastSyncAt         *time.Time `gorm:"column:last_sync_at"`
+	LastErrorAt        *time.Time `gorm:"column:last_error_at"`
+	LastErrorMessage   *string    `gorm:"column:last_error_message;type:text"`
+	CreatedBy          *uint64    `gorm:"column:created_by"`
+	UpdatedBy          *uint64    `gorm:"column:updated_by"`
+	CreatedAt          time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt          time.Time  `gorm:"column:updated_at;not null"`
+	DeletedAt          *time.Time `gorm:"column:deleted_at;index"`
 }
 
 func (IntegrationTenantConnection) TableName() string { return "integration_tenant_connections" }
+
+type IntegrationOAuthState struct {
+	ID            uint64     `gorm:"primaryKey;autoIncrement;column:id"`
+	State         string     `gorm:"column:state;type:varchar(160);not null;uniqueIndex"`
+	TenantID      uint64     `gorm:"column:tenant_id;not null;index"`
+	ProviderAppID uint64     `gorm:"column:provider_app_id;not null;index"`
+	PlatformID    uint64     `gorm:"column:platform_id;not null;index"`
+	RedirectURI   string     `gorm:"column:redirect_uri;type:varchar(500);not null"`
+	Scopes        string     `gorm:"column:scopes;type:jsonb;not null;default:'[]'"`
+	Status        string     `gorm:"column:status;type:varchar(32);not null;default:'pending';index"`
+	ExpiresAt     time.Time  `gorm:"column:expires_at;not null;index"`
+	ConsumedAt    *time.Time `gorm:"column:consumed_at"`
+	CreatedBy     *uint64    `gorm:"column:created_by"`
+	CreatedAt     time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt     time.Time  `gorm:"column:updated_at;not null"`
+	DeletedAt     *time.Time `gorm:"column:deleted_at;index"`
+}
+
+func (IntegrationOAuthState) TableName() string { return "integration_oauth_states" }
 
 type IntegrationTenantCapability struct {
 	ID                      uint64     `gorm:"primaryKey;autoIncrement;column:id"`
@@ -145,6 +165,8 @@ type IntegrationSyncJob struct {
 	TotalCount         int64      `gorm:"column:total_count;not null;default:0"`
 	SuccessCount       int64      `gorm:"column:success_count;not null;default:0"`
 	FailedCount        int64      `gorm:"column:failed_count;not null;default:0"`
+	RetryCount         int        `gorm:"column:retry_count;not null;default:0"`
+	NextRetryAt        *time.Time `gorm:"column:next_retry_at"`
 	StartedAt          *time.Time `gorm:"column:started_at"`
 	FinishedAt         *time.Time `gorm:"column:finished_at"`
 	ErrorCode          *string    `gorm:"column:error_code;type:varchar(100)"`
@@ -156,6 +178,25 @@ type IntegrationSyncJob struct {
 }
 
 func (IntegrationSyncJob) TableName() string { return "integration_sync_jobs" }
+
+type IntegrationSyncRecord struct {
+	ID                 uint64     `gorm:"primaryKey;autoIncrement;column:id"`
+	TenantID           uint64     `gorm:"column:tenant_id;not null;index"`
+	SyncJobID          uint64     `gorm:"column:sync_job_id;not null;index"`
+	TenantConnectionID uint64     `gorm:"column:tenant_connection_id;not null;index"`
+	CapabilityCode     string     `gorm:"column:capability_code;type:varchar(100);not null"`
+	ExternalID         string     `gorm:"column:external_id;type:varchar(180);not null"`
+	PayloadDigest      string     `gorm:"column:payload_digest;type:varchar(128);not null"`
+	Payload            string     `gorm:"column:payload;type:jsonb;not null;default:'{}'"`
+	Status             string     `gorm:"column:status;type:varchar(32);not null;default:'written'"`
+	CursorValue        *string    `gorm:"column:cursor_value;type:varchar(300)"`
+	WrittenAt          time.Time  `gorm:"column:written_at;not null"`
+	CreatedAt          time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt          time.Time  `gorm:"column:updated_at;not null"`
+	DeletedAt          *time.Time `gorm:"column:deleted_at;index"`
+}
+
+func (IntegrationSyncRecord) TableName() string { return "integration_sync_records" }
 
 type IntegrationQuotaPolicy struct {
 	ID              uint64     `gorm:"primaryKey;autoIncrement;column:id"`
@@ -176,6 +217,40 @@ type IntegrationQuotaPolicy struct {
 }
 
 func (IntegrationQuotaPolicy) TableName() string { return "integration_quota_policies" }
+
+type IntegrationQuotaBinding struct {
+	ID                 uint64     `gorm:"primaryKey;autoIncrement;column:id"`
+	TenantID           *uint64    `gorm:"column:tenant_id;index"`
+	PlatformID         *uint64    `gorm:"column:platform_id;index"`
+	ProviderAppID      *uint64    `gorm:"column:provider_app_id;index"`
+	TenantConnectionID *uint64    `gorm:"column:tenant_connection_id;index"`
+	PolicyID           uint64     `gorm:"column:policy_id;not null;index"`
+	OverrideLimit      *int64     `gorm:"column:override_limit"`
+	Priority           int        `gorm:"column:priority;not null;default:0"`
+	Status             string     `gorm:"column:status;type:varchar(32);not null;default:'enabled'"`
+	CreatedBy          *uint64    `gorm:"column:created_by"`
+	UpdatedBy          *uint64    `gorm:"column:updated_by"`
+	CreatedAt          time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt          time.Time  `gorm:"column:updated_at;not null"`
+	DeletedAt          *time.Time `gorm:"column:deleted_at;index"`
+}
+
+func (IntegrationQuotaBinding) TableName() string { return "integration_quota_bindings" }
+
+type IntegrationQuotaUsage struct {
+	ID                 uint64     `gorm:"primaryKey;autoIncrement;column:id"`
+	TenantID           uint64     `gorm:"column:tenant_id;not null;index"`
+	TenantConnectionID *uint64    `gorm:"column:tenant_connection_id;index"`
+	QuotaCode          string     `gorm:"column:quota_code;type:varchar(100);not null;index"`
+	PeriodKey          string     `gorm:"column:period_key;type:varchar(64);not null;index"`
+	UsedAmount         int64      `gorm:"column:used_amount;not null;default:0"`
+	LimitedCount       int64      `gorm:"column:limited_count;not null;default:0"`
+	LastUsedAt         *time.Time `gorm:"column:last_used_at"`
+	CreatedAt          time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt          time.Time  `gorm:"column:updated_at;not null"`
+}
+
+func (IntegrationQuotaUsage) TableName() string { return "integration_quota_usages" }
 
 type IntegrationAlert struct {
 	ID                 uint64     `gorm:"primaryKey;autoIncrement;column:id"`
@@ -200,24 +275,49 @@ type IntegrationAlert struct {
 func (IntegrationAlert) TableName() string { return "integration_alerts" }
 
 type IntegrationAPICallLog struct {
-	ID                 uint64    `gorm:"primaryKey;autoIncrement;column:id"`
-	TenantID           *uint64   `gorm:"column:tenant_id;index"`
-	TenantConnectionID *uint64   `gorm:"column:tenant_connection_id;index"`
-	PlatformID         *uint64   `gorm:"column:platform_id;index"`
-	ProviderAppID      *uint64   `gorm:"column:provider_app_id;index"`
-	RequestID          string    `gorm:"column:request_id;type:varchar(120);not null"`
-	CallType           string    `gorm:"column:call_type;type:varchar(60);not null"`
-	Method             *string   `gorm:"column:method;type:varchar(16)"`
-	Endpoint           *string   `gorm:"column:endpoint;type:varchar(500)"`
-	Status             string    `gorm:"column:status;type:varchar(32);not null"`
-	HTTPStatus         *int      `gorm:"column:http_status"`
-	DurationMS         int       `gorm:"column:duration_ms;not null;default:0"`
-	ErrorCode          *string   `gorm:"column:error_code;type:varchar(120)"`
-	ErrorMessage       *string   `gorm:"column:error_message;type:text"`
-	RequestDigest      *string   `gorm:"column:request_digest;type:varchar(128)"`
-	ResponseDigest     *string   `gorm:"column:response_digest;type:varchar(128)"`
-	CalledAt           time.Time `gorm:"column:called_at;not null"`
-	CreatedAt          time.Time `gorm:"column:created_at;not null"`
+	ID                 uint64     `gorm:"primaryKey;autoIncrement;column:id"`
+	TenantID           *uint64    `gorm:"column:tenant_id;index"`
+	TenantConnectionID *uint64    `gorm:"column:tenant_connection_id;index"`
+	PlatformID         *uint64    `gorm:"column:platform_id;index"`
+	ProviderAppID      *uint64    `gorm:"column:provider_app_id;index"`
+	RequestID          string     `gorm:"column:request_id;type:varchar(120);not null"`
+	TraceID            *string    `gorm:"column:trace_id;type:varchar(120);index"`
+	CallType           string     `gorm:"column:call_type;type:varchar(60);not null"`
+	Method             *string    `gorm:"column:method;type:varchar(16)"`
+	Endpoint           *string    `gorm:"column:endpoint;type:varchar(500)"`
+	Status             string     `gorm:"column:status;type:varchar(32);not null"`
+	HTTPStatus         *int       `gorm:"column:http_status"`
+	DurationMS         int        `gorm:"column:duration_ms;not null;default:0"`
+	ErrorCode          *string    `gorm:"column:error_code;type:varchar(120)"`
+	ErrorMessage       *string    `gorm:"column:error_message;type:text"`
+	RequestDigest      *string    `gorm:"column:request_digest;type:varchar(128)"`
+	ResponseDigest     *string    `gorm:"column:response_digest;type:varchar(128)"`
+	CalledAt           time.Time  `gorm:"column:called_at;not null"`
+	CreatedAt          time.Time  `gorm:"column:created_at;not null"`
+	ArchivedAt         *time.Time `gorm:"column:archived_at;index"`
+	RetentionBucket    *string    `gorm:"column:retention_bucket;type:varchar(64)"`
 }
 
 func (IntegrationAPICallLog) TableName() string { return "integration_api_call_logs" }
+
+type IntegrationWebhookEvent struct {
+	ID             uint64     `gorm:"primaryKey;autoIncrement;column:id"`
+	ProviderAppID  uint64     `gorm:"column:provider_app_id;not null;index;uniqueIndex:idx_integration_webhook_idempotency"`
+	PlatformID     uint64     `gorm:"column:platform_id;not null;index"`
+	EventType      string     `gorm:"column:event_type;type:varchar(120);not null"`
+	IdempotencyKey string     `gorm:"column:idempotency_key;type:varchar(160);not null;uniqueIndex:idx_integration_webhook_idempotency"`
+	Signature      string     `gorm:"column:signature;type:varchar(160);not null"`
+	PayloadDigest  string     `gorm:"column:payload_digest;type:varchar(128);not null"`
+	Payload        string     `gorm:"column:payload;type:jsonb;not null;default:'{}'"`
+	Status         string     `gorm:"column:status;type:varchar(32);not null;default:'received'"`
+	ReceivedAt     time.Time  `gorm:"column:received_at;not null"`
+	ProcessedAt    *time.Time `gorm:"column:processed_at"`
+	RetryCount     int        `gorm:"column:retry_count;not null;default:0"`
+	NextRetryAt    *time.Time `gorm:"column:next_retry_at"`
+	ErrorMessage   *string    `gorm:"column:error_message;type:text"`
+	CreatedAt      time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt      time.Time  `gorm:"column:updated_at;not null"`
+	DeletedAt      *time.Time `gorm:"column:deleted_at;index"`
+}
+
+func (IntegrationWebhookEvent) TableName() string { return "integration_webhook_events" }
