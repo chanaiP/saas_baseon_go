@@ -5,7 +5,7 @@ import { ElMessage } from 'element-plus'
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
 import { fetchAiResource } from '../api'
-import { emptyPage, modelTypeText, settingJSON, statusType, text } from './viewHelpers'
+import { emptyPage, modelTypeText, settingJSON, statusText, statusType, text } from './viewHelpers'
 import AiResourceActions from './AiResourceActions.vue'
 import './aiPrototype.css'
 
@@ -77,7 +77,7 @@ onMounted(loadData)
           <el-table-column label="场景 / 模型类型" min-width="170"><template #default="{ row }">{{ text(row.scenario_type) }} / {{ modelTypeText(row.model_type) }}</template></el-table-column>
           <el-table-column label="默认用量单位" width="140"><template #default="{ row }">{{ text(row.default_billing_unit) }}</template></el-table-column>
           <el-table-column label="分档价格" width="110"><template #default="{ row }">{{ row.supports_tier_pricing ? '支持' : '不支持' }}</template></el-table-column>
-          <el-table-column label="状态" width="100"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ text(row.status) }}</el-tag></template></el-table-column>
+          <el-table-column label="状态" width="100"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag></template></el-table-column>
           <el-table-column label="操作" width="140"><template #default="{ row }"><AiResourceActions resource="capabilities" :row="row" @saved="loadData" /></template></el-table-column>
         </el-table>
       </div>
@@ -94,6 +94,7 @@ onMounted(loadData)
         <pre class="ai-code-block">AI_GATEWAY_TIMEOUT_MS=30000
 AI_GATEWAY_RETRY_TIMES=2
 AI_KEY_ENCRYPTION_KMS_ALIAS=prod/ai-capability-center
+AI_GATEWAY_CA_BUNDLE_FILE=/etc/ssl/certs/company-ca.pem
 AI_USAGE_LOG_ASYNC=true
 AI_OPERATION_LOG_TARGET=SAAS_BASE_OPERATION_LOG
 AI_PROMPT_STORE_PLAINTEXT=false</pre>

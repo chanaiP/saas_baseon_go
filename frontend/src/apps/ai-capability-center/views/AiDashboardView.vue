@@ -6,13 +6,21 @@ import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
 import { fetchAiOverview } from '../api'
 import type { AiOverview } from '../types'
-import { modelTypeText, moneyText, numberText, percentText, statusType, text } from './viewHelpers'
+import { modelTypeText, moneyText, numberText, percentText, statusText, statusType, text } from './viewHelpers'
 import './aiPrototype.css'
 
 defineOptions({ name: 'AiDashboardView' })
 
 const loading = ref(false)
 const overview = ref<AiOverview | null>(null)
+const trendMode = ref<'calls' | 'cost' | 'success'>('calls')
+
+const trendModeOptions = [
+  { value: 'calls', label: '调用', title: '调用趋势', description: '近 7 天真实调用量走势', unit: '' },
+  { value: 'cost', label: '成本', title: '成本趋势', description: '近 7 天真实成本走势', unit: '¥' },
+  { value: 'success', label: '成功率', title: '成功率趋势', description: '近 7 天真实调用成功率走势', unit: '%' },
+] as const
+const activeTrendMode = computed(() => trendModeOptions.find((item) => item.value === trendMode.value) ?? trendModeOptions[0])
 
 const costMax = computed(() => Math.max(...(overview.value?.model_cost_share ?? []).map((item) => Number(item.cost_amount ?? 0)), 1))
 const chartWidth = 720
@@ -21,15 +29,15 @@ const chartPadding = 36
 const trendPoints = computed(() => {
   const data = overview.value?.usage_trend ?? []
   if (!data.length) return []
-  const calls = data.map((item) => Number(item.calls ?? 0))
-  const max = Math.max(...calls)
-  const min = Math.min(...calls)
+  const values = data.map((item) => trendValue(item))
+  const max = trendMode.value === 'success' ? 100 : Math.max(...values)
+  const min = trendMode.value === 'success' ? 0 : Math.min(...values)
   const range = max - min
   const innerWidth = chartWidth - chartPadding * 2
   const innerHeight = chartHeight - chartPadding * 2
   return data.map((item, index) => {
     const x = chartPadding + (index * innerWidth) / Math.max(data.length - 1, 1)
-    const ratio = range === 0 ? 0.5 : (Number(item.calls ?? 0) - min) / range
+    const ratio = range === 0 ? 0.5 : (trendValue(item) - min) / range
     const y = chartHeight - chartPadding - ratio * innerHeight
     return { x, y, item }
   })
@@ -40,11 +48,21 @@ const trendAreaPath = computed(() => {
   if (!points.length) return ''
   return `${trendPath.value} L ${points[points.length - 1].x} ${chartHeight - chartPadding} L ${points[0].x} ${chartHeight - chartPadding} Z`
 })
-const gatewayChecks = computed(() => overview.value?.health_checks ?? [])
+const gatewayChecks = computed(() => (overview.value?.health_checks ?? []).filter((item) => item.name !== '底座操作日志'))
 const gatewayReady = computed(() => gatewayChecks.value.length > 0 && gatewayChecks.value.every((item) => item.status === 'active' || item.status === 'success'))
 const gatewayStatusText = computed(() => {
   if (!overview.value) return 'AI Gateway 检查中'
   return gatewayReady.value ? 'AI Gateway 正常运行' : 'AI Gateway 待处理'
+})
+const gatewayHealthStats = computed(() => {
+  const result = { normal: 0, warning: 0, error: 0, total: gatewayChecks.value.length }
+  for (const item of gatewayChecks.value) {
+    const status = String(item.status || '').toLowerCase()
+    if (['active', 'success', 'enabled', 'online'].includes(status)) result.normal += 1
+    else if (['warning', 'degraded', 'pending', 'draft'].includes(status)) result.warning += 1
+    else if (['error', 'failed', 'timeout', 'inactive', 'disabled', 'offline'].includes(status)) result.error += 1
+  }
+  return result
 })
 
 async function loadData() {
@@ -58,25 +76,41 @@ async function loadData() {
   }
 }
 
+function trendValue(item: Record<string, unknown>) {
+  if (trendMode.value === 'cost') return Number(item.cost_amount ?? 0)
+  if (trendMode.value === 'success') return Number(item.success_rate ?? 0)
+  return Number(item.calls ?? 0)
+}
+
+function trendValueText(item: Record<string, unknown>) {
+  if (trendMode.value === 'cost') return moneyText(item.cost_amount)
+  if (trendMode.value === 'success') return percentText(item.success_rate)
+  return numberText(item.calls)
+}
+
 onMounted(loadData)
 </script>
 
 <template>
   <NeuroAgentPageShell class="ai-prototype" :show-hero="false">
     <template #title>AI 能力中心</template>
-    <template #subtitle>平台调用、成本、成功率、租户排行和健康检查。</template>
+    <template #subtitle>今日真实调用、近 7 天真实趋势、租户排行和 AI Gateway 健康检查。</template>
 
     <div class="ai-hero-card">
-      <div>
+      <div class="ai-hero-copy">
         <div class="ai-hero-status">
           <span class="ai-tag" :class="{ 'is-warning': overview && !gatewayReady }">{{ gatewayStatusText }}</span>
         </div>
         <h2>统一管理模型、供应商、基础路由、场景策略、用量与价格</h2>
         <p>业务中心只传租户、应用和 AI 场景；平台完成鉴权、配额校验、模型路由、降级、用量沉淀，配置操作写入底座操作日志。</p>
       </div>
-      <div class="ai-actions">
-        <el-button type="primary">新增接入</el-button>
-        <el-button>查看用量明细</el-button>
+      <div class="ai-gateway-panel">
+        <div class="ai-gateway-panel__stats">
+          <span class="is-normal"><strong>{{ gatewayHealthStats.normal }}</strong><small>正常</small></span>
+          <span class="is-error"><strong>{{ gatewayHealthStats.error }}</strong><small>异常</small></span>
+          <span class="is-warning"><strong>{{ gatewayHealthStats.warning }}</strong><small>告警</small></span>
+          <span class="is-total"><strong>{{ gatewayHealthStats.total }}</strong><small>检查项</small></span>
+        </div>
       </div>
     </div>
 
@@ -92,8 +126,19 @@ onMounted(loadData)
       <section class="ai-card">
         <header class="ai-card__header">
           <div>
-            <h3>调用趋势</h3>
-            <p class="ai-card__description">近 7 天调用量与成本走势</p>
+            <h3>{{ activeTrendMode.title }}</h3>
+            <p class="ai-card__description">{{ activeTrendMode.description }}</p>
+          </div>
+          <div class="ai-trend-switch" role="tablist" aria-label="趋势指标切换">
+            <button
+              v-for="option in trendModeOptions"
+              :key="option.value"
+              type="button"
+              :class="{ active: trendMode === option.value }"
+              @click="trendMode = option.value"
+            >
+              {{ option.label }}
+            </button>
           </div>
         </header>
         <div class="ai-card__body">
@@ -119,7 +164,7 @@ onMounted(loadData)
               <g v-for="point in trendPoints" :key="String(point.item.date)">
                 <circle :cx="point.x" :cy="point.y" r="4" class="ai-chart-dot" />
                 <text :x="point.x" :y="chartHeight - 10" text-anchor="middle" class="ai-chart-label">{{ text(point.item.date).slice(5) }}</text>
-                <text :x="point.x" :y="Math.max(18, point.y - 10)" text-anchor="middle" class="ai-chart-value">{{ numberText(point.item.calls) }}</text>
+                <text :x="point.x" :y="Math.max(18, point.y - 10)" text-anchor="middle" class="ai-chart-value">{{ trendValueText(point.item) }}</text>
               </g>
             </svg>
           </div>
@@ -151,7 +196,7 @@ onMounted(loadData)
         </div>
       </header>
       <div class="ai-card__body">
-        <el-table :data="overview?.tenant_ranking ?? []" border>
+        <el-table :data="overview?.tenant_ranking ?? []" border empty-text="暂无近 7 天真实租户调用。">
           <el-table-column label="租户" min-width="180">
             <template #default="{ row }">
               <span class="ai-table-cell-main"><strong>{{ text(row.tenant_name) }}</strong><small>{{ numberText(row.scenario_count) }} 个 AI 场景</small></span>
@@ -171,14 +216,14 @@ onMounted(loadData)
         <header class="ai-card__header">
           <div>
             <h3>平台健康检查</h3>
-            <p class="ai-card__description">供应商、密钥、限流和底座操作日志写入状态</p>
+          <p class="ai-card__description">供应商、密钥、限流和可执行路由状态</p>
           </div>
         </header>
         <div class="ai-card__body ai-health-list">
-          <div v-for="item in overview?.health_checks ?? []" :key="item.name">
-            <el-tag :type="statusType(item.status)">{{ item.status }}</el-tag>
-            <strong> {{ item.name }}</strong>
-            <span class="ai-muted"> {{ item.message }}</span>
+          <div v-for="item in overview?.health_checks ?? []" :key="item.name" class="ai-health-row">
+            <el-tag :type="statusType(item.status)" class="ai-health-row__status">{{ statusText(item.status) }}</el-tag>
+            <strong class="ai-health-row__name">{{ item.name }}</strong>
+            <span class="ai-health-row__message ai-muted">{{ item.message }}</span>
           </div>
         </div>
       </section>
@@ -191,11 +236,11 @@ onMounted(loadData)
           </div>
         </header>
         <div class="ai-card__body">
-          <el-table :data="overview?.core_base_routes ?? []" border>
+          <el-table :data="overview?.core_base_routes ?? []" border empty-text="暂无可展示的核心基础路由。">
             <el-table-column label="基础路由" min-width="180"><template #default="{ row }"><strong>{{ text(row.route_name) }}</strong></template></el-table-column>
             <el-table-column label="能力" min-width="140"><template #default="{ row }">{{ text(row.capability_code) }}</template></el-table-column>
             <el-table-column label="策略" width="130"><template #default="{ row }"><el-tag>{{ text(row.strategy) }}</el-tag></template></el-table-column>
-            <el-table-column label="状态" width="100"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ text(row.status) }}</el-tag></template></el-table-column>
+            <el-table-column label="状态" width="100"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag></template></el-table-column>
           </el-table>
         </div>
       </section>

@@ -270,7 +270,7 @@ func TestAppCenterParseAICapabilityCenterManifest(t *testing.T) {
 	require.Equal(t, "NON_SELLABLE", result.ChargePolicy)
 	require.Equal(t, "NONE", result.BillingMode)
 	require.Equal(t, "NON_SELLABLE", result.PackagePolicy)
-	require.Equal(t, 7, result.Counts.Menus)
+	require.Equal(t, 9, result.Counts.Menus)
 	require.Equal(t, 0, result.Counts.PackageFeatures)
 	require.Equal(t, 0, result.Counts.Quotas)
 	require.NotEmpty(t, result.ManifestHash)
@@ -322,7 +322,12 @@ func TestAppCenterLoadPlatformOnlyManifestKeepsAssetsOutOfPackages(t *testing.T)
 
 	var permissionCount int64
 	require.NoError(t, db.Model(&models.Permission{}).Where("app_code = ? AND enabled = ?", "ai-capability-center", true).Count(&permissionCount).Error)
-	require.Equal(t, int64(9), permissionCount)
+	require.Equal(t, int64(11), permissionCount)
+
+	var usageLogPermission models.Permission
+	require.NoError(t, db.Where("app_code = ? AND path = ?", "ai-capability-center", "/ai-capability-center/usage-logs").First(&usageLogPermission).Error)
+	require.True(t, usageLogPermission.ShowInAdmin)
+	require.Equal(t, 87, usageLogPermission.SortOrder)
 
 	var rolePermissionCount int64
 	require.NoError(t, db.Table("role_permission rp").

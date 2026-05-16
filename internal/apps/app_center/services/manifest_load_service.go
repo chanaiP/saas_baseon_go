@@ -1152,11 +1152,15 @@ func (s *AppService) syncManifestPermissions(tx *gorm.DB, env manifestEnvelope, 
 		return err
 	}
 	menuIDs := map[string]uint64{}
+	menuByCode := map[string]ManifestMenu{}
+	menuShowInAdmin := map[string]bool{}
 	for _, menu := range env.manifest.Menus {
 		path := strings.TrimSpace(menu.Path)
 		if path == "" {
 			continue
 		}
+		menuByCode[menu.Code] = menu
+		showInAdmin := defaultBoolPtr(menu.ShowInAdmin, true)
 		row := models.Permission{
 			TenantID:         platformTenantID,
 			Name:             strings.TrimSpace(menu.Name),
@@ -1165,7 +1169,7 @@ func (s *AppService) syncManifestPermissions(tx *gorm.DB, env manifestEnvelope, 
 			SortOrder:        menu.SortOrder,
 			Enabled:          true,
 			Visible:          menu.TenantVisible,
-			ShowInAdmin:      defaultBoolPtr(menu.ShowInAdmin, true),
+			ShowInAdmin:      showInAdmin,
 			IsPlatformOnly:   manifestAssetPlatformOnly(env, menu.PlatformOnly),
 			IsPackageFeature: menu.IncludeInPackage,
 			TenantEditable:   menu.TenantEditable,
@@ -1180,6 +1184,7 @@ func (s *AppService) syncManifestPermissions(tx *gorm.DB, env manifestEnvelope, 
 			return err
 		}
 		menuIDs[menu.Code] = row.ID
+		menuShowInAdmin[menu.Code] = showInAdmin
 	}
 	for _, menu := range env.manifest.Menus {
 		if strings.TrimSpace(menu.ParentCode) == "" {
@@ -1226,19 +1231,42 @@ func (s *AppService) syncManifestPermissions(tx *gorm.DB, env manifestEnvelope, 
 			continue
 		}
 		parentID := menuIDs[perm.MenuCode]
+		permType := manifestPermType(perm.Type)
+		showInAdmin := false
+		sortOrder := 0
+		visible := false
+		tenantEditable := false
+		includeInPackage := perm.IncludeInPackage
+		featureCode := (*string)(nil)
+		dataPermMode := defaultString(perm.DataPermMode, "ORG")
+		if permType == 3 {
+			if menu, ok := menuByCode[perm.MenuCode]; ok {
+				showInAdmin = menuShowInAdmin[perm.MenuCode]
+				sortOrder = menu.SortOrder
+				visible = menu.TenantVisible
+				tenantEditable = menu.TenantEditable
+				includeInPackage = menu.IncludeInPackage
+				featureCode = cleanOptionalString(&menu.FeatureCode)
+				dataPermMode = defaultString(menu.DataPermMode, "ORG")
+			}
+		}
 		row := models.Permission{
 			TenantID:         platformTenantID,
 			ParentID:         optionalUint64(parentID),
 			Name:             strings.TrimSpace(perm.Name),
 			Path:             path,
-			PermType:         manifestPermType(perm.Type),
+			PermType:         permType,
+			SortOrder:        sortOrder,
 			Enabled:          true,
-			Visible:          false,
+			Visible:          visible,
+			ShowInAdmin:      showInAdmin,
 			IsPlatformOnly:   manifestAssetPlatformOnly(env, perm.PlatformOnly),
-			IsPackageFeature: perm.IncludeInPackage,
+			IsPackageFeature: includeInPackage,
 			AppCode:          env.parse.AppCode,
+			FeatureCode:      featureCode,
 			FeatureType:      cleanOptionalString(&perm.Type),
-			DataPermMode:     defaultString(perm.DataPermMode, "ORG"),
+			TenantEditable:   tenantEditable,
+			DataPermMode:     dataPermMode,
 			CreatedAt:        now,
 			UpdatedAt:        now,
 		}

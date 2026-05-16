@@ -2,7 +2,7 @@
 
 AI 能力中心是合并部署应用，`app_code=ai-capability-center`。它属于业务中台的平台能力，仅平台侧可见和可管理，不作为租户后台菜单，也不进入租户套餐。
 
-本应用统一治理 AI 供应商、接入账号、API 配置、AI 能力字典、模型目录、模型价格策略、AI 场景、基础路由、租户策略和网关设置。用量趋势、成本结构和租户排行统一收敛在总览页展示。
+本应用统一治理 AI 供应商、接入账号、API 配置、AI 能力字典、模型目录、模型价格策略、AI 场景、基础路由、租户策略、调用日志和网关设置。用量趋势、成本结构和租户排行统一收敛在总览页展示，单次请求链路在调用日志页追踪。
 
 租户业务系统通过 AI Gateway 获得 AI 路由、策略覆盖、配额限流和用量沉淀能力，但租户不在租户后台维护本应用菜单或配置。
 
@@ -28,33 +28,66 @@ AI 能力中心是合并部署应用，`app_code=ai-capability-center`。它属�
 - 可见范围：`PLATFORM_ONLY`
 - 售卖策略：`NON_SELLABLE`
 - 套餐策略：`NON_SELLABLE`
-- 菜单：总览、供应商、模型目录、AI 场景、基础路由、策略中心、系统设置
-- 导航口径：上述 7 项全部声明为平台左侧菜单，页面内部不再提供页签式二级导航。
+- 菜单：总览、供应商、模型目录、AI 场景、基础路由、策略中心、调用日志、系统设置
+- 导航口径：上述 8 项全部声明为平台左侧菜单，页面内部不再提供页签式二级导航。
 
 ## 权限与应用中心
 
-Manifest 声明平台菜单、配置管理操作和 AI Gateway 调用权限。总览、供应商、模型目录、AI 场景、基础路由、策略中心、系统设置均为独立平台菜单；前端仅根据当前菜单路由渲染对应工作台，不在页面内模拟 tab 切换。菜单仅平台可见，`package_features` 和 `quotas` 保持为空，避免进入租户套餐售卖或租户自助开通。
+Manifest 声明平台菜单、配置管理操作和 AI Gateway 调用权限。总览、供应商、模型目录、AI 场景、基础路由、策略中心、调用日志、系统设置均为独立平台菜单；前端仅根据当前菜单路由渲染对应工作台，不在页面内模拟 tab 切换。菜单仅平台可见，`package_features` 和 `quotas` 保持为空，避免进入租户套餐售卖或租户自助开通。
 
 配置写操作统一写入 SaaS 底座操作日志，`app_code=ai-capability-center`，不创建独立审计表。
 
 ## 总览统计口径
 
-总览页的统计数据来自 `ai_usage_records`，独立用量统计页已删除，用量明细仅作为总览、审计和 Gateway 调用链路的数据源保留。
+总览页和调用日志页的统计数据来自 `ai_usage_records`。总览用于平台健康与近 7 天趋势，调用日志用于按请求追踪租户、应用、AI 场景、模型路由、供应商请求、成本、状态和内容记录级别。生产统计默认排除 `is_demo=true`、`data_source in ('demo','demo_seed','seed')` 以及历史 demo seed 请求参数，避免演示数据混入真实指标。
+
+如需清理历史演示 AI 用量，可先 dry-run 查看影响范围：
+
+```bash
+scripts/cleanup-ai-demo-usage.sh
+```
+
+确认后再执行删除：
+
+```bash
+APPLY=1 scripts/cleanup-ai-demo-usage.sh
+```
 
 - 今日调用量：当天 `called_at >= 今日 00:00` 的 `calls` 汇总。
 - 今日成本：当天 `cost_amount` 汇总，展示为成本价。
-- 成功率：当天记录数口径，`status=success` 记录数 / 当天总记录数；无记录时默认 `100.00%`。
+- 成功率：当天记录数口径，`status=success` 记录数 / 当天总记录数；无记录时为 `0.00%` 或展示空态，不用演示数据撑场面。
 - P95 延迟：当天 `latency_ms` 升序后的 95 分位；无记录时为 `0ms`。
 - 7 天趋势：从今日往前 6 天到今天，按天汇总 `calls/cost_amount/billing_amount`，无数据日期补 0。
 - 模型类型成本结构：近 7 天用量左连接模型目录，按 `model_type` 汇总成本，未匹配模型归类为 `unknown`。
 - 租户排行：近 7 天按 `tenant_name` 汇总调用量、成本、收入、毛利、成功率和场景数，按收入倒序取前 8。
 - 租户指标：近 7 天服务租户数；今日收入和今日毛利。
 
+## 调用日志口径
+
+调用日志是平台侧独立菜单，默认筛选今日真实调用并按调用时间倒序展示。筛选条件包括关键词、应用 - AI 场景、开始日期和结束日期。
+
+- 调用次数：当前筛选范围内 `calls` 汇总，生产请求由 Gateway 写入，不能由前端任意伪造。
+- 记录数：当前筛选范围内的请求记录数。
+- 成功率：当前页 `status=success` 记录数 / 当前页记录数，用于快速查看本页质量。
+- 销售额 / 成本：当前筛选范围内 `billing_amount` 与 `cost_amount` 汇总。
+- 供应商追踪：记录 `provider_http_status`、`provider_request_id`、`started_at`、`finished_at`、`retry_count`，便于定位供应商侧失败、超时和重试。
+- 错误分布：调用日志接口的 `summary.error_distribution` 按 `status + error_code` 返回失败、超时、拒绝和供应商错误分布。
+- 内容记录：由平台系统参数 `ai.gateway.content_record_level` 控制；抽屉会展示当前记录级别和实际保存范围。
+
+`ai.gateway.content_record_level` 的含义：
+
+- `0`：不记录请求参数、输入内容或 AI 输出内容，只保留业务、计费、状态和链路字段。
+- `1`：仅记录概要，保存字段列表、字段数、字节数和哈希，不保存原文。
+- `2`：记录脱敏内容，手机号、邮箱、证件、银行卡、密钥、授权头、Cookie、地址等敏感信息会被替换；记录中会附带 `content_record_policy`，标记 `mode=redacted`、`audit_required=true` 和建议保留周期。
+- `3`：记录完整内容，只允许平台受控排障使用，必须配合权限限制、保留周期和审计复核；记录中会附带 `content_record_policy`，标记 `mode=full`、`audit_required=true`、`retention_days=7` 和强风险提示。
+
 ## 供应商整体导入
 
 供应商页支持通过 `POST /api/ai-capability-center/providers/import` 一次性导入供应商、接入账号和 API 配置。导入在单个事务内执行，按供应商 `code`、账号 `provider_code + account_name`、API `provider_code + account_name + api_name` 幂等 upsert；任一 provider/account/api 引用不成立时整体回滚。
 
 账号密钥字段仅用于写入，不在前端列表中回显明文或密文；页面仅展示 `key_alias`。
+
+导入接口只维护目录描述字段，不覆盖运行时人工维护状态：已存在的供应商 `status` 保留；已存在账号的 `key_alias`、密文、已用额度和 `status` 保留；已存在 API 的 `status`、`health_status`、`health_message` 和 `health_checked_at` 保留。连通性检测优先使用低成本探测：OpenAI-compatible 接口通过 `GET /v1/models` 验证 Endpoint 与鉴权，不触发模型生成。
 
 ```json
 {
@@ -314,7 +347,7 @@ AI 场景通过 `POST /api/ai-capability-center/scenarios/import` 批量注册�
 系统设置页拆成三个平台侧区域：
 
 - AI 能力字典：维护 `capability_code`、`capability_name`、`scenario_type`、`model_type`、`default_billing_unit`、`supports_tier_pricing`、`status`。能力字典被 AI 场景、基础路由和价格策略引用时会阻断删除。
-- 网关参数：维护 `gateway_runtime`、`security` 等 JSON 配置。`gateway_runtime` 必须包含正数 `default_timeout_ms`、非负 `default_max_retry`、布尔 `usage_log_async`，可附加 `alert_channels`。`security` 必须包含布尔 `prompt_plaintext_storage` 和 `api_key_encryption`。
+- 网关参数：维护 `gateway_runtime`、`security` 等 JSON 配置。`gateway_runtime` 必须包含正数 `default_timeout_ms`、非负 `default_max_retry`、布尔 `usage_log_async`，可附加 `alert_channels`。`security` 必须包含布尔 `prompt_plaintext_storage` 和 `api_key_encryption`。环境变量 `AI_GATEWAY_CA_BUNDLE_FILE` 可指定企业 CA bundle 文件，用于供应商 HTTPS 连通性和真实调用的证书校验。
 - 安全归属：页面展示 API Key 加密策略、Prompt 明文存储开关和操作日志归属；供应商账号密文字段不回显，Gateway 用量记录写入 Prompt Hash，不落 Prompt 明文。
 
 配置写入统一校验 JSON 格式；新增、编辑、删除均写入底座 `audit_log`，更新日志包含 `before/after/patch`，便于后续审计追溯。
@@ -329,7 +362,10 @@ AI 场景通过 `POST /api/ai-capability-center/scenarios/import` 批量注册�
 4. 按基础路由策略选择模型池节点：优先级/主备兜底、权重、质量优先、延迟优先等策略都会参与确定性评分。
 5. 按模型和能力匹配价格策略，并按 `mode/resolution/quality/aspect_ratio/duration_seconds` 尝试命中分档价格。
 6. 按策略下多条配额规则和限流规则判定，响应返回 `controls.quota_rules` 和 `controls.rate_limit_rules` 的判定结果。
-7. 写入 `ai_usage_records`，包含 `tenant_strategy_id`、`base_route_id`、`model_id`、`provider_id`、`provider_account_id`、`provider_api_id`、`price_policy_id`、`price_tier_id`、`cost_amount`、`billing_amount`、`platform_unit`、`platform_amount`。
+7. 检查模型池节点、模型、供应商账号和供应商 API 可执行性；未配置密钥、占位 endpoint、健康状态异常或空模型池会明确失败，不产生成功计费。
+8. 通过 provider adapter 执行真实调用。当前 OpenAI-compatible 支持 chat/text_generation、responses、embeddings、images；按路由和模型节点超时、重试 5xx/429/网络错误，并记录平台 `trace_id`、供应商 HTTP 状态和 request id。
+9. 按供应商返回 usage 优先回填用量；图片等无 token usage 的接口按供应商返回数量或请求数量回填。
+10. 写入 `ai_usage_records`，包含 `tenant_strategy_id`、`base_route_id`、`model_id`、`provider_id`、`provider_account_id`、`provider_api_id`、`price_policy_id`、`price_tier_id`、`cost_amount`、`billing_amount`、`platform_unit`、`platform_amount`、`provider_http_status`、`provider_request_id`、`started_at`、`finished_at`、`retry_count`、`data_source` 和 `is_demo`。
 
 当配额或限流规则的超限动作是 `reject` 时，本次记录会以 `rejected` 状态写入，并带上 `quota_exceeded` 或 `rate_limited` 错误码；其他动作先记录判定结果，交由调用方或后续执行器处理降级、排队、审批等动作。
 
@@ -338,8 +374,8 @@ AI 场景通过 `POST /api/ai-capability-center/scenarios/import` 批量注册�
 AI 能力中心走合并部署，后端路由随主服务启动，前端路由随主前端构建发布。应用中心装载时必须确认：
 
 - `sys_app.app_code=ai-capability-center`，`visibility_scope=PLATFORM_ONLY`，`charge_mode=NON_SELLABLE`，`billing_mode=NONE`。
-- `sys_app_entry` 中只有 7 个平台菜单：总览、供应商、模型目录、AI 场景、基础路由、策略中心、系统设置。
-- `permission` 中 7 个菜单权限均为平台权限，不作为套餐功能点；`ai_capability_center:manage` 是配置写权限，`ai_gateway:invoke` 是业务调用权限。
+- `sys_app_entry` 中只有 8 个平台菜单：总览、供应商、模型目录、AI 场景、基础路由、策略中心、调用日志、系统设置。
+- `permission` 中 8 个菜单权限均为平台权限，不作为套餐功能点；`ai_capability_center:manage` 是配置写权限，`ai_gateway:invoke` 是业务调用权限。
 - 平台专属应用装载后，平台 `admin` 角色应自动获得该应用菜单、配置管理和 Gateway 调用权限，避免菜单可见但 API 403。
 - `saas_feature` 和 `sys_app_quota` 不应出现 `ai-capability-center` 的套餐功能点或套餐配额。
 - 前端页面内部不渲染二级 tab，左侧菜单是唯一导航入口。

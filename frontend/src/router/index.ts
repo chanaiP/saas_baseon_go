@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
+import { aiCapabilityCenterRoutes } from '@/apps/ai-capability-center/routes'
 import { usePermissionStore } from '@/stores/permission'
 import { useSidebarMenuStore } from '@/stores/sidebarMenu'
 
@@ -16,6 +17,13 @@ const router = createRouter({
       name: 'DevHub',
       component: () => import('@/views/DevHubView.vue'),
       meta: { public: true, title: 'DevHub' },
+    },
+    {
+      path: '/home/ai-capability-center/:pathMatch(.*)*',
+      redirect: (to) => {
+        const suffix = Array.isArray(to.params.pathMatch) ? to.params.pathMatch.join('/') : String(to.params.pathMatch || '')
+        return suffix ? `/ai-capability-center/${suffix}` : '/ai-capability-center'
+      },
     },
     {
       path: '/',
@@ -74,48 +82,7 @@ const router = createRouter({
           meta: { title: '模型管理' },
           component: () => import('@/apps/model-manager/views/ModelManagerView.vue'),
         },
-        {
-          path: 'ai-capability-center',
-          name: 'AiDashboardView',
-          meta: { title: 'AI 能力中心' },
-          component: () => import('@/apps/ai-capability-center/views/AiDashboardView.vue'),
-        },
-        {
-          path: 'ai-capability-center/providers',
-          name: 'AiProvidersView',
-          meta: { title: '供应商' },
-          component: () => import('@/apps/ai-capability-center/views/AiProvidersView.vue'),
-        },
-        {
-          path: 'ai-capability-center/models',
-          name: 'AiModelsView',
-          meta: { title: '模型目录' },
-          component: () => import('@/apps/ai-capability-center/views/AiModelsView.vue'),
-        },
-        {
-          path: 'ai-capability-center/scenarios',
-          name: 'AiScenariosView',
-          meta: { title: 'AI 场景' },
-          component: () => import('@/apps/ai-capability-center/views/AiScenariosView.vue'),
-        },
-        {
-          path: 'ai-capability-center/routes',
-          name: 'AiRoutesView',
-          meta: { title: '基础路由' },
-          component: () => import('@/apps/ai-capability-center/views/AiRoutesView.vue'),
-        },
-        {
-          path: 'ai-capability-center/strategy',
-          name: 'AiStrategyView',
-          meta: { title: '策略中心' },
-          component: () => import('@/apps/ai-capability-center/views/AiStrategyView.vue'),
-        },
-        {
-          path: 'ai-capability-center/settings',
-          name: 'AiSettingsView',
-          meta: { title: '系统设置' },
-          component: () => import('@/apps/ai-capability-center/views/AiSettingsView.vue'),
-        },
+        ...aiCapabilityCenterRoutes,
         {
           path: 'tenants',
           name: 'TenantView',

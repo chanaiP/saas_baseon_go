@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Plus, Upload } from '@element-plus/icons-vue'
+import { Plus } from '@element-plus/icons-vue'
 
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
-import { checkAiProviderAPIConnectivity, createAiResource, fetchAiResource, importAiProviders } from '../api'
-import { emptyPage, includesKeyword, moneyText, numberText, rowId, statusText, statusType, text, type AiRow } from './viewHelpers'
+import { checkAiProviderAPIConnectivity, createAiResource, fetchAiResource } from '../api'
+import { capabilityTagList, emptyPage, includesKeyword, moneyText, numberText, rowId, statusText, statusType, text, type AiRow } from './viewHelpers'
 import AiJsonDialog from './AiJsonDialog.vue'
 import AiResourceActions from './AiResourceActions.vue'
 import './aiPrototype.css'
@@ -21,7 +21,6 @@ const apis = ref(emptyPage())
 const selectedProviderId = ref('')
 const selectedAccountId = ref('')
 const accountScopeAll = ref(true)
-const importVisible = ref(false)
 const createVisible = ref(false)
 const connectivityChecking = ref(false)
 const accountPage = ref(1)
@@ -59,6 +58,14 @@ const apiScopeTitle = computed(() => {
   if (!accountScopeAll.value && selectedProvider.value) return `${text(selectedProvider.value.name)}的 API`
   return '所有 API'
 })
+const providerOptions = computed(() => providers.value.items.map((provider) => ({
+  label: `${text(provider.name)} / ${text(provider.code)}`,
+  value: rowId(provider),
+})))
+const accountOptions = computed(() => accounts.value.items.map((account) => ({
+  label: `${text(account.account_name)} / ${text(account.key_alias)}`,
+  value: rowId(account),
+})))
 
 function providerStats(providerId: string) {
   const stat = providerListStats.value?.[providerId]
@@ -84,6 +91,58 @@ function loginMethodText(value: unknown) {
     team_account: '团队账号',
   }
   return method ? labels[method] || method : '未登记'
+}
+
+function normalizedStatus(value: unknown) {
+  return typeof value === 'string' ? value.toLowerCase() : ''
+}
+
+function apiRunnable(row: AiRow) {
+  const status = normalizedStatus(row.status)
+  const health = normalizedStatus(row.health_status)
+  return ['active', 'enabled', 'online'].includes(status) && ['active', 'success', 'online'].includes(health)
+}
+
+function apiAvailabilityText(row: AiRow) {
+  const status = normalizedStatus(row.status)
+  const health = normalizedStatus(row.health_status)
+  if (!['active', 'enabled', 'online'].includes(status)) return '已停用'
+  if (apiRunnable(row)) return '可执行'
+  if (!health || health === 'unknown') return '未验证'
+  return '不可执行'
+}
+
+function apiAvailabilityType(row: AiRow) {
+  if (apiRunnable(row)) return 'success'
+  const status = normalizedStatus(row.status)
+  const health = normalizedStatus(row.health_status)
+  if (!['active', 'enabled', 'online'].includes(status) || ['error', 'failed', 'timeout', 'offline', 'inactive', 'disabled'].includes(health)) return 'danger'
+  return 'warning'
+}
+
+function apiHealthSummary(row: AiRow) {
+  const raw = text(row.health_message, '')
+  const status = normalizedStatus(row.health_status)
+  if (!raw) {
+    if (!status || status === 'unknown') return '尚未检测'
+    if (['active', 'success', 'online'].includes(status)) return '探测通过'
+    return '待重新检测'
+  }
+
+  const lower = raw.toLowerCase()
+  if (lower.includes('http 200')) return '探测通过，未触发模型生成'
+  if (lower.includes('http 400') && (lower.includes('invalidparameter') || lower.includes('鉴权已通过') || lower.includes('url error'))) {
+    return '鉴权可用，接口参数需校验'
+  }
+  if (lower.includes('http 404')) return '接口路径不可用，请检查 API 地址'
+  if (lower.includes('401') || lower.includes('unauthorized')) return '鉴权失败，请检查密钥'
+  if (lower.includes('403') || lower.includes('forbidden')) return '权限不足，请检查账号授权'
+  if (lower.includes('timeout') || lower.includes('超时')) return '探测超时，请检查网络或超时设置'
+  if (lower.includes('no response') || lower.includes('无响应体')) return '服务无响应，请检查协议或路径'
+  if (['active', 'success', 'online'].includes(status)) return '探测通过'
+  if (['warning', 'degraded'].includes(status)) return '探测异常，请复查配置'
+  if (['error', 'failed', 'timeout', 'offline'].includes(status)) return '探测失败，请检查配置'
+  return raw.length > 42 ? `${raw.slice(0, 42)}...` : raw
 }
 
 async function loadData() {
@@ -160,13 +219,6 @@ async function createProvider(payload: AiRow) {
   await loadData()
 }
 
-async function importProviders(payload: AiRow) {
-  const result = await importAiProviders(payload)
-  importVisible.value = false
-  ElMessage.success(`已导入供应商 ${result.providers} 个、账号 ${result.accounts} 个、API ${result.apis} 个`)
-  await loadData()
-}
-
 async function checkConnectivity() {
   const currentApiIds = currentApis.value.map((row) => rowId(row)).filter(Boolean)
   if (!currentApiIds.length) {
@@ -223,7 +275,6 @@ onMounted(loadData)
     <template #title>供应商</template>
     <template #subtitle>统一维护公有云、私有化和自建模型供应商，并关联接入账号与 API。</template>
     <template #actions>
-      <el-button :icon="Upload" @click="importVisible = true">整体导入</el-button>
       <el-button type="primary" :icon="Plus" @click="createVisible = true">新增供应商</el-button>
     </template>
 
@@ -233,6 +284,11 @@ onMounted(loadData)
           <div>
             <h3>供应商</h3>
             <p class="ai-card__description">左侧维护供应商，右侧联动账号和 API。</p>
+          </div>
+          <div class="ai-card__header-actions">
+            <button class="ai-icon-action is-primary" type="button" title="新增供应商" @click="createVisible = true">
+              <el-icon><Plus /></el-icon>
+            </button>
           </div>
         </header>
         <div class="ai-card__body">
@@ -262,7 +318,7 @@ onMounted(loadData)
               <span class="ai-provider-card__meta">
                 <span>{{ providerStats(rowId(provider)).accountCount }} 账号</span>
                 <span>{{ providerStats(rowId(provider)).apiCount }} API</span>
-                <span>{{ providerStats(rowId(provider)).activeApiCount }} 可用</span>
+                <span>{{ providerStats(rowId(provider)).activeApiCount }} 启用</span>
               </span>
               <span class="ai-provider-card__bottom">
                 <span>{{ numberText(provider.qps_limit) }} QPS</span>
@@ -327,7 +383,7 @@ onMounted(loadData)
               <el-table-column label="操作" width="190">
                 <template #default="{ row }">
                   <div class="ai-row-actions">
-                    <AiResourceActions resource="accounts" :row="row" @saved="loadData" />
+                    <AiResourceActions resource="accounts" :row="row" :options="{ provider_id: providerOptions }" @saved="loadData" />
                   </div>
                 </template>
               </el-table-column>
@@ -368,18 +424,29 @@ onMounted(loadData)
             <el-table :data="currentApis" border v-loading="loading">
               <el-table-column label="API" min-width="260" :show-overflow-tooltip="false"><template #default="{ row }"><span class="ai-table-cell-main"><strong>{{ text(row.api_name) }}</strong><small>{{ text(row.api_path) }}</small></span></template></el-table-column>
               <el-table-column label="类型" width="120" :show-overflow-tooltip="false"><template #default="{ row }"><el-tag>{{ text(row.api_type) }}</el-tag></template></el-table-column>
-              <el-table-column label="能力" min-width="180" :show-overflow-tooltip="false"><template #default="{ row }"><span class="ai-wrap-text">{{ text(row.capabilities) }}</span></template></el-table-column>
+              <el-table-column label="能力" min-width="210" :show-overflow-tooltip="false">
+                <template #default="{ row }">
+                  <span class="ai-capability-tags">
+                    <el-tag v-for="capability in capabilityTagList(row.capabilities)" :key="capability.code" effect="plain">{{ capability.label }}</el-tag>
+                  </span>
+                </template>
+              </el-table-column>
               <el-table-column label="QPS / 超时" width="150"><template #default="{ row }">{{ numberText(row.qps_limit) }} / {{ numberText(row.timeout_ms) }}ms</template></el-table-column>
               <el-table-column label="连通性" width="190" :show-overflow-tooltip="false">
                 <template #default="{ row }">
                   <span class="ai-table-cell-main ai-health-cell">
                     <el-tag :type="statusType(row.health_status)">{{ statusText(row.health_status, '未检测') }}</el-tag>
-                    <small>{{ text(row.health_message, '未检测') }}</small>
+                    <small :title="text(row.health_message, '')">{{ apiHealthSummary(row) }}</small>
                   </span>
                 </template>
               </el-table-column>
+              <el-table-column label="可执行性" width="118">
+                <template #default="{ row }">
+                  <el-tag :type="apiAvailabilityType(row)">{{ apiAvailabilityText(row) }}</el-tag>
+                </template>
+              </el-table-column>
               <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag></template></el-table-column>
-              <el-table-column label="操作" width="128"><template #default="{ row }"><AiResourceActions resource="apis" :row="row" @saved="loadData" /></template></el-table-column>
+              <el-table-column label="操作" width="128"><template #default="{ row }"><AiResourceActions resource="apis" :row="row" :options="{ provider_id: providerOptions, account_id: accountOptions, provider_account_id: accountOptions }" @saved="loadData" /></template></el-table-column>
             </el-table>
             <el-pagination
               v-if="apis.total > apiPageSize"
@@ -403,13 +470,6 @@ onMounted(loadData)
       title="新增供应商"
       :sample="{ name: 'OpenAI', code: 'openai', type: 'public_cloud', base_url: 'https://api.openai.com', auth_type: 'api_key', status: 'active', priority: 80, region: 'US', qps_limit: 100, monthly_budget: 10000, owner: '平台组' }"
       @submit="createProvider"
-    />
-    <AiJsonDialog
-      v-model="importVisible"
-      title="整体导入供应商"
-      tip="支持 providers/accounts/apis 一次性导入。"
-      :sample="{ providers: [{ name: 'DeepSeek 官方账号', code: 'deepseek', type: 'public_cloud', base_url: 'https://api.deepseek.com', auth_type: 'api_key', status: 'active', region: 'CN', qps_limit: 500, monthly_budget: 50000, accounts: [{ account_name: 'prod-main', endpoint: 'https://api.deepseek.com', key_alias: 'DEEPSEEK_API_KEY', login_method: 'email', login_account: 'ai-infra+deepseek@company.example', maintainer: '平台 AI 基础设施组', maintainer_contact: 'ai-infra@company.example', encrypted_api_key: '', apis: [{ api_name: 'chat.completions', api_path: '/v1/chat/completions', api_type: 'chat', capabilities: ['chat_completion', 'text_generation', 'reasoning'], qps_limit: 260, timeout_ms: 45000 }] }] }, { name: '通义千问 DashScope', code: 'dashscope', type: 'public_cloud', base_url: 'https://dashscope.aliyuncs.com', auth_type: 'dashscope', status: 'active', region: 'CN', qps_limit: 500, monthly_budget: 60000, accounts: [{ account_name: 'prod-main', endpoint: 'https://dashscope.aliyuncs.com', key_alias: 'DASHSCOPE_API_KEY', login_method: 'phone', login_account: '13800138000', maintainer: '平台 AI 基础设施组', maintainer_contact: 'ai-infra@company.example', encrypted_api_key: '', apis: [{ api_name: 'generation', api_path: '/api/v1/services/aigc/text-generation/generation', api_type: 'chat', capabilities: ['chat_completion', 'text_generation'], qps_limit: 260, timeout_ms: 30000 }, { api_name: 'embeddings', api_path: '/api/v1/services/embeddings/text-embedding/text-embedding', api_type: 'embedding', capabilities: ['embedding'], qps_limit: 260, timeout_ms: 15000 }] }] }] }"
-      @submit="importProviders"
     />
   </NeuroAgentPageShell>
 </template>

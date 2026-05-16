@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Plus, Upload } from '@element-plus/icons-vue'
+import { Plus } from '@element-plus/icons-vue'
 
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
-import { createAiResource, fetchAiResource, importAiScenarios } from '../api'
-import { emptyPage, includesKeyword, rowId, statusType, text, type AiRow } from './viewHelpers'
+import { fetchAppCenterApps } from '@/apps/app-center/api'
+import { createAiResource, fetchAiResource } from '../api'
+import { emptyPage, includesKeyword, rowId, sceneTypeText, statusText, statusType, text, type AiRow } from './viewHelpers'
 import AiJsonDialog from './AiJsonDialog.vue'
 import AiResourceActions from './AiResourceActions.vue'
 import './aiPrototype.css'
@@ -17,11 +18,11 @@ const loading = ref(false)
 const keyword = ref('')
 const activeApp = ref('all')
 const scenarios = ref(emptyPage())
+const apps = ref(emptyPage())
 const capabilities = ref(emptyPage())
 const routes = ref(emptyPage())
 const strategies = ref(emptyPage())
 const createVisible = ref(false)
-const importVisible = ref(false)
 
 const appGroups = computed(() => {
   const map = new Map<string, { app_code: string; app_name: string; total: number; active: number }>()
@@ -38,6 +39,30 @@ const appGroups = computed(() => {
 const filtered = computed(() => scenarios.value.items.filter((row) => {
   const matchesApp = activeApp.value === 'all' || row.app_code === activeApp.value
   return matchesApp && includesKeyword(row, keyword.value, ['app_code', 'app_name', 'ai_scenario_code', 'ai_scenario_name', 'capability_code', 'owner'])
+}))
+const appOptions = computed(() => {
+  const map = new Map<string, string>()
+  for (const app of apps.value.items) {
+    const code = text(app.app_code, '')
+    if (code) map.set(code, `${text(app.app_name, code)} / ${code}`)
+  }
+  for (const group of appGroups.value) {
+    if (!map.has(group.app_code)) map.set(group.app_code, `${group.app_name} / ${group.app_code}`)
+  }
+  return Array.from(map.entries()).map(([value, label]) => ({ label, value }))
+})
+const capabilityOptions = computed(() => capabilities.value.items.map((item) => ({
+  label: `${text(item.capability_name || item.capability_code)} / ${text(item.capability_code)}`,
+  value: text(item.capability_code),
+})))
+const routeOptions = computed(() => routes.value.items.map((route) => ({
+  label: `${text(route.route_name)} / ${text(route.route_code)}`,
+  value: rowId(route),
+})))
+const scenarioDialogOptions = computed(() => ({
+  app_code: appOptions.value,
+  capability_code: capabilityOptions.value,
+  default_base_route_id: routeOptions.value,
 }))
 
 function routeName(routeId: unknown) {
@@ -57,13 +82,15 @@ function strategyCount(row: AiRow) {
 async function loadData() {
   loading.value = true
   try {
-    const [scenarioPage, capabilityPage, routePage, strategyPage] = await Promise.all([
+    const [scenarioPage, appPage, capabilityPage, routePage, strategyPage] = await Promise.all([
       fetchAiResource('scenarios', { skip: 0, limit: 200, keyword: keyword.value.trim() }),
+      fetchAppCenterApps({ skip: 0, limit: 500 }),
       fetchAiResource('capabilities', { skip: 0, limit: 200 }),
       fetchAiResource('base-routes', { skip: 0, limit: 200 }),
       fetchAiResource('tenant-strategies', { skip: 0, limit: 200 }),
     ])
     scenarios.value = scenarioPage
+    apps.value = { ...appPage, items: appPage.items as unknown as AiRow[] }
     capabilities.value = capabilityPage
     routes.value = routePage
     strategies.value = strategyPage
@@ -81,13 +108,6 @@ async function createScenario(payload: AiRow) {
   await loadData()
 }
 
-async function importScenarios(payload: AiRow) {
-  const result = await importAiScenarios(payload)
-  importVisible.value = false
-  ElMessage.success(`已导入场景 ${result.scenarios} 个`)
-  await loadData()
-}
-
 onMounted(loadData)
 </script>
 
@@ -96,7 +116,6 @@ onMounted(loadData)
     <template #title>AI 场景</template>
     <template #subtitle>业务使用模型能力前，必须注册 app_code + ai_scenario_code，并绑定默认基础路由。</template>
     <template #actions>
-      <el-button :icon="Upload" @click="importVisible = true">导入场景</el-button>
       <el-button type="primary" :icon="Plus" @click="createVisible = true">新增场景</el-button>
     </template>
 
@@ -107,7 +126,6 @@ onMounted(loadData)
           <p class="ai-card__description">Agent 只作为场景类型，工具编排、人工确认和审批由 Agent 工厂维护。</p>
         </div>
         <div class="ai-actions">
-          <el-button :icon="Upload" @click="importVisible = true">导入场景</el-button>
           <el-button type="primary" :icon="Plus" @click="createVisible = true">新增场景</el-button>
         </div>
       </header>
@@ -139,12 +157,12 @@ onMounted(loadData)
             <el-table :data="filtered" border v-loading="loading">
               <el-table-column label="AI 场景" min-width="220"><template #default="{ row }"><span class="ai-table-cell-main"><strong>{{ text(row.ai_scenario_name) }}</strong><small>{{ text(row.ai_scenario_code) }}</small></span></template></el-table-column>
               <el-table-column label="应用" min-width="170"><template #default="{ row }"><span class="ai-table-cell-main"><strong>{{ text(row.app_name) }}</strong><small>{{ text(row.app_code) }}</small></span></template></el-table-column>
-              <el-table-column label="场景类型" width="120"><template #default="{ row }"><el-tag>{{ text(row.scenario_type) }}</el-tag></template></el-table-column>
+              <el-table-column label="场景类型" width="120"><template #default="{ row }"><el-tag>{{ sceneTypeText(row.scenario_type) }}</el-tag></template></el-table-column>
               <el-table-column label="所需能力" min-width="170"><template #default="{ row }">{{ capabilityName(row.capability_code) }}</template></el-table-column>
               <el-table-column label="默认基础路由" min-width="230"><template #default="{ row }">{{ routeName(row.default_base_route_id) }}</template></el-table-column>
               <el-table-column label="租户覆盖" width="110"><template #default="{ row }"><strong>{{ strategyCount(row) }}</strong></template></el-table-column>
-              <el-table-column label="状态" width="100"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ text(row.status) }}</el-tag></template></el-table-column>
-              <el-table-column label="操作" width="140"><template #default="{ row }"><AiResourceActions resource="scenarios" :row="row" @saved="loadData" /></template></el-table-column>
+              <el-table-column label="状态" width="100"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag></template></el-table-column>
+              <el-table-column label="操作" width="140"><template #default="{ row }"><AiResourceActions resource="scenarios" :row="row" :options="scenarioDialogOptions" @saved="loadData" /></template></el-table-column>
             </el-table>
           </section>
         </div>
@@ -173,13 +191,8 @@ onMounted(loadData)
       v-model="createVisible"
       title="新增 AI 场景"
       :sample="{ app_code: 'product_center', app_name: '商品中心', ai_scenario_code: 'product_copy_generate', ai_scenario_name: '商品文案生成', scenario_type: 'text', capability_code: 'chat_completion', model_type: 'text', default_base_route_id: rowId(routes.items[0]), owner: '商品平台组', version: 'v1.0', status: 'active' }"
+      :options="scenarioDialogOptions"
       @submit="createScenario"
-    />
-    <AiJsonDialog
-      v-model="importVisible"
-      title="导入 AI 场景"
-      :sample="{ scenarios: [{ app_code: 'product_center', app_name: '商品中心', ai_scenario_code: 'product_copy_generate', ai_scenario_name: '商品文案生成', capability_code: 'chat_completion', model_type: 'text', default_base_route_id: rowId(routes.items[0]), owner: '商品平台组', status: 'active' }] }"
-      @submit="importScenarios"
     />
   </NeuroAgentPageShell>
 </template>
