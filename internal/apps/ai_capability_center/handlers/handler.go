@@ -4,12 +4,15 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
 	"saas_baseon_go/internal/apps/ai_capability_center/services"
 	"saas_baseon_go/internal/interfaces/http/response"
 )
+
+var errInvokeTenantMismatch = errors.New("invoke tenant mismatch")
 
 type Handler struct {
 	service *services.Service
@@ -65,7 +68,7 @@ func (h *Handler) List(c *gin.Context) {
 	case "rate-limit-rules":
 		result, err = h.service.ListRateLimitRules(c.Request.Context(), skip, limit, c.Query("policy_id"))
 	case "usage-records":
-		result, err = h.service.ListUsageRecords(c.Request.Context(), skip, limit, keyword, c.Query("start_date"), c.Query("end_date"))
+		result, err = h.service.ListUsageRecords(c.Request.Context(), skip, limit, keyword, c.Query("start_date"), c.Query("end_date"), c.Query("app_code"), c.Query("ai_scenario_code"))
 	case "settings":
 		result, err = h.service.ListSettings(c.Request.Context(), skip, limit)
 	default:
@@ -257,9 +260,23 @@ func (h *Handler) Delete(c *gin.Context) {
 }
 
 func (h *Handler) Invoke(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	tenantID, ok := currentTenantID(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "租户上下文无效")
+		return
+	}
 	var req services.InvokeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequest, "请求参数不合法")
+		return
+	}
+	if err := applyInvokeIdentity(&req, userID, tenantID); err != nil {
+		response.Error(c, http.StatusForbidden, response.CodeForbidden, "不允许为其他租户发起 AI Gateway 调用")
 		return
 	}
 	result, err := h.service.Invoke(c.Request.Context(), req)
@@ -270,8 +287,50 @@ func (h *Handler) Invoke(c *gin.Context) {
 	response.OK(c, result)
 }
 
+func (h *Handler) QueryVideoTask(c *gin.Context) {
+	_, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	tenantID, ok := currentTenantID(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "租户上下文无效")
+		return
+	}
+	result, err := h.service.QueryVideoTask(
+		c.Request.Context(),
+		strconv.FormatUint(tenantID, 10),
+		c.Query("request_id"),
+		c.Param("task_id"),
+	)
+	if err != nil {
+		writeError(c, err)
+		return
+	}
+	response.OK(c, result)
+}
+
+func applyInvokeIdentity(req *services.InvokeRequest, userID, tenantID uint64) error {
+	expectedTenantID := strconv.FormatUint(tenantID, 10)
+	if rawTenantID := strings.TrimSpace(req.TenantID); rawTenantID != "" && rawTenantID != expectedTenantID {
+		return errInvokeTenantMismatch
+	}
+	req.TenantID = expectedTenantID
+	req.UserID = strconv.FormatUint(userID, 10)
+	return nil
+}
+
 func currentUserID(c *gin.Context) (uint64, bool) {
-	raw, ok := c.Get("user_id")
+	return currentUint64ContextValue(c, "user_id")
+}
+
+func currentTenantID(c *gin.Context) (uint64, bool) {
+	return currentUint64ContextValue(c, "tenant_id")
+}
+
+func currentUint64ContextValue(c *gin.Context, key string) (uint64, bool) {
+	raw, ok := c.Get(key)
 	if !ok {
 		return 0, false
 	}

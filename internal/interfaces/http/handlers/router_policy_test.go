@@ -35,6 +35,7 @@ func TestRequiredPermissionForOperationRoutes(t *testing.T) {
 	require.Equal(t, "app:load", requiredPermission("POST", "/api/apps/manifest/diff"))
 	require.Equal(t, "app:load", requiredPermission("POST", "/api/apps/manifest/load"))
 	require.Equal(t, "app:load", requiredPermission("POST", "/api/apps/manifest/scan"))
+	require.Equal(t, "ai_gateway:invoke", requiredPermission("POST", "/api/ai-gateway/v1/invoke"))
 }
 
 func TestRequiredPermissionForMenuRoutes(t *testing.T) {
@@ -53,6 +54,18 @@ func TestRequiredPermissionForMenuRoutes(t *testing.T) {
 	require.Equal(t, "/menus", requiredPermission("GET", "/api/permissions/tree"))
 	require.Empty(t, requiredPermission("GET", "/api/dict-types/by-code/:code/items"))
 	require.Empty(t, requiredPermission("GET", "/api/users/me"))
+}
+
+func TestRequiredPermissionForAICapabilityResourceRoutes(t *testing.T) {
+	require.Equal(t, "/ai-capability-center/providers", RequiredPermissionForResourceRoute("GET", "/api/ai-capability-center/:resource", "providers"))
+	require.Equal(t, "/ai-capability-center/providers", RequiredPermissionForResourceRoute("GET", "/api/ai-capability-center/:resource", "apis"))
+	require.Equal(t, "/ai-capability-center/models", RequiredPermissionForResourceRoute("GET", "/api/ai-capability-center/:resource", "price-policies"))
+	require.Equal(t, "/ai-capability-center/scenarios", RequiredPermissionForResourceRoute("GET", "/api/ai-capability-center/:resource", "scenarios"))
+	require.Equal(t, "/ai-capability-center/routes", RequiredPermissionForResourceRoute("GET", "/api/ai-capability-center/:resource", "route-models"))
+	require.Equal(t, "/ai-capability-center/strategy", RequiredPermissionForResourceRoute("GET", "/api/ai-capability-center/:resource", "quota-rules"))
+	require.Equal(t, "/ai-capability-center/usage-logs", RequiredPermissionForResourceRoute("GET", "/api/ai-capability-center/:resource", "usage-records"))
+	require.Equal(t, "/ai-capability-center/settings", RequiredPermissionForResourceRoute("GET", "/api/ai-capability-center/:resource", "settings"))
+	require.Empty(t, RequiredPermissionForResourceRoute("GET", "/api/ai-capability-center/:resource", "unknown"))
 }
 
 func TestRouteAllowedFailsClosedForUnclassifiedRoutes(t *testing.T) {
@@ -189,6 +202,41 @@ func TestMenuBundleOperationsIncludesManifestParentOperation(t *testing.T) {
 	require.Len(t, items, 1)
 	require.Equal(t, "ai_capability_center:manage", items[0]["path"])
 	require.Equal(t, "AI 能力中心-配置管理", items[0]["name"])
+}
+
+func TestPlatformOnlyPermissionCodesAreFilteredForTenantUsers(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.AppUser{}, &models.Role{}, &models.Permission{}, &models.UserRole{}, &models.RolePermission{}))
+
+	now := time.Now()
+	tenantUser := models.AppUser{TenantID: 7, EmployeeNo: "u1", PasswordHash: "x", Name: "租户用户", Status: 1, CreatedAt: now, UpdatedAt: now}
+	require.NoError(t, db.Create(&tenantUser).Error)
+	platformUser := models.AppUser{TenantID: 7, EmployeeNo: "u2", PasswordHash: "x", Name: "平台用户", Status: 1, IsPlatformAdmin: true, CreatedAt: now, UpdatedAt: now}
+	require.NoError(t, db.Create(&platformUser).Error)
+	role := models.Role{TenantID: 7, Code: "admin", Name: "管理员", Status: 1, CreatedAt: now, UpdatedAt: now}
+	require.NoError(t, db.Create(&role).Error)
+	permission := models.Permission{
+		TenantID:       1,
+		Name:           "AI Gateway 调用",
+		Path:           "ai_gateway:invoke",
+		PermType:       2,
+		Enabled:        true,
+		IsPlatformOnly: true,
+		AppCode:        "ai-capability-center",
+		DataPermMode:   "NONE",
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	require.NoError(t, db.Create(&permission).Error)
+	require.NoError(t, db.Create(&models.UserRole{UserID: tenantUser.ID, RoleID: role.ID, CreatedAt: now}).Error)
+	require.NoError(t, db.Create(&models.UserRole{UserID: platformUser.ID, RoleID: role.ID, CreatedAt: now}).Error)
+	require.NoError(t, db.Create(&models.RolePermission{RoleID: role.ID, PermissionID: permission.ID, CreatedAt: now}).Error)
+
+	handler := &IdentityHandler{db: db}
+
+	require.NotContains(t, handler.permissionCodesForUser(tenantUser, false), "ai_gateway:invoke")
+	require.Contains(t, handler.permissionCodesForUser(platformUser, false), "ai_gateway:invoke")
 }
 
 func TestValidatePermissionPayloadMatchesOriginalDataPermissionPolicy(t *testing.T) {

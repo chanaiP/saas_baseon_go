@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Plus, Upload } from '@element-plus/icons-vue'
+import { Plus } from '@element-plus/icons-vue'
 
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
-import { createAiResource, fetchAiResource, importAiRoutes } from '../api'
-import { emptyPage, includesKeyword, modelTypeText, numberText, rowId, statusType, text, type AiRow } from './viewHelpers'
+import { createAiResource, fetchAiResource } from '../api'
+import { capabilityText, emptyPage, includesKeyword, modelTypeText, numberText, rowId, statusText, statusType, text, type AiRow } from './viewHelpers'
 import AiJsonDialog from './AiJsonDialog.vue'
 import AiResourceActions from './AiResourceActions.vue'
 import './aiPrototype.css'
@@ -24,16 +24,33 @@ const apis = ref(emptyPage())
 const scenarios = ref(emptyPage())
 const strategies = ref(emptyPage())
 const createVisible = ref(false)
-const importVisible = ref(false)
 
 const strategyOptions = computed(() => Array.from(new Set(routes.value.items.map((row) => String(row.strategy || '')).filter(Boolean))))
+const routeDialogOptions = {
+  capability_code: [
+    { label: '对话生成', value: 'chat_completion' },
+    { label: '文本生成', value: 'text_generation' },
+    { label: '图像生成', value: 'image_generation' },
+    { label: '视频生成', value: 'video_generation' },
+    { label: '向量生成', value: 'embedding' },
+    { label: '重排', value: 'rerank' },
+  ],
+  strategy: [
+    { label: '优先级路由', value: 'priority' },
+    { label: '故障降级', value: 'fallback' },
+    { label: '权重分配', value: 'weighted' },
+    { label: '轮询分配', value: 'round_robin' },
+  ],
+}
 const filtered = computed(() => routes.value.items.filter((row) => {
   const matchesStrategy = strategyFilter.value === 'all' || row.strategy === strategyFilter.value
   return matchesStrategy && includesKeyword(row, keyword.value, ['route_name', 'route_code', 'capability_code', 'model_type', 'strategy'])
 }))
 
 function routePool(routeId: unknown) {
-  return routeModels.value.items.filter((row) => String(row.base_route_id || '') === String(routeId || ''))
+  return routeModels.value.items
+    .filter((row) => String(row.base_route_id || '') === String(routeId || ''))
+    .sort((a, b) => Number(a.priority ?? 999) - Number(b.priority ?? 999))
 }
 
 function modelName(modelId: unknown) {
@@ -58,14 +75,67 @@ function apiName(apiId: unknown) {
 function endpointLabel(node: AiRow) {
   const account = accountName(node.provider_account_id)
   const api = apiName(node.provider_api_id)
-  if (account === '自动选择账号' && api === '自动选择 API') return '执行端点：按健康、能力和账号状态自动选择'
-  return `执行端点：${account} / ${api}`
+  if (account === '自动选择账号' && api === '自动选择 API') return '自动选择可用端点'
+  return `${account} / ${api}`
 }
 
 function referenceCount(routeId: unknown) {
   const id = String(routeId || '')
   return scenarios.value.items.filter((row) => String(row.default_base_route_id || '') === id).length
     + strategies.value.items.filter((row) => String(row.default_base_route_id || '') === id || String(row.override_base_route_id || '') === id).length
+}
+
+function strategyText(value: unknown) {
+  const raw = text(value, '').toLowerCase()
+  const labels: Record<string, string> = {
+    fallback: '故障降级',
+    priority: '优先级路由',
+    round_robin: '轮询分配',
+    weighted: '权重分配',
+  }
+  return raw ? labels[raw] || raw : '未配置'
+}
+
+function roleText(value: unknown) {
+  const raw = text(value, '').toLowerCase()
+  const labels: Record<string, string> = {
+    primary: '主模型',
+    fallback: '备用模型',
+    backup: '备用模型',
+  }
+  return raw ? labels[raw] || raw : '模型'
+}
+
+function primaryNode(routeId: unknown) {
+  const pool = routePool(routeId)
+  return pool.find((node) => text(node.role, '').toLowerCase() === 'primary') || pool[0]
+}
+
+function fallbackNodes(routeId: unknown) {
+  const primary = primaryNode(routeId)
+  return routePool(routeId).filter((node) => rowId(node) !== rowId(primary))
+}
+
+function modelPoolTitle(routeId: unknown) {
+  return routePool(routeId).map((node) => `${roleText(node.role)}：${modelName(node.model_id)}`).join('\n')
+}
+
+function endpointSummary(routeId: unknown) {
+  const endpoints = Array.from(new Set(routePool(routeId).map(endpointLabel)))
+  if (!endpoints.length) return { main: '未配置端点', extra: '' }
+  if (endpoints.length === 1) return { main: endpoints[0], extra: '' }
+  return { main: endpoints[0], extra: `另有 ${endpoints.length - 1} 个端点` }
+}
+
+function endpointTitle(routeId: unknown) {
+  return Array.from(new Set(routePool(routeId).map(endpointLabel))).join('\n')
+}
+
+function timeoutRetryText(row: AiRow) {
+  const seconds = Number(row.timeout_ms ?? 0) / 1000
+  const retry = Number(row.max_retry ?? 0)
+  const timeout = seconds > 0 ? `${seconds.toLocaleString('zh-CN')} 秒` : '未配置超时'
+  return `${timeout} / ${retry > 0 ? `重试 ${retry} 次` : '不重试'}`
 }
 
 async function loadData() {
@@ -101,13 +171,6 @@ async function createRoute(payload: AiRow) {
   await loadData()
 }
 
-async function importRoutes(payload: AiRow) {
-  const result = await importAiRoutes(payload)
-  importVisible.value = false
-  ElMessage.success(`已导入基础路由 ${result.base_routes} 条、模型节点 ${result.route_models} 个`)
-  await loadData()
-}
-
 onMounted(loadData)
 </script>
 
@@ -116,7 +179,6 @@ onMounted(loadData)
     <template #title>基础路由</template>
     <template #subtitle>基础路由只定义可复用模型策略，不绑定租户、不绑定具体 AI 场景。</template>
     <template #actions>
-      <el-button :icon="Upload" @click="importVisible = true">导入基础路由</el-button>
       <el-button type="primary" :icon="Plus" @click="createVisible = true">新增基础路由</el-button>
     </template>
 
@@ -131,7 +193,6 @@ onMounted(loadData)
           <p class="ai-card__description">AI 场景选择默认基础路由，租户策略中心可按场景覆盖。</p>
         </div>
         <div class="ai-actions">
-          <el-button :icon="Upload" @click="importVisible = true">导入基础路由</el-button>
           <el-button type="primary" :icon="Plus" @click="createVisible = true">新增基础路由</el-button>
         </div>
       </header>
@@ -146,30 +207,33 @@ onMounted(loadData)
           <el-input v-model="keyword" clearable placeholder="搜索基础路由、能力、模型、策略" />
           <el-select v-model="strategyFilter" style="width: 180px">
             <el-option label="全部策略" value="all" />
-            <el-option v-for="strategy in strategyOptions" :key="strategy" :label="strategy" :value="strategy" />
+            <el-option v-for="strategy in strategyOptions" :key="strategy" :label="strategyText(strategy)" :value="strategy" />
           </el-select>
         </div>
         <el-table :data="filtered" border v-loading="loading">
           <el-table-column label="基础路由" min-width="220"><template #default="{ row }"><span class="ai-table-cell-main"><strong>{{ text(row.route_name) }}</strong><small>{{ text(row.route_code) }}</small></span></template></el-table-column>
-          <el-table-column label="能力 / 类型" min-width="180"><template #default="{ row }">{{ text(row.capability_code) }} / {{ modelTypeText(row.model_type) }}</template></el-table-column>
-          <el-table-column label="策略" width="130"><template #default="{ row }"><el-tag>{{ text(row.strategy) }}</el-tag></template></el-table-column>
-          <el-table-column label="模型池" min-width="280">
+          <el-table-column label="能力 / 类型" min-width="180"><template #default="{ row }">{{ capabilityText(row.capability_code) }} / {{ modelTypeText(row.model_type) }}</template></el-table-column>
+          <el-table-column label="策略" width="130"><template #default="{ row }"><el-tag>{{ strategyText(row.strategy) }}</el-tag></template></el-table-column>
+          <el-table-column label="模型池" min-width="260">
             <template #default="{ row }">
-              <span class="ai-table-cell-main">
-                <small v-for="node in routePool(row.id)" :key="rowId(node)">{{ text(node.role) }} · {{ modelName(node.model_id) }} · P{{ text(node.priority) }} · W{{ text(node.weight) }}</small>
+              <span class="ai-table-cell-main" :title="modelPoolTitle(row.id)">
+                <strong>{{ primaryNode(row.id) ? modelName(primaryNode(row.id)?.model_id) : '未配置主模型' }}</strong>
+                <small v-if="fallbackNodes(row.id).length">备用 {{ fallbackNodes(row.id).length }} 个：{{ fallbackNodes(row.id).map((node) => modelName(node.model_id)).join('、') }}</small>
+                <small v-else>暂无备用模型</small>
               </span>
             </template>
           </el-table-column>
-          <el-table-column label="执行端点" min-width="260">
+          <el-table-column label="执行端点" min-width="230">
             <template #default="{ row }">
-              <span class="ai-table-cell-main">
-                <small v-for="node in routePool(row.id)" :key="`endpoint-${rowId(node)}`">{{ endpointLabel(node) }}</small>
+              <span class="ai-table-cell-main" :title="endpointTitle(row.id)">
+                <strong>{{ endpointSummary(row.id).main }}</strong>
+                <small v-if="endpointSummary(row.id).extra">{{ endpointSummary(row.id).extra }}</small>
               </span>
             </template>
           </el-table-column>
-          <el-table-column label="引用" width="90"><template #default="{ row }"><strong>{{ referenceCount(row.id) }}</strong></template></el-table-column>
-          <el-table-column label="超时 / 重试" width="140"><template #default="{ row }">{{ numberText(row.timeout_ms) }}ms / {{ numberText(row.max_retry) }}</template></el-table-column>
-          <el-table-column label="状态" width="100"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ text(row.status) }}</el-tag></template></el-table-column>
+          <el-table-column label="场景引用" width="110"><template #default="{ row }"><strong>{{ referenceCount(row.id) }}</strong></template></el-table-column>
+          <el-table-column label="超时 / 重试" width="170"><template #default="{ row }">{{ timeoutRetryText(row) }}</template></el-table-column>
+          <el-table-column label="状态" width="100"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag></template></el-table-column>
           <el-table-column label="操作" width="140"><template #default="{ row }"><AiResourceActions resource="base-routes" :row="row" @saved="loadData" /></template></el-table-column>
         </el-table>
       </div>
@@ -198,13 +262,8 @@ onMounted(loadData)
       v-model="createVisible"
       title="新增基础路由"
       :sample="{ route_code: 'route_text_low_cost', route_name: '文本低成本基础路由', capability_code: 'chat_completion', model_type: 'text', strategy: 'fallback', timeout_ms: 30000, max_retry: 2, status: 'active' }"
+      :options="routeDialogOptions"
       @submit="createRoute"
-    />
-    <AiJsonDialog
-      v-model="importVisible"
-      title="导入基础路由"
-      :sample="{ base_routes: [{ route_code: 'route_text_low_cost', route_name: '文本低成本基础路由', capability_code: 'chat_completion', model_type: 'text', strategy: 'fallback', route_models: [{ model_id: rowId(models.items[0]), provider_account_id: '', provider_api_id: '', role: 'primary', priority: 1, weight: 100, max_retry: 1, timeout_ms: 25000 }] }] }"
-      @submit="importRoutes"
     />
   </NeuroAgentPageShell>
 </template>

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -12,6 +14,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,12 +31,46 @@ var ErrNotFound = errors.New("资源不存在")
 var ErrInvalidInput = errors.New("参数不合法")
 var ErrResourceInUse = errors.New("资源已被引用，不能删除")
 
+const contentRecordLevelParamKey = "ai.gateway.content_record_level"
+const gatewayCABundleFileEnv = "AI_GATEWAY_CA_BUNDLE_FILE"
+const demoProviderCatalogEnv = "AI_SEED_DEMO_PROVIDER_CATALOG"
+
+var demoProviderCatalogCodes = map[string]struct{}{
+	"openai":            {},
+	"azure-openai":      {},
+	"anthropic":         {},
+	"deepseek":          {},
+	"dashscope":         {},
+	"volcengine":        {},
+	"zhipu":             {},
+	"moonshot":          {},
+	"baichuan":          {},
+	"minimax":           {},
+	"tencent-hunyuan":   {},
+	"baidu-qianfan":     {},
+	"openai-compatible": {},
+}
+
+var sensitiveContentPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}`),
+	regexp.MustCompile(`(?i)(?:\+?86[-\s]?)?1[3-9]\d{9}`),
+	regexp.MustCompile(`(?i)\b\d{17}[\dX]\b`),
+	regexp.MustCompile(`(?i)\b(?:\d[ -]?){13,19}\b`),
+	regexp.MustCompile(`(?i)\bbearer\s+[a-z0-9._~+\-/=]{8,}`),
+	regexp.MustCompile(`(?i)\b(?:sk|rk|pk|ak)-[a-z0-9_\-]{8,}\b`),
+}
+
 type Service struct {
-	db *gorm.DB
+	db       *gorm.DB
+	executor providerExecutor
 }
 
 func NewService(db *gorm.DB) *Service {
-	return &Service{db: db}
+	return &Service{db: db, executor: httpProviderExecutor{client: providerHTTPClient(0)}}
+}
+
+func newServiceWithProviderExecutor(db *gorm.DB, executor providerExecutor) *Service {
+	return &Service{db: db, executor: executor}
 }
 
 func (s *Service) StartProviderAPIConnectivityProbe(ctx context.Context, interval time.Duration) {
@@ -83,6 +122,7 @@ type UsageTrendPoint struct {
 	Calls         int64   `json:"calls"`
 	CostAmount    float64 `json:"cost_amount"`
 	BillingAmount float64 `json:"billing_amount"`
+	SuccessRate   float64 `json:"success_rate"`
 }
 
 type ModelCostShare struct {
@@ -106,6 +146,17 @@ type UsageUnitSummary struct {
 	Calls         int64   `json:"calls"`
 	CostAmount    float64 `json:"cost_amount"`
 	BillingAmount float64 `json:"billing_amount"`
+}
+
+type UsageErrorDistribution struct {
+	Status    string `json:"status"`
+	ErrorCode string `json:"error_code"`
+	Count     int64  `json:"count"`
+}
+
+type UsageRecordsSummary struct {
+	UsageUnits        []UsageUnitSummary       `json:"usage_units"`
+	ErrorDistribution []UsageErrorDistribution `json:"error_distribution"`
 }
 
 type ProviderImportRequest struct {
@@ -672,15 +723,28 @@ type InvokeRequest struct {
 }
 
 type InvokeResponse struct {
-	RequestID   string                 `json:"request_id"`
-	Status      string                 `json:"status"`
-	ModelID     string                 `json:"model_id"`
-	BaseRouteID string                 `json:"base_route_id"`
-	StrategyID  string                 `json:"tenant_strategy_id"`
-	Usage       map[string]interface{} `json:"usage"`
-	Billing     map[string]interface{} `json:"billing"`
-	Controls    map[string]interface{} `json:"controls"`
-	Data        map[string]interface{} `json:"data"`
+	RequestID         string                 `json:"request_id"`
+	TraceID           string                 `json:"trace_id"`
+	ProviderRequestID string                 `json:"provider_request_id,omitempty"`
+	Status            string                 `json:"status"`
+	ModelID           string                 `json:"model_id"`
+	BaseRouteID       string                 `json:"base_route_id"`
+	StrategyID        string                 `json:"tenant_strategy_id"`
+	Usage             map[string]interface{} `json:"usage"`
+	Billing           map[string]interface{} `json:"billing"`
+	Controls          map[string]interface{} `json:"controls"`
+	Data              map[string]interface{} `json:"data"`
+}
+
+type VideoTaskQueryResponse struct {
+	RequestID string                 `json:"request_id"`
+	TaskID    string                 `json:"task_id"`
+	Status    string                 `json:"task_status"`
+	VideoURL  string                 `json:"video_url,omitempty"`
+	Code      string                 `json:"code,omitempty"`
+	Message   string                 `json:"message,omitempty"`
+	Usage     map[string]interface{} `json:"usage,omitempty"`
+	Raw       map[string]interface{} `json:"raw,omitempty"`
 }
 
 type quotaCheckResult struct {
@@ -717,6 +781,596 @@ type pricingResult struct {
 	PlatformUnit   string
 	PlatformAmount float64
 	FeatureKey     string
+}
+
+type providerExecutor interface {
+	Execute(ctx context.Context, req providerExecutionRequest) (providerExecutionResult, error)
+}
+
+type providerExecutionRequest struct {
+	InvokeRequest InvokeRequest
+	Scenario      models.AIScenario
+	Route         models.AIBaseRoute
+	RouteModel    models.AIBaseRouteModel
+	Model         models.AIModel
+	Provider      models.AIProvider
+	Account       models.AIProviderAccount
+	API           models.AIProviderAPI
+}
+
+type providerExecutionResult struct {
+	StatusCode        int
+	ProviderRequestID string
+	Data              map[string]interface{}
+	UsageAmount       float64
+	UsageUnit         string
+	ErrorCode         string
+	ErrorMessage      string
+	LatencyMS         int
+	StartedAt         time.Time
+	FinishedAt        time.Time
+	RetryCount        int
+}
+
+type noopProviderExecutor struct{}
+
+func (noopProviderExecutor) Execute(ctx context.Context, req providerExecutionRequest) (providerExecutionResult, error) {
+	return providerExecutionResult{
+		StatusCode: http.StatusOK,
+		Data:       map[string]interface{}{"dry_run": true},
+	}, nil
+}
+
+type httpProviderExecutor struct {
+	client *http.Client
+}
+
+func (e httpProviderExecutor) Execute(ctx context.Context, req providerExecutionRequest) (providerExecutionResult, error) {
+	startedAt := time.Now()
+	requestKind := openAICompatibleRequestKind(req)
+	if requestKind == "" {
+		return providerExecutionResult{
+			ErrorCode:    "unsupported_provider_protocol",
+			ErrorMessage: "当前仅支持 OpenAI-compatible chat/text_generation、responses、embeddings、images，以及 DashScope image_generation、video_generation 真实调用",
+			StartedAt:    startedAt,
+			FinishedAt:   time.Now(),
+		}, nil
+	}
+	rawURL := providerAPIProbeURL(req.Provider.BaseURL, req.Account.Endpoint, req.API.APIPath)
+	if rawURL == "" {
+		return providerExecutionResult{ErrorCode: "invalid_endpoint", ErrorMessage: "供应商 Endpoint 或 API 路径不合法", StartedAt: startedAt, FinishedAt: time.Now()}, nil
+	}
+	apiKey, keySource := resolveProviderAPIKeyWithSource(req.Account.EncryptedAPIKey, req.Account.KeyAlias)
+	if requiresAPIKey(req.Provider.Code, defaultString(req.API.AuthType, req.Provider.AuthType)) && apiKey == "" {
+		return providerExecutionResult{ErrorCode: "missing_api_key", ErrorMessage: providerAPIKeyMissingMessage(req.Account.KeyAlias, keySource), StartedAt: startedAt, FinishedAt: time.Now()}, nil
+	}
+	client := e.client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	maxRetry := gatewayMaxRetry(req.Route, req.RouteModel)
+	timeout := gatewayRequestTimeout(req.Route, req.RouteModel, req.API)
+	var last providerExecutionResult
+	for attempt := 0; attempt <= maxRetry; attempt++ {
+		result, err := executeOpenAICompatibleAttempt(ctx, client, rawURL, apiKey, req, requestKind, timeout, startedAt, attempt)
+		if err != nil {
+			return providerExecutionResult{}, err
+		}
+		last = result
+		if !shouldRetryProviderResult(result) || attempt == maxRetry {
+			return result, nil
+		}
+	}
+	return last, nil
+}
+
+func executeOpenAICompatibleAttempt(ctx context.Context, client *http.Client, rawURL, apiKey string, req providerExecutionRequest, requestKind string, timeout time.Duration, startedAt time.Time, attempt int) (providerExecutionResult, error) {
+	payload := openAICompatiblePayload(requestKind, req.Model, req.InvokeRequest)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return providerExecutionResult{}, err
+	}
+	attemptCtx := ctx
+	cancel := func() {}
+	if timeout > 0 {
+		attemptCtx, cancel = context.WithTimeout(ctx, timeout)
+	}
+	defer cancel()
+	httpReq, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, rawURL, bytes.NewReader(body))
+	if err != nil {
+		return providerExecutionResult{}, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json")
+	if requestKind == "video" {
+		httpReq.Header.Set("X-DashScope-Async", "enable")
+	}
+	applyProviderAuth(httpReq, req.Provider.Code, defaultString(req.API.AuthType, req.Provider.AuthType), apiKey, req.Account.EncryptedSecret)
+
+	resp, err := client.Do(httpReq)
+	finishedAt := time.Now()
+	latencyMS := int(finishedAt.Sub(startedAt).Milliseconds())
+	if err != nil {
+		code := "provider_request_failed"
+		message := err.Error()
+		if errors.Is(attemptCtx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
+			code = "provider_timeout"
+			message = "供应商调用超时"
+		}
+		return providerExecutionResult{ErrorCode: code, ErrorMessage: message, LatencyMS: latencyMS, StartedAt: startedAt, FinishedAt: finishedAt, RetryCount: attempt}, nil
+	}
+	defer resp.Body.Close()
+	providerRequestID := providerRequestIDFromHeader(resp.Header)
+	rawBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024))
+	var decoded map[string]interface{}
+	if len(rawBody) > 0 {
+		_ = json.Unmarshal(rawBody, &decoded)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return providerExecutionResult{
+			StatusCode:        resp.StatusCode,
+			ProviderRequestID: providerRequestID,
+			Data:              safeProviderResponse(decoded, rawBody),
+			ErrorCode:         fmt.Sprintf("provider_http_%d", resp.StatusCode),
+			ErrorMessage:      providerErrorMessage(decoded, rawBody),
+			LatencyMS:         latencyMS,
+			StartedAt:         startedAt,
+			FinishedAt:        finishedAt,
+			RetryCount:        attempt,
+		}, nil
+	}
+	data := standardizeOpenAICompatibleResponse(requestKind, decoded)
+	usageAmount := openAIUsageAmount(requestKind, decoded, req.InvokeRequest)
+	usageUnit := "tokens"
+	if requestKind == "images" || requestKind == "dashscope_image" {
+		usageUnit = "images"
+	}
+	if requestKind == "video" {
+		usageUnit = "seconds"
+		if taskID := strings.TrimSpace(fmt.Sprint(data["task_id"])); taskID != "" && taskID != "<nil>" && providerRequestID == "" {
+			providerRequestID = taskID
+		}
+	}
+	return providerExecutionResult{
+		StatusCode:        resp.StatusCode,
+		ProviderRequestID: providerRequestID,
+		Data:              data,
+		UsageAmount:       usageAmount,
+		UsageUnit:         usageUnit,
+		LatencyMS:         latencyMS,
+		StartedAt:         startedAt,
+		FinishedAt:        finishedAt,
+		RetryCount:        attempt,
+	}, nil
+}
+
+func shouldRetryProviderResult(result providerExecutionResult) bool {
+	if result.ErrorCode == "provider_timeout" || result.ErrorCode == "provider_request_failed" {
+		return true
+	}
+	return result.StatusCode == http.StatusTooManyRequests || result.StatusCode >= 500
+}
+
+func gatewayMaxRetry(route models.AIBaseRoute, routeModel models.AIBaseRouteModel) int {
+	if routeModel.MaxRetry > 0 {
+		return routeModel.MaxRetry
+	}
+	if route.MaxRetry > 0 {
+		return route.MaxRetry
+	}
+	return 0
+}
+
+func gatewayRequestTimeout(route models.AIBaseRoute, routeModel models.AIBaseRouteModel, api models.AIProviderAPI) time.Duration {
+	timeoutMS := routeModel.TimeoutMS
+	if timeoutMS <= 0 {
+		timeoutMS = api.TimeoutMS
+	}
+	if timeoutMS <= 0 {
+		timeoutMS = route.TimeoutMS
+	}
+	if timeoutMS <= 0 {
+		timeoutMS = 30000
+	}
+	return time.Duration(timeoutMS) * time.Millisecond
+}
+
+func providerRequestIDFromHeader(header http.Header) string {
+	for _, key := range []string{"X-Request-Id", "X-Openai-Request-Id", "Openai-Request-Id", "Request-Id", "Cf-Ray"} {
+		if value := strings.TrimSpace(header.Get(key)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func openAICompatibleRequestKind(req providerExecutionRequest) string {
+	apiType := strings.ToLower(strings.TrimSpace(req.API.APIType))
+	path := strings.ToLower(strings.TrimSpace(req.API.APIPath))
+	switch {
+	case strings.Contains(path, "/multimodal-generation/") || strings.Contains(path, "/image-generation/"):
+		return "dashscope_image"
+	case apiType == "embedding" || containsString(req.API.Capabilities, "embedding") || strings.Contains(path, "/embeddings"):
+		return "embeddings"
+	case apiType == "image" || containsString(req.API.Capabilities, "image_generation") || strings.Contains(path, "/images"):
+		return "images"
+	case apiType == "video" || containsString(req.API.Capabilities, "video_generation") || strings.Contains(path, "/video-generation/"):
+		return "video"
+	case strings.Contains(path, "/responses"):
+		return "responses"
+	case apiType == "chat" || apiType == "chat_completion" || containsString(req.API.Capabilities, "chat_completion") || containsString(req.API.Capabilities, "text_generation") || strings.Contains(path, "/chat/completions"):
+		return "chat"
+	default:
+		return ""
+	}
+}
+
+func openAICompatiblePayload(kind string, model models.AIModel, req InvokeRequest) map[string]interface{} {
+	switch kind {
+	case "responses":
+		payload := map[string]interface{}{
+			"model": model.ModelCode,
+			"input": openAICompatibleInputText(req.Input),
+		}
+		for _, key := range []string{"temperature", "top_p", "max_output_tokens", "max_tokens"} {
+			if value, ok := req.Params[key]; ok {
+				payload[key] = value
+			}
+		}
+		return payload
+	case "embeddings":
+		payload := map[string]interface{}{
+			"model": model.ModelCode,
+			"input": openAICompatibleEmbeddingInput(req.Input),
+		}
+		if value, ok := req.Params["encoding_format"]; ok {
+			payload["encoding_format"] = value
+		}
+		return payload
+	case "images":
+		payload := map[string]interface{}{
+			"model":  model.ModelCode,
+			"prompt": openAICompatibleInputText(req.Input),
+			"n":      defaultNumberParam(req.Params, "n", 1),
+		}
+		for _, key := range []string{"size", "quality", "style", "response_format"} {
+			if value, ok := req.Params[key]; ok {
+				payload[key] = value
+			}
+		}
+		return payload
+	case "dashscope_image":
+		parameters := map[string]interface{}{
+			"n":             defaultNumberParam(req.Params, "n", 1),
+			"size":          normalizeDashScopeSize(defaultString(stringParam(req.Params, "size"), "2048*2048")),
+			"prompt_extend": boolParam(req.Params, "prompt_extend", false),
+			"watermark":     boolParam(req.Params, "watermark", false),
+		}
+		for _, key := range []string{"negative_prompt", "seed"} {
+			if value, ok := req.Params[key]; ok {
+				parameters[key] = value
+			}
+		}
+		return map[string]interface{}{
+			"model": model.ModelCode,
+			"input": map[string]interface{}{
+				"messages": []map[string]interface{}{
+					{
+						"role": "user",
+						"content": []map[string]string{
+							{"text": openAICompatibleInputText(req.Input)},
+						},
+					},
+				},
+			},
+			"parameters": parameters,
+		}
+	case "video":
+		parameters := map[string]interface{}{
+			"duration":   defaultNumberParam(req.Params, "duration", 3),
+			"resolution": defaultString(stringParam(req.Params, "resolution"), "720P"),
+			"ratio":      defaultString(defaultString(stringParam(req.Params, "ratio"), stringParam(req.Params, "aspect_ratio")), "16:9"),
+			"watermark":  boolParam(req.Params, "watermark", true),
+		}
+		for _, key := range []string{"audio", "prompt_extend", "seed"} {
+			if value, ok := req.Params[key]; ok {
+				parameters[key] = value
+			}
+		}
+		return map[string]interface{}{
+			"model": model.ModelCode,
+			"input": map[string]interface{}{
+				"prompt": openAICompatibleInputText(req.Input),
+			},
+			"parameters": parameters,
+		}
+	default:
+		payload := map[string]interface{}{
+			"model":    model.ModelCode,
+			"messages": openAICompatibleMessages(req.Input),
+			"stream":   false,
+		}
+		for _, key := range []string{"temperature", "top_p", "max_tokens", "presence_penalty", "frequency_penalty", "thinking"} {
+			if value, ok := req.Params[key]; ok {
+				payload[key] = value
+			}
+		}
+		return payload
+	}
+}
+
+func openAICompatibleInputText(input map[string]interface{}) string {
+	for _, key := range []string{"prompt", "content", "text", "input"} {
+		if value := strings.TrimSpace(fmt.Sprint(input[key])); value != "" && value != "<nil>" {
+			return value
+		}
+	}
+	raw, _ := json.Marshal(input)
+	return string(raw)
+}
+
+func openAICompatibleEmbeddingInput(input map[string]interface{}) interface{} {
+	if value, ok := input["input"]; ok {
+		return value
+	}
+	return openAICompatibleInputText(input)
+}
+
+func defaultNumberParam(params map[string]interface{}, key string, fallback float64) interface{} {
+	if value, ok := params[key]; ok {
+		return value
+	}
+	return fallback
+}
+
+func normalizeDashScopeSize(value string) string {
+	size := strings.TrimSpace(value)
+	if size == "" {
+		return "2048*2048"
+	}
+	return strings.ReplaceAll(strings.ToLower(size), "x", "*")
+}
+
+func openAICompatibleMessages(input map[string]interface{}) []map[string]string {
+	if raw, ok := input["messages"]; ok {
+		if messages := normalizeOpenAIMessages(raw); len(messages) > 0 {
+			return messages
+		}
+	}
+	prompt := strings.TrimSpace(fmt.Sprint(input["prompt"]))
+	if prompt == "" {
+		prompt = strings.TrimSpace(fmt.Sprint(input["content"]))
+	}
+	if prompt == "" {
+		prompt = strings.TrimSpace(fmt.Sprint(input["text"]))
+	}
+	if prompt == "" {
+		raw, _ := json.Marshal(input)
+		prompt = string(raw)
+	}
+	return []map[string]string{{"role": "user", "content": prompt}}
+}
+
+func normalizeOpenAIMessages(raw interface{}) []map[string]string {
+	switch typed := raw.(type) {
+	case []map[string]string:
+		return typed
+	case []map[string]interface{}:
+		messages := make([]map[string]string, 0, len(typed))
+		for _, item := range typed {
+			role := strings.TrimSpace(fmt.Sprint(item["role"]))
+			content := strings.TrimSpace(fmt.Sprint(item["content"]))
+			if role == "" {
+				role = "user"
+			}
+			if content == "" {
+				continue
+			}
+			messages = append(messages, map[string]string{"role": role, "content": content})
+		}
+		return messages
+	case []interface{}:
+		messages := make([]map[string]string, 0, len(typed))
+		for _, item := range typed {
+			row, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			role := strings.TrimSpace(fmt.Sprint(row["role"]))
+			content := strings.TrimSpace(fmt.Sprint(row["content"]))
+			if role == "" {
+				role = "user"
+			}
+			if content == "" {
+				continue
+			}
+			messages = append(messages, map[string]string{"role": role, "content": content})
+		}
+		return messages
+	default:
+		return nil
+	}
+}
+
+func standardizeOpenAICompatibleResponse(kind string, decoded map[string]interface{}) map[string]interface{} {
+	data := map[string]interface{}{
+		"provider_response": decoded,
+	}
+	if kind == "responses" {
+		if text := strings.TrimSpace(fmt.Sprint(decoded["output_text"])); text != "" && text != "<nil>" {
+			data["text"] = text
+		} else if text := responseOutputText(decoded); text != "" {
+			data["text"] = text
+		}
+		return data
+	}
+	if kind == "embeddings" {
+		items, _ := decoded["data"].([]interface{})
+		data["embedding_count"] = len(items)
+		if len(items) > 0 {
+			if first, ok := items[0].(map[string]interface{}); ok {
+				if vector, ok := first["embedding"].([]interface{}); ok {
+					data["dimensions"] = len(vector)
+				}
+			}
+		}
+		return data
+	}
+	if kind == "images" {
+		items, _ := decoded["data"].([]interface{})
+		data["image_count"] = len(items)
+		urls := make([]string, 0, len(items))
+		for _, item := range items {
+			row, _ := item.(map[string]interface{})
+			if url := strings.TrimSpace(fmt.Sprint(row["url"])); url != "" && url != "<nil>" {
+				urls = append(urls, url)
+			}
+		}
+		if len(urls) > 0 {
+			data["urls"] = urls
+		}
+		return data
+	}
+	if kind == "dashscope_image" {
+		output, _ := decoded["output"].(map[string]interface{})
+		choices, _ := output["choices"].([]interface{})
+		urls := make([]string, 0, len(choices))
+		for _, choice := range choices {
+			choiceRow, _ := choice.(map[string]interface{})
+			message, _ := choiceRow["message"].(map[string]interface{})
+			content, _ := message["content"].([]interface{})
+			for _, contentItem := range content {
+				contentRow, _ := contentItem.(map[string]interface{})
+				if url := strings.TrimSpace(fmt.Sprint(contentRow["image"])); url != "" && url != "<nil>" {
+					urls = append(urls, url)
+				}
+			}
+		}
+		data["image_count"] = len(urls)
+		if len(urls) > 0 {
+			data["urls"] = urls
+		}
+		if requestID := strings.TrimSpace(fmt.Sprint(decoded["request_id"])); requestID != "" && requestID != "<nil>" {
+			data["dashscope_request_id"] = requestID
+		}
+		return data
+	}
+	if kind == "video" {
+		output, _ := decoded["output"].(map[string]interface{})
+		if taskID := strings.TrimSpace(fmt.Sprint(output["task_id"])); taskID != "" && taskID != "<nil>" {
+			data["task_id"] = taskID
+		}
+		if status := strings.TrimSpace(fmt.Sprint(output["task_status"])); status != "" && status != "<nil>" {
+			data["task_status"] = status
+		}
+		if requestID := strings.TrimSpace(fmt.Sprint(decoded["request_id"])); requestID != "" && requestID != "<nil>" {
+			data["dashscope_request_id"] = requestID
+		}
+		return data
+	}
+	choices, _ := decoded["choices"].([]interface{})
+	if len(choices) == 0 {
+		return data
+	}
+	first, _ := choices[0].(map[string]interface{})
+	if first == nil {
+		return data
+	}
+	if finishReason := strings.TrimSpace(fmt.Sprint(first["finish_reason"])); finishReason != "" && finishReason != "<nil>" {
+		data["finish_reason"] = finishReason
+	}
+	if message, ok := first["message"].(map[string]interface{}); ok {
+		if content := strings.TrimSpace(fmt.Sprint(message["content"])); content != "" && content != "<nil>" {
+			data["text"] = content
+		}
+	}
+	if text := strings.TrimSpace(fmt.Sprint(first["text"])); text != "" && text != "<nil>" {
+		data["text"] = text
+	}
+	return data
+}
+
+func responseOutputText(decoded map[string]interface{}) string {
+	output, _ := decoded["output"].([]interface{})
+	for _, item := range output {
+		row, _ := item.(map[string]interface{})
+		content, _ := row["content"].([]interface{})
+		for _, contentItem := range content {
+			contentRow, _ := contentItem.(map[string]interface{})
+			if text := strings.TrimSpace(fmt.Sprint(contentRow["text"])); text != "" && text != "<nil>" {
+				return text
+			}
+		}
+	}
+	return ""
+}
+
+func openAIUsageAmount(kind string, decoded map[string]interface{}, req InvokeRequest) float64 {
+	if kind == "images" || kind == "dashscope_image" {
+		usage, _ := decoded["usage"].(map[string]interface{})
+		if value := numberFromInterface(usage["image_count"]); value > 0 {
+			return value
+		}
+		if value := numberFromInterface(decoded["usage"]); value > 0 {
+			return value
+		}
+		data, _ := decoded["data"].([]interface{})
+		if len(data) > 0 {
+			return float64(len(data))
+		}
+		return numberFromInterface(defaultNumberParam(req.Params, "n", 1))
+	}
+	if kind == "video" {
+		return numberFromInterface(defaultNumberParam(req.Params, "duration", 3))
+	}
+	usage, _ := decoded["usage"].(map[string]interface{})
+	if len(usage) == 0 {
+		return 0
+	}
+	if value := numberFromInterface(usage["total_tokens"]); value > 0 {
+		return value
+	}
+	return numberFromInterface(usage["prompt_tokens"]) + numberFromInterface(usage["completion_tokens"])
+}
+
+func providerErrorMessage(decoded map[string]interface{}, rawBody []byte) string {
+	if errorBody, ok := decoded["error"].(map[string]interface{}); ok {
+		if message := strings.TrimSpace(fmt.Sprint(errorBody["message"])); message != "" && message != "<nil>" {
+			return message
+		}
+	}
+	if message := strings.TrimSpace(fmt.Sprint(decoded["message"])); message != "" && message != "<nil>" {
+		return message
+	}
+	return abbreviateProbeBody(string(rawBody))
+}
+
+func safeProviderResponse(decoded map[string]interface{}, rawBody []byte) map[string]interface{} {
+	if len(decoded) > 0 {
+		return decoded
+	}
+	return map[string]interface{}{"body": abbreviateProbeBody(string(rawBody))}
+}
+
+func numberFromInterface(value interface{}) float64 {
+	switch typed := value.(type) {
+	case float64:
+		return typed
+	case float32:
+		return float64(typed)
+	case int:
+		return float64(typed)
+	case int64:
+		return float64(typed)
+	case json.Number:
+		number, _ := typed.Float64()
+		return number
+	case string:
+		number, _ := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		return number
+	default:
+		return 0
+	}
 }
 
 func (s *Service) EnsureBaseline(ctx context.Context) error {
@@ -765,6 +1419,9 @@ func (s *Service) EnsureBaseline(ctx context.Context) error {
 				return err
 			}
 		}
+		if err := s.repairInvalidScenarioRouteBindings(ctx, tx); err != nil {
+			return err
+		}
 		return nil
 	})
 }
@@ -778,7 +1435,7 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	trendStart := todayStart.AddDate(0, 0, -6)
 	var calls int64
 	var cost, billing float64
-	if err := s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).
+	if err := s.realUsageRecordsQuery(ctx).
 		Select("COALESCE(SUM(calls),0), COALESCE(SUM(cost_amount),0), COALESCE(SUM(billing_amount),0)").
 		Where("called_at >= ?", todayStart).
 		Row().Scan(&calls, &cost, &billing); err != nil {
@@ -787,10 +1444,10 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 
 	var successCount int64
 	var totalRecords int64
-	if err := s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).Where("called_at >= ?", todayStart).Count(&totalRecords).Error; err != nil {
+	if err := s.realUsageRecordsQuery(ctx).Where("called_at >= ?", todayStart).Count(&totalRecords).Error; err != nil {
 		return Overview{}, err
 	}
-	if err := s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).Where("called_at >= ? AND status = ?", todayStart, "success").Count(&successCount).Error; err != nil {
+	if err := s.realUsageRecordsQuery(ctx).Where("called_at >= ? AND status = ?", todayStart, "success").Count(&successCount).Error; err != nil {
 		return Overview{}, err
 	}
 	successRate := 100.0
@@ -823,7 +1480,7 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 		return Overview{}, err
 	}
 	var tenantCount int64
-	if err := s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).Where("called_at >= ?", trendStart).Distinct("tenant_id").Count(&tenantCount).Error; err != nil {
+	if err := s.realUsageRecordsQuery(ctx).Where("called_at >= ?", trendStart).Distinct("tenant_id").Count(&tenantCount).Error; err != nil {
 		return Overview{}, err
 	}
 
@@ -869,7 +1526,7 @@ func (s *Service) CheckProviderAPIConnectivity(ctx context.Context, userID uint6
 	now := time.Now()
 	result := APIConnectivityResult{Total: len(rows)}
 	for _, row := range rows {
-		client := &http.Client{Timeout: probeTimeout(row.TimeoutMS)}
+		client := providerHTTPClient(probeTimeout(row.TimeoutMS))
 		probeURL := providerAPIProbeURL(row.BaseURL, row.Endpoint, row.APIPath)
 		status, message := probeProviderAPI(ctx, client, row, probeURL)
 		switch status {
@@ -1031,20 +1688,52 @@ func (s *Service) scenarioBindingHealth(ctx context.Context) (string, string, er
 		return "", "", err
 	}
 	unavailable := int64(0)
+	affected := make([]string, 0)
 	for _, scenario := range rows {
 		var route models.AIBaseRoute
 		if err := s.db.WithContext(ctx).Where("id = ? AND status = ? AND deleted_at IS NULL", scenario.DefaultBaseRouteID, "active").First(&route).Error; err != nil {
 			unavailable++
+			affected = appendAffectedScenario(affected, scenario)
 			continue
 		}
 		if _, _, _, err := s.selectRouteExecutionPlan(ctx, route, scenario); err != nil {
 			unavailable++
+			affected = appendAffectedScenario(affected, scenario)
 		}
 	}
 	if unavailable > 0 {
-		return "warning", fmt.Sprintf("%d 个启用 AI 场景未绑定可用基础路由、模型节点或健康 API", unavailable), nil
+		return "warning", fmt.Sprintf("%d 个启用 AI 场景未绑定可用基础路由、模型节点或健康 API；影响场景：%s", unavailable, affectedScenarioSummary(affected, unavailable)), nil
 	}
 	return "active", fmt.Sprintf("%d 个启用 AI 场景已绑定可用基础路由和执行端点", scenarios), nil
+}
+
+func appendAffectedScenario(affected []string, scenario models.AIScenario) []string {
+	if len(affected) >= 5 {
+		return affected
+	}
+	label := strings.TrimSpace(scenario.AppName)
+	scenarioName := strings.TrimSpace(scenario.AIScenarioName)
+	if label == "" {
+		label = strings.TrimSpace(scenario.AppCode)
+	}
+	if scenarioName == "" {
+		scenarioName = strings.TrimSpace(scenario.AIScenarioCode)
+	}
+	if label != "" && scenarioName != "" {
+		return append(affected, label+"/"+scenarioName)
+	}
+	return append(affected, defaultString(label, scenarioName))
+}
+
+func affectedScenarioSummary(affected []string, total int64) string {
+	if len(affected) == 0 {
+		return "未知场景"
+	}
+	summary := strings.Join(affected, "、")
+	if total > int64(len(affected)) {
+		summary += fmt.Sprintf(" 等 %d 个", total)
+	}
+	return summary
 }
 
 func (s *Service) countActive(ctx context.Context, model interface{}, where string, args ...interface{}) (int64, error) {
@@ -1090,33 +1779,73 @@ func probeTimeout(timeoutMS int) time.Duration {
 	return timeout
 }
 
+func providerHTTPClient(timeout time.Duration) *http.Client {
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return &http.Client{Timeout: timeout}
+	}
+	cloned := transport.Clone()
+	if tlsConfig := providerTLSConfigFromEnv(); tlsConfig != nil {
+		cloned.TLSClientConfig = tlsConfig
+	}
+	return &http.Client{Timeout: timeout, Transport: cloned}
+}
+
+func providerTLSConfigFromEnv() *tls.Config {
+	caFile := strings.TrimSpace(os.Getenv(gatewayCABundleFileEnv))
+	if caFile == "" {
+		return nil
+	}
+	raw, err := os.ReadFile(caFile)
+	if err != nil || len(raw) == 0 {
+		return nil
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(raw) {
+		return nil
+	}
+	return &tls.Config{RootCAs: pool}
+}
+
 type providerAPIProbe struct {
 	Method      string
 	ContentType string
 	Body        []byte
+	LowCost     bool
 }
 
 func probeProviderAPI(ctx context.Context, client *http.Client, api apiProbeRow, rawURL string) (string, string) {
-	return probeHTTP(ctx, client, rawURL, api.ProviderCode, api.AuthType, api.EncryptedAPIKey, api.EncryptedSecret, api.KeyAlias, providerProbePayload(api.ProviderCode, api.APIType, api.Capabilities, api.APIPath, api.APIName))
+	if hasEndpointTemplatePlaceholder(api.BaseURL, api.Endpoint, api.APIPath) {
+		return "error", "配置未完成：Endpoint 或 API 路径包含占位符，请替换后再启用"
+	}
+	probe := providerProbePayload(api.ProviderCode, api.APIType, api.Capabilities, api.APIPath, api.APIName)
+	if lowCostURL, lowCostProbe, ok := providerLowCostProbe(api); ok {
+		rawURL = lowCostURL
+		probe = lowCostProbe
+	}
+	return probeHTTP(ctx, client, rawURL, api.ProviderCode, api.AuthType, api.EncryptedAPIKey, api.EncryptedSecret, api.KeyAlias, probe)
 }
 
 func probeHTTP(ctx context.Context, client *http.Client, rawURL, providerCode, authType, encryptedAPIKey, encryptedSecret, keyAlias string, probe providerAPIProbe) (string, string) {
 	if rawURL == "" {
 		return "error", "API Endpoint 或路径不合法"
 	}
-	apiKey := resolveProviderAPIKey(encryptedAPIKey, keyAlias)
+	apiKey, keySource := resolveProviderAPIKeyWithSource(encryptedAPIKey, keyAlias)
 	if requiresAPIKey(providerCode, authType) && apiKey == "" {
-		return "error", "未配置 API Key 或 Key Alias 环境变量"
+		return "error", providerAPIKeyMissingMessage(keyAlias, keySource)
 	}
 	statusCode, responseBody, err := probeHTTPMethod(ctx, client, probe.Method, rawURL, providerCode, authType, apiKey, encryptedSecret, probe)
 	if err != nil {
-		return "error", err.Error()
+		return "error", classifyProbeTransportError(err)
 	}
 	if statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden {
 		return "error", fmt.Sprintf("HTTP %d，鉴权失败，请检查 API Key、Secret 或账号权限", statusCode)
 	}
 	if statusCode == http.StatusNotFound {
-		return "warning", fmt.Sprintf("HTTP %d，API 路径可能不可用", statusCode)
+		return "warning", fmt.Sprintf("HTTP %d，协议不兼容或 API 路径不可用：%s", statusCode, abbreviateProbeBody(responseBody))
 	}
 	if statusCode == http.StatusTooManyRequests {
 		return "warning", fmt.Sprintf("HTTP %d，供应商限流或额度不足", statusCode)
@@ -1125,9 +1854,12 @@ func probeHTTP(ctx context.Context, client *http.Client, rawURL, providerCode, a
 		return "active", fmt.Sprintf("HTTP %d，接口可达且鉴权已通过：%s", statusCode, abbreviateProbeBody(responseBody))
 	}
 	if statusCode >= 500 {
-		return "warning", fmt.Sprintf("HTTP %d，供应商服务异常：%s", statusCode, abbreviateProbeBody(responseBody))
+		return "warning", fmt.Sprintf("HTTP %d，供应商返回错误：%s", statusCode, abbreviateProbeBody(responseBody))
 	}
 	if statusCode >= 200 && statusCode < 300 {
+		if probe.LowCost {
+			return "active", fmt.Sprintf("HTTP %d，低成本连通性探测通过，未触发模型生成", statusCode)
+		}
 		return "active", fmt.Sprintf("HTTP %d，真实 API 调用连通", statusCode)
 	}
 	return "warning", fmt.Sprintf("HTTP %d，接口返回非预期状态：%s", statusCode, abbreviateProbeBody(responseBody))
@@ -1226,6 +1958,33 @@ func jsonProbe(payload map[string]interface{}) providerAPIProbe {
 	return providerAPIProbe{Method: http.MethodPost, ContentType: "application/json", Body: body}
 }
 
+func providerLowCostProbe(api apiProbeRow) (string, providerAPIProbe, bool) {
+	kind := strings.ToLower(strings.Join(append([]string{api.ProviderCode, api.APIType, api.APIPath, api.APIName}, api.Capabilities...), " "))
+	if !strings.Contains(kind, "openai") && !strings.Contains(kind, "deepseek") &&
+		!strings.Contains(kind, "/v1/chat/completions") && !strings.Contains(kind, "/v1/responses") &&
+		!strings.Contains(kind, "/v1/embeddings") && !strings.Contains(kind, "/v1/images") {
+		return "", providerAPIProbe{}, false
+	}
+	rawURL := providerAPIProbeURL(api.BaseURL, api.Endpoint, "/v1/models")
+	if rawURL == "" {
+		return "", providerAPIProbe{}, false
+	}
+	return rawURL, providerAPIProbe{Method: http.MethodGet, LowCost: true}, true
+}
+
+func hasEndpointTemplatePlaceholder(values ...string) bool {
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if strings.Contains(trimmed, "{") || strings.Contains(trimmed, "}") || strings.Contains(trimmed, "<") || strings.Contains(trimmed, ">") {
+			return true
+		}
+	}
+	return false
+}
+
 func providerProbeModel(providerCode, capability string) string {
 	code := strings.ToLower(strings.TrimSpace(providerCode))
 	switch {
@@ -1299,14 +2058,53 @@ func requiresAPIKey(providerCode, authType string) bool {
 }
 
 func resolveProviderAPIKey(encryptedAPIKey, keyAlias string) string {
+	value, _ := resolveProviderAPIKeyWithSource(encryptedAPIKey, keyAlias)
+	return value
+}
+
+func resolveProviderAPIKeyWithSource(encryptedAPIKey, keyAlias string) (string, string) {
 	if value := strings.TrimSpace(encryptedAPIKey); value != "" {
-		return value
+		return value, "encrypted_api_key"
 	}
-	alias := strings.TrimSpace(keyAlias)
+	alias := normalizeProviderKeyAlias(keyAlias)
 	if alias == "" {
-		return ""
+		return "", "missing_alias"
 	}
-	return strings.TrimSpace(os.Getenv(alias))
+	value := strings.TrimSpace(os.Getenv(alias))
+	if value == "" {
+		return "", "missing_env"
+	}
+	return value, "env:" + alias
+}
+
+func normalizeProviderKeyAlias(keyAlias string) string {
+	alias := strings.TrimSpace(keyAlias)
+	alias = strings.TrimPrefix(alias, "env://")
+	alias = strings.TrimPrefix(alias, "env:")
+	return strings.TrimSpace(alias)
+}
+
+func providerAPIKeyMissingMessage(keyAlias, source string) string {
+	alias := normalizeProviderKeyAlias(keyAlias)
+	if source == "missing_alias" || alias == "" {
+		return "未配置密钥：请填写 encrypted_api_key 或 key_alias"
+	}
+	return fmt.Sprintf("未配置密钥：key_alias=%s 对应环境变量不存在或为空", alias)
+}
+
+func classifyProbeTransportError(err error) string {
+	message := err.Error()
+	lower := strings.ToLower(message)
+	switch {
+	case strings.Contains(lower, "x509") || strings.Contains(lower, "certificate") || strings.Contains(lower, "tls"):
+		return "TLS 证书校验失败：" + message
+	case strings.Contains(lower, "deadline exceeded") || strings.Contains(lower, "timeout"):
+		return "网络超时：" + message
+	case strings.Contains(lower, "no such host") || strings.Contains(lower, "connection refused") || strings.Contains(lower, "network is unreachable") || strings.Contains(lower, "dial tcp"):
+		return "网络失败：" + message
+	default:
+		return "网络失败：" + message
+	}
 }
 
 func abbreviateProbeBody(body string) string {
@@ -1330,8 +2128,8 @@ func (s *Service) usageTrend(ctx context.Context, start, end time.Time) ([]Usage
 	}
 	var rows []UsageTrendPoint
 	dateExpr := usageDateExpression(s.db)
-	if err := s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).
-		Select(dateExpr+" AS date, COALESCE(SUM(calls),0) AS calls, COALESCE(SUM(cost_amount),0) AS cost_amount, COALESCE(SUM(billing_amount),0) AS billing_amount").
+	if err := s.realUsageRecordsQuery(ctx).
+		Select(dateExpr+" AS date, COALESCE(SUM(calls),0) AS calls, COALESCE(SUM(cost_amount),0) AS cost_amount, COALESCE(SUM(billing_amount),0) AS billing_amount, COALESCE(AVG(CASE WHEN status = 'success' THEN 100.0 ELSE 0.0 END),100) AS success_rate").
 		Where("called_at >= ?", start).
 		Group(dateExpr).
 		Order("date asc").
@@ -1343,6 +2141,7 @@ func (s *Service) usageTrend(ctx context.Context, start, end time.Time) ([]Usage
 			point.Calls = row.Calls
 			point.CostAmount = row.CostAmount
 			point.BillingAmount = row.BillingAmount
+			point.SuccessRate = row.SuccessRate
 		}
 	}
 	return points, nil
@@ -1350,7 +2149,7 @@ func (s *Service) usageTrend(ctx context.Context, start, end time.Time) ([]Usage
 
 func (s *Service) modelCostShare(ctx context.Context, start time.Time) ([]ModelCostShare, error) {
 	var rows []ModelCostShare
-	if err := s.db.WithContext(ctx).Table("ai_usage_records AS u").
+	if err := nonDemoUsageScope(s.db.WithContext(ctx).Table("ai_usage_records AS u")).
 		Select("COALESCE(m.model_type, 'unknown') AS model_type, COALESCE(SUM(u.cost_amount),0) AS cost_amount").
 		Joins("LEFT JOIN ai_models AS m ON m.id = u.model_id").
 		Where("u.called_at >= ?", start).
@@ -1365,7 +2164,7 @@ func (s *Service) modelCostShare(ctx context.Context, start time.Time) ([]ModelC
 
 func (s *Service) tenantRanking(ctx context.Context, start time.Time) ([]TenantRankingItem, error) {
 	var rows []TenantRankingItem
-	if err := s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).
+	if err := s.realUsageRecordsQuery(ctx).
 		Select(`tenant_name,
 			COALESCE(SUM(calls),0) AS calls,
 			COALESCE(SUM(cost_amount),0) AS cost_amount,
@@ -1385,7 +2184,7 @@ func (s *Service) tenantRanking(ctx context.Context, start time.Time) ([]TenantR
 
 func (s *Service) p95Latency(ctx context.Context, start time.Time) (int, error) {
 	var latencies []int
-	if err := s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).
+	if err := s.realUsageRecordsQuery(ctx).
 		Where("called_at >= ?", start).
 		Order("latency_ms asc").
 		Pluck("latency_ms", &latencies).Error; err != nil {
@@ -1412,7 +2211,9 @@ func usageDateExpression(db *gorm.DB) string {
 }
 
 func (s *Service) ListProviders(ctx context.Context, skip, limit int, keyword string) (PageResult, error) {
-	result, err := listRows[models.AIProvider](ctx, s.db, skip, limit, keyword, []string{"name", "code", "owner", "region"})
+	q := s.visibleProvidersQuery(ctx)
+	q = keywordQuery(q, keyword, []string{"name", "code", "owner", "region"})
+	result, err := pageQuery[models.AIProvider](q, skip, limit)
 	if err != nil {
 		return PageResult{}, err
 	}
@@ -1427,6 +2228,7 @@ func (s *Service) ListProviders(ctx context.Context, skip, limit int, keyword st
 func (s *Service) ListAccounts(ctx context.Context, skip, limit int, providerID string) (PageResult, error) {
 	query := func() *gorm.DB {
 		q := s.db.WithContext(ctx).Model(&models.AIProviderAccount{}).Where("deleted_at IS NULL")
+		q = q.Where("provider_id IN (?)", s.visibleProviderIDsQuery(ctx))
 		if strings.TrimSpace(providerID) != "" {
 			q = q.Where("provider_id = ?", providerID)
 		}
@@ -1447,6 +2249,7 @@ func (s *Service) ListAccounts(ctx context.Context, skip, limit int, providerID 
 func (s *Service) ListAPIs(ctx context.Context, skip, limit int, providerID, accountID string) (PageResult, error) {
 	query := func() *gorm.DB {
 		q := s.db.WithContext(ctx).Model(&models.AIProviderAPI{}).Where("deleted_at IS NULL")
+		q = q.Where("provider_id IN (?)", s.visibleProviderIDsQuery(ctx))
 		if strings.TrimSpace(providerID) != "" {
 			q = q.Where("provider_id = ?", providerID)
 		}
@@ -1476,6 +2279,7 @@ func (s *Service) ListCapabilities(ctx context.Context, skip, limit int, keyword
 
 func (s *Service) ListModels(ctx context.Context, skip, limit int, providerID, keyword string) (PageResult, error) {
 	q := s.db.WithContext(ctx).Model(&models.AIModel{}).Where("deleted_at IS NULL")
+	q = q.Where("provider_id IN (?)", s.visibleProviderIDsQuery(ctx))
 	if strings.TrimSpace(providerID) != "" {
 		q = q.Where("provider_id = ?", providerID)
 	}
@@ -1538,9 +2342,8 @@ func (s *Service) ListRateLimitRules(ctx context.Context, skip, limit int, polic
 	return pageQuery[models.AIStrategyRateLimitRule](q, skip, limit)
 }
 
-func (s *Service) ListUsageRecords(ctx context.Context, skip, limit int, keyword, startDate, endDate string) (PageResult, error) {
-	q := keywordQuery(s.db.WithContext(ctx).Model(&models.AIUsageRecord{}), keyword, []string{"tenant_name", "app_name", "ai_scenario_name", "user_name", "usage_detail", "status"})
-	q, err := usageDateQuery(q, startDate, endDate)
+func (s *Service) ListUsageRecords(ctx context.Context, skip, limit int, keyword, startDate, endDate, appCode, scenarioCode string) (PageResult, error) {
+	q, err := s.usageRecordsQuery(ctx, keyword, startDate, endDate, appCode, scenarioCode)
 	if err != nil {
 		return PageResult{}, err
 	}
@@ -1548,16 +2351,45 @@ func (s *Service) ListUsageRecords(ctx context.Context, skip, limit int, keyword
 	if err != nil {
 		return PageResult{}, err
 	}
+
+	summaryQ, err := s.usageRecordsQuery(ctx, keyword, startDate, endDate, appCode, scenarioCode)
+	if err != nil {
+		return PageResult{}, err
+	}
 	var summary []UsageUnitSummary
-	if err := q.Session(&gorm.Session{}).
+	if err := summaryQ.
 		Select("usage_unit, COALESCE(SUM(usage_amount),0) AS usage_amount, COALESCE(SUM(calls),0) AS calls, COALESCE(SUM(cost_amount),0) AS cost_amount, COALESCE(SUM(billing_amount),0) AS billing_amount").
 		Group("usage_unit").
 		Order("usage_unit asc").
 		Scan(&summary).Error; err != nil {
 		return PageResult{}, err
 	}
-	result.Summary = summary
+	errorQ, err := s.usageRecordsQuery(ctx, keyword, startDate, endDate, appCode, scenarioCode)
+	if err != nil {
+		return PageResult{}, err
+	}
+	var errorsByStatus []UsageErrorDistribution
+	if err := errorQ.
+		Select("status, COALESCE(NULLIF(error_code, ''), '-') AS error_code, COUNT(*) AS count").
+		Where("status <> ?", "success").
+		Group("status, COALESCE(NULLIF(error_code, ''), '-')").
+		Order("count desc, status asc").
+		Scan(&errorsByStatus).Error; err != nil {
+		return PageResult{}, err
+	}
+	result.Summary = UsageRecordsSummary{UsageUnits: summary, ErrorDistribution: errorsByStatus}
 	return result, nil
+}
+
+func (s *Service) usageRecordsQuery(ctx context.Context, keyword, startDate, endDate, appCode, scenarioCode string) (*gorm.DB, error) {
+	q := keywordQuery(s.realUsageRecordsQuery(ctx), keyword, []string{"tenant_name", "app_name", "ai_scenario_name", "user_name", "usage_detail", "status"})
+	if strings.TrimSpace(appCode) != "" {
+		q = q.Where("app_code = ?", strings.TrimSpace(appCode))
+	}
+	if strings.TrimSpace(scenarioCode) != "" {
+		q = q.Where("ai_scenario_code = ?", strings.TrimSpace(scenarioCode))
+	}
+	return usageDateQuery(q, startDate, endDate)
 }
 
 func (s *Service) ListSettings(ctx context.Context, skip, limit int) (PageResult, error) {
@@ -1571,6 +2403,12 @@ func (s *Service) Invoke(ctx context.Context, req InvokeRequest) (InvokeResponse
 	req.AppCode = strings.TrimSpace(req.AppCode)
 	req.AIScenarioCode = strings.TrimSpace(req.AIScenarioCode)
 	req.TenantID = strings.TrimSpace(req.TenantID)
+	if req.Params == nil {
+		req.Params = map[string]interface{}{}
+	}
+	if req.Input == nil {
+		req.Input = map[string]interface{}{}
+	}
 	if req.AppCode == "" || req.AIScenarioCode == "" || req.TenantID == "" {
 		return InvokeResponse{}, ErrInvalidInput
 	}
@@ -1597,13 +2435,17 @@ func (s *Service) Invoke(ctx context.Context, req InvokeRequest) (InvokeResponse
 	if err != nil {
 		return InvokeResponse{}, err
 	}
+	provider, account, api, err := s.loadProviderExecutionConfig(ctx, endpoint)
+	if err != nil {
+		return InvokeResponse{}, err
+	}
 	providerID, accountID, apiID := endpoint.ProviderID, endpoint.AccountID, endpoint.APIID
 
 	paramsRaw, _ := json.Marshal(req.Params)
-	inputRaw, _ := json.Marshal(req.Input)
 	hash := sha256.Sum256(paramsRaw)
-	responseHash := sha256.Sum256(inputRaw)
+	responseHash := sha256.Sum256([]byte("{}"))
 	now := time.Now()
+	contentRecordLevel := s.contentRecordLevel(ctx)
 	pricing, err := s.matchPricing(ctx, model, scenario, req)
 	if err != nil {
 		return InvokeResponse{}, err
@@ -1637,41 +2479,95 @@ func (s *Service) Invoke(ctx context.Context, req InvokeRequest) (InvokeResponse
 			}
 		}
 	}
+	providerResult := providerExecutionResult{Data: map[string]interface{}{}}
+	if status == "success" {
+		executor := s.executor
+		if executor == nil {
+			executor = httpProviderExecutor{client: providerHTTPClient(0)}
+		}
+		providerResult, err = executor.Execute(ctx, providerExecutionRequest{
+			InvokeRequest: req,
+			Scenario:      scenario,
+			Route:         route,
+			RouteModel:    routeModel,
+			Model:         model,
+			Provider:      provider,
+			Account:       account,
+			API:           api,
+		})
+		if err != nil {
+			status = "gateway_error"
+			errorCode = "gateway_execution_failed"
+			errorMessage = err.Error()
+		} else if providerResult.ErrorCode != "" {
+			if providerResult.ErrorCode == "provider_timeout" {
+				status = "timeout"
+			} else if providerResult.StatusCode >= 400 {
+				status = "provider_error"
+			} else {
+				status = "gateway_error"
+			}
+			errorCode = providerResult.ErrorCode
+			errorMessage = providerResult.ErrorMessage
+		} else {
+			if providerResult.UsageAmount > 0 {
+				req.Params["usage_amount"] = providerResult.UsageAmount
+				if providerResult.UsageUnit != "" {
+					req.Params["usage_unit"] = providerResult.UsageUnit
+				}
+				actualPricing, err := s.matchPricing(ctx, model, scenario, req)
+				if err != nil {
+					return InvokeResponse{}, err
+				}
+				pricing = actualPricing
+			}
+			responseRaw, _ := json.Marshal(providerResult.Data)
+			responseHash = sha256.Sum256(responseRaw)
+		}
+	}
+	requestParams := gatewayContentRecordJSON(contentRecordLevel, req.Params, req.Input, hash, responseHash)
 	record := models.AIUsageRecord{
-		RequestID:         req.RequestID,
-		TenantID:          req.TenantID,
-		TenantName:        req.TenantName,
-		AppCode:           scenario.AppCode,
-		AppName:           defaultString(req.AppName, scenario.AppName),
-		AIScenarioCode:    scenario.AIScenarioCode,
-		AIScenarioName:    scenario.AIScenarioName,
-		UserID:            req.UserID,
-		UserName:          req.UserName,
-		ProviderID:        providerID,
-		ProviderAccountID: accountID,
-		ProviderAPIID:     apiID,
-		ModelID:           routeModel.ModelID,
-		BaseRouteID:       route.ID,
-		TenantStrategyID:  strategyID(strategy, strategyFound),
-		PricePolicyID:     pricing.PolicyID,
-		PriceTierID:       pricing.TierID,
-		UsageAmount:       pricing.UsageAmount,
-		UsageUnit:         pricing.UsageUnit,
-		UsageDetail:       "Gateway 路由、策略、配额、限流和价格命中记录",
-		Calls:             1,
-		CostAmount:        pricing.CostAmount,
-		BillingAmount:     pricing.BillingAmount,
-		PlatformUnit:      pricing.PlatformUnit,
-		PlatformAmount:    pricing.PlatformAmount,
-		Status:            status,
-		ErrorCode:         errorCode,
-		ErrorMessage:      errorMessage,
-		LatencyMS:         0,
-		RequestParams:     string(paramsRaw),
-		PromptHash:        hex.EncodeToString(hash[:]),
-		ResponseHash:      hex.EncodeToString(responseHash[:]),
-		CalledAt:          now,
-		CreatedAt:         now,
+		RequestID:          req.RequestID,
+		TenantID:           req.TenantID,
+		TenantName:         req.TenantName,
+		AppCode:            scenario.AppCode,
+		AppName:            defaultString(req.AppName, scenario.AppName),
+		AIScenarioCode:     scenario.AIScenarioCode,
+		AIScenarioName:     scenario.AIScenarioName,
+		UserID:             req.UserID,
+		UserName:           req.UserName,
+		ProviderID:         providerID,
+		ProviderAccountID:  accountID,
+		ProviderAPIID:      apiID,
+		ModelID:            routeModel.ModelID,
+		BaseRouteID:        route.ID,
+		TenantStrategyID:   strategyID(strategy, strategyFound),
+		PricePolicyID:      pricing.PolicyID,
+		PriceTierID:        pricing.TierID,
+		UsageAmount:        pricing.UsageAmount,
+		UsageUnit:          pricing.UsageUnit,
+		UsageDetail:        usageDetailForInvokeStatus(status),
+		Calls:              1,
+		CostAmount:         pricing.CostAmount,
+		BillingAmount:      pricing.BillingAmount,
+		PlatformUnit:       pricing.PlatformUnit,
+		PlatformAmount:     pricing.PlatformAmount,
+		Status:             status,
+		ErrorCode:          errorCode,
+		ErrorMessage:       errorMessage,
+		LatencyMS:          providerResult.LatencyMS,
+		ProviderHTTPStatus: providerResult.StatusCode,
+		ProviderRequestID:  providerResult.ProviderRequestID,
+		StartedAt:          timePtrIfSet(providerResult.StartedAt),
+		FinishedAt:         timePtrIfSet(providerResult.FinishedAt),
+		RetryCount:         providerResult.RetryCount,
+		RequestParams:      requestParams,
+		DataSource:         "gateway",
+		IsDemo:             false,
+		PromptHash:         hex.EncodeToString(hash[:]),
+		ResponseHash:       hex.EncodeToString(responseHash[:]),
+		CalledAt:           now,
+		CreatedAt:          now,
 	}
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&record).Error; err != nil {
@@ -1695,11 +2591,13 @@ func (s *Service) Invoke(ctx context.Context, req InvokeRequest) (InvokeResponse
 		return InvokeResponse{}, err
 	}
 	return InvokeResponse{
-		RequestID:   req.RequestID,
-		Status:      status,
-		ModelID:     routeModel.ModelID,
-		BaseRouteID: route.ID,
-		StrategyID:  record.TenantStrategyID,
+		RequestID:         req.RequestID,
+		TraceID:           req.RequestID,
+		ProviderRequestID: providerResult.ProviderRequestID,
+		Status:            status,
+		ModelID:           routeModel.ModelID,
+		BaseRouteID:       route.ID,
+		StrategyID:        record.TenantStrategyID,
 		Usage: map[string]interface{}{
 			"amount": record.UsageAmount,
 			"unit":   record.UsageUnit,
@@ -1717,8 +2615,272 @@ func (s *Service) Invoke(ctx context.Context, req InvokeRequest) (InvokeResponse
 			"quota_rules":      quotaChecks,
 			"rate_limit_rules": rateChecks,
 		},
-		Data: map[string]interface{}{},
+		Data: providerResult.Data,
 	}, nil
+}
+
+func (s *Service) QueryVideoTask(ctx context.Context, tenantID, requestID, taskID string) (VideoTaskQueryResponse, error) {
+	tenantID = strings.TrimSpace(tenantID)
+	requestID = strings.TrimSpace(requestID)
+	taskID = strings.TrimSpace(taskID)
+	if tenantID == "" || requestID == "" || taskID == "" {
+		return VideoTaskQueryResponse{}, ErrInvalidInput
+	}
+	var record models.AIUsageRecord
+	if err := s.db.WithContext(ctx).
+		Where("tenant_id = ? AND request_id = ? AND ai_scenario_code = ?", tenantID, requestID, "video_generation").
+		First(&record).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return VideoTaskQueryResponse{}, ErrNotFound
+		}
+		return VideoTaskQueryResponse{}, err
+	}
+	var provider models.AIProvider
+	if err := s.db.WithContext(ctx).Where("id = ? AND deleted_at IS NULL", record.ProviderID).First(&provider).Error; err != nil {
+		return VideoTaskQueryResponse{}, err
+	}
+	var account models.AIProviderAccount
+	if err := s.db.WithContext(ctx).Where("id = ? AND deleted_at IS NULL", record.ProviderAccountID).First(&account).Error; err != nil {
+		return VideoTaskQueryResponse{}, err
+	}
+	var api models.AIProviderAPI
+	if err := s.db.WithContext(ctx).Where("id = ? AND deleted_at IS NULL", record.ProviderAPIID).First(&api).Error; err != nil {
+		return VideoTaskQueryResponse{}, err
+	}
+	apiKey, keySource := resolveProviderAPIKeyWithSource(account.EncryptedAPIKey, account.KeyAlias)
+	if requiresAPIKey(provider.Code, defaultString(api.AuthType, provider.AuthType)) && apiKey == "" {
+		return VideoTaskQueryResponse{}, fmt.Errorf("%w: %s", ErrInvalidInput, providerAPIKeyMissingMessage(account.KeyAlias, keySource))
+	}
+	taskURL := dashScopeTaskQueryURL(provider.BaseURL, account.Endpoint, api.APIPath, taskID)
+	if taskURL == "" {
+		return VideoTaskQueryResponse{}, ErrInvalidInput
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, taskURL, nil)
+	if err != nil {
+		return VideoTaskQueryResponse{}, err
+	}
+	httpReq.Header.Set("Accept", "application/json")
+	applyProviderAuth(httpReq, provider.Code, defaultString(api.AuthType, provider.AuthType), apiKey, account.EncryptedSecret)
+	client := providerHTTPClient(time.Duration(defaultInt(api.TimeoutMS, 30000)) * time.Millisecond)
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return VideoTaskQueryResponse{}, err
+	}
+	defer resp.Body.Close()
+	rawBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024))
+	var decoded map[string]interface{}
+	if len(rawBody) > 0 {
+		_ = json.Unmarshal(rawBody, &decoded)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return VideoTaskQueryResponse{
+			RequestID: requestID,
+			TaskID:    taskID,
+			Status:    "FAILED",
+			Code:      fmt.Sprintf("provider_http_%d", resp.StatusCode),
+			Message:   providerErrorMessage(decoded, rawBody),
+			Raw:       safeProviderResponse(decoded, rawBody),
+		}, nil
+	}
+	output, _ := decoded["output"].(map[string]interface{})
+	status := cleanProviderString(output["task_status"])
+	if status == "" {
+		status = "UNKNOWN"
+	}
+	usage, _ := decoded["usage"].(map[string]interface{})
+	return VideoTaskQueryResponse{
+		RequestID: cleanProviderString(decoded["request_id"]),
+		TaskID:    defaultString(cleanProviderString(output["task_id"]), taskID),
+		Status:    status,
+		VideoURL:  cleanProviderString(output["video_url"]),
+		Code:      cleanProviderString(output["code"]),
+		Message:   cleanProviderString(output["message"]),
+		Usage:     usage,
+		Raw:       decoded,
+	}, nil
+}
+
+func dashScopeTaskQueryURL(providerBaseURL, accountEndpoint, apiPath, taskID string) string {
+	source := strings.TrimSpace(apiPath)
+	if source == "" {
+		source = defaultString(accountEndpoint, providerBaseURL)
+	}
+	parsed, err := url.Parse(source)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		base := defaultString(accountEndpoint, providerBaseURL)
+		parsed, err = url.Parse(base)
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+			return ""
+		}
+	}
+	parsed.Path = "/api/v1/tasks/" + url.PathEscape(taskID)
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String()
+}
+
+func (s *Service) contentRecordLevel(ctx context.Context) int {
+	var row models.SystemParam
+	err := s.db.WithContext(ctx).
+		Where("tenant_id = ? AND param_key = ? AND deleted_at IS NULL", 1, contentRecordLevelParamKey).
+		First(&row).Error
+	if err != nil {
+		return 1
+	}
+	level, err := strconv.Atoi(strings.TrimSpace(row.Value))
+	if err != nil || level < 0 || level > 3 {
+		return 1
+	}
+	return level
+}
+
+func usageDetailForInvokeStatus(status string) string {
+	switch status {
+	case "success":
+		return "真实供应商调用成功，已记录路由、策略、配额、限流和价格命中结果"
+	case "provider_error":
+		return "供应商真实调用失败，已记录路由、策略、配额、限流和错误结果"
+	case "gateway_error":
+		return "Gateway 执行失败，未完成供应商成功调用"
+	case "timeout":
+		return "供应商调用超时，未产生成功用量"
+	case "rejected":
+		return "Gateway 控制规则拒绝调用，未请求供应商"
+	default:
+		return "Gateway 调用记录"
+	}
+}
+
+func gatewayContentRecordJSON(level int, params, input map[string]interface{}, paramsHash, inputHash [32]byte) string {
+	paramsHashText := hex.EncodeToString(paramsHash[:])
+	inputHashText := hex.EncodeToString(inputHash[:])
+	var body map[string]interface{}
+	switch level {
+	case 0:
+		body = map[string]interface{}{}
+	case 2:
+		body = map[string]interface{}{
+			"content_record_level":  level,
+			"content_record_policy": contentRecordPolicyMetadata(level),
+			"params":                redactContentValue(params),
+			"input":                 redactContentValue(input),
+			"params_hash":           paramsHashText,
+			"input_hash":            inputHashText,
+		}
+	case 3:
+		body = map[string]interface{}{
+			"content_record_level":  level,
+			"content_record_policy": contentRecordPolicyMetadata(level),
+			"params":                params,
+			"input":                 input,
+			"params_hash":           paramsHashText,
+			"input_hash":            inputHashText,
+		}
+	default:
+		body = map[string]interface{}{
+			"content_record_level":  level,
+			"content_record_policy": contentRecordPolicyMetadata(level),
+			"params_summary":        contentSummary(params, paramsHashText),
+			"input_summary":         contentSummary(input, inputHashText),
+		}
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return "{}"
+	}
+	return string(raw)
+}
+
+func contentRecordPolicyMetadata(level int) map[string]interface{} {
+	switch level {
+	case 2:
+		return map[string]interface{}{
+			"mode":           "redacted",
+			"scope":          "params_and_input",
+			"audit_required": true,
+			"retention_days": 30,
+			"warning":        "内容已按平台脱敏规则处理，但仍可能包含业务上下文，请仅用于授权排障。",
+		}
+	case 3:
+		return map[string]interface{}{
+			"mode":           "full",
+			"scope":          "params_and_input",
+			"audit_required": true,
+			"retention_days": 7,
+			"warning":        "完整内容记录可能包含敏感输入、提示词或业务数据，仅允许平台授权排障使用，必须纳入审计复核并按保留周期清理。",
+		}
+	default:
+		return map[string]interface{}{
+			"mode":           "summary",
+			"scope":          "metadata_only",
+			"audit_required": false,
+			"retention_days": 90,
+			"warning":        "仅保存字段、字节数和哈希摘要，不保存请求原文。",
+		}
+	}
+}
+
+func contentSummary(value map[string]interface{}, hash string) map[string]interface{} {
+	keys := make([]string, 0, len(value))
+	for key := range value {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	raw, _ := json.Marshal(value)
+	return map[string]interface{}{
+		"keys":        keys,
+		"field_count": len(keys),
+		"bytes":       len(raw),
+		"hash":        hash,
+	}
+}
+
+func redactContentValue(value interface{}) interface{} {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(typed))
+		for key, item := range typed {
+			if isSensitiveContentKey(key) {
+				out[key] = "[REDACTED]"
+				continue
+			}
+			out[key] = redactContentValue(item)
+		}
+		return out
+	case []interface{}:
+		out := make([]interface{}, 0, len(typed))
+		for _, item := range typed {
+			out = append(out, redactContentValue(item))
+		}
+		return out
+	case string:
+		return redactSensitiveContentString(typed)
+	default:
+		return value
+	}
+}
+
+func redactSensitiveContentString(value string) string {
+	out := value
+	for _, pattern := range sensitiveContentPatterns {
+		out = pattern.ReplaceAllString(out, "[REDACTED]")
+	}
+	return out
+}
+
+func isSensitiveContentKey(key string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(key, "-", "_"))
+	sensitiveMarkers := []string{
+		"password", "passwd", "pwd", "secret", "token", "api_key", "apikey", "access_key", "private_key",
+		"authorization", "auth", "credential", "cookie", "phone", "mobile", "email", "id_card", "identity",
+		"bank_card", "address", "addr",
+	}
+	for _, marker := range sensitiveMarkers {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) matchTenantStrategy(ctx context.Context, req InvokeRequest, scenario models.AIScenario) (models.AITenantStrategyPolicy, bool, error) {
@@ -1833,6 +2995,12 @@ func routeModelScore(strategy string, row models.AIBaseRouteModel, model models.
 }
 
 func (s *Service) resolveRouteEndpoint(ctx context.Context, routeModel models.AIBaseRouteModel, model models.AIModel, capabilityCode string) (routeEndpoint, bool) {
+	var provider models.AIProvider
+	if err := s.db.WithContext(ctx).
+		Where("id = ? AND status = ? AND deleted_at IS NULL", model.ProviderID, "active").
+		First(&provider).Error; err != nil {
+		return routeEndpoint{}, false
+	}
 	accountID := strings.TrimSpace(routeModel.ProviderAccountID)
 	apiID := strings.TrimSpace(routeModel.ProviderAPIID)
 	if apiID != "" {
@@ -1846,7 +3014,13 @@ func (s *Service) resolveRouteEndpoint(ctx context.Context, routeModel models.AI
 		if accountID != "" && api.AccountID != accountID {
 			return routeEndpoint{}, false
 		}
-		if !s.accountUsable(ctx, api.AccountID, model.ProviderID) {
+		var account models.AIProviderAccount
+		if err := s.db.WithContext(ctx).
+			Where("id = ? AND provider_id = ? AND status = ? AND deleted_at IS NULL", api.AccountID, model.ProviderID, "active").
+			First(&account).Error; err != nil {
+			return routeEndpoint{}, false
+		}
+		if !apiEndpointExecutable(provider, account, api, capabilityCode) {
 			return routeEndpoint{}, false
 		}
 		return routeEndpoint{ProviderID: model.ProviderID, AccountID: api.AccountID, APIID: api.ID, Score: endpointHealthScore(api)}, true
@@ -1874,7 +3048,7 @@ func (s *Service) resolveRouteEndpoint(ctx context.Context, routeModel models.AI
 			continue
 		}
 		for _, api := range apis {
-			if !apiUsable(api, capabilityCode) {
+			if !apiEndpointExecutable(provider, account, api, capabilityCode) {
 				continue
 			}
 			score := endpointHealthScore(api)
@@ -1885,6 +3059,35 @@ func (s *Service) resolveRouteEndpoint(ctx context.Context, routeModel models.AI
 		}
 	}
 	return best, bestScore >= 0
+}
+
+func apiEndpointExecutable(provider models.AIProvider, account models.AIProviderAccount, api models.AIProviderAPI, capabilityCode string) bool {
+	if !apiUsable(api, capabilityCode) {
+		return false
+	}
+	return !hasEndpointTemplatePlaceholder(provider.BaseURL, account.Endpoint, api.APIPath)
+}
+
+func (s *Service) loadProviderExecutionConfig(ctx context.Context, endpoint routeEndpoint) (models.AIProvider, models.AIProviderAccount, models.AIProviderAPI, error) {
+	var provider models.AIProvider
+	if err := s.db.WithContext(ctx).
+		Where("id = ? AND status = ? AND deleted_at IS NULL", endpoint.ProviderID, "active").
+		First(&provider).Error; err != nil {
+		return models.AIProvider{}, models.AIProviderAccount{}, models.AIProviderAPI{}, ErrNotFound
+	}
+	var account models.AIProviderAccount
+	if err := s.db.WithContext(ctx).
+		Where("id = ? AND provider_id = ? AND status = ? AND deleted_at IS NULL", endpoint.AccountID, endpoint.ProviderID, "active").
+		First(&account).Error; err != nil {
+		return models.AIProvider{}, models.AIProviderAccount{}, models.AIProviderAPI{}, ErrNotFound
+	}
+	var api models.AIProviderAPI
+	if err := s.db.WithContext(ctx).
+		Where("id = ? AND provider_id = ? AND account_id = ? AND status = ? AND deleted_at IS NULL", endpoint.APIID, endpoint.ProviderID, endpoint.AccountID, "active").
+		First(&api).Error; err != nil {
+		return models.AIProvider{}, models.AIProviderAccount{}, models.AIProviderAPI{}, ErrNotFound
+	}
+	return provider, account, api, nil
 }
 
 func (s *Service) accountUsable(ctx context.Context, accountID, providerID string) bool {
@@ -2019,7 +3222,7 @@ func (s *Service) evaluateQuotaRules(ctx context.Context, req InvokeRequest, sce
 }
 
 func (s *Service) usageAmountForQuotaRule(ctx context.Context, strategyID string, rule models.AIStrategyQuotaRule, start *time.Time) (float64, error) {
-	q := s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).
+	q := s.realUsageRecordsQuery(ctx).
 		Where("tenant_strategy_id = ? AND usage_unit = ?", strategyID, rule.UsageUnit)
 	if start != nil {
 		q = q.Where("called_at >= ?", *start)
@@ -2079,10 +3282,70 @@ func (s *Service) evaluateRateLimitRules(ctx context.Context, req InvokeRequest,
 
 func (s *Service) callsSince(ctx context.Context, strategyID string, start time.Time) (int64, error) {
 	var calls int64
-	err := s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).
+	err := s.realUsageRecordsQuery(ctx).
 		Where("tenant_strategy_id = ? AND called_at >= ?", strategyID, start).
 		Select("COALESCE(SUM(calls),0)").Row().Scan(&calls)
 	return calls, err
+}
+
+func (s *Service) realUsageRecordsQuery(ctx context.Context) *gorm.DB {
+	return nonDemoUsageScope(s.db.WithContext(ctx).Model(&models.AIUsageRecord{}))
+}
+
+func nonDemoUsageScope(q *gorm.DB) *gorm.DB {
+	return q.
+		Where("COALESCE(is_demo, FALSE) = ?", false).
+		Where("COALESCE(CAST(data_source AS TEXT), '') NOT IN ?", []string{"demo", "demo_seed", "seed"}).
+		Where("COALESCE(CAST(request_id AS TEXT), '') NOT LIKE ?", "seed%").
+		Where("COALESCE(CAST(request_params AS TEXT), '') NOT LIKE ?", "%demo-seed%").
+		Where("COALESCE(CAST(request_params AS TEXT), '') NOT LIKE ?", "%demo-history-seed%")
+}
+
+func (s *Service) repairInvalidScenarioRouteBindings(ctx context.Context, tx *gorm.DB) error {
+	var scenarios []models.AIScenario
+	if err := tx.WithContext(ctx).Where("status = ? AND deleted_at IS NULL", "active").Find(&scenarios).Error; err != nil {
+		return err
+	}
+	now := time.Now()
+	for _, scenario := range scenarios {
+		var validCount int64
+		if err := tx.WithContext(ctx).Model(&models.AIBaseRoute{}).
+			Where("id = ? AND status = ? AND deleted_at IS NULL", scenario.DefaultBaseRouteID, "active").
+			Count(&validCount).Error; err != nil {
+			return err
+		}
+		if validCount > 0 {
+			continue
+		}
+		var route models.AIBaseRoute
+		err := tx.WithContext(ctx).
+			Where("capability_code IN ? AND status = ? AND deleted_at IS NULL", routeRepairCapabilityCandidates(scenario.CapabilityCode), "active").
+			Order("updated_at DESC, id ASC").
+			First(&route).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if err := tx.WithContext(ctx).Model(&models.AIScenario{}).
+			Where("id = ? AND deleted_at IS NULL", scenario.ID).
+			Updates(map[string]interface{}{"default_base_route_id": route.ID, "updated_at": now}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func routeRepairCapabilityCandidates(capabilityCode string) []string {
+	code := strings.TrimSpace(capabilityCode)
+	if code == "text_generation" {
+		return []string{"text_generation", "chat_completion"}
+	}
+	if code == "" {
+		return []string{""}
+	}
+	return []string{code}
 }
 
 func (s *Service) CreateResource(ctx context.Context, userID uint64, resource string, payload map[string]interface{}) (interface{}, error) {
@@ -2485,6 +3748,36 @@ func listRows[T any](ctx context.Context, db *gorm.DB, skip, limit int, keyword 
 	return pageQuery[T](q, skip, limit)
 }
 
+func demoProviderCatalogEnabled() bool {
+	value := strings.TrimSpace(os.Getenv(demoProviderCatalogEnv))
+	return value == "1" || strings.EqualFold(value, "true") || strings.EqualFold(value, "yes")
+}
+
+func (s *Service) visibleProvidersQuery(ctx context.Context) *gorm.DB {
+	q := s.db.WithContext(ctx).Model(&models.AIProvider{}).Where("deleted_at IS NULL")
+	if !demoProviderCatalogEnabled() {
+		q = q.Where("code NOT IN ?", demoProviderCatalogCodeList())
+	}
+	return q
+}
+
+func (s *Service) visibleProviderIDsQuery(ctx context.Context) *gorm.DB {
+	q := s.db.WithContext(ctx).Model(&models.AIProvider{}).Select("id").Where("deleted_at IS NULL")
+	if !demoProviderCatalogEnabled() {
+		q = q.Where("code NOT IN ?", demoProviderCatalogCodeList())
+	}
+	return q
+}
+
+func demoProviderCatalogCodeList() []string {
+	codes := make([]string, 0, len(demoProviderCatalogCodes))
+	for code := range demoProviderCatalogCodes {
+		codes = append(codes, code)
+	}
+	sort.Strings(codes)
+	return codes
+}
+
 type providerCatalogStat struct {
 	AccountCount   int64 `json:"account_count"`
 	APICount       int64 `json:"api_count"`
@@ -2500,6 +3793,7 @@ func (s *Service) providerCatalogSummary(ctx context.Context) (map[string]provid
 	if err := s.db.WithContext(ctx).Model(&models.AIProviderAccount{}).
 		Select("provider_id, COUNT(*) AS account_count").
 		Where("deleted_at IS NULL").
+		Where("provider_id IN (?)", s.visibleProviderIDsQuery(ctx)).
 		Group("provider_id").
 		Scan(&accountRows).Error; err != nil {
 		return nil, err
@@ -2517,6 +3811,7 @@ func (s *Service) providerCatalogSummary(ctx context.Context) (map[string]provid
 	if err := s.db.WithContext(ctx).Model(&models.AIProviderAPI{}).
 		Select("provider_id, COUNT(*) AS api_count, COALESCE(SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END), 0) AS active_api_count").
 		Where("deleted_at IS NULL").
+		Where("provider_id IN (?)", s.visibleProviderIDsQuery(ctx)).
 		Group("provider_id").
 		Scan(&apiRows).Error; err != nil {
 		return nil, err
@@ -2569,21 +3864,32 @@ func keywordQuery(q *gorm.DB, keyword string, columns []string) *gorm.DB {
 }
 
 func usageDateQuery(q *gorm.DB, startDate, endDate string) (*gorm.DB, error) {
+	startDate = strings.TrimSpace(startDate)
+	endDate = strings.TrimSpace(endDate)
+	if startDate == "" && endDate == "" {
+		today := time.Now().In(chinaFixedZone()).Format("2006-01-02")
+		startDate = today
+		endDate = today
+	}
 	if strings.TrimSpace(startDate) != "" {
-		start, err := time.Parse("2006-01-02", strings.TrimSpace(startDate))
+		start, err := time.ParseInLocation("2006-01-02", startDate, chinaFixedZone())
 		if err != nil {
 			return nil, ErrInvalidInput
 		}
 		q = q.Where("called_at >= ?", start)
 	}
 	if strings.TrimSpace(endDate) != "" {
-		end, err := time.Parse("2006-01-02", strings.TrimSpace(endDate))
+		end, err := time.ParseInLocation("2006-01-02", endDate, chinaFixedZone())
 		if err != nil {
 			return nil, ErrInvalidInput
 		}
 		q = q.Where("called_at < ?", end.AddDate(0, 0, 1))
 	}
 	return q, nil
+}
+
+func chinaFixedZone() *time.Location {
+	return time.FixedZone("Asia/Shanghai", 8*60*60)
 }
 
 func decodePayload(payload map[string]interface{}, target interface{}) error {
@@ -2637,7 +3943,7 @@ func upsertProviderImport(ctx context.Context, tx *gorm.DB, item ProviderImportP
 	row.UpdatedAt = now
 	return row, tx.Model(&existing).Updates(map[string]interface{}{
 		"name": row.Name, "type": row.Type, "base_url": row.BaseURL, "auth_type": row.AuthType,
-		"status": row.Status, "priority": row.Priority, "region": row.Region, "qps_limit": row.QPSLimit,
+		"priority": row.Priority, "region": row.Region, "qps_limit": row.QPSLimit,
 		"monthly_budget": row.MonthlyBudget, "owner": row.Owner, "remark": row.Remark, "updated_at": now,
 	}).Error
 }
@@ -2678,10 +3984,9 @@ func upsertProviderAccountImport(ctx context.Context, tx *gorm.DB, providerIDs m
 	row.CreatedAt = existing.CreatedAt
 	row.UpdatedAt = now
 	return row, tx.Model(&existing).Updates(map[string]interface{}{
-		"endpoint": row.Endpoint, "key_alias": row.KeyAlias, "login_method": row.LoginMethod,
+		"endpoint": row.Endpoint, "login_method": row.LoginMethod,
 		"login_account": row.LoginAccount, "maintainer": row.Maintainer, "maintainer_contact": row.MaintainerContact,
-		"encrypted_api_key": row.EncryptedAPIKey, "encrypted_secret": row.EncryptedSecret, "quota_limit": row.QuotaLimit, "used_quota": row.UsedQuota,
-		"status": row.Status, "updated_at": now,
+		"quota_limit": row.QuotaLimit, "updated_at": now,
 	}).Error
 }
 
@@ -2726,7 +4031,7 @@ func upsertProviderAPIImport(ctx context.Context, tx *gorm.DB, providerIDs map[s
 	row.CreatedAt = existing.CreatedAt
 	row.UpdatedAt = now
 	return tx.Model(&existing).
-		Select("api_path", "api_type", "capabilities", "auth_type", "qps_limit", "timeout_ms", "status", "updated_at").
+		Select("api_path", "api_type", "capabilities", "auth_type", "qps_limit", "timeout_ms", "updated_at").
 		Updates(row).Error
 }
 
@@ -3223,8 +4528,8 @@ func upsertScenarioImport(ctx context.Context, tx *gorm.DB, item ScenarioImportI
 	row.UpdatedAt = now
 	return tx.Model(&existing).Updates(map[string]interface{}{
 		"app_name": row.AppName, "ai_scenario_name": row.AIScenarioName, "scenario_type": row.ScenarioType,
-		"capability_code": row.CapabilityCode, "model_type": row.ModelType, "default_base_route_id": row.DefaultBaseRouteID,
-		"owner": row.Owner, "description": row.Description, "version": row.Version, "status": row.Status, "updated_at": now,
+		"capability_code": row.CapabilityCode, "model_type": row.ModelType,
+		"owner": row.Owner, "description": row.Description, "version": row.Version, "updated_at": now,
 	}).Error
 }
 
@@ -3826,11 +5131,48 @@ func stringParam(params map[string]interface{}, key string) string {
 	return strings.TrimSpace(fmt.Sprint(params[key]))
 }
 
+func boolParam(params map[string]interface{}, key string, fallback bool) bool {
+	if params == nil {
+		return fallback
+	}
+	value, ok := params[key]
+	if !ok || value == nil {
+		return fallback
+	}
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		switch strings.ToLower(strings.TrimSpace(typed)) {
+		case "true", "1", "yes", "y", "on":
+			return true
+		case "false", "0", "no", "n", "off":
+			return false
+		}
+	case float64:
+		return typed != 0
+	case int:
+		return typed != 0
+	}
+	return fallback
+}
+
 func defaultString(value, fallback string) string {
 	if strings.TrimSpace(value) == "" {
 		return fallback
 	}
 	return strings.TrimSpace(value)
+}
+
+func cleanProviderString(value interface{}) string {
+	if value == nil {
+		return ""
+	}
+	text := strings.TrimSpace(fmt.Sprint(value))
+	if text == "<nil>" {
+		return ""
+	}
+	return text
 }
 
 func defaultInt(value, fallback int) int {
@@ -3966,6 +5308,13 @@ func isSensitiveAIKey(key string) bool {
 		strings.Contains(normalized, "secret") ||
 		strings.Contains(normalized, "token") ||
 		strings.Contains(normalized, "authorization")
+}
+
+func timePtrIfSet(value time.Time) *time.Time {
+	if value.IsZero() {
+		return nil
+	}
+	return &value
 }
 
 func stringPtr(value string) *string { return &value }

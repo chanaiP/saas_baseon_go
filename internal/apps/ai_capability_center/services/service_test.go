@@ -57,6 +57,7 @@ func TestOverviewAggregatesUsageMetrics(t *testing.T) {
 	require.Equal(t, todayStart.Format("2006-01-02"), overview.UsageTrend[6].Date)
 	require.Equal(t, int64(6), overview.UsageTrend[6].Calls)
 	require.InDelta(t, 6.25, overview.UsageTrend[6].CostAmount, 0.0001)
+	require.InDelta(t, 66.67, overview.UsageTrend[6].SuccessRate, 0.01)
 	require.Len(t, overview.ModelCostShare, 2)
 	require.Equal(t, "image", overview.ModelCostShare[0].ModelType)
 	require.Len(t, overview.TenantRanking, 2)
@@ -83,6 +84,84 @@ func TestOverviewReturnsEmptySeriesWithoutUsage(t *testing.T) {
 	require.Empty(t, overview.TenantRanking)
 }
 
+func TestListUsageRecordsReturnsPagedRowsAndSummary(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	now := time.Now().In(chinaFixedZone())
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, chinaFixedZone())
+	records := []models.AIUsageRecord{
+		usageRecord("usage-list-1", "tenant-a", "租户 A", "app-a", "chat", "model-a", 3, 1.25, 2.50, 120, "success", todayStart.Add(9*time.Hour)),
+		usageRecord("usage-list-2", "tenant-a", "租户 A", "app-a", "chat", "model-a", 2, 0.75, 1.50, 320, "success", todayStart.Add(10*time.Hour)),
+		usageRecord("usage-list-3", "tenant-a", "租户 A", "app-a", "image", "model-b", 7, 3.00, 6.00, 220, "success", todayStart.Add(11*time.Hour)),
+	}
+	require.NoError(t, db.Create(&records).Error)
+
+	result, err := NewService(db).ListUsageRecords(context.Background(), 0, 20, "", "", "", "app-a", "chat")
+	require.NoError(t, err)
+	require.Equal(t, int64(2), result.Total)
+	require.Len(t, result.Items, 2)
+	summary, ok := result.Summary.(UsageRecordsSummary)
+	require.True(t, ok)
+	require.Len(t, summary.UsageUnits, 1)
+	require.Equal(t, int64(5), summary.UsageUnits[0].Calls)
+	require.InDelta(t, 2.0, summary.UsageUnits[0].CostAmount, 0.0001)
+	require.InDelta(t, 4.0, summary.UsageUnits[0].BillingAmount, 0.0001)
+	require.Empty(t, summary.ErrorDistribution)
+}
+
+func TestListUsageRecordsSummaryIncludesErrorDistribution(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	now := time.Now().In(chinaFixedZone())
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, chinaFixedZone())
+	providerError := usageRecord("usage-error-1", "tenant-a", "租户 A", "app-a", "chat", "model-a", 1, 0, 0, 120, "provider_error", todayStart.Add(9*time.Hour))
+	providerError.ErrorCode = "provider_http_500"
+	timeoutError := usageRecord("usage-error-2", "tenant-a", "租户 A", "app-a", "chat", "model-a", 1, 0, 0, 320, "timeout", todayStart.Add(10*time.Hour))
+	timeoutError.ErrorCode = "provider_timeout"
+	require.NoError(t, db.Create(&[]models.AIUsageRecord{providerError, timeoutError}).Error)
+
+	result, err := NewService(db).ListUsageRecords(context.Background(), 0, 20, "", "", "", "app-a", "chat")
+	require.NoError(t, err)
+	require.Equal(t, int64(2), result.Total)
+	summary, ok := result.Summary.(UsageRecordsSummary)
+	require.True(t, ok)
+	require.Len(t, summary.ErrorDistribution, 2)
+	require.Equal(t, UsageErrorDistribution{Status: "provider_error", ErrorCode: "provider_http_500", Count: 1}, summary.ErrorDistribution[0])
+	require.Equal(t, UsageErrorDistribution{Status: "timeout", ErrorCode: "provider_timeout", Count: 1}, summary.ErrorDistribution[1])
+}
+
+func TestUsageMetricsExcludeDemoSeedRecords(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	now := time.Now()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	modelText := "11111111-1111-1111-1111-111111111111"
+	require.NoError(t, db.Create(&models.AIModel{
+		ID: modelText, ProviderID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ModelCode: "gpt-text", ModelName: "GPT Text",
+		ModelType: "text", Capabilities: []string{"chat_completion"}, Status: "active", DefaultFor: []string{},
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+
+	realRecord := usageRecord("real-today", "tenant-a", "租户 A", "app-a", "chat", modelText, 2, 1.00, 2.00, 200, "success", todayStart.Add(9*time.Hour))
+	seedByID := usageRecord("seed_demo_id", "tenant-b", "租户 B", "app-b", "chat", modelText, 10, 8.00, 16.00, 900, "success", todayStart.Add(10*time.Hour))
+	demoByChannel := usageRecord("demo-channel", "tenant-c", "租户 C", "app-c", "chat", modelText, 7, 4.00, 8.00, 700, "success", todayStart.Add(11*time.Hour))
+	demoByFlag := usageRecord("demo-flag", "tenant-d", "租户 D", "app-d", "chat", modelText, 5, 2.00, 4.00, 400, "success", todayStart.Add(12*time.Hour))
+	demoByChannel.RequestParams = `{"channel":"demo-history-seed"}`
+	demoByFlag.DataSource = "demo_seed"
+	demoByFlag.IsDemo = true
+	require.NoError(t, db.Create(&[]models.AIUsageRecord{realRecord, seedByID, demoByChannel, demoByFlag}).Error)
+
+	overview, err := NewService(db).Overview(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "2", overview.Metrics[0].Value)
+	require.Equal(t, "¥1.00", overview.Metrics[1].Value)
+	require.Equal(t, int64(2), overview.UsageTrend[6].Calls)
+	require.Len(t, overview.TenantRanking, 1)
+	require.Equal(t, "租户 A", overview.TenantRanking[0].TenantName)
+
+	result, err := NewService(db).ListUsageRecords(context.Background(), 0, 20, "", todayStart.Format("2006-01-02"), todayStart.Format("2006-01-02"), "", "")
+	require.NoError(t, err)
+	require.Equal(t, int64(1), result.Total)
+	require.Len(t, result.Items, 1)
+}
+
 func TestOverviewWarnsWhenScenarioRouteBindingUnavailable(t *testing.T) {
 	db := newAICapabilityTestDB(t)
 	now := time.Now()
@@ -97,18 +176,45 @@ func TestOverviewWarnsWhenScenarioRouteBindingUnavailable(t *testing.T) {
 	require.Contains(t, overview.HealthChecks, HealthCheck{
 		Name:    "AI 场景绑定状态",
 		Status:  "warning",
-		Message: "1 个启用 AI 场景未绑定可用基础路由、模型节点或健康 API",
+		Message: "1 个启用 AI 场景未绑定可用基础路由、模型节点或健康 API；影响场景：商品中心/文案生成",
 	})
+}
+
+func TestEnsureBaselineRepairsScenarioRouteBindingToActiveRoute(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	now := time.Now()
+	deletedAt := now.Add(-time.Hour)
+	require.NoError(t, db.Create(&models.AIBaseRoute{
+		ID: "deleted-route", RouteCode: "deleted-chat", RouteName: "已删除路由",
+		CapabilityCode: "chat_completion", ModelType: "text", Strategy: "priority", TimeoutMS: 30000, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now.Add(-2 * time.Hour), UpdatedAt: now.Add(-2 * time.Hour), DeletedAt: &deletedAt},
+	}).Error)
+	require.NoError(t, db.Create(&models.AIBaseRoute{
+		ID: "active-route", RouteCode: "active-chat", RouteName: "可用路由",
+		CapabilityCode: "chat_completion", ModelType: "text", Strategy: "priority", TimeoutMS: 30000, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+	require.NoError(t, db.Create(&models.AIScenario{
+		ID: "scenario-needs-repair", AppCode: "product_center", AppName: "商品中心", AIScenarioCode: "copy_gen", AIScenarioName: "文案生成",
+		ScenarioType: "text", CapabilityCode: "chat_completion", ModelType: "text", DefaultBaseRouteID: "deleted-route", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+
+	require.NoError(t, NewService(db).EnsureBaseline(context.Background()))
+
+	var scenario models.AIScenario
+	require.NoError(t, db.Where("id = ?", "scenario-needs-repair").First(&scenario).Error)
+	require.Equal(t, "active-route", scenario.DefaultBaseRouteID)
 }
 
 func TestCheckProviderAPIConnectivityPersistsReachableStatus(t *testing.T) {
 	db := newAICapabilityTestDB(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/v1/chat/completions", r.URL.Path)
-		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/v1/models", r.URL.Path)
+		require.Equal(t, http.MethodGet, r.Method)
 		require.Equal(t, "Bearer sk-test", r.Header.Get("Authorization"))
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"id":"probe-ok"}`))
+		_, _ = w.Write([]byte(`{"object":"list","data":[]}`))
 	}))
 	defer server.Close()
 
@@ -137,7 +243,7 @@ func TestCheckProviderAPIConnectivityPersistsReachableStatus(t *testing.T) {
 	var api models.AIProviderAPI
 	require.NoError(t, db.First(&api, "id = ?", "api-chat").Error)
 	require.Equal(t, "active", api.HealthStatus)
-	require.Contains(t, api.HealthMessage, "HTTP 200")
+	require.Contains(t, api.HealthMessage, "低成本连通性探测通过")
 	require.NotNil(t, api.HealthCheckedAt)
 }
 
@@ -236,7 +342,8 @@ func TestCheckProviderAPIConnectivityFiltersByAPIIDs(t *testing.T) {
 func TestCheckProviderAPIConnectivityMarksAuthFailureAsError(t *testing.T) {
 	db := newAICapabilityTestDB(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, http.MethodGet, r.Method)
+		require.Equal(t, "/v1/models", r.URL.Path)
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte(`{"error":"invalid key"}`))
 	}))
@@ -268,6 +375,85 @@ func TestCheckProviderAPIConnectivityMarksAuthFailureAsError(t *testing.T) {
 	require.NoError(t, db.First(&api, "id = ?", "api-deepseek-chat").Error)
 	require.Equal(t, "error", api.HealthStatus)
 	require.Contains(t, api.HealthMessage, "鉴权失败")
+}
+
+func TestCheckProviderAPIConnectivityClassifiesMissingKeyAlias(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	now := time.Now()
+	require.NoError(t, db.Create(&models.AIProvider{
+		ID: "provider-missing-key", Name: "Missing Key", Code: "openai", Type: "public_cloud", BaseURL: server.URL,
+		AuthType: "api_key", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+	require.NoError(t, db.Create(&models.AIProviderAccount{
+		ID: "account-missing-key", ProviderID: "provider-missing-key", AccountName: "prod", Endpoint: server.URL,
+		KeyAlias: "MISSING_AI_KEY", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+	require.NoError(t, db.Create(&models.AIProviderAPI{
+		ID: "api-missing-key", ProviderID: "provider-missing-key", AccountID: "account-missing-key", APIName: "chat.completions",
+		APIPath: "/v1/chat/completions", APIType: "chat", Capabilities: []string{"chat_completion"},
+		AuthType: "api_key", TimeoutMS: 30000, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+
+	result, err := NewService(db).CheckProviderAPIConnectivity(context.Background(), 7, APIConnectivityFilter{})
+	require.NoError(t, err)
+	require.Equal(t, APIConnectivityResult{Total: 1, Error: 1}, result)
+	require.Equal(t, 0, calls)
+
+	var api models.AIProviderAPI
+	require.NoError(t, db.First(&api, "id = ?", "api-missing-key").Error)
+	require.Equal(t, "error", api.HealthStatus)
+	require.Contains(t, api.HealthMessage, "未配置密钥")
+	require.Contains(t, api.HealthMessage, "MISSING_AI_KEY")
+}
+
+func TestCheckProviderAPIConnectivityRejectsPlaceholderEndpoint(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	now := time.Now()
+	require.NoError(t, db.Create(&models.AIProvider{
+		ID: "provider-placeholder", Name: "Azure", Code: "azure-openai", Type: "public_cloud", BaseURL: "https://{resource}.openai.azure.com",
+		AuthType: "api_key", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+	require.NoError(t, db.Create(&models.AIProviderAccount{
+		ID: "account-placeholder", ProviderID: "provider-placeholder", AccountName: "prod", Endpoint: "https://{resource}.openai.azure.com",
+		KeyAlias: "AZURE_OPENAI_API_KEY", EncryptedAPIKey: "sk-test", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+	require.NoError(t, db.Create(&models.AIProviderAPI{
+		ID: "api-placeholder", ProviderID: "provider-placeholder", AccountID: "account-placeholder", APIName: "chat.completions",
+		APIPath: "/openai/deployments/{deployment}/chat/completions", APIType: "chat", Capabilities: []string{"chat_completion"},
+		AuthType: "api_key", TimeoutMS: 30000, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+
+	result, err := NewService(db).CheckProviderAPIConnectivity(context.Background(), 7, APIConnectivityFilter{})
+	require.NoError(t, err)
+	require.Equal(t, APIConnectivityResult{Total: 1, Error: 1}, result)
+
+	var api models.AIProviderAPI
+	require.NoError(t, db.First(&api, "id = ?", "api-placeholder").Error)
+	require.Equal(t, "error", api.HealthStatus)
+	require.Contains(t, api.HealthMessage, "占位符")
+}
+
+func TestProbeHTTPClassifiesTransportAndProviderErrors(t *testing.T) {
+	status, message := probeHTTP(context.Background(), http.DefaultClient, "http://127.0.0.1:1/v1/chat/completions", "openai", "api_key", "sk-test", "", "", jsonProbe(map[string]interface{}{"model": "gpt-4o-mini"}))
+	require.Equal(t, "error", status)
+	require.Contains(t, message, "网络失败")
+
+	status, message = probeHTTP(context.Background(), http.DefaultClient, "http://127.0.0.1:1/v1/chat/completions", "openai", "api_key", "", "", "env:MISSING_AI_KEY", jsonProbe(map[string]interface{}{"model": "gpt-4o-mini"}))
+	require.Equal(t, "error", status)
+	require.Contains(t, message, "MISSING_AI_KEY")
 }
 
 func TestCreateProviderAccountAcceptsSecretPayloadAndMasksAudit(t *testing.T) {
@@ -351,6 +537,10 @@ func TestImportProvidersUpsertsProviderAccountsAndAPIs(t *testing.T) {
 	require.Equal(t, 45000, api.TimeoutMS)
 	require.Equal(t, []string{"chat_completion"}, api.Capabilities)
 
+	require.NoError(t, db.Model(&provider).Updates(map[string]interface{}{"status": "inactive"}).Error)
+	require.NoError(t, db.Model(&account).Updates(map[string]interface{}{"key_alias": "OPENAI_MANUAL_KEY", "encrypted_api_key": "manual-ciphertext", "encrypted_secret": "manual-secret", "used_quota": 88.0, "status": "inactive"}).Error)
+	require.NoError(t, db.Model(&api).Updates(map[string]interface{}{"status": "inactive", "health_status": "error", "health_message": "manual health failure"}).Error)
+
 	result, err = service.ImportProviders(ctx, 7, ProviderImportRequest{
 		Providers: []ProviderImportProvider{{
 			Name: "OpenAI Updated", Code: "openai", Type: "public_cloud", BaseURL: "https://gateway.openai.example", Priority: 20,
@@ -378,14 +568,21 @@ func TestImportProvidersUpsertsProviderAccountsAndAPIs(t *testing.T) {
 	require.Equal(t, "OpenAI Updated", provider.Name)
 	require.Equal(t, "https://gateway.openai.example", provider.BaseURL)
 	require.Equal(t, 20, provider.Priority)
+	require.Equal(t, "inactive", provider.Status)
 	require.NoError(t, db.Where("id = ?", account.ID).First(&account).Error)
-	require.Equal(t, "OPENAI_PRIMARY", account.KeyAlias)
-	require.Equal(t, "ciphertext-v2", account.EncryptedAPIKey)
+	require.Equal(t, "OPENAI_MANUAL_KEY", account.KeyAlias)
+	require.Equal(t, "manual-ciphertext", account.EncryptedAPIKey)
+	require.Equal(t, "manual-secret", account.EncryptedSecret)
+	require.Equal(t, 88.0, account.UsedQuota)
+	require.Equal(t, "inactive", account.Status)
 	require.Equal(t, "oauth", account.LoginMethod)
 	require.Equal(t, "github:ai-platform", account.LoginAccount)
 	require.NoError(t, db.Where("id = ?", api.ID).First(&api).Error)
 	require.Equal(t, "/proxy/chat", api.APIPath)
 	require.Equal(t, []string{"chat_completion", "embedding"}, api.Capabilities)
+	require.Equal(t, "inactive", api.Status)
+	require.Equal(t, "error", api.HealthStatus)
+	require.Equal(t, "manual health failure", api.HealthMessage)
 
 	raw, err := json.Marshal(account)
 	require.NoError(t, err)
@@ -578,6 +775,7 @@ func TestImportScenariosUpsertsAndValidatesReferences(t *testing.T) {
 	db := newAICapabilityTestDB(t)
 	seedCapability(t, db, "chat_completion", "tokens")
 	route := seedBaseRoute(t, db, "route-chat", "chat_completion")
+	manualRoute := seedBaseRoute(t, db, "route-manual", "chat_completion")
 	service := NewService(db)
 	ctx := context.Background()
 
@@ -594,6 +792,7 @@ func TestImportScenariosUpsertsAndValidatesReferences(t *testing.T) {
 	require.NoError(t, db.Where("app_code = ? AND ai_scenario_code = ? AND deleted_at IS NULL", "product_center", "copy_gen").First(&scenario).Error)
 	require.Equal(t, "商品文案生成", scenario.AIScenarioName)
 	require.Equal(t, route.ID, scenario.DefaultBaseRouteID)
+	require.NoError(t, db.Model(&scenario).Updates(map[string]interface{}{"default_base_route_id": manualRoute.ID, "status": "inactive"}).Error)
 
 	result, err = service.ImportScenarios(ctx, 7, ScenarioImportRequest{
 		Scenarios: []ScenarioImportItem{{
@@ -611,6 +810,8 @@ func TestImportScenariosUpsertsAndValidatesReferences(t *testing.T) {
 	require.Equal(t, "商品标题生成", scenario.AIScenarioName)
 	require.Equal(t, "增长组", scenario.Owner)
 	require.Equal(t, "v2.0", scenario.Version)
+	require.Equal(t, manualRoute.ID, scenario.DefaultBaseRouteID)
+	require.Equal(t, "inactive", scenario.Status)
 }
 
 func TestImportScenariosRollsBackOnInvalidReference(t *testing.T) {
@@ -1012,7 +1213,7 @@ func TestInvokeAppliesTenantStrategyPricingAndUsageRecord(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&tier).Error)
 
-	resp, err := NewService(db).Invoke(context.Background(), InvokeRequest{
+	resp, err := newServiceWithProviderExecutor(db, noopProviderExecutor{}).Invoke(context.Background(), InvokeRequest{
 		TenantID: "tenant-a", TenantName: "租户 A", AppCode: "product_center", AppName: "商品中心",
 		AIScenarioCode: "copy_gen", UserID: "user-a", RequestID: "invoke-1",
 		Params: map[string]interface{}{"usage_amount": 10, "mode": "sync"},
@@ -1044,6 +1245,535 @@ func TestInvokeAppliesTenantStrategyPricingAndUsageRecord(t *testing.T) {
 	var updatedQuota models.AIStrategyQuotaRule
 	require.NoError(t, db.Where("id = ?", quota.ID).First(&updatedQuota).Error)
 	require.InDelta(t, 10, updatedQuota.UsedAmount, 0.0001)
+}
+
+func TestInvokeExecutesOpenAICompatibleChatAndRecordsProviderUsage(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "chat_completion", "tokens")
+	now := time.Now()
+	seenAuthorization := ""
+	seenModel := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenAuthorization = r.Header.Get("Authorization")
+		var payload map[string]interface{}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+		seenModel = payload["model"].(string)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Request-Id", "provider-req-success")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-test","choices":[{"message":{"role":"assistant","content":"生产级响应"},"finish_reason":"stop"}],"usage":{"prompt_tokens":12,"completion_tokens":30,"total_tokens":42}}`))
+	}))
+	defer server.Close()
+
+	provider := models.AIProvider{
+		ID: "provider-openai-real", Name: "OpenAI Compatible", Code: "openai", Type: "public_cloud",
+		BaseURL: server.URL, AuthType: "api_key", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&provider).Error)
+	account := models.AIProviderAccount{
+		ID: "account-openai-real", ProviderID: provider.ID, AccountName: "prod", KeyAlias: "OPENAI_TEST_KEY", EncryptedAPIKey: "sk-test",
+		Status: "active", AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&account).Error)
+	api := models.AIProviderAPI{
+		ID: "api-openai-real", ProviderID: provider.ID, AccountID: account.ID, APIName: "chat", APIPath: "/v1/chat/completions", APIType: "chat",
+		Capabilities: []string{"chat_completion"}, AuthType: "api_key", TimeoutMS: 30000, Status: "active", HealthStatus: "active", HealthCheckedAt: &now,
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&api).Error)
+	model := models.AIModel{
+		ID: "model-openai-real", ProviderID: provider.ID, ModelCode: "gpt-test", ModelName: "gpt-test",
+		ModelType: "text", Capabilities: []string{"chat_completion"}, Status: "active", DefaultFor: []string{},
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&model).Error)
+	route := seedBaseRoute(t, db, "route-openai-real", "chat_completion")
+	seedScenario(t, db, route.ID)
+	require.NoError(t, db.Create(&models.AIBaseRouteModel{
+		ID: "route-model-openai-real", BaseRouteID: route.ID, ModelID: model.ID, ProviderAccountID: account.ID, ProviderAPIID: api.ID,
+		Role: "primary", Priority: 1, Weight: 100, TimeoutMS: 30000, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+	pricePolicy := models.AIModelPricePolicy{
+		ID: "price-policy-openai-real", ModelID: model.ID, FeatureKey: "chat_tokens", FeatureName: "对话 Token", ModelType: "text",
+		CapabilityCode: "chat_completion", BillingMode: "flat", BillingUnit: "tokens", PlatformUnit: "tokens",
+		BaseCostPrice: 0.01, BaseSalePrice: 0.03, Currency: "CNY", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&pricePolicy).Error)
+
+	resp, err := NewService(db).Invoke(context.Background(), InvokeRequest{
+		TenantID: "tenant-a", AppCode: "product_center", AIScenarioCode: "copy_gen", RequestID: "invoke-real-chat",
+		Params: map[string]interface{}{"usage_amount": 1, "max_tokens": 64},
+		Input:  map[string]interface{}{"prompt": "写一句欢迎语"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "success", resp.Status)
+	require.Equal(t, "生产级响应", resp.Data["text"])
+	require.Equal(t, "Bearer sk-test", seenAuthorization)
+	require.Equal(t, "gpt-test", seenModel)
+
+	var record models.AIUsageRecord
+	require.NoError(t, db.Where("request_id = ?", "invoke-real-chat").First(&record).Error)
+	require.Equal(t, "success", record.Status)
+	require.Equal(t, "真实供应商调用成功，已记录路由、策略、配额、限流和价格命中结果", record.UsageDetail)
+	require.InDelta(t, 42, record.UsageAmount, 0.0001)
+	require.InDelta(t, 0.42, record.CostAmount, 0.0001)
+	require.InDelta(t, 1.26, record.BillingAmount, 0.0001)
+	require.Equal(t, http.StatusOK, record.ProviderHTTPStatus)
+	require.Equal(t, "provider-req-success", record.ProviderRequestID)
+	require.NotNil(t, record.StartedAt)
+	require.NotNil(t, record.FinishedAt)
+	require.False(t, record.FinishedAt.Before(*record.StartedAt))
+	require.Equal(t, 0, record.RetryCount)
+	require.NotEmpty(t, record.ResponseHash)
+	require.NotEqual(t, record.PromptHash, record.ResponseHash)
+	require.Contains(t, record.RequestParams, `"content_record_level":1`)
+}
+
+func TestInvokeExecutesOpenAICompatibleEmbeddingsAndRecordsProviderUsage(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "embedding", "tokens")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/v1/embeddings", r.URL.Path)
+		var payload map[string]interface{}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+		require.Equal(t, "text-embedding-test", payload["model"])
+		require.Equal(t, "hello", payload["input"])
+		w.Header().Set("X-Request-Id", "provider-req-embedding")
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"object":"embedding","index":0,"embedding":[0.1,0.2,0.3]}],"usage":{"prompt_tokens":8,"total_tokens":8}}`))
+	}))
+	defer server.Close()
+
+	_, account, api, model, route := seedOpenAICompatibleRoute(t, db, server.URL, "embedding-real")
+	now := time.Now()
+	api.APIPath = "/v1/embeddings"
+	api.APIType = "embedding"
+	api.Capabilities = []string{"embedding"}
+	require.NoError(t, db.Save(&api).Error)
+	model.ModelCode = "text-embedding-test"
+	model.ModelType = "embedding"
+	model.Capabilities = []string{"embedding"}
+	require.NoError(t, db.Save(&model).Error)
+	require.NoError(t, db.Model(&models.AIBaseRoute{}).Where("id = ?", route.ID).Updates(map[string]interface{}{
+		"capability_code": "embedding", "model_type": "embedding",
+	}).Error)
+	require.NoError(t, db.Model(&models.AIScenario{}).Where("id = ?", "scenario-copy").Updates(map[string]interface{}{
+		"scenario_type": "embedding", "capability_code": "embedding", "model_type": "embedding",
+	}).Error)
+	require.NoError(t, db.Create(&models.AIModelPricePolicy{
+		ID: "price-policy-embedding-real", ModelID: model.ID, FeatureKey: "embedding_tokens", FeatureName: "Embedding Token", ModelType: "embedding",
+		CapabilityCode: "embedding", BillingMode: "flat", BillingUnit: "tokens", PlatformUnit: "tokens",
+		BaseCostPrice: 0.01, BaseSalePrice: 0.02, Currency: "CNY", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+
+	resp, err := NewService(db).Invoke(context.Background(), InvokeRequest{
+		TenantID: "tenant-a", AppCode: "product_center", AIScenarioCode: "copy_gen", RequestID: "invoke-real-embedding",
+		Params: map[string]interface{}{"usage_amount": 1},
+		Input:  map[string]interface{}{"input": "hello"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "success", resp.Status)
+	require.Equal(t, 1, resp.Data["embedding_count"])
+	require.Equal(t, 3, resp.Data["dimensions"])
+
+	var record models.AIUsageRecord
+	require.NoError(t, db.Where("request_id = ?", "invoke-real-embedding").First(&record).Error)
+	require.Equal(t, account.ID, record.ProviderAccountID)
+	require.InDelta(t, 8, record.UsageAmount, 0.0001)
+	require.Equal(t, "tokens", record.UsageUnit)
+	require.InDelta(t, 0.08, record.CostAmount, 0.0001)
+	require.InDelta(t, 0.16, record.BillingAmount, 0.0001)
+	require.Equal(t, "provider-req-embedding", record.ProviderRequestID)
+}
+
+func TestInvokeExecutesOpenAICompatibleImagesAndRecordsImageUsage(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "image_generation", "images")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/v1/images/generations", r.URL.Path)
+		var payload map[string]interface{}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+		require.Equal(t, "image-test", payload["model"])
+		require.Equal(t, "poster", payload["prompt"])
+		require.InDelta(t, 2, payload["n"], 0.0001)
+		w.Header().Set("X-Request-Id", "provider-req-image")
+		_, _ = w.Write([]byte(`{"created":1710000000,"data":[{"url":"https://img.example/a.png"},{"url":"https://img.example/b.png"}]}`))
+	}))
+	defer server.Close()
+
+	_, _, api, model, route := seedOpenAICompatibleRoute(t, db, server.URL, "image-real")
+	now := time.Now()
+	api.APIPath = "/v1/images/generations"
+	api.APIType = "image"
+	api.Capabilities = []string{"image_generation"}
+	require.NoError(t, db.Save(&api).Error)
+	model.ModelCode = "image-test"
+	model.ModelType = "image"
+	model.Capabilities = []string{"image_generation"}
+	require.NoError(t, db.Save(&model).Error)
+	require.NoError(t, db.Model(&models.AIBaseRoute{}).Where("id = ?", route.ID).Updates(map[string]interface{}{
+		"capability_code": "image_generation", "model_type": "image",
+	}).Error)
+	require.NoError(t, db.Model(&models.AIScenario{}).Where("id = ?", "scenario-copy").Updates(map[string]interface{}{
+		"scenario_type": "image", "capability_code": "image_generation", "model_type": "image",
+	}).Error)
+	require.NoError(t, db.Create(&models.AIModelPricePolicy{
+		ID: "price-policy-image-real", ModelID: model.ID, FeatureKey: "image_generation", FeatureName: "图片生成", ModelType: "image",
+		CapabilityCode: "image_generation", BillingMode: "flat", BillingUnit: "images", PlatformUnit: "images",
+		BaseCostPrice: 0.10, BaseSalePrice: 0.20, Currency: "CNY", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+
+	resp, err := NewService(db).Invoke(context.Background(), InvokeRequest{
+		TenantID: "tenant-a", AppCode: "product_center", AIScenarioCode: "copy_gen", RequestID: "invoke-real-image",
+		Params: map[string]interface{}{"usage_amount": 1, "usage_unit": "images", "n": 2},
+		Input:  map[string]interface{}{"prompt": "poster"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "success", resp.Status)
+	require.Equal(t, 2, resp.Data["image_count"])
+	require.ElementsMatch(t, []string{"https://img.example/a.png", "https://img.example/b.png"}, resp.Data["urls"])
+
+	var record models.AIUsageRecord
+	require.NoError(t, db.Where("request_id = ?", "invoke-real-image").First(&record).Error)
+	require.InDelta(t, 2, record.UsageAmount, 0.0001)
+	require.Equal(t, "images", record.UsageUnit)
+	require.InDelta(t, 0.20, record.CostAmount, 0.0001)
+	require.InDelta(t, 0.40, record.BillingAmount, 0.0001)
+	require.Equal(t, "provider-req-image", record.ProviderRequestID)
+}
+
+func TestInvokeRecordsProviderErrorWhenOpenAICompatibleCallFails(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "chat_completion", "tokens")
+	now := time.Now()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Openai-Request-Id", "provider-req-error")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":{"message":"provider exploded"}}`))
+	}))
+	defer server.Close()
+
+	provider := models.AIProvider{
+		ID: "provider-openai-error", Name: "OpenAI Compatible", Code: "openai", Type: "public_cloud",
+		BaseURL: server.URL, AuthType: "api_key", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&provider).Error)
+	account := models.AIProviderAccount{
+		ID: "account-openai-error", ProviderID: provider.ID, AccountName: "prod", KeyAlias: "OPENAI_TEST_KEY", EncryptedAPIKey: "sk-test",
+		Status: "active", AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&account).Error)
+	api := models.AIProviderAPI{
+		ID: "api-openai-error", ProviderID: provider.ID, AccountID: account.ID, APIName: "chat", APIPath: "/v1/chat/completions", APIType: "chat",
+		Capabilities: []string{"chat_completion"}, AuthType: "api_key", TimeoutMS: 30000, Status: "active", HealthStatus: "active", HealthCheckedAt: &now,
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&api).Error)
+	model := models.AIModel{
+		ID: "model-openai-error", ProviderID: provider.ID, ModelCode: "gpt-test", ModelName: "gpt-test",
+		ModelType: "text", Capabilities: []string{"chat_completion"}, Status: "active", DefaultFor: []string{},
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&model).Error)
+	route := seedBaseRoute(t, db, "route-openai-error", "chat_completion")
+	seedScenario(t, db, route.ID)
+	require.NoError(t, db.Create(&models.AIBaseRouteModel{
+		ID: "route-model-openai-error", BaseRouteID: route.ID, ModelID: model.ID, ProviderAccountID: account.ID, ProviderAPIID: api.ID,
+		Role: "primary", Priority: 1, Weight: 100, TimeoutMS: 30000, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+	policy := models.AITenantStrategyPolicy{
+		ID: "policy-openai-error", PolicyName: "全部租户", TenantScope: "all", TenantIDs: []string{},
+		AppCode: "product_center", AppName: "商品中心", AIScenarioCode: "copy_gen", AIScenarioName: "文案生成",
+		DefaultBaseRouteID: route.ID, Status: "active", AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&policy).Error)
+	quota := models.AIStrategyQuotaRule{
+		ID: "quota-openai-error", PolicyID: policy.ID, Dimension: "scenario", SubjectCode: "copy_gen", UsageUnit: "tokens",
+		Period: "day", QuotaLimit: 100, OverLimitAction: "alert_only", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&quota).Error)
+
+	resp, err := NewService(db).Invoke(context.Background(), InvokeRequest{
+		TenantID: "tenant-a", AppCode: "product_center", AIScenarioCode: "copy_gen", RequestID: "invoke-provider-error",
+		Params: map[string]interface{}{"usage_amount": 5},
+		Input:  map[string]interface{}{"prompt": "hello"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "provider_error", resp.Status)
+
+	var record models.AIUsageRecord
+	require.NoError(t, db.Where("request_id = ?", "invoke-provider-error").First(&record).Error)
+	require.Equal(t, "provider_error", record.Status)
+	require.Equal(t, "provider_http_500", record.ErrorCode)
+	require.Equal(t, "provider exploded", record.ErrorMessage)
+	require.Equal(t, http.StatusInternalServerError, record.ProviderHTTPStatus)
+	require.Equal(t, "provider-req-error", record.ProviderRequestID)
+	require.NotNil(t, record.StartedAt)
+	require.NotNil(t, record.FinishedAt)
+	require.InDelta(t, 5, record.UsageAmount, 0.0001)
+	require.Equal(t, 0.0, record.BillingAmount)
+
+	var updatedQuota models.AIStrategyQuotaRule
+	require.NoError(t, db.Where("id = ?", quota.ID).First(&updatedQuota).Error)
+	require.InDelta(t, 0, updatedQuota.UsedAmount, 0.0001)
+}
+
+func TestInvokeRetriesProvider5xxAndRecordsRetryCount(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "chat_completion", "tokens")
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.Header().Set("Content-Type", "application/json")
+		if attempts == 1 {
+			w.Header().Set("X-Request-Id", "provider-req-first")
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte(`{"error":{"message":"temporary upstream error"}}`))
+			return
+		}
+		w.Header().Set("X-Request-Id", "provider-req-second")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"重试后成功"},"finish_reason":"stop"}],"usage":{"total_tokens":9}}`))
+	}))
+	defer server.Close()
+
+	provider, account, api, model, route := seedOpenAICompatibleRoute(t, db, server.URL, "retry")
+	require.NoError(t, db.Model(&models.AIBaseRouteModel{}).
+		Where("base_route_id = ? AND model_id = ?", route.ID, model.ID).
+		Updates(map[string]interface{}{"provider_account_id": account.ID, "provider_api_id": api.ID, "max_retry": 1}).Error)
+
+	resp, err := NewService(db).Invoke(context.Background(), InvokeRequest{
+		TenantID: "tenant-a", AppCode: "product_center", AIScenarioCode: "copy_gen", RequestID: "invoke-provider-retry",
+		Params: map[string]interface{}{"usage_amount": 1},
+		Input:  map[string]interface{}{"prompt": "hello"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "success", resp.Status)
+	require.Equal(t, "重试后成功", resp.Data["text"])
+	require.Equal(t, 2, attempts)
+	require.NotEmpty(t, provider.ID)
+
+	var record models.AIUsageRecord
+	require.NoError(t, db.Where("request_id = ?", "invoke-provider-retry").First(&record).Error)
+	require.Equal(t, http.StatusOK, record.ProviderHTTPStatus)
+	require.Equal(t, "provider-req-second", record.ProviderRequestID)
+	require.Equal(t, 1, record.RetryCount)
+	require.InDelta(t, 9, record.UsageAmount, 0.0001)
+}
+
+func TestInvokeRecordsTimeoutWhenProviderExceedsRouteModelTimeout(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "chat_completion", "tokens")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(50 * time.Millisecond)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"late"}}],"usage":{"total_tokens":1}}`))
+	}))
+	defer server.Close()
+
+	_, account, api, model, route := seedOpenAICompatibleRoute(t, db, server.URL, "timeout")
+	require.NoError(t, db.Model(&models.AIBaseRouteModel{}).
+		Where("base_route_id = ? AND model_id = ?", route.ID, model.ID).
+		Updates(map[string]interface{}{"provider_account_id": account.ID, "provider_api_id": api.ID, "timeout_ms": 1, "max_retry": 0}).Error)
+
+	resp, err := NewService(db).Invoke(context.Background(), InvokeRequest{
+		TenantID: "tenant-a", AppCode: "product_center", AIScenarioCode: "copy_gen", RequestID: "invoke-provider-timeout",
+		Params: map[string]interface{}{"usage_amount": 3},
+		Input:  map[string]interface{}{"prompt": "hello"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "timeout", resp.Status)
+
+	var record models.AIUsageRecord
+	require.NoError(t, db.Where("request_id = ?", "invoke-provider-timeout").First(&record).Error)
+	require.Equal(t, "timeout", record.Status)
+	require.Equal(t, "provider_timeout", record.ErrorCode)
+	require.Equal(t, 0, record.ProviderHTTPStatus)
+	require.Equal(t, 0, record.RetryCount)
+	require.InDelta(t, 3, record.UsageAmount, 0.0001)
+	require.Equal(t, 0.0, record.BillingAmount)
+}
+
+func TestInvokeFailsSafelyWhenProviderAPIKeyMissing(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "chat_completion", "tokens")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("provider should not be called without an API key")
+	}))
+	defer server.Close()
+
+	_, account, api, model, route := seedOpenAICompatibleRoute(t, db, server.URL, "missing-key")
+	require.NoError(t, db.Model(&models.AIProviderAccount{}).
+		Where("id = ?", account.ID).
+		Updates(map[string]interface{}{"key_alias": "MISSING_OPENAI_TEST_KEY", "encrypted_api_key": ""}).Error)
+	require.NoError(t, db.Model(&models.AIBaseRouteModel{}).
+		Where("base_route_id = ? AND model_id = ?", route.ID, model.ID).
+		Updates(map[string]interface{}{"provider_account_id": account.ID, "provider_api_id": api.ID}).Error)
+
+	resp, err := NewService(db).Invoke(context.Background(), InvokeRequest{
+		TenantID: "tenant-a", AppCode: "product_center", AIScenarioCode: "copy_gen", RequestID: "invoke-provider-missing-key",
+		Params: map[string]interface{}{"usage_amount": 2},
+		Input:  map[string]interface{}{"prompt": "hello"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "gateway_error", resp.Status)
+
+	var record models.AIUsageRecord
+	require.NoError(t, db.Where("request_id = ?", "invoke-provider-missing-key").First(&record).Error)
+	require.Equal(t, "gateway_error", record.Status)
+	require.Equal(t, "missing_api_key", record.ErrorCode)
+	require.Contains(t, record.ErrorMessage, "未配置密钥")
+	require.Contains(t, record.ErrorMessage, "MISSING_OPENAI_TEST_KEY")
+	require.Equal(t, 0, record.ProviderHTTPStatus)
+	require.Equal(t, 0, record.RetryCount)
+	require.InDelta(t, 2, record.UsageAmount, 0.0001)
+	require.Equal(t, 0.0, record.BillingAmount)
+}
+
+func TestInvokeRejectsRouteWhenAllProviderAPIsUnhealthy(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "chat_completion", "tokens")
+	_, account, api, model, route := seedOpenAICompatibleRoute(t, db, "https://openai.invalid", "unhealthy")
+	require.NoError(t, db.Model(&models.AIProviderAPI{}).
+		Where("id = ?", api.ID).
+		Update("health_status", "error").Error)
+	require.NoError(t, db.Model(&models.AIBaseRouteModel{}).
+		Where("base_route_id = ? AND model_id = ?", route.ID, model.ID).
+		Updates(map[string]interface{}{"provider_account_id": account.ID, "provider_api_id": api.ID}).Error)
+
+	_, err := NewService(db).Invoke(context.Background(), InvokeRequest{
+		TenantID: "tenant-a", AppCode: "product_center", AIScenarioCode: "copy_gen", RequestID: "invoke-unhealthy-api",
+		Params: map[string]interface{}{"usage_amount": 1},
+		Input:  map[string]interface{}{"prompt": "hello"},
+	})
+	require.ErrorIs(t, err, ErrNotFound)
+
+	var count int64
+	require.NoError(t, db.Model(&models.AIUsageRecord{}).Where("request_id = ?", "invoke-unhealthy-api").Count(&count).Error)
+	require.Equal(t, int64(0), count)
+}
+
+func TestInvokeRejectsPlaceholderProviderEndpoint(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "chat_completion", "tokens")
+	_, account, api, model, route := seedOpenAICompatibleRoute(t, db, "https://openai.invalid", "placeholder")
+	require.NoError(t, db.Model(&models.AIProviderAccount{}).
+		Where("id = ?", account.ID).
+		Update("endpoint", "https://{resource}.openai.azure.com").Error)
+	require.NoError(t, db.Model(&models.AIProviderAPI{}).
+		Where("id = ?", api.ID).
+		Updates(map[string]interface{}{"api_path": "/openai/deployments/{deployment}/chat/completions", "health_status": "unknown"}).Error)
+	require.NoError(t, db.Model(&models.AIBaseRouteModel{}).
+		Where("base_route_id = ? AND model_id = ?", route.ID, model.ID).
+		Updates(map[string]interface{}{"provider_account_id": account.ID, "provider_api_id": api.ID}).Error)
+
+	_, err := NewService(db).Invoke(context.Background(), InvokeRequest{
+		TenantID: "tenant-a", AppCode: "product_center", AIScenarioCode: "copy_gen", RequestID: "invoke-placeholder-endpoint",
+		Params: map[string]interface{}{"usage_amount": 1},
+		Input:  map[string]interface{}{"prompt": "hello"},
+	})
+	require.ErrorIs(t, err, ErrNotFound)
+
+	var count int64
+	require.NoError(t, db.Model(&models.AIUsageRecord{}).Where("request_id = ?", "invoke-placeholder-endpoint").Count(&count).Error)
+	require.Equal(t, int64(0), count)
+}
+
+func TestInvokeRejectsRouteWithEmptyModelPool(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "chat_completion", "tokens")
+	route := seedBaseRoute(t, db, "route-empty-pool", "chat_completion")
+	seedScenario(t, db, route.ID)
+
+	_, err := NewService(db).Invoke(context.Background(), InvokeRequest{
+		TenantID: "tenant-a", AppCode: "product_center", AIScenarioCode: "copy_gen", RequestID: "invoke-empty-model-pool",
+		Params: map[string]interface{}{"usage_amount": 1},
+		Input:  map[string]interface{}{"prompt": "hello"},
+	})
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestInvokeRecordsQuotaRejectWithoutCallingProvider(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "chat_completion", "tokens")
+	_, account, api, model, route := seedOpenAICompatibleRoute(t, db, "https://openai.invalid", "quota-reject")
+	now := time.Now()
+	policy := models.AITenantStrategyPolicy{
+		ID: "policy-quota-reject", PolicyName: "全部租户", TenantScope: "all", TenantIDs: []string{},
+		AppCode: "product_center", AppName: "商品中心", AIScenarioCode: "copy_gen", AIScenarioName: "文案生成",
+		DefaultBaseRouteID: route.ID, Status: "active", AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&policy).Error)
+	quota := models.AIStrategyQuotaRule{
+		ID: "quota-reject", PolicyID: policy.ID, Dimension: "scenario", SubjectCode: "copy_gen", UsageUnit: "tokens",
+		Period: "day", QuotaLimit: 1, UsedAmount: 1, OverLimitAction: "reject", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&quota).Error)
+	require.NoError(t, db.Model(&models.AIBaseRouteModel{}).
+		Where("base_route_id = ? AND model_id = ?", route.ID, model.ID).
+		Updates(map[string]interface{}{"provider_account_id": account.ID, "provider_api_id": api.ID}).Error)
+
+	resp, err := NewService(db).Invoke(context.Background(), InvokeRequest{
+		TenantID: "tenant-a", AppCode: "product_center", AIScenarioCode: "copy_gen", RequestID: "invoke-quota-reject",
+		Params: map[string]interface{}{"usage_amount": 2},
+		Input:  map[string]interface{}{"prompt": "hello"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "rejected", resp.Status)
+
+	var record models.AIUsageRecord
+	require.NoError(t, db.Where("request_id = ?", "invoke-quota-reject").First(&record).Error)
+	require.Equal(t, "quota_exceeded", record.ErrorCode)
+	require.Equal(t, 0, record.ProviderHTTPStatus)
+	require.Equal(t, 0.0, record.BillingAmount)
+
+	var updatedQuota models.AIStrategyQuotaRule
+	require.NoError(t, db.Where("id = ?", quota.ID).First(&updatedQuota).Error)
+	require.InDelta(t, 1, updatedQuota.UsedAmount, 0.0001)
+}
+
+func TestInvokeRecordsRateLimitRejectWithoutCallingProvider(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "chat_completion", "tokens")
+	_, account, api, model, route := seedOpenAICompatibleRoute(t, db, "https://openai.invalid", "rate-reject")
+	now := time.Now()
+	policy := models.AITenantStrategyPolicy{
+		ID: "policy-rate-reject", PolicyName: "全部租户", TenantScope: "all", TenantIDs: []string{},
+		AppCode: "product_center", AppName: "商品中心", AIScenarioCode: "copy_gen", AIScenarioName: "文案生成",
+		DefaultBaseRouteID: route.ID, Status: "active", AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&policy).Error)
+	rate := models.AIStrategyRateLimitRule{
+		ID: "rate-reject", PolicyID: policy.ID, Dimension: "user", SubjectCode: "user-a", MinuteLimit: 1,
+		OverLimitAction: "reject", Status: "active", AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&rate).Error)
+	history := usageRecord("rate-history", "tenant-a", "租户 A", "product_center", "copy_gen", model.ID, 1, 0, 0, 0, "success", now)
+	history.TenantStrategyID = policy.ID
+	require.NoError(t, db.Create(&history).Error)
+	require.NoError(t, db.Model(&models.AIBaseRouteModel{}).
+		Where("base_route_id = ? AND model_id = ?", route.ID, model.ID).
+		Updates(map[string]interface{}{"provider_account_id": account.ID, "provider_api_id": api.ID}).Error)
+
+	resp, err := NewService(db).Invoke(context.Background(), InvokeRequest{
+		TenantID: "tenant-a", AppCode: "product_center", AIScenarioCode: "copy_gen", UserID: "user-a", RequestID: "invoke-rate-reject",
+		Params: map[string]interface{}{"usage_amount": 1},
+		Input:  map[string]interface{}{"prompt": "hello"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "rejected", resp.Status)
+
+	var record models.AIUsageRecord
+	require.NoError(t, db.Where("request_id = ?", "invoke-rate-reject").First(&record).Error)
+	require.Equal(t, "rate_limited", record.ErrorCode)
+	require.Equal(t, 0, record.ProviderHTTPStatus)
+	require.Equal(t, 0.0, record.BillingAmount)
 }
 
 func TestInvokeUsesRouteModelBoundProviderAPI(t *testing.T) {
@@ -1080,7 +1810,7 @@ func TestInvokeUsesRouteModelBoundProviderAPI(t *testing.T) {
 		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
 	}).Error)
 
-	_, err := NewService(db).Invoke(context.Background(), InvokeRequest{
+	_, err := newServiceWithProviderExecutor(db, noopProviderExecutor{}).Invoke(context.Background(), InvokeRequest{
 		TenantID: "tenant-a", AppCode: "product_center", AIScenarioCode: "copy_gen", RequestID: "invoke-bound-api",
 		Params: map[string]interface{}{"usage_amount": 1},
 	})
@@ -1127,7 +1857,7 @@ func TestInvokeSkipsRouteModelWhenBoundAPIUnavailable(t *testing.T) {
 		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
 	}).Error)
 
-	_, err := NewService(db).Invoke(context.Background(), InvokeRequest{
+	_, err := newServiceWithProviderExecutor(db, noopProviderExecutor{}).Invoke(context.Background(), InvokeRequest{
 		TenantID: "tenant-a", AppCode: "product_center", AIScenarioCode: "copy_gen", RequestID: "invoke-api-fallback",
 		Params: map[string]interface{}{"usage_amount": 1},
 	})
@@ -1136,6 +1866,96 @@ func TestInvokeSkipsRouteModelWhenBoundAPIUnavailable(t *testing.T) {
 	var record models.AIUsageRecord
 	require.NoError(t, db.Where("request_id = ?", "invoke-api-fallback").First(&record).Error)
 	require.Equal(t, goodAPI.ID, record.ProviderAPIID)
+}
+
+func TestInvokeRespectsContentRecordLevelSystemParam(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "chat_completion", "tokens")
+	provider, _, _ := seedProviderAccountAPI(t, db, "openai", "prod")
+	model := seedModel(t, db, provider.Code, "gpt-4.1")
+	route := seedBaseRoute(t, db, "route-content-record", "chat_completion")
+	seedScenario(t, db, route.ID)
+	now := time.Now()
+	require.NoError(t, db.Create(&models.AIBaseRouteModel{
+		ID: "route-model-content-record", BaseRouteID: route.ID, ModelID: model.ID,
+		Role: "primary", Priority: 1, Weight: 100, TimeoutMS: 30000, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+
+	service := newServiceWithProviderExecutor(db, noopProviderExecutor{})
+	_, err := service.Invoke(context.Background(), InvokeRequest{
+		TenantID: "tenant-a", AppCode: "product_center", AIScenarioCode: "copy_gen", RequestID: "invoke-content-default",
+		Params: map[string]interface{}{"usage_amount": 1, "api_key": "sk-secret"},
+		Input:  map[string]interface{}{"prompt": "hello world", "email": "user@example.com"},
+	})
+	require.NoError(t, err)
+	var record models.AIUsageRecord
+	require.NoError(t, db.Where("request_id = ?", "invoke-content-default").First(&record).Error)
+	require.Contains(t, record.RequestParams, `"content_record_level":1`)
+	require.Contains(t, record.RequestParams, `"input_summary"`)
+	require.NotContains(t, record.RequestParams, "hello world")
+	require.NotContains(t, record.RequestParams, "sk-secret")
+
+	require.NoError(t, db.Create(&models.SystemParam{
+		TenantID: 1, Key: contentRecordLevelParamKey, Value: "2", Remark: "test", ValueType: "number",
+		CreatedAt: now, UpdatedAt: now,
+	}).Error)
+	_, err = service.Invoke(context.Background(), InvokeRequest{
+		TenantID: "tenant-a", AppCode: "product_center", AIScenarioCode: "copy_gen", RequestID: "invoke-content-redacted",
+		Params: map[string]interface{}{
+			"usage_amount":  1,
+			"api_key":       "sk-secret",
+			"authorization": "Bearer token-secret-123",
+			"cookie":        "sid=session-secret",
+		},
+		Input: map[string]interface{}{
+			"prompt":      "hello world user@example.com 13800138000 11010119900307521X 6222020123456789 sk-live-secret0001",
+			"email":       "user@example.com",
+			"address":     "北京市朝阳区测试路 1 号",
+			"nested_text": map[string]interface{}{"message": "联系 mobile 13900139000"},
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.Where("request_id = ?", "invoke-content-redacted").First(&record).Error)
+	require.Contains(t, record.RequestParams, `"content_record_level":2`)
+	require.Contains(t, record.RequestParams, `"mode":"redacted"`)
+	require.Contains(t, record.RequestParams, `"audit_required":true`)
+	require.Contains(t, record.RequestParams, "hello world")
+	require.Contains(t, record.RequestParams, "[REDACTED]")
+	require.NotContains(t, record.RequestParams, "sk-secret")
+	require.NotContains(t, record.RequestParams, "user@example.com")
+	require.NotContains(t, record.RequestParams, "13800138000")
+	require.NotContains(t, record.RequestParams, "11010119900307521X")
+	require.NotContains(t, record.RequestParams, "6222020123456789")
+	require.NotContains(t, record.RequestParams, "session-secret")
+	require.NotContains(t, record.RequestParams, "北京市朝阳区")
+
+	require.NoError(t, db.Model(&models.SystemParam{}).Where("param_key = ?", contentRecordLevelParamKey).Update("param_value", "3").Error)
+	_, err = service.Invoke(context.Background(), InvokeRequest{
+		TenantID: "tenant-a", AppCode: "product_center", AIScenarioCode: "copy_gen", RequestID: "invoke-content-full",
+		Params: map[string]interface{}{"usage_amount": 1, "api_key": "sk-secret"},
+		Input:  map[string]interface{}{"prompt": "hello world", "email": "user@example.com"},
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.Where("request_id = ?", "invoke-content-full").First(&record).Error)
+	require.Contains(t, record.RequestParams, `"content_record_level":3`)
+	require.Contains(t, record.RequestParams, `"mode":"full"`)
+	require.Contains(t, record.RequestParams, `"audit_required":true`)
+	require.Contains(t, record.RequestParams, `"retention_days":7`)
+	require.Contains(t, record.RequestParams, "完整内容记录可能包含敏感输入")
+	require.Contains(t, record.RequestParams, "hello world")
+	require.Contains(t, record.RequestParams, "sk-secret")
+	require.Contains(t, record.RequestParams, "user@example.com")
+
+	require.NoError(t, db.Model(&models.SystemParam{}).Where("param_key = ?", contentRecordLevelParamKey).Update("param_value", "0").Error)
+	_, err = service.Invoke(context.Background(), InvokeRequest{
+		TenantID: "tenant-a", AppCode: "product_center", AIScenarioCode: "copy_gen", RequestID: "invoke-content-none",
+		Params: map[string]interface{}{"usage_amount": 1, "api_key": "sk-secret"},
+		Input:  map[string]interface{}{"prompt": "hello world", "email": "user@example.com"},
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.Where("request_id = ?", "invoke-content-none").First(&record).Error)
+	require.Equal(t, "{}", record.RequestParams)
 }
 
 func newAICapabilityTestDB(t *testing.T) *gorm.DB {
@@ -1181,6 +2001,19 @@ func newAICapabilityTestDB(t *testing.T) *gorm.DB {
 		request_id TEXT,
 		result TEXT NOT NULL DEFAULT 'success',
 		created_at DATETIME NOT NULL
+	)`).Error)
+	require.NoError(t, db.Exec(`CREATE TABLE sys_param (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		tenant_id INTEGER NOT NULL DEFAULT 1,
+		param_key TEXT NOT NULL,
+		param_value TEXT NOT NULL,
+		remark TEXT NOT NULL DEFAULT '',
+		value_type TEXT NOT NULL DEFAULT 'string',
+		tenant_editable BOOLEAN NOT NULL DEFAULT true,
+		is_platform_only BOOLEAN NOT NULL DEFAULT false,
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL,
+		deleted_at DATETIME
 	)`).Error)
 	require.NoError(t, db.Exec(`CREATE TABLE ai_providers (
 		id TEXT PRIMARY KEY,
@@ -1420,10 +2253,17 @@ func newAICapabilityTestDB(t *testing.T) *gorm.DB {
 		platform_unit TEXT,
 		platform_amount NUMERIC NOT NULL DEFAULT 0,
 		latency_ms INTEGER NOT NULL DEFAULT 0,
+		provider_http_status INTEGER NOT NULL DEFAULT 0,
+		provider_request_id TEXT,
+		started_at DATETIME,
+		finished_at DATETIME,
+		retry_count INTEGER NOT NULL DEFAULT 0,
 		status TEXT NOT NULL,
 		error_code TEXT,
 		error_message TEXT,
 		request_params TEXT NOT NULL DEFAULT '{}',
+		data_source TEXT NOT NULL DEFAULT 'gateway',
+		is_demo BOOLEAN NOT NULL DEFAULT 0,
 		prompt_hash TEXT,
 		response_hash TEXT,
 		called_at DATETIME NOT NULL,
@@ -1512,6 +2352,42 @@ func seedProviderAccountAPI(t *testing.T, db *gorm.DB, providerCode, accountName
 	return provider, account, api
 }
 
+func seedOpenAICompatibleRoute(t *testing.T, db *gorm.DB, baseURL, suffix string) (models.AIProvider, models.AIProviderAccount, models.AIProviderAPI, models.AIModel, models.AIBaseRoute) {
+	t.Helper()
+	now := time.Now()
+	provider := models.AIProvider{
+		ID: "provider-openai-" + suffix, Name: "OpenAI Compatible", Code: "openai-" + suffix, Type: "public_cloud",
+		BaseURL: baseURL, AuthType: "api_key", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&provider).Error)
+	account := models.AIProviderAccount{
+		ID: "account-openai-" + suffix, ProviderID: provider.ID, AccountName: "prod", KeyAlias: "OPENAI_TEST_KEY", EncryptedAPIKey: "sk-test",
+		Status: "active", AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&account).Error)
+	api := models.AIProviderAPI{
+		ID: "api-openai-" + suffix, ProviderID: provider.ID, AccountID: account.ID, APIName: "chat", APIPath: "/v1/chat/completions", APIType: "chat",
+		Capabilities: []string{"chat_completion"}, AuthType: "api_key", TimeoutMS: 30000, Status: "active", HealthStatus: "active", HealthCheckedAt: &now,
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&api).Error)
+	model := models.AIModel{
+		ID: "model-openai-" + suffix, ProviderID: provider.ID, ModelCode: "gpt-test", ModelName: "gpt-test",
+		ModelType: "text", Capabilities: []string{"chat_completion"}, Status: "active", DefaultFor: []string{},
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&model).Error)
+	route := seedBaseRoute(t, db, "route-openai-"+suffix, "chat_completion")
+	seedScenario(t, db, route.ID)
+	require.NoError(t, db.Create(&models.AIBaseRouteModel{
+		ID: "route-model-openai-" + suffix, BaseRouteID: route.ID, ModelID: model.ID, ProviderAccountID: account.ID, ProviderAPIID: api.ID,
+		Role: "primary", Priority: 1, Weight: 100, TimeoutMS: 30000, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+	return provider, account, api, model, route
+}
+
 func usageRecord(id, tenantID, tenantName, appCode, scenarioCode, modelID string, calls int, cost, billing float64, latency int, status string, calledAt time.Time) models.AIUsageRecord {
 	return models.AIUsageRecord{
 		ID:             id,
@@ -1532,6 +2408,8 @@ func usageRecord(id, tenantID, tenantName, appCode, scenarioCode, modelID string
 		LatencyMS:      latency,
 		Status:         status,
 		RequestParams:  "{}",
+		DataSource:     "gateway",
+		IsDemo:         false,
 		CalledAt:       calledAt,
 		CreatedAt:      calledAt,
 	}

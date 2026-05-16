@@ -10,7 +10,11 @@ import (
 )
 
 func (h *IdentityHandler) routeAllowed(user models.AppUser, method, fullPath string) bool {
-	required := requiredPermission(method, fullPath)
+	return h.routeAllowedForRequest(user, method, fullPath, "")
+}
+
+func (h *IdentityHandler) routeAllowedForRequest(user models.AppUser, method, fullPath, resource string) bool {
+	required := requiredPermissionForRequest(method, fullPath, resource)
 	if required == "" {
 		return routePermissionOptional(method, fullPath)
 	}
@@ -39,6 +43,16 @@ func (h *IdentityHandler) userPermissionCodeSet(userID uint64) map[string]struct
 }
 
 func requiredPermission(method, path string) string {
+	return requiredPermissionForRequest(method, path, "")
+}
+
+func requiredPermissionForRequest(method, path, resource string) string {
+	if method == "GET" && path == "/api/ai-capability-center/:resource" {
+		if strings.TrimSpace(resource) == "" {
+			return menuPermissionByRoute()[path]
+		}
+		return aiCapabilityResourceMenuPermission(resource)
+	}
 	key := method + " " + path
 	if code, ok := operationPermissionByRoute()[key]; ok {
 		return code
@@ -51,6 +65,31 @@ func requiredPermission(method, path string) string {
 
 func RequiredPermissionForRoute(method, path string) string {
 	return requiredPermission(method, path)
+}
+
+func RequiredPermissionForResourceRoute(method, path, resource string) string {
+	return requiredPermissionForRequest(method, path, resource)
+}
+
+func aiCapabilityResourceMenuPermission(resource string) string {
+	switch resource {
+	case "providers", "accounts", "apis", "capabilities":
+		return "/ai-capability-center/providers"
+	case "models", "price-policies", "price-tiers":
+		return "/ai-capability-center/models"
+	case "scenarios":
+		return "/ai-capability-center/scenarios"
+	case "base-routes", "route-models":
+		return "/ai-capability-center/routes"
+	case "tenant-strategies", "quota-rules", "rate-limit-rules":
+		return "/ai-capability-center/strategy"
+	case "usage-records":
+		return "/ai-capability-center/usage-logs"
+	case "settings":
+		return "/ai-capability-center/settings"
+	default:
+		return ""
+	}
 }
 
 func routePermissionOptional(method, path string) bool {
@@ -118,6 +157,7 @@ func operationPermissionByRoute() map[string]string {
 		"PUT /api/ai-capability-center/:resource/:id":             "ai_capability_center:manage",
 		"DELETE /api/ai-capability-center/:resource/:id":          "ai_capability_center:manage",
 		"POST /api/ai-gateway/v1/invoke":                          "ai_gateway:invoke",
+		"GET /api/ai-gateway/v1/video-tasks/:task_id":             "ai_gateway:invoke",
 		"PUT /api/tenant/branding":                                "brand:edit",
 		"POST /api/tenants":                                       "tenant:create",
 		"POST /api/tenants/with-package":                          "tenant:create",

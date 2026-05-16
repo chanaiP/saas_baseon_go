@@ -27,6 +27,7 @@ menus:
     sort_order: 80
     platform_only: true
     tenant_visible: false
+    show_in_admin: true
     tenant_editable: false
     include_in_package: false
     data_perm_mode: NONE
@@ -36,6 +37,7 @@ menus:
     sort_order: 81
     platform_only: true
     tenant_visible: false
+    show_in_admin: true
     tenant_editable: false
     include_in_package: false
     data_perm_mode: NONE
@@ -45,6 +47,7 @@ menus:
     sort_order: 82
     platform_only: true
     tenant_visible: false
+    show_in_admin: true
     tenant_editable: false
     include_in_package: false
     data_perm_mode: NONE
@@ -54,6 +57,7 @@ menus:
     sort_order: 83
     platform_only: true
     tenant_visible: false
+    show_in_admin: true
     tenant_editable: false
     include_in_package: false
     data_perm_mode: NONE
@@ -63,6 +67,7 @@ menus:
     sort_order: 84
     platform_only: true
     tenant_visible: false
+    show_in_admin: true
     tenant_editable: false
     include_in_package: false
     data_perm_mode: NONE
@@ -72,15 +77,37 @@ menus:
     sort_order: 86
     platform_only: true
     tenant_visible: false
+    show_in_admin: true
+    tenant_editable: false
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: ai_capability_usage_logs
+    name: 调用日志
+    path: /ai-capability-center/usage-logs
+    sort_order: 87
+    platform_only: true
+    tenant_visible: false
+    show_in_admin: true
+    tenant_editable: false
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: ai_capability_test_console
+    name: 测试窗口
+    path: /ai-capability-center/test-console
+    sort_order: 88
+    platform_only: true
+    tenant_visible: false
+    show_in_admin: true
     tenant_editable: false
     include_in_package: false
     data_perm_mode: NONE
   - code: ai_capability_settings
     name: 系统设置
     path: /ai-capability-center/settings
-    sort_order: 87
+    sort_order: 89
     platform_only: true
     tenant_visible: false
+    show_in_admin: true
     tenant_editable: false
     include_in_package: false
     data_perm_mode: NONE
@@ -137,6 +164,20 @@ permissions:
     name: 策略中心
     type: MENU
     menu_code: ai_capability_strategy
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: /ai-capability-center/usage-logs
+    name: 调用日志
+    type: MENU
+    menu_code: ai_capability_usage_logs
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: /ai-capability-center/test-console
+    name: 测试窗口
+    type: MENU
+    menu_code: ai_capability_test_console
     platform_only: true
     include_in_package: false
     data_perm_mode: NONE
@@ -204,6 +245,10 @@ apis:
     path: /api/ai-gateway/v1/invoke
     permission_code: ai_gateway:invoke
     audit: true
+  - method: GET
+    path: /api/ai-gateway/v1/video-tasks/{task_id}
+    permission_code: ai_gateway:invoke
+    audit: false
 package_features: []
 quotas: []
 documents:
