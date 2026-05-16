@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Plus, Upload } from '@element-plus/icons-vue'
+import { Plus } from '@element-plus/icons-vue'
 
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 
-import { createAiResource, fetchAiResource, importAiTenantStrategies } from '../api'
-import { emptyPage, includesKeyword, numberText, rowId, statusType, text, type AiRow } from './viewHelpers'
+import { createAiResource, fetchAiResource } from '../api'
+import { emptyPage, includesKeyword, numberText, rowId, statusText, statusType, text, type AiRow } from './viewHelpers'
 import AiJsonDialog from './AiJsonDialog.vue'
 import AiResourceActions from './AiResourceActions.vue'
 import './aiPrototype.css'
@@ -20,11 +20,14 @@ const quotaRules = ref(emptyPage())
 const rateRules = ref(emptyPage())
 const routes = ref(emptyPage())
 const createVisible = ref(false)
-const importVisible = ref(false)
 
 const filtered = computed(() => policies.value.items.filter((row) => includesKeyword(row, keyword.value, ['policy_name', 'tenant_ids', 'app_code', 'ai_scenario_code', 'description'])))
 const overrideCount = computed(() => policies.value.items.filter((row) => Boolean(row.override_base_route_id)).length)
 const warningCount = computed(() => quotaRules.value.items.filter((row) => Number(row.used_amount ?? 0) / Math.max(Number(row.quota_limit ?? 1), 1) * 100 >= Number(row.warning_threshold ?? 80)).length)
+const routeOptions = computed(() => routes.value.items.map((route) => ({
+  label: `${text(route.route_name)} / ${text(route.route_code)}`,
+  value: rowId(route),
+})))
 
 function routeName(routeId: unknown) {
   const route = routes.value.items.find((row) => rowId(row) === String(routeId || ''))
@@ -66,13 +69,6 @@ async function createPolicy(payload: AiRow) {
   await loadData()
 }
 
-async function importPolicies(payload: AiRow) {
-  const result = await importAiTenantStrategies(payload)
-  importVisible.value = false
-  ElMessage.success(`已导入策略 ${result.policies} 条、配额 ${result.quota_rules} 条、限流 ${result.rate_limit_rules} 条`)
-  await loadData()
-}
-
 onMounted(loadData)
 </script>
 
@@ -81,7 +77,6 @@ onMounted(loadData)
     <template #title>策略中心</template>
     <template #subtitle>一条租户策略统一表达路由覆盖、多维配额、多维限流和超限动作。</template>
     <template #actions>
-      <el-button :icon="Upload" @click="importVisible = true">导入策略</el-button>
       <el-button type="primary" :icon="Plus" @click="createVisible = true">新增策略</el-button>
     </template>
 
@@ -92,7 +87,6 @@ onMounted(loadData)
           <p class="ai-card__description">以租户策略为主对象，不再把配额/限流拆成独立主页面。</p>
         </div>
         <div class="ai-actions">
-          <el-button :icon="Upload" @click="importVisible = true">导入策略</el-button>
           <el-button type="primary" :icon="Plus" @click="createVisible = true">新增策略</el-button>
         </div>
       </header>
@@ -122,8 +116,8 @@ onMounted(loadData)
               <span class="ai-table-cell-main"><small v-for="rule in rateFor(row.id)" :key="rowId(rule)">QPS {{ numberText(rule.qps) }} · 并发 {{ numberText(rule.concurrency) }}</small></span>
             </template>
           </el-table-column>
-          <el-table-column label="状态" width="100"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ text(row.status) }}</el-tag></template></el-table-column>
-          <el-table-column label="操作" width="140"><template #default="{ row }"><AiResourceActions resource="tenant-strategies" :row="row" @saved="loadData" /></template></el-table-column>
+          <el-table-column label="状态" width="100"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag></template></el-table-column>
+          <el-table-column label="操作" width="140"><template #default="{ row }"><AiResourceActions resource="tenant-strategies" :row="row" :options="{ default_base_route_id: routeOptions, override_base_route_id: routeOptions }" @saved="loadData" /></template></el-table-column>
         </el-table>
       </div>
     </section>
@@ -148,13 +142,8 @@ onMounted(loadData)
       v-model="createVisible"
       title="新增租户策略"
       :sample="{ policy_name: '重点租户商品文案策略', tenant_scope: 'include', tenant_ids: ['tenant-a'], app_code: 'product_center', app_name: '商品中心', ai_scenario_code: 'product_copy_generate', ai_scenario_name: '商品文案生成', default_base_route_id: rowId(routes.items[0]), override_base_route_id: '', status: 'active' }"
+      :options="{ default_base_route_id: routeOptions, override_base_route_id: routeOptions }"
       @submit="createPolicy"
-    />
-    <AiJsonDialog
-      v-model="importVisible"
-      title="导入策略"
-      :sample="{ policies: [{ policy_name: '重点租户商品文案策略', tenant_scope: 'include', tenant_ids: ['tenant-a'], app_code: 'product_center', ai_scenario_code: 'product_copy_generate', default_base_route_id: rowId(routes.items[0]), status: 'active' }] }"
-      @submit="importPolicies"
     />
   </NeuroAgentPageShell>
 </template>

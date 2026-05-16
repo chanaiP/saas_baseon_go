@@ -74,3 +74,15 @@ export async function checkAiProviderAPIConnectivity(query: Record<string, strin
   }
   return unwrap(http.post<ApiResponse<{ total: number; active: number; warning: number; error: number }>>('/api/ai-capability-center/apis/connectivity-check', payload, { params }))
 }
+
+export async function invokeAiGateway(payload: Record<string, unknown>) {
+  return unwrap(http.post<ApiResponse<Record<string, unknown>>>('/api/ai-gateway/v1/invoke', payload))
+}
+
+export async function fetchAiGatewayVideoTask(taskId: string, requestId: string) {
+  return unwrap(
+    http.get<ApiResponse<Record<string, unknown>>>(`/api/ai-gateway/v1/video-tasks/${encodeURIComponent(taskId)}`, {
+      params: { request_id: requestId },
+    }),
+  )
+}

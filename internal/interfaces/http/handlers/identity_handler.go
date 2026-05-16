@@ -44,7 +44,7 @@ func (h *IdentityHandler) AuthRequired() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		if !h.routeAllowed(user, c.Request.Method, c.FullPath()) {
+		if !h.routeAllowedForRequest(user, c.Request.Method, c.FullPath(), c.Param("resource")) {
 			response.Error(c, 403, response.CodeForbidden, "无操作权限")
 			c.Abort()
 			return

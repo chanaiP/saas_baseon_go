@@ -134,6 +134,12 @@ operations:
     permission_code: menu:edit
     include_in_package: true
     feature_code: button_menu_edit
+  - code: menu_package_feature
+    name: 菜单-套餐中心收录
+    menu_code: menu_manage
+    permission_code: menu:package_feature
+    include_in_package: true
+    feature_code: button_menu_package_feature
   - code: dict_item_create
     name: 字典项-新增
     menu_code: dict_manage
@@ -154,10 +160,43 @@ operations:
     feature_code: button_dict_item_delete
   - code: brand_edit
     name: 品牌-维护
+    menu_code: menu_manage
     permission_code: brand:edit
     include_in_package: true
     feature_code: brand_config
 permissions:
+  - code: /tenants
+    name: 主体管理
+    type: MENU
+    menu_code: tenant_manage
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: /plans
+    name: 套餐中心
+    type: MENU
+    menu_code: plan_manage
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: /organization
+    name: 组织架构
+    type: MENU
+    menu_code: org_manage
+    include_in_package: true
+    data_perm_mode: ORG
+  - code: /positions
+    name: 岗位管理
+    type: MENU
+    menu_code: position_manage
+    include_in_package: true
+    data_perm_mode: ORG
+  - code: /business-units
+    name: 业务单元
+    type: MENU
+    menu_code: business_unit_manage
+    include_in_package: true
+    data_perm_mode: BU
   - code: /users
     name: 用户管理
     type: MENU
@@ -170,15 +209,70 @@ permissions:
     menu_code: role_manage
     include_in_package: true
     data_perm_mode: ORG
+  - code: /menus
+    name: 菜单管理
+    type: MENU
+    menu_code: menu_manage
+    include_in_package: true
+    data_perm_mode: NONE
+  - code: /dict
+    name: 数据字典
+    type: MENU
+    menu_code: dict_manage
+    include_in_package: true
+    data_perm_mode: ORG
+  - code: /params
+    name: 参数管理
+    type: MENU
+    menu_code: param_manage
+    include_in_package: true
+    data_perm_mode: ORG
+  - code: /audit-logs
+    name: 操作日志
+    type: MENU
+    menu_code: audit_log
+    include_in_package: true
+    data_perm_mode: ORG
+  - code: /login-logs
+    name: 登录日志
+    type: MENU
+    menu_code: login_log
+    include_in_package: true
+    data_perm_mode: ORG
   - code: menu:edit
     name: 菜单-编辑
     type: OPERATION
     menu_code: menu_manage
     include_in_package: true
     data_perm_mode: NONE
+  - code: menu:package_feature
+    name: 菜单-套餐中心收录
+    type: OPERATION
+    menu_code: menu_manage
+    include_in_package: true
+    data_perm_mode: NONE
+  - code: dict_item:create
+    name: 字典项-新增
+    type: OPERATION
+    menu_code: dict_manage
+    include_in_package: true
+    data_perm_mode: NONE
+  - code: dict_item:edit
+    name: 字典项-编辑
+    type: OPERATION
+    menu_code: dict_manage
+    include_in_package: true
+    data_perm_mode: NONE
+  - code: dict_item:delete
+    name: 字典项-删除
+    type: OPERATION
+    menu_code: dict_manage
+    include_in_package: true
+    data_perm_mode: NONE
   - code: brand:edit
     name: 品牌-维护
     type: CONFIG
+    menu_code: menu_manage
     include_in_package: true
     data_perm_mode: NONE
 apis:
@@ -230,6 +324,13 @@ package_features:
     feature_type: OPERATION
     parent_code: menu_manage
     source_code: menu:edit
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: button_menu_package_feature
+    feature_name: 菜单-套餐中心收录
+    feature_type: OPERATION
+    parent_code: menu_manage
+    source_code: menu:package_feature
     package_policy: IN_PACKAGE
     include_in_package: true
   - feature_code: dict_manage

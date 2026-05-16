@@ -180,6 +180,12 @@ operations:
     include_in_package: true
     feature_code: button_demo_create
 permissions:
+  - code: /demo
+    name: 示例列表
+    type: MENU
+    menu_code: demo_list
+    include_in_package: true
+    data_perm_mode: ORG
   - code: demo:create
     name: 示例-新增
     type: OPERATION
@@ -611,6 +617,241 @@ func validateManifest(manifest AppManifest) ([]string, []string) {
 	if strings.EqualFold(strings.TrimSpace(manifest.App.DeploymentMode), "STANDALONE") {
 		blockers = append(blockers, validateStandaloneManifest(manifest.App)...)
 	}
+	if strings.EqualFold(defaultString(manifest.FragmentRole, "main"), "main") {
+		topologyBlockers, topologyWarnings := validateManifestTopology(manifest)
+		blockers = append(blockers, topologyBlockers...)
+		warnings = append(warnings, topologyWarnings...)
+	}
+	return blockers, warnings
+}
+
+func validateManifestTopology(manifest AppManifest) ([]string, []string) {
+	blockers := []string{}
+	warnings := []string{}
+	appPlatformOnly := strings.EqualFold(strings.TrimSpace(manifest.App.VisibilityScope), "PLATFORM_ONLY") &&
+		!strings.EqualFold(strings.TrimSpace(manifest.App.PackagePolicy), "MIXED")
+	appNonSellable := strings.EqualFold(strings.TrimSpace(manifest.App.PackagePolicy), "NON_SELLABLE")
+
+	menuByCode := map[string]ManifestMenu{}
+	menuCodeByPath := map[string]string{}
+	menuPermissionByCode := map[string]ManifestPermission{}
+	permissionByCode := map[string]ManifestPermission{}
+	operationPermissionByCode := map[string]ManifestOperation{}
+	featureByCode := map[string]ManifestPackageFeature{}
+	quotaByCode := map[string]ManifestQuota{}
+	apiByKey := map[string]ManifestAPI{}
+
+	for _, menu := range manifest.Menus {
+		code := strings.TrimSpace(menu.Code)
+		path := strings.TrimSpace(menu.Path)
+		if code == "" {
+			blockers = append(blockers, "menus[].code 不能为空")
+			continue
+		}
+		if _, exists := menuByCode[code]; exists {
+			blockers = append(blockers, "菜单 code 重复："+code)
+			continue
+		}
+		menuByCode[code] = menu
+		if path == "" {
+			blockers = append(blockers, "菜单 "+code+" 必须声明 path")
+		} else {
+			if previous, exists := menuCodeByPath[path]; exists {
+				blockers = append(blockers, "菜单 path 重复："+path+"（"+previous+" / "+code+"）")
+			}
+			menuCodeByPath[path] = code
+		}
+		if appPlatformOnly && !menu.PlatformOnly {
+			blockers = append(blockers, "平台专属应用的菜单必须 platform_only=true："+code)
+		}
+		if appPlatformOnly && menu.IncludeInPackage {
+			blockers = append(blockers, "平台专属应用的菜单不能 include_in_package=true："+code)
+		}
+	}
+
+	for _, perm := range manifest.Permissions {
+		code := strings.TrimSpace(perm.Code)
+		if code == "" {
+			blockers = append(blockers, "permissions[].code 不能为空")
+			continue
+		}
+		if _, exists := permissionByCode[code]; exists {
+			blockers = append(blockers, "权限 code 重复："+code)
+			continue
+		}
+		permissionByCode[code] = perm
+		menuCode := strings.TrimSpace(perm.MenuCode)
+		if menuCode != "" {
+			if _, exists := menuByCode[menuCode]; !exists {
+				blockers = append(blockers, "权限 "+code+" 的 menu_code 不存在："+menuCode)
+			}
+		}
+		if strings.EqualFold(strings.TrimSpace(perm.Type), "MENU") {
+			if menuCode == "" {
+				blockers = append(blockers, "MENU 权限必须声明 menu_code："+code)
+			} else if _, exists := menuPermissionByCode[menuCode]; exists {
+				blockers = append(blockers, "菜单 "+menuCode+" 只能绑定一个 MENU 权限")
+			} else {
+				menuPermissionByCode[menuCode] = perm
+			}
+		}
+		if appPlatformOnly && !perm.PlatformOnly {
+			blockers = append(blockers, "平台专属应用的权限必须 platform_only=true："+code)
+		}
+		if appPlatformOnly && perm.IncludeInPackage {
+			blockers = append(blockers, "平台专属应用的权限不能 include_in_package=true："+code)
+		}
+	}
+
+	for code, menu := range menuByCode {
+		path := strings.TrimSpace(menu.Path)
+		if path == "" {
+			continue
+		}
+		perm, exists := menuPermissionByCode[code]
+		if !exists {
+			blockers = append(blockers, "菜单 "+code+" 的 path 必须声明对应 MENU 权限："+path)
+			continue
+		}
+		if strings.TrimSpace(perm.Code) != path {
+			blockers = append(blockers, "菜单 "+code+" 的 MENU 权限 code 必须等于 path："+path)
+		}
+	}
+
+	for _, op := range manifest.Operations {
+		code := strings.TrimSpace(op.Code)
+		permissionCode := strings.TrimSpace(defaultString(op.PermissionCode, op.Code))
+		if code == "" {
+			blockers = append(blockers, "operations[].code 不能为空")
+			continue
+		}
+		if permissionCode == "" {
+			blockers = append(blockers, "操作 "+code+" 必须声明 permission_code")
+		} else {
+			if _, exists := operationPermissionByCode[permissionCode]; exists {
+				blockers = append(blockers, "操作权限码重复："+permissionCode)
+			}
+			operationPermissionByCode[permissionCode] = op
+		}
+		menuCode := strings.TrimSpace(op.MenuCode)
+		if menuCode == "" {
+			blockers = append(blockers, "操作 "+code+" 必须声明 menu_code")
+		} else if _, exists := menuByCode[menuCode]; !exists {
+			blockers = append(blockers, "操作 "+code+" 的 menu_code 不存在："+menuCode)
+		}
+		if appPlatformOnly && !op.PlatformOnly {
+			blockers = append(blockers, "平台专属应用的操作必须 platform_only=true："+code)
+		}
+		if appPlatformOnly && op.IncludeInPackage {
+			blockers = append(blockers, "平台专属应用的操作不能 include_in_package=true："+code)
+		}
+	}
+
+	for _, api := range manifest.APIs {
+		method := strings.ToUpper(strings.TrimSpace(api.Method))
+		path := strings.TrimSpace(api.Path)
+		key := method + " " + path
+		if method == "" || path == "" {
+			blockers = append(blockers, "apis[].method 和 apis[].path 不能为空")
+			continue
+		}
+		if _, exists := apiByKey[key]; exists {
+			blockers = append(blockers, "API 重复："+key)
+			continue
+		}
+		apiByKey[key] = api
+		permissionCode := strings.TrimSpace(api.PermissionCode)
+		if !api.Public {
+			if permissionCode == "" {
+				blockers = append(blockers, "非公开 API 必须声明 permission_code："+key)
+			} else if _, exists := permissionByCode[permissionCode]; !exists {
+				if _, opExists := operationPermissionByCode[permissionCode]; !opExists {
+					blockers = append(blockers, "API "+key+" 的 permission_code 不存在："+permissionCode)
+				}
+			}
+		}
+	}
+
+	for _, feature := range manifest.PackageFeatures {
+		code := strings.TrimSpace(feature.FeatureCode)
+		if code == "" {
+			blockers = append(blockers, "package_features[].feature_code 不能为空")
+			continue
+		}
+		if _, exists := featureByCode[code]; exists {
+			blockers = append(blockers, "套餐功能点 code 重复："+code)
+			continue
+		}
+		featureByCode[code] = feature
+		sourceCode := strings.TrimSpace(feature.SourceCode)
+		if sourceCode != "" {
+			if _, menuExists := menuByCode[sourceCode]; !menuExists {
+				if _, permExists := permissionByCode[sourceCode]; !permExists {
+					if _, opExists := operationPermissionByCode[sourceCode]; !opExists {
+						blockers = append(blockers, "套餐功能点 "+code+" 的 source_code 不存在："+sourceCode)
+					}
+				}
+			}
+		}
+		if appPlatformOnly && feature.IncludeInPackage {
+			blockers = append(blockers, "平台专属应用不能声明进入套餐的功能点："+code)
+		}
+	}
+
+	for _, quota := range manifest.Quotas {
+		code := strings.TrimSpace(quota.QuotaCode)
+		if code == "" {
+			blockers = append(blockers, "quotas[].quota_code 不能为空")
+			continue
+		}
+		if _, exists := quotaByCode[code]; exists {
+			blockers = append(blockers, "配额 code 重复："+code)
+			continue
+		}
+		quotaByCode[code] = quota
+		if quota.IncludeInPackage && (appPlatformOnly || appNonSellable) {
+			blockers = append(blockers, "非售卖或平台专属应用不能声明进入套餐的配额："+code)
+		}
+	}
+
+	for _, menu := range manifest.Menus {
+		if !menu.IncludeInPackage {
+			continue
+		}
+		featureCode := strings.TrimSpace(menu.FeatureCode)
+		if featureCode == "" {
+			blockers = append(blockers, "进入套餐的菜单必须声明 feature_code："+strings.TrimSpace(menu.Code))
+			continue
+		}
+		if _, exists := featureByCode[featureCode]; !exists {
+			blockers = append(blockers, "菜单 "+strings.TrimSpace(menu.Code)+" 的 feature_code 未在 package_features 声明："+featureCode)
+		}
+	}
+	for _, op := range manifest.Operations {
+		if !op.IncludeInPackage {
+			continue
+		}
+		featureCode := strings.TrimSpace(op.FeatureCode)
+		if featureCode == "" {
+			blockers = append(blockers, "进入套餐的操作必须声明 feature_code："+strings.TrimSpace(op.Code))
+			continue
+		}
+		if _, exists := featureByCode[featureCode]; !exists {
+			blockers = append(blockers, "操作 "+strings.TrimSpace(op.Code)+" 的 feature_code 未在 package_features 声明："+featureCode)
+		}
+	}
+	for _, perm := range manifest.Permissions {
+		if !perm.IncludeInPackage {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(perm.Type), "MENU") {
+			menu, exists := menuByCode[strings.TrimSpace(perm.MenuCode)]
+			if !exists || !menu.IncludeInPackage {
+				warnings = append(warnings, "MENU 权限进入套餐应由对应菜单 feature_code 承载："+strings.TrimSpace(perm.Code))
+			}
+		}
+	}
+
 	return blockers, warnings
 }
 

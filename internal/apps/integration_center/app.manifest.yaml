@@ -429,7 +429,7 @@ package_features:
   - feature_code: integration_tenant_authorization
     feature_name: 第三方集成授权连接
     feature_type: FEATURE
-    source_code: integration_tenant_authorization
+    source_code: integration_my_connections
     package_policy: IN_PACKAGE
     include_in_package: true
     description: 租户侧通过平台服务商应用创建第三方授权连接实例
@@ -437,7 +437,7 @@ package_features:
     feature_name: 第三方数据同步
     feature_type: FEATURE
     parent_code: integration_tenant_authorization
-    source_code: integration_data_sync
+    source_code: integration_sync_monitor
     package_policy: IN_PACKAGE
     include_in_package: true
     description: 第三方平台订单、组织、成员、商品等数据进入数据中心和 Agent 数据源

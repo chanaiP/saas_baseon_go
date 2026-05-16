@@ -883,6 +883,7 @@ func seedSystemParams(db *gorm.DB, tenantID uint64) error {
 		{TenantID: tenantID, Key: "security.password_min_length", Value: "8", Remark: "用户密码最小长度", ValueType: "number", TenantEditable: false},
 		{TenantID: tenantID, Key: "security.password_require_complexity", Value: "true", Remark: "用户密码是否要求复杂度校验", ValueType: "boolean", TenantEditable: false},
 		{TenantID: tenantID, Key: "audit.log_retention_days", Value: "180", Remark: "审计日志默认保留天数", ValueType: "number", TenantEditable: false},
+		{TenantID: tenantID, Key: "ai.gateway.content_record_level", Value: "1", Remark: "AI Gateway 内容记录级别：0 不记录，1 记录概要，2 记录脱敏内容，3 记录完整内容；级别 3 仅允许平台授权排障，必须审计复核并按保留周期清理", ValueType: "number", TenantEditable: false, IsPlatformOnly: true},
 	}
 	for _, param := range params {
 		err := db.Clauses(clause.OnConflict{DoNothing: true}).Where("tenant_id = ? AND param_key = ?", param.TenantID, param.Key).Create(&param).Error
@@ -1135,7 +1136,6 @@ func upsertAIProviderSeed(db *gorm.DB, seed aiProviderSeed, index int) (string, 
 		"type":           seed.providerType,
 		"base_url":       seed.baseURL,
 		"auth_type":      seed.authType,
-		"status":         "active",
 		"priority":       100 - index,
 		"region":         seed.region,
 		"qps_limit":      seed.qpsLimit,
@@ -1167,13 +1167,11 @@ func upsertAIProviderAccountAndAPIs(db *gorm.DB, providerID string, seed aiProvi
 	}
 	if err := db.Model(&account).Updates(map[string]interface{}{
 		"endpoint":           seed.baseURL,
-		"key_alias":          account.KeyAlias,
 		"login_method":       account.LoginMethod,
 		"login_account":      account.LoginAccount,
 		"maintainer":         account.Maintainer,
 		"maintainer_contact": account.MaintainerContact,
 		"quota_limit":        seed.monthlyBudget,
-		"status":             "active",
 		"updated_at":         time.Now(),
 		"deleted_at":         nil,
 	}).Error; err != nil {
@@ -1196,17 +1194,15 @@ func upsertAIProviderAccountAndAPIs(db *gorm.DB, providerID string, seed aiProvi
 		if err := db.Where("provider_id = ? AND account_id = ? AND api_name = ?", providerID, account.ID, api.name).Order("deleted_at IS NULL DESC").FirstOrCreate(&row).Error; err != nil {
 			return err
 		}
-		if err := db.Model(&row).Updates(map[string]interface{}{
-			"api_path":     api.path,
-			"api_type":     api.apiType,
-			"capabilities": aiJSONB(api.capabilities),
-			"auth_type":    seed.authType,
-			"qps_limit":    api.qpsLimit,
-			"timeout_ms":   api.timeoutMS,
-			"status":       "active",
-			"updated_at":   time.Now(),
-			"deleted_at":   nil,
-		}).Error; err != nil {
+			if err := db.Model(&row).Updates(map[string]interface{}{
+				"api_type":     api.apiType,
+				"capabilities": aiJSONB(api.capabilities),
+				"auth_type":    seed.authType,
+				"qps_limit":    api.qpsLimit,
+				"timeout_ms":   api.timeoutMS,
+				"updated_at":   time.Now(),
+				"deleted_at":   nil,
+			}).Error; err != nil {
 			return err
 		}
 	}

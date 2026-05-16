@@ -866,7 +866,6 @@ onMounted(async () => {
                     </span>
                     <div class="tc-footer-actions">
                       <el-button v-permission="'tenant:edit'" size="default" @click.stop="openEdit(items.find(x => x.id === card.id)!)" class="tc-action-btn">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                         编辑
                       </el-button>
                       <el-dropdown
@@ -2257,9 +2256,13 @@ onMounted(async () => {
 .tc-action-btn {
   display: inline-flex !important;
   align-items: center !important;
+  justify-content: center !important;
   gap: 6px;
-  padding: 8px 16px !important;
-  height: auto !important;
+  box-sizing: border-box !important;
+  min-width: 68px;
+  height: 36px !important;
+  min-height: 36px !important;
+  padding: 0 16px !important;
   line-height: 1 !important;
   border: 1px solid var(--nm-border) !important;
   border-radius: 12px !important;
@@ -2284,10 +2287,13 @@ onMounted(async () => {
   align-items: center !important;
   justify-content: center !important;
   gap: 0 !important;
-  padding: 8px 14px !important;
-  height: auto !important;
+  box-sizing: border-box !important;
+  width: 48px;
+  min-width: 48px;
+  height: 36px !important;
+  min-height: 36px !important;
+  padding: 0 !important;
   line-height: 1 !important;
-  min-height: unset !important;
   border: 1px solid var(--nm-border) !important;
   border-radius: 12px !important;
   background: var(--nm-bg-elevated) !important;

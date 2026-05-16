@@ -40,6 +40,8 @@ func TestRequiredPermissionForOperationRoutes(t *testing.T) {
 	require.Equal(t, "/integration-center/my-connections", requiredPermission("POST", "/api/integration-center/my-connections"))
 	require.Equal(t, "/integration-center/my-connections", requiredPermission("POST", "/api/integration-center/my-oauth/start"))
 	require.Equal(t, "integration_center:connection_manage", requiredPermission("POST", "/api/integration-center/gateway/invoke"))
+	require.Equal(t, "ai_gateway:invoke", requiredPermission("POST", "/api/ai-gateway/v1/invoke"))
+	require.Equal(t, "ai_gateway:invoke", requiredPermission("GET", "/api/ai-gateway/v1/video-tasks/:task_id"))
 }
 
 func TestRequiredPermissionForMenuRoutes(t *testing.T) {

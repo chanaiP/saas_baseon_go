@@ -7,9 +7,12 @@ import type { AiResource } from '../types'
 import { rowId, type AiRow } from './viewHelpers'
 import AiJsonDialog from './AiJsonDialog.vue'
 
+type FieldOption = { label: string; value: string | number }
+
 const props = defineProps<{
   resource: AiResource
   row: AiRow
+  options?: Record<string, FieldOption[]>
 }>()
 
 const emit = defineEmits<{
@@ -41,6 +44,7 @@ async function remove() {
       v-model="editVisible"
       title="编辑配置"
       :sample="row"
+      :options="options"
       @submit="save"
     />
   </div>

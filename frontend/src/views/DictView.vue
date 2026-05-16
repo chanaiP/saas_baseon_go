@@ -6,7 +6,7 @@ import {
   createDictType,
   deleteDictItem,
   deleteDictType,
-  fetchDictItems,
+  fetchDictItemsByCode,
   fetchDictTypes,
   restoreDictItemDefault,
   updateDictItem,
@@ -46,8 +46,64 @@ const tEditId = ref<number | null>(null)
 
 const dlgI = ref(false)
 const dlgIEdit = ref(false)
-const iForm = ref({ label: '', value: '', sort_order: 0, enabled: true })
+const iForm = ref<{
+  parent_id: number | null
+  label: string
+  value: string
+  sort_order: number
+  enabled: boolean
+}>({ parent_id: null, label: '', value: '', sort_order: 0, enabled: true })
 const iEdit = ref<DictItemRow | null>(null)
+
+type DictItemTreeRow = DictItemRow & { children?: DictItemTreeRow[] }
+
+const isTreeDict = computed(() => items.value.some((item) => item.parent_id != null))
+
+const displayItems = computed<DictItemTreeRow[]>(() => {
+  if (!isTreeDict.value) return items.value as DictItemTreeRow[]
+  const rowMap = new Map<number, DictItemTreeRow>()
+  const roots: DictItemTreeRow[] = []
+  items.value.forEach((item) => rowMap.set(item.id, { ...item, children: [] }))
+  rowMap.forEach((item) => {
+    const parentID = item.parent_id
+    const parent = parentID == null ? null : rowMap.get(parentID)
+    if (parent) parent.children!.push(item)
+    else roots.push(item)
+  })
+  const pruneEmptyChildren = (rows: DictItemTreeRow[]) => {
+    rows.forEach((row) => {
+      if (row.children?.length) pruneEmptyChildren(row.children)
+      else delete row.children
+    })
+  }
+  pruneEmptyChildren(roots)
+  return roots
+})
+
+function collectDescendantIDs(parentID: number): Set<number> {
+  const result = new Set<number>()
+  const pending = [parentID]
+  while (pending.length > 0) {
+    const current = pending.pop()
+    items.value.forEach((item) => {
+      if (item.parent_id === current && !result.has(item.id)) {
+        result.add(item.id)
+        pending.push(item.id)
+      }
+    })
+  }
+  return result
+}
+
+const parentItemOptions = computed(() => {
+  const currentID = iEdit.value?.id
+  const blocked = currentID ? collectDescendantIDs(currentID) : new Set<number>()
+  return items.value
+    .filter((item) => item.id !== currentID && !blocked.has(item.id))
+    .map((item) => ({ label: `${item.label} / ${item.value}`, value: item.id }))
+})
+
+const canManageCurrentItems = computed(() => Boolean(currentType.value) && (isPlatformAdmin.value || currentType.value?.tenant_editable !== false))
 
 const dictTypeFilterFields = computed<FilterField[]>(() => {
   const rows: FilterField[] = [
@@ -109,10 +165,9 @@ async function loadItems() {
   }
   loadingI.value = true
   try {
-    const skip = (pageI.value - 1) * limitI.value
-    const res = await fetchDictItems(currentType.value.id, skip, limitI.value)
+    const res = await fetchDictItemsByCode(currentType.value.code)
     items.value = res.items
-    totalI.value = res.total
+    totalI.value = res.items.length
   } finally {
     loadingI.value = false
   }
@@ -218,13 +273,26 @@ async function removeType(row: DictTypeRow) {
 function openItemDlg() {
   if (!currentType.value) return
   iEdit.value = null
-  iForm.value = { label: '', value: '', sort_order: 0, enabled: true }
+  iForm.value = { parent_id: null, label: '', value: '', sort_order: 0, enabled: true }
+  dlgI.value = true
+}
+
+function openChildItemDlg(row: DictItemRow) {
+  if (!currentType.value) return
+  iEdit.value = null
+  iForm.value = { parent_id: row.id, label: '', value: '', sort_order: 0, enabled: true }
   dlgI.value = true
 }
 
 function openItemEdit(row: DictItemRow) {
   iEdit.value = row
-  iForm.value = { label: row.label, value: row.value, sort_order: row.sort_order, enabled: row.enabled !== false }
+  iForm.value = {
+    parent_id: row.parent_id ?? null,
+    label: row.label,
+    value: row.value,
+    sort_order: row.sort_order,
+    enabled: row.enabled !== false,
+  }
   dlgIEdit.value = true
 }
 
@@ -232,6 +300,7 @@ async function saveItem() {
   if (!currentType.value) return
   await createDictItem({
     dict_type_id: currentType.value.id,
+    parent_id: iForm.value.parent_id,
     label: iForm.value.label,
     value: iForm.value.value,
     sort_order: iForm.value.sort_order,
@@ -244,6 +313,7 @@ async function saveItem() {
 async function saveItemEdit() {
   if (!iEdit.value) return
   await updateDictItem(iEdit.value.id, {
+    parent_id: iForm.value.parent_id,
     label: iForm.value.label,
     value: iForm.value.value,
     sort_order: iForm.value.sort_order,
@@ -279,7 +349,7 @@ const itemColumns = computed<TableColumn[]>(() => [
   { key: 'sort_order', title: '排序', minWidth: 96, width: 96, align: 'center' },
   { key: 'enabled', title: '启用', minWidth: 96, width: 96, align: 'center' },
   { key: 'is_override', title: '覆盖', minWidth: 96, width: 96, align: 'center', hidden: isPlatformAdmin.value },
-  { key: 'actions', title: '操作', width: isPlatformAdmin.value ? 184 : 240, minWidth: isPlatformAdmin.value ? 184 : 240, tooltip: false },
+  { key: 'actions', title: '操作', width: canManageCurrentItems.value ? 280 : 180, minWidth: canManageCurrentItems.value ? 280 : 180, tooltip: false },
 ])
 
 onMounted(() => void loadTypes())
@@ -299,7 +369,7 @@ onMounted(() => void loadTypes())
           :page="pageT"
           :page-size="limitT"
           :page-sizes="[10, 20, 50]"
-          :show-create="isPlatformAdmin"
+          :show-create="canManageCurrentItems"
           :show-selection="false"
           :current-row-id="currentType?.id ?? undefined"
           :filter-fields="dictTypeFilterFields"
@@ -343,12 +413,15 @@ onMounted(() => void loadTypes())
           mode="el-table"
           :title="`字典项 · ${currentType.name}`"
           :columns="itemColumns"
-          :data="items"
+          :data="displayItems"
           :loading="loadingI"
-          :total="totalI"
           :page="pageI"
           :page-size="limitI"
           :page-sizes="[10, 20, 50]"
+          row-key="id"
+          :default-expand-all="isTreeDict"
+          :skip-client-sort="isTreeDict"
+          :show-pagination="!isTreeDict"
           :show-create="isPlatformAdmin"
           :show-selection="false"
           @create="openItemDlg"
@@ -356,7 +429,7 @@ onMounted(() => void loadTypes())
           @page-size-change="onItemPageSizeChange"
         >
           <template #actions>
-            <el-button v-if="isPlatformAdmin" v-permission="'dict_item:create'" class="btn-gradient" @click="openItemDlg">新增</el-button>
+            <el-button v-if="canManageCurrentItems" v-permission="'dict_item:create'" class="btn-gradient" @click="openItemDlg">新增</el-button>
           </template>
           <template #col-enabled="{ row }">
             <el-tag
@@ -383,8 +456,9 @@ onMounted(() => void loadTypes())
               >
                 {{ isPlatformAdmin ? '编辑' : '覆盖' }}
               </el-button>
+              <el-button v-if="canManageCurrentItems" v-permission="'dict_item:create'" @click="openChildItemDlg(row)">增加子项</el-button>
               <el-button v-if="!isPlatformAdmin" :disabled="!row.is_override" @click="restoreItem(row)">恢复默认</el-button>
-              <el-button v-if="isPlatformAdmin" v-permission="'dict_item:delete'" type="danger" @click="removeItem(row)">删除</el-button>
+              <el-button v-if="isPlatformAdmin || row.is_custom" v-permission="'dict_item:delete'" type="danger" @click="removeItem(row)">删除</el-button>
             </span>
           </template>
         </NeuroAgentListPage>
@@ -457,6 +531,17 @@ onMounted(() => void loadTypes())
 
     <NeuroAgentDialog v-model="dlgI" title="新增字典项" icon="📋" size="small">
       <div class="nm-form">
+        <div class="nm-form-item">
+          <label class="nm-form-label">上级项</label>
+          <el-select v-model="iForm.parent_id" clearable filterable placeholder="无上级，作为一级项">
+            <el-option
+              v-for="opt in parentItemOptions"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
+          </el-select>
+        </div>
         <div class="nm-form-row">
           <div class="nm-form-item">
             <label class="nm-form-label">标签</label>
@@ -483,6 +568,17 @@ onMounted(() => void loadTypes())
 
     <NeuroAgentDialog v-model="dlgIEdit" title="编辑字典项" icon="📋" size="small">
       <div class="nm-form">
+        <div class="nm-form-item">
+          <label class="nm-form-label">上级项</label>
+          <el-select v-model="iForm.parent_id" clearable filterable placeholder="无上级，作为一级项">
+            <el-option
+              v-for="opt in parentItemOptions"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
+          </el-select>
+        </div>
         <div class="nm-form-row">
           <div class="nm-form-item">
             <label class="nm-form-label">标签</label>

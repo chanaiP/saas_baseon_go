@@ -178,6 +178,7 @@ func openAPISpec() gin.H {
 			"/api/ai-capability-center/{resource}":                       gin.H{"get": api("ai-capability-center", "AI 能力中心资源列表"), "post": api("ai-capability-center", "新增 AI 能力中心资源")},
 			"/api/ai-capability-center/{resource}/{id}":                  gin.H{"put": api("ai-capability-center", "更新 AI 能力中心资源"), "delete": api("ai-capability-center", "删除 AI 能力中心资源")},
 			"/api/ai-gateway/v1/invoke":                                  gin.H{"post": api("ai-capability-center", "AI Gateway 调用")},
+			"/api/ai-gateway/v1/video-tasks/{task_id}":                   gin.H{"get": api("ai-capability-center", "AI Gateway 视频任务查询")},
 			"/api/integration-center/overview":                           gin.H{"get": api("integration-center", "第三方集成中心总览")},
 			"/api/integration-center/connectivity-check":                 gin.H{"post": api("integration-center", "全局连通性检测")},
 			"/api/integration-center/gateway/invoke":                     gin.H{"post": api("integration-center", "第三方 API 网关调用")},

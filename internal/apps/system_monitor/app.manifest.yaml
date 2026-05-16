@@ -82,6 +82,41 @@ permissions:
     platform_only: true
     include_in_package: false
     data_perm_mode: NONE
+  - code: /monitor/server
+    name: 服务器信息
+    type: MENU
+    menu_code: monserver
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: /monitor/jobs
+    name: 定时任务
+    type: MENU
+    menu_code: monjobs
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: /monitor/services
+    name: 服务监控
+    type: MENU
+    menu_code: monservices
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: /monitor/cache
+    name: 缓存监控
+    type: MENU
+    menu_code: moncache
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: /monitor/cache-keys
+    name: 缓存列表
+    type: MENU
+    menu_code: moncachekeys
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
 apis:
   - method: GET
     path: /api/monitor/health

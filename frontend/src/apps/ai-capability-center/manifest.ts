@@ -9,6 +9,8 @@ export const aiCapabilityCenterManifest = {
     '/ai-capability-center/scenarios',
     '/ai-capability-center/routes',
     '/ai-capability-center/strategy',
+    '/ai-capability-center/usage-logs',
+    '/ai-capability-center/test-console',
     '/ai-capability-center/settings',
   ],
 }

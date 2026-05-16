@@ -325,6 +325,7 @@ CREATE TABLE public.dict_item (
     id bigint NOT NULL,
     tenant_id bigint NOT NULL,
     dict_type_id bigint NOT NULL,
+    parent_id bigint,
     label character varying(200) NOT NULL,
     value character varying(200) NOT NULL,
     sort_order bigint DEFAULT 0 NOT NULL,
@@ -2007,6 +2008,8 @@ CREATE INDEX idx_business_unit_tenant_status_deleted ON public.business_unit USI
 
 CREATE INDEX idx_dict_item_dict_type_id ON public.dict_item USING btree (dict_type_id);
 
+CREATE INDEX idx_dict_item_parent_id ON public.dict_item USING btree (parent_id);
+
 
 --
 -- Name: idx_dict_item_tenant_id; Type: INDEX; Schema: public; Owner: -
@@ -2906,10 +2909,17 @@ CREATE TABLE IF NOT EXISTS ai_usage_records (
   platform_unit VARCHAR(32),
   platform_amount NUMERIC(18, 6) NOT NULL DEFAULT 0,
   latency_ms INT NOT NULL DEFAULT 0,
+  provider_http_status INT NOT NULL DEFAULT 0,
+  provider_request_id VARCHAR(200),
+  started_at TIMESTAMPTZ,
+  finished_at TIMESTAMPTZ,
+  retry_count INT NOT NULL DEFAULT 0,
   status VARCHAR(32) NOT NULL,
   error_code VARCHAR(100),
   error_message TEXT,
   request_params JSONB NOT NULL DEFAULT '{}'::jsonb,
+  data_source VARCHAR(32) NOT NULL DEFAULT 'gateway',
+  is_demo BOOLEAN NOT NULL DEFAULT false,
   prompt_hash VARCHAR(128),
   response_hash VARCHAR(128),
   called_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -2937,6 +2947,8 @@ CREATE INDEX IF NOT EXISTS idx_ai_provider_apis_provider_account ON ai_provider_
 CREATE INDEX IF NOT EXISTS idx_ai_provider_apis_health ON ai_provider_apis(health_status, health_checked_at) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_ai_models_provider_status ON ai_models(provider_id, status) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_ai_base_routes_capability_status ON ai_base_routes(capability_code, status) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_ai_usage_demo_source_time ON ai_usage_records(is_demo, data_source, called_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_provider_request_id ON ai_usage_records(provider_request_id) WHERE provider_request_id IS NOT NULL AND provider_request_id <> '';
 CREATE INDEX IF NOT EXISTS idx_ai_usage_tenant_time ON ai_usage_records(tenant_id, called_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ai_usage_app_scenario_time ON ai_usage_records(app_code, ai_scenario_code, called_at DESC);
 

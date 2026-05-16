@@ -229,6 +229,12 @@ menus:
     name: 客户列表
     path: /crm
     include_in_package: true
+    feature_code: crm_manage
+permissions:
+  - code: /crm
+    name: 客户列表
+    type: MENU
+    menu_code: crm_list
 package_features:
   - feature_code: crm_manage
     feature_name: 客户管理
@@ -242,7 +248,7 @@ quotas:
 `))
 
 	require.NoError(t, err)
-	require.True(t, result.Valid)
+	require.True(t, result.Valid, "blockers: %v", result.Blockers)
 	require.True(t, result.Importable)
 	require.Equal(t, "crm-suite", result.AppCode)
 	require.Equal(t, "客户管理", result.AppName)
@@ -264,13 +270,13 @@ func TestAppCenterParseAICapabilityCenterManifest(t *testing.T) {
 	result, err := service.ParseManifestContent(context.Background(), 1, "app.manifest.yaml", raw)
 
 	require.NoError(t, err)
-	require.True(t, result.Valid)
+	require.True(t, result.Valid, "blockers: %v", result.Blockers)
 	require.Equal(t, "ai-capability-center", result.AppCode)
 	require.Equal(t, "PLATFORM_ONLY", result.VisibilityScope)
 	require.Equal(t, "NON_SELLABLE", result.ChargePolicy)
 	require.Equal(t, "NONE", result.BillingMode)
 	require.Equal(t, "NON_SELLABLE", result.PackagePolicy)
-	require.Equal(t, 7, result.Counts.Menus)
+	require.Equal(t, 9, result.Counts.Menus)
 	require.Equal(t, 0, result.Counts.PackageFeatures)
 	require.Equal(t, 0, result.Counts.Quotas)
 	require.NotEmpty(t, result.ManifestHash)
@@ -285,7 +291,7 @@ func TestAppCenterParseIntegrationCenterManifest(t *testing.T) {
 
 	result, err := service.ParseManifestContent(context.Background(), 1, "app.manifest.yaml", raw)
 	require.NoError(t, err)
-	require.True(t, result.Valid)
+	require.True(t, result.Valid, "blockers: %v", result.Blockers)
 	require.Empty(t, result.Blockers)
 	require.Equal(t, "integration-center", result.AppCode)
 	require.Equal(t, 9, result.Counts.Menus)
@@ -342,7 +348,7 @@ func TestAppCenterLoadPlatformOnlyManifestKeepsAssetsOutOfPackages(t *testing.T)
 
 	var permissionCount int64
 	require.NoError(t, db.Model(&models.Permission{}).Where("app_code = ? AND enabled = ?", "ai-capability-center", true).Count(&permissionCount).Error)
-	require.Equal(t, int64(9), permissionCount)
+	require.Equal(t, int64(11), permissionCount)
 
 	var rolePermissionCount int64
 	require.NoError(t, db.Table("role_permission rp").
@@ -536,6 +542,11 @@ menus:
   - code: crm_list
     name: 客户列表
     path: /crm
+permissions:
+  - code: /crm
+    name: 客户列表
+    type: MENU
+    menu_code: crm_list
 package_features:
   - feature_code: crm_manage
     feature_name: 客户管理
@@ -554,6 +565,11 @@ operations:
   - code: crm_export
     name: 导出客户
     permission_code: crm:export
+    menu_code: crm_list
+permissions:
+  - code: crm:export
+    name: 导出客户
+    type: BUTTON
 package_features:
   - feature_code: button_crm_export
     feature_name: 导出客户
@@ -568,7 +584,7 @@ package_features:
 	require.Len(t, result.Groups, 1)
 	group := result.Groups[0]
 	require.Equal(t, "crm-suite", group.AppCode)
-	require.True(t, group.Loadable)
+	require.True(t, group.Loadable, "blockers: %v", group.Blockers)
 	require.Equal(t, 2, group.FragmentCount)
 	require.Equal(t, 1, group.MainCount)
 	require.ElementsMatch(t, []string{"PC_WEB", "H5"}, group.Merged.ClientCodes)
@@ -650,6 +666,11 @@ operations:
     include_in_package: true
     feature_code: button_ops_export
 permissions:
+  - code: /ops/dashboard
+    name: 运营看板
+    type: MENU
+    menu_code: ops_dashboard
+    include_in_package: true
   - code: ops:read
     name: 查看运营数据
     type: OPERATION
@@ -729,7 +750,7 @@ quotas:
 	require.NotNil(t, detail.Assets)
 	require.Len(t, detail.Assets.Entries, 1)
 	require.Len(t, detail.Assets.APIs, 1)
-	require.Len(t, detail.Assets.Permissions, 2)
+	require.Len(t, detail.Assets.Permissions, 3)
 	require.Len(t, detail.Assets.PackageFeatures, 2)
 	require.Len(t, detail.Assets.Quotas, 1)
 	require.Len(t, detail.Assets.ManifestLoads, 1)
@@ -770,6 +791,11 @@ menus:
   - code: ops_dashboard
     name: 运营看板
     path: /ops/dashboard
+permissions:
+  - code: /ops/dashboard
+    name: 运营看板
+    type: MENU
+    menu_code: ops_dashboard
 package_features:
   - feature_code: ops_dashboard
     feature_name: 运营看板
@@ -865,6 +891,11 @@ menus:
   - code: ops_dashboard
     name: 运营看板
     path: /ops/dashboard
+permissions:
+  - code: /ops/dashboard
+    name: 运营看板
+    type: MENU
+    menu_code: ops_dashboard
 package_features:
   - feature_code: ops_dashboard
     feature_name: 运营看板

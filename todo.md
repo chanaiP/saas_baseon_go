@@ -1,168 +1,146 @@
-# 第三方集成中心生产级整改 TODO
+# AI 能力中心生产级诊断 TODO
 
-> 诊断日期：2026-05-15
-> 应用：第三方集成中心
-> `app_code`：`integration-center`
-> 当前判断：约 100% 生产就绪。已有 Manifest、数据库表、菜单权限、API 注册、前端页面、租户范围隔离、租户侧授权连接入口、OAuth state/callback/token refresh、Webhook 签名幂等、API 调用配额、同步记录配额消费、真实第三方同步批次处理器、受控第三方 API 网关代理边界、关键前端误操作防护、核心对象详情接口、服务端筛选排序时间范围查询、高频查询索引、调用日志保留归档、调用链路追踪字段、OpenAPI schema、生产检查脚本、E2E/性能验证和主要运维文档；调用日志 helper 已沉淀为应用内 recorder/SDK 形态，后续只剩跨应用复用时抽包。
-> 整改进度：136 / 136，约 100%。
+诊断时间：2026-05-15  
+范围：仅 `ai-capability-center` 应用，包括 `internal/apps/ai_capability_center`、`frontend/src/apps/ai-capability-center`、AI 相关表、Manifest 与应用文档。
 
-## 0. 当前已具备
+## 总结
 
-- [x] 独立后端应用目录：`internal/apps/integration_center`
-- [x] 独立前端应用目录：`frontend/src/apps/integration-center`
-- [x] 应用 Manifest：`internal/apps/integration_center/app.manifest.yaml`
-- [x] 菜单、权限、API 权限矩阵、套餐功能点和配额声明已具备基础形态
-- [x] 核心业务表已进入 schema baseline 和迁移
-- [x] 前端 8 个菜单已接入后端查询接口
-- [x] 平台、服务商应用、应用能力、连接、同步任务、配额策略、异常和日志已有基础读写接口
-- [x] 已有 service 层基础单测，覆盖部分查询和状态变更 happy path
+当前 AI 能力中心还不是完整生产级可用状态。它已经具备供应商、模型、场景、路由、策略、用量日志和平台页壳，并已打通 OpenAI-compatible chat/text_generation、responses、embeddings、images 的真实调用骨架；但 demo 清理脚本、内容记录完整治理、Manifest 重装载保护、文档和前端可信表达仍需继续收口。
 
-## 1. P0：上线阻断项
+最关键的问题不是单个页面样式，而是：真实供应商配置和健康状态尚未恢复，历史 seed/demo 数据需要被长期隔离；`Invoke` 已补上 provider request id、重试、超时记录、平台/租户门禁和 OpenAI-compatible 主要协议族，但完整治理、文档和可观测表达还要继续补齐。
 
-- [x] 明确产品边界：平台治理后台继续 `platform_only=true`，另补租户侧“授权连接 / 同步能力”的 API 或菜单入口。
-- [x] 将所有列表接口改为统一分页契约：`items`、`total`、`skip`、`limit`。
-- [x] 所有列表接口支持后端筛选、搜索、排序和时间范围过滤，避免只靠前端内存过滤。
-- [x] 为 `tenant-connections`、`sync-monitor`、`quota-usages`、`logs` 等租户数据补 tenant scope 查询。
-- [x] 所有按 ID 更新连接、任务、异常、能力的接口必须校验当前用户是否有平台范围或对应租户范围。
-- [x] 后端 service 接收当前 viewer/user 上下文，不再只传 `context.Context` 和资源 ID。
-- [x] 接入后端二次权限校验，确保按钮隐藏不是安全边界。
-- [x] 接入套餐功能校验：租户侧创建或使用第三方授权前必须校验 `integration_tenant_authorization`。
-- [x] 接入连接数配额校验：创建连接前必须校验 `integration_connection_count`。
-- [x] 接入 API 日调用配额校验：第三方接口调用前必须校验并消费 `integration_api_calls_daily`。
-- [x] 已补 `integration_api_calls_daily` 服务层消费边界：成功累计 `used_amount`，超限累计 `limited_count` 并拒绝调用；已接入受控 API 网关代理。
-- [x] 接入同步日记录配额校验：同步写入前必须校验并消费 `integration_sync_records_daily`。
-- [x] 已补 `integration_sync_records_daily` 服务层消费边界：成功累计同步记录数，超限累计 `limited_count` 并拒绝；已接入同步 worker due job 调度。
-- [x] 实现租户授权连接创建接口，不能只依赖 seed 数据或平台侧状态变更。
-- [x] 实现 OAuth callback 流程，包括 state 校验、授权码交换、token 加密引用、过期时间和授权主体映射。
-- [x] OAuth 授权发起已生成一次性 state，并持久化租户、服务商应用、redirect_uri、scope、过期时间和创建人。
-- [x] OAuth callback 已校验 app/state 匹配、pending 状态、过期时间和重复消费；授权码交换与 token 引用仍在上一项未完成范围内。
-- [x] 实现 token refresh 流程，包括刷新失败、过期、吊销和告警状态机。
-- [x] 实现 Webhook 接收入口，包括签名校验、时间戳校验、防重放和幂等键。
-- [x] Webhook 事件已落库到 `integration_webhook_events`，并通过服务商应用 + 幂等键唯一约束避免重复写入。
-- [x] Webhook 事件必须落库或进入事件队列，并具备失败重试与死信记录。
-- [x] 实现同步任务 worker，支持游标、批次、重试上限、失败补偿和任务审计。
-- [x] 同步任务 worker 已具备 due job 扫描、自动启动、同步记录配额消费、超限排队、完成态和重试上限失败态；真实第三方数据拉取/写入处理器仍在上一项未完成范围内。
-- [x] 实现真实第三方 API client 或网关代理边界，当前连通性检测不能只做本地运行态统计。
-- [x] 网关代理已限制 provider base URL、HTTP method、path、请求体大小和可转发 header，并只返回状态与 digest，避免第三方响应正文泄露到底座调用方。
-- [x] 凭证只能保存 `credential_ref`，禁止保存明文 secret/token。
-- [x] 增加凭证读取、轮换、脱敏展示和日志防泄露策略。
-- [x] 所有写操作写入 `created_by`、`updated_by` 或 `handled_by`。
-- [x] 所有 Manifest 标记 `audit: true` 的接口必须写入 `audit_log`。
-- [x] 异常处理、恢复、忽略必须记录处理人、处理时间和处理备注。
-- [x] 删除或停用类能力必须使用逻辑删除、停用或归档，不允许物理删除业务历史。
-- [x] 后端错误必须归一化，不泄露 SQL、堆栈、连接串、token 或第三方敏感响应。
+## 已验证事实
 
-## 2. P1：生产可运营项
+- `ai_usage_records` 共 18 条，18 条都是 `request_id like 'seed%'`，且 `request_params.channel` 只有 `demo-history-seed` 和 `demo-seed`。
+- 当前库里没有 2026-05-15 的真实调用记录；总览今日指标为 0，近 7 天趋势来自历史 demo seed。
+- `ai_provider_apis` 中 26 个启用 API 的 `health_status` 全部为 `error`。
+- 多数 API 异常原因是未配置 API Key / Key Alias 环境变量；部分是占位 Endpoint，例如 Azure 的 `{resource}`；OpenAI 相关接口存在 TLS 证书校验失败记录。
+- `marketing-center / campaign_image_generate` 和 `product-center / product_copy_generate` 当前绑定的基础路由已逻辑删除：`image-marketing-default`、`chat-cost-first` 的 `deleted_at` 非空。
+- `internal/apps/ai_capability_center/services/service.go` 的 `Invoke` 会校验场景、策略、路由、配额、限流和价格，并已通过 provider adapter 支持 OpenAI-compatible chat/text_generation 真实 HTTP 调用。
+- `Invoke` 的 chat/text_generation 成功路径会返回标准化 `Data`、按供应商 usage 回填计费、记录真实响应 hash；其他协议仍待补齐。
+- 文档 `docs/apps/ai-capability-center.md` 已恢复“调用日志”菜单、真实调用链路、内容记录级别和 demo 数据隔离说明。
+- 系统参数 `ai.gateway.content_record_level` 已存在，值为 `1`，但数据库显示 `tenant_editable=true`，与 seed 代码里 `TenantEditable: false` 的意图不一致，需要确认参数覆写逻辑。
 
-- [x] 补平台能力新增、编辑、停用接口，目前页面有入口但后端 CRUD 不完整。
-- [x] 补服务商应用能力连接的完整配置模型，不只更新 `enabled`。
-- [x] 明确 `open_to_tenant`、`default_enabled`、`tenant_configurable` 的真实存储字段与后端更新语义。
-- [x] 补连接详情接口，返回授权范围、最终能力、同步任务、配额用量和异常摘要。
-- [x] 补应用详情接口，返回凭证引用、回调配置、能力连接、授权租户和运行指标。
-- [x] 补平台详情接口，返回平台能力、应用、连接、调用、异常和配置状态。
-- [x] 补同步任务详情接口，返回执行日志、批次、游标、错误和重试历史。
-- [x] 补调用日志详情接口，只返回摘要、digest、链路 ID 和安全错误信息。
-- [x] 接入 `integration_quota_bindings`，支持租户、平台、应用、连接级策略绑定。
-- [x] 配额策略增加优先级、适用范围和冲突解析规则。
-- [x] 调用日志写入统一 SDK 或中间件，记录 request/response digest，不记录请求响应正文。
-- [x] API 网关代理已写入 request/response digest、request_id、tenant_id、platform_id、provider_app_id、connection_id、状态码、耗时和安全错误码。
-- [x] 补 API 调用链路中的 request_id、trace_id、tenant_id、platform_id、provider_app_id、connection_id。
-- [x] 平台、应用、能力、连接、任务、异常状态收口为明确枚举。
-- [x] 非法状态流转必须拒绝，例如已恢复异常不能重新处理，已暂停任务不能重复暂停。
-- [x] 数据库补充必要外键到 `tenant`，并检查孤儿数据。
-- [x] 数据库补充高频查询索引，覆盖租户、平台、应用、状态、时间范围组合查询。
-- [x] 制定日志和调用记录保留策略，避免 `integration_api_call_logs` 无限增长。
-- [x] 前端移除固定趋势文案，如“+1 本月”“+12.6%”，改为后端统计。
-- [x] 前端移除固定默认选中值，如 `wecom`、`wecom-suite-main`、`policy-tenant-standard`。
-- [x] 前端表格统一使用后端分页，当前页无数据时自动回退。
-- [x] 前端所有危险操作补二次确认，包括暂停连接、恢复任务、忽略异常、停用策略。
-- [x] 前端错误展示映射为可读提示，表单错误定位到字段。
-- [x] 前端 loading、empty、error 三态在 8 个菜单中保持一致。
-- [x] 操作按钮显示以后端权限和套餐能力为准，不硬编码角色判断。
-- [x] 补导出任务真实实现或接入统一任务中心，不能只返回“queued”提示。
-- [x] 补全 OpenAPI schema，当前 integration-center 多数路径只有概览式注册。
+## P0 阻断项
 
-## 3. P2：交付与长期维护项
+- [x] 实现真实 AI Gateway 调用链路
+  - [x] 在 `Invoke` 中接入 provider adapter，不再只写日志。
+  - [x] 先支持 OpenAI-compatible chat/text_generation 真实调用。
+  - [x] 继续补齐 OpenAI-compatible responses、embeddings、images。
+  - [x] 真实记录请求开始时间、结束时间、供应商 HTTP 状态、错误码、延迟、重试次数。
+  - [x] `Data` 必须返回模型供应商响应的标准化结果，不能继续为空对象。
+  - [x] `ResponseHash` 必须基于真实响应或标准化响应计算。
 
-- [x] 补应用说明文档：业务边界、平台侧能力、租户侧能力和非目标范围。
-- [x] 补 Manifest 字段说明，解释菜单、权限、API、套餐功能点和配额来源。
-- [x] 补 API 文档：请求、响应、错误码、权限码、审计点、配额消耗。
-- [x] 补 Webhook 文档：事件类型、签名算法、时间戳、防重放、幂等键和重试策略。
-- [x] 补同步文档：同步方向、游标、批次、冲突解决、补偿和死信处理。
-- [x] 补凭证运维文档：密钥存储、轮换、吊销、脱敏和访问审计。
-- [x] 补部署与回滚文档：迁移顺序、回滚影响、初始化验证和数据保护。
-- [x] 补告警与 SLO 文档：成功率、延迟、失败率、同步积压、token 过期和超限告警。
-- [x] 补验收脚本：Manifest 装载幂等、菜单权限数量、API 权限矩阵、套餐功能点、配额项。
-- [x] 补孤儿数据检查：平台、应用、能力、连接、同步、配额、异常、日志引用完整性。
-- [x] 补迁移幂等检查，确保空库初始化和重复执行数据数量稳定。
-- [x] 补性能压测：调用日志列表、同步任务列表、租户连接列表和总览聚合。
-- [x] 补安全测试：签名失败、重放攻击、跨租户访问、无权限写操作、敏感字段泄露。
-- [x] 补浏览器 E2E：8 个菜单、分页、筛选、弹窗、抽屉、错误态和移动端布局。
+- [x] 修复供应商 API 连通性
+  - [x] 明确 Key Alias 到环境变量 / KMS / 密钥服务的解析规则。
+  - [x] 对未配置密钥的供应商，Gateway 调用必须明确失败且不能请求供应商或产生成功计费。
+  - [x] 对未配置密钥的供应商，不能在 UI 上给用户“可用”的暗示。
+  - [x] 占位 Endpoint 必须标记为模板或禁用，不能参与可执行路由。
+  - [x] 解决容器内 TLS 证书链问题，至少给出 CA 配置和失败诊断。
+  - [x] 连通性检查结果需要区分“未配置”“网络失败”“鉴权失败”“协议不兼容”“供应商返回错误”。
 
-## 4. 测试补齐清单
+- [x] 清理 demo 用量和生产数据口径
+  - [x] seed/demo 用量不能混入生产指标；需要增加 `data_source`、`is_demo` 或独立 demo tenant 标记。
+  - [x] 总览、趋势、排行榜、调用日志默认必须排除 demo 数据。
+  - [x] 如果保留演示数据，页面必须明确标识“演示数据”，不能伪装成真实生产调用；当前生产口径默认不展示 demo，并提供清理脚本。
+  - [x] 提供一键清理 demo AI 用量的脚本或迁移说明。
 
-- [x] Service 单测：tenant scope 正常隔离。
-- [x] Service 单测：普通租户不能通过 ID 操作其他租户连接。
-- [x] Service 单测：平台管理员可跨租户查询和治理。
-- [x] Service 单测：无权限操作返回明确错误。
-- [x] Service 单测：套餐未开通时拒绝创建连接。
-- [x] Service 单测：连接数配额超限时拒绝创建连接。
-- [x] Service 单测：API 调用配额超限时拒绝调用并记录超限次数。
-- [x] Service 单测：同步记录配额超限时进入排队或拒绝策略。
-- [x] Service 单测：网关代理调用前消费 API 配额，成功后写入 digest 调用日志。
-- [x] Service 单测：网关代理日志写入 trace_id、tenant_id、platform_id、provider_app_id 和 connection_id。
-- [x] Service 单测：网关代理 API 配额超限时拒绝转发并记录 `limited` 日志。
-- [x] Service 单测：Webhook 签名错误拒绝处理。
-- [x] Service 单测：Webhook 重放请求拒绝处理。
-- [x] Service 单测：Webhook 幂等重复请求不会重复写入业务事件。
-- [x] Service 单测：OAuth state 错误拒绝 callback。
-- [x] Service 单测：token refresh 失败进入异常状态并写告警。
-- [x] Service 单测：同步任务重试上限生效。
-- [x] Service 单测：异常处理写入处理人和审计日志。
-- [x] Service 单测：连接、同步任务、异常的非法状态流转会被拒绝。
-- [x] Service 单测：平台能力新增、编辑、停用会写审计并保持逻辑停用。
-- [x] Service 单测：应用能力连接配置会持久化 `open_to_tenant`、`default_enabled`、`tenant_configurable` 和自定义配置。
-- [x] Service 单测：服务商应用凭证引用轮换只接受安全引用、返回脱敏值并写入脱敏审计。
-- [x] Service 单测：调用日志详情会清理 query secret、credential_ref、token 和 client_secret。
-- [x] Service 单测：连接级配额绑定按优先级覆盖套餐限额并阻止超额 API 消费。
-- [x] Service 单测：调用日志 CSV 导出会生成真实内容并脱敏 endpoint、token 和 credential_ref。
-- [x] Service 单测：平台、服务商应用和应用能力拒绝未知状态枚举。
-- [x] Service 单测：Webhook 调用通过统一日志 helper 写入 request digest 且不保存请求正文。
-- [x] Service 单测：普通租户执行平台治理写操作返回 `ErrForbidden`。
-- [x] Service 单测：列表时间范围过滤和白名单排序生效。
-- [x] Service 单测：调用日志保留策略会归档过期日志且列表默认隐藏归档记录。
-- [x] Repository 单测：列表分页 total 正确。
-- [x] Repository 单测：软删除数据默认不可见。
-- [x] Handler 单测：统一响应结构稳定。
-- [x] Handler 单测：请求参数错误返回 `CodeBadRequest`。
-- [x] Router/Auth 单测：Manifest、运行时鉴权策略、前端权限码一致。
-- [x] Migration 测试：空库执行 baseline + migrations 成功。
-- [x] Migration 测试：重复执行或重复装载不产生重复数据。
-- [x] Frontend 测试：API 失败时不展示过期旧数据。
-- [x] Frontend 测试：分页、筛选、空态和错误态可用。
-- [x] E2E 测试：平台管理员完成平台、应用、能力、连接、任务、异常、日志主流程。
-- [x] E2E 测试：普通租户无法进入平台治理后台。
+- [x] 修复场景到路由的失效绑定
+  - [x] 所有 `ai_scenarios.default_base_route_id` 必须指向 `deleted_at IS NULL` 的 active 路由。
+  - [x] 删除或归档基础路由时，必须阻断被 active 场景引用的路由，或同步迁移场景绑定。
+  - [x] 需要增加启动/装载校验：active 场景不能绑定已删除路由、空模型池路由或全量不可用模型。
 
-## 5. 建议推进顺序
+- [x] 把用量、计费、成功率建立在真实执行结果上
+  - [x] `calls` 只能表示一次网关请求或一次标准化模型调用，不能由客户端任意传入或 seed 随意构造。
+  - [x] chat/text_generation token 用量优先来自供应商响应 usage 字段。
+  - [x] image、embedding 等用量应优先来自供应商响应 usage 字段；拿不到时图片按返回数量或请求数量回填。
+  - [x] chat/text_generation 成本、销售额、平台费用按真实 usage 和命中价格策略计算。
+  - [x] 成功率必须基于真实调用状态，区分 success、provider_error、gateway_error、rejected、timeout。
 
-- [x] 第一批：API 分页契约、tenant scope、viewer 上下文、审计写入。
-- [x] 第二批：租户授权连接、套餐校验、配额校验、凭证引用。
-- [x] 第三批：OAuth、Webhook、同步 worker、调用日志 SDK。
-- [x] 第三批核心运行时：OAuth、Webhook、同步 worker、API 网关 digest 日志已完成；剩余为统一 SDK/中间件抽象。
-- [x] 第四批：前端分页筛选、危险确认、详情接口、配额绑定。
-- [x] 第五批：测试矩阵、验收脚本、文档和性能安全验证。
+## P1 高优先级
 
-## 6. 验证命令
+- [x] 补齐权限与平台门禁
+  - [x] AI 能力中心是 `PLATFORM_ONLY`，前端路由需要显式 `requiresPlatformAdmin` 或统一应用门禁。
+  - [x] 后端 API 当前在登录后可访问，需要确认是否有菜单/权限二次校验，而不是只靠前端隐藏。
+  - [x] `GET /api/ai-capability-center/{resource}` 当前统一使用 `/ai-capability-center` 权限，生产级应按资源或菜单拆分读权限。
+  - [x] `POST /api/ai-gateway/v1/invoke` 应明确调用方身份、scope、租户上下文和调用来源，不能只信任 body 里的 `tenant_id`。
 
-- [x] `go test ./internal/apps/integration_center/...`
-- [x] `go test ./internal/interfaces/http/handlers/...`
-- [x] `go test ./internal/application/...`
-- [x] `go test ./...`
-- [x] `npm --prefix frontend run build`
-- [x] `go run ./cmd/migrate`
-- [x] `go run ./cmd/verify-bootstrap`
-- [x] `API_BASE_URL=http://127.0.0.1:8083 node scripts/check-integration-center-performance.mjs`
-- [x] `scripts/check-integration-center-production.sh`
-- [x] `scripts/check-migration-idempotency.sh`
-- [x] `npm --prefix frontend run test:e2e -- integration-center.spec.ts`
-- [x] 浏览器验证 `/integration-center` 及 7 个子菜单。
+- [x] 收紧内容记录策略
+  - [x] `ai.gateway.content_record_level` 的 0/1/2/3 方案可用，但必须补齐安全边界。
+  - [x] 级别 2 的脱敏规则需要覆盖手机号、邮箱、身份证、银行卡、token、apikey、authorization、cookie、地址等。
+  - [x] 级别 3 记录完整内容必须有强告警、权限限制、保留周期和审计。
+  - [x] 调用日志抽屉需要明确“内容记录级别”和“实际记录范围”，避免误解为完整 AI 结果。
+
+- [x] 建立路由执行计划的生产校验
+  - [x] 基础路由必须至少有一个 active route model。
+  - [x] route model 对应模型、供应商账号、供应商 API 必须全部可用。
+  - [x] 如果健康状态为 error，执行计划应拒绝或降级到可用 fallback，并记录原因。
+  - [x] 概览健康检查要展示“影响哪些场景”，而不仅是总数。
+
+- [x] 修复 seed 与运行时数据互相污染
+  - [x] `seedAIProviderCatalog` 会逻辑删除 legacy route，但场景表仍可能保留旧引用，需要幂等修复。
+  - [x] seed 不应在生产环境写入演示调用记录。
+  - [x] seed 不得覆盖人工维护的供应商状态、账号密钥 alias、API/模型/路由/场景状态；场景绑定仅在失效时修复。
+  - [x] Manifest 重装载、导入接口不得覆盖人工维护的供应商状态、密钥 alias、健康状态和场景绑定。
+
+- [x] 补齐测试
+  - [x] 增加 `Invoke` 的真实 provider adapter 单测和 mock HTTP 集成测试。
+  - [x] 覆盖供应商不可用、路由为空、场景绑定删除路由、配额拒绝、限流拒绝、供应商超时、供应商返回 4xx/5xx。
+  - [x] 覆盖供应商返回 5xx 时记录 `provider_error`，且不累计成功配额。
+  - [x] 覆盖供应商 5xx 可重试成功并记录 `retry_count`。
+  - [x] 覆盖供应商超时时记录 `timeout` 且不产生成功计费。
+  - [x] 覆盖 `content_record_level` 0/1/2/3 的日志存储行为和脱敏规则。
+  - [x] 覆盖平台权限、租户伪造 `tenant_id`、非平台用户访问 AI 能力中心。
+
+## P2 中优先级
+
+- [x] 更新文档
+  - [x] `docs/apps/ai-capability-center.md` 需要恢复“调用日志”菜单说明。
+  - [x] 同步说明总览、调用日志、健康检查、内容记录级别、真实调用链路和 demo 数据策略。
+  - [x] 文档中的调用示例要和当前字段一致，例如 `product-center` vs `product_center` 的命名口径。
+
+- [x] 优化前端可信表达
+  - [x] 总览页需要显示数据时间范围和数据来源，例如“今日真实调用”“近 7 天真实调用”。
+  - [x] 如果没有真实数据，应展示空态或接入引导，不应该用 seed 趋势撑场面。
+  - [x] 调用日志默认今日是合理的，但需要给“暂无今日调用”的解释和快捷切换近 7 天。
+  - [x] 抽屉里 UUID 类字段应尽量展示中文业务名称，技术 ID 放在可复制区域。
+
+- [x] 统一应用内路由来源
+  - [x] 当前前端路由仍写在全局 `frontend/src/router/index.ts`，AI 应用目录只有 `manifest.ts`，没有独立 `routes.ts`。
+  - [x] 后续应让应用中心/Manifest 成为路由、菜单和权限的准入来源，避免新增菜单后再次漏配。
+
+- [x] 观测与运维
+  - [x] 增加网关调用 trace id、provider request id、重试日志、超时分布、错误分布。
+  - [x] 调用日志记录并展示 provider request id、HTTP 状态、开始/结束时间、重试次数。
+  - [x] Gateway 按路由/模型节点配置执行超时和 5xx/429/网络错误重试，并记录重试次数。
+  - [x] 健康检查后台任务现在每 10 分钟跑一次，需要明确是否会对外部供应商产生真实调用成本。
+  - [x] 连通性检查应支持 dry-run / HEAD / lightweight model list 等低成本探测方式。
+
+## 建议实施顺序
+
+- [x] 先冻结 demo 数据进入生产指标，给总览和调用日志加数据来源边界。
+- [x] 修复 active 场景绑定已删除路由的问题，保证目录配置自洽。
+- [x] 建立 provider adapter 接口和 OpenAI-compatible 第一个真实调用实现。
+- [x] 把调用结果、usage、latency、error、response hash 写入 `ai_usage_records`。
+- [x] 重做健康检查和执行计划校验，让“可用”只代表真实可调用。
+- [x] 补齐平台权限、租户上下文和内容记录安全策略的第一阶段门禁。
+- [x] 最后再继续打磨前端布局、趋势切换和调用日志抽屉。
+
+## 验收标准
+
+- [x] 任意 active AI 场景都能通过校验：场景 -> 基础路由 -> route model -> 模型 -> 供应商账号 -> API 全链路可用。
+- [x] 未配置密钥时，网关调用明确失败并记录安全错误，不请求供应商且不产生成功计费。
+- [x] 健康检查失败时，网关调用明确失败，不请求失败 API 且不产生成功用量；存在健康 fallback 时自动降级。
+- [x] 一次真实调用能返回模型结果，写入真实延迟、真实状态、真实 usage、真实成本和真实日志。
+- [x] 总览、趋势、排行榜、调用日志均默认只统计真实调用；demo 数据不会影响生产指标。
+- [x] 非平台管理员不能进入 AI 能力中心管理页；业务调用方不能伪造其他租户的 `tenant_id`。
+- [x] `content_record_level` 0/1/2/3 均有测试证明存储行为符合预期。
+- [x] Manifest、文档、前端路由、后端 API 权限声明一致。
+
+## 复查命令
+
+```bash
+docker exec saas-go-postgres psql -U saas -d saas_baseon -P pager=off -c "select count(*) total, count(*) filter (where request_id like 'seed%') seed_records, count(*) filter (where request_params::text like '%demo%') demo_records from ai_usage_records;"
+docker exec saas-go-postgres psql -U saas -d saas_baseon -P pager=off -c "select health_status, count(*) from ai_provider_apis where deleted_at is null group by health_status;"
+docker exec saas-go-postgres psql -U saas -d saas_baseon -P pager=off -c "select s.app_code, s.ai_scenario_code, r.route_code, r.deleted_at from ai_scenarios s left join ai_base_routes r on r.id=s.default_base_route_id where s.deleted_at is null order by s.app_code, s.ai_scenario_code;"
+```

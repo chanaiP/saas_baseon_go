@@ -247,41 +247,48 @@ type AIStrategyRateLimitRule struct {
 func (AIStrategyRateLimitRule) TableName() string { return "ai_strategy_rate_limit_rules" }
 
 type AIUsageRecord struct {
-	ID                string    `json:"id" gorm:"primaryKey;column:id;type:uuid;default:gen_random_uuid()"`
-	RequestID         string    `json:"request_id" gorm:"column:request_id;type:varchar(100);not null;uniqueIndex"`
-	TenantID          string    `json:"tenant_id" gorm:"column:tenant_id;type:varchar(100);not null;index"`
-	TenantName        string    `json:"tenant_name" gorm:"column:tenant_name;type:varchar(150)"`
-	AppCode           string    `json:"app_code" gorm:"column:app_code;type:varchar(100);not null;index"`
-	AppName           string    `json:"app_name" gorm:"column:app_name;type:varchar(100)"`
-	AIScenarioCode    string    `json:"ai_scenario_code" gorm:"column:ai_scenario_code;type:varchar(150);not null;index"`
-	AIScenarioName    string    `json:"ai_scenario_name" gorm:"column:ai_scenario_name;type:varchar(150)"`
-	UserID            string    `json:"user_id" gorm:"column:user_id;type:varchar(100)"`
-	UserName          string    `json:"user_name" gorm:"column:user_name;type:varchar(100)"`
-	ProviderID        string    `json:"provider_id" gorm:"column:provider_id;type:uuid"`
-	ProviderAccountID string    `json:"provider_account_id" gorm:"column:provider_account_id;type:uuid"`
-	ProviderAPIID     string    `json:"provider_api_id" gorm:"column:provider_api_id;type:uuid"`
-	ModelID           string    `json:"model_id" gorm:"column:model_id;type:uuid;index"`
-	BaseRouteID       string    `json:"base_route_id" gorm:"column:base_route_id;type:uuid"`
-	TenantStrategyID  string    `json:"tenant_strategy_id" gorm:"column:tenant_strategy_id;type:uuid"`
-	PricePolicyID     string    `json:"price_policy_id" gorm:"column:price_policy_id;type:uuid"`
-	PriceTierID       string    `json:"price_tier_id" gorm:"column:price_tier_id;type:uuid"`
-	UsageAmount       float64   `json:"usage_amount" gorm:"column:usage_amount;type:numeric(24,6);not null;default:0"`
-	UsageUnit         string    `json:"usage_unit" gorm:"column:usage_unit;type:varchar(32);not null"`
-	UsageDetail       string    `json:"usage_detail" gorm:"column:usage_detail;type:varchar(200)"`
-	Calls             int       `json:"calls" gorm:"column:calls;not null;default:1"`
-	CostAmount        float64   `json:"cost_amount" gorm:"column:cost_amount;type:numeric(18,6);not null;default:0"`
-	BillingAmount     float64   `json:"billing_amount" gorm:"column:billing_amount;type:numeric(18,6);not null;default:0"`
-	PlatformUnit      string    `json:"platform_unit" gorm:"column:platform_unit;type:varchar(32)"`
-	PlatformAmount    float64   `json:"platform_amount" gorm:"column:platform_amount;type:numeric(18,6);not null;default:0"`
-	LatencyMS         int       `json:"latency_ms" gorm:"column:latency_ms;not null;default:0"`
-	Status            string    `json:"status" gorm:"column:status;type:varchar(32);not null;index"`
-	ErrorCode         string    `json:"error_code" gorm:"column:error_code;type:varchar(100)"`
-	ErrorMessage      string    `json:"error_message" gorm:"column:error_message;type:text"`
-	RequestParams     string    `json:"request_params" gorm:"column:request_params;type:jsonb;not null;default:'{}'::jsonb"`
-	PromptHash        string    `json:"prompt_hash" gorm:"column:prompt_hash;type:varchar(128)"`
-	ResponseHash      string    `json:"response_hash" gorm:"column:response_hash;type:varchar(128)"`
-	CalledAt          time.Time `json:"called_at" gorm:"column:called_at;not null"`
-	CreatedAt         time.Time `json:"created_at" gorm:"column:created_at;not null"`
+	ID                 string     `json:"id" gorm:"primaryKey;column:id;type:uuid;default:gen_random_uuid()"`
+	RequestID          string     `json:"request_id" gorm:"column:request_id;type:varchar(100);not null;uniqueIndex"`
+	TenantID           string     `json:"tenant_id" gorm:"column:tenant_id;type:varchar(100);not null;index"`
+	TenantName         string     `json:"tenant_name" gorm:"column:tenant_name;type:varchar(150)"`
+	AppCode            string     `json:"app_code" gorm:"column:app_code;type:varchar(100);not null;index"`
+	AppName            string     `json:"app_name" gorm:"column:app_name;type:varchar(100)"`
+	AIScenarioCode     string     `json:"ai_scenario_code" gorm:"column:ai_scenario_code;type:varchar(150);not null;index"`
+	AIScenarioName     string     `json:"ai_scenario_name" gorm:"column:ai_scenario_name;type:varchar(150)"`
+	UserID             string     `json:"user_id" gorm:"column:user_id;type:varchar(100)"`
+	UserName           string     `json:"user_name" gorm:"column:user_name;type:varchar(100)"`
+	ProviderID         string     `json:"provider_id" gorm:"column:provider_id;type:uuid"`
+	ProviderAccountID  string     `json:"provider_account_id" gorm:"column:provider_account_id;type:uuid"`
+	ProviderAPIID      string     `json:"provider_api_id" gorm:"column:provider_api_id;type:uuid"`
+	ModelID            string     `json:"model_id" gorm:"column:model_id;type:uuid;index"`
+	BaseRouteID        string     `json:"base_route_id" gorm:"column:base_route_id;type:uuid"`
+	TenantStrategyID   string     `json:"tenant_strategy_id" gorm:"column:tenant_strategy_id;type:uuid"`
+	PricePolicyID      string     `json:"price_policy_id" gorm:"column:price_policy_id;type:uuid"`
+	PriceTierID        string     `json:"price_tier_id" gorm:"column:price_tier_id;type:uuid"`
+	UsageAmount        float64    `json:"usage_amount" gorm:"column:usage_amount;type:numeric(24,6);not null;default:0"`
+	UsageUnit          string     `json:"usage_unit" gorm:"column:usage_unit;type:varchar(32);not null"`
+	UsageDetail        string     `json:"usage_detail" gorm:"column:usage_detail;type:varchar(200)"`
+	Calls              int        `json:"calls" gorm:"column:calls;not null;default:1"`
+	CostAmount         float64    `json:"cost_amount" gorm:"column:cost_amount;type:numeric(18,6);not null;default:0"`
+	BillingAmount      float64    `json:"billing_amount" gorm:"column:billing_amount;type:numeric(18,6);not null;default:0"`
+	PlatformUnit       string     `json:"platform_unit" gorm:"column:platform_unit;type:varchar(32)"`
+	PlatformAmount     float64    `json:"platform_amount" gorm:"column:platform_amount;type:numeric(18,6);not null;default:0"`
+	LatencyMS          int        `json:"latency_ms" gorm:"column:latency_ms;not null;default:0"`
+	ProviderHTTPStatus int        `json:"provider_http_status" gorm:"column:provider_http_status;not null;default:0"`
+	ProviderRequestID  string     `json:"provider_request_id" gorm:"column:provider_request_id;type:varchar(200)"`
+	StartedAt          *time.Time `json:"started_at" gorm:"column:started_at"`
+	FinishedAt         *time.Time `json:"finished_at" gorm:"column:finished_at"`
+	RetryCount         int        `json:"retry_count" gorm:"column:retry_count;not null;default:0"`
+	Status             string     `json:"status" gorm:"column:status;type:varchar(32);not null;index"`
+	ErrorCode          string     `json:"error_code" gorm:"column:error_code;type:varchar(100)"`
+	ErrorMessage       string     `json:"error_message" gorm:"column:error_message;type:text"`
+	RequestParams      string     `json:"request_params" gorm:"column:request_params;type:jsonb;not null;default:'{}'::jsonb"`
+	DataSource         string     `json:"data_source" gorm:"column:data_source;type:varchar(32);not null;default:gateway"`
+	IsDemo             bool       `json:"is_demo" gorm:"column:is_demo;not null;default:false;index"`
+	PromptHash         string     `json:"prompt_hash" gorm:"column:prompt_hash;type:varchar(128)"`
+	ResponseHash       string     `json:"response_hash" gorm:"column:response_hash;type:varchar(128)"`
+	CalledAt           time.Time  `json:"called_at" gorm:"column:called_at;not null"`
+	CreatedAt          time.Time  `json:"created_at" gorm:"column:created_at;not null"`
 }
 
 func (AIUsageRecord) TableName() string { return "ai_usage_records" }
