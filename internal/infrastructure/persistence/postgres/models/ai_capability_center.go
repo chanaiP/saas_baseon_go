@@ -282,7 +282,7 @@ type AIUsageRecord struct {
 	Status             string     `json:"status" gorm:"column:status;type:varchar(32);not null;index"`
 	ErrorCode          string     `json:"error_code" gorm:"column:error_code;type:varchar(100)"`
 	ErrorMessage       string     `json:"error_message" gorm:"column:error_message;type:text"`
-	RequestParams      string     `json:"request_params" gorm:"column:request_params;type:jsonb;not null;default:'{}'::jsonb"`
+	RequestParams      string     `json:"request_params" gorm:"column:request_params;type:jsonb;not null;default:'{}'"`
 	DataSource         string     `json:"data_source" gorm:"column:data_source;type:varchar(32);not null;default:gateway"`
 	IsDemo             bool       `json:"is_demo" gorm:"column:is_demo;not null;default:false;index"`
 	PromptHash         string     `json:"prompt_hash" gorm:"column:prompt_hash;type:varchar(128)"`
@@ -296,7 +296,7 @@ func (AIUsageRecord) TableName() string { return "ai_usage_records" }
 type AIGatewaySetting struct {
 	ID           string `json:"id" gorm:"primaryKey;column:id;type:uuid;default:gen_random_uuid()"`
 	SettingKey   string `json:"setting_key" gorm:"column:setting_key;type:varchar(100);not null;uniqueIndex"`
-	SettingValue string `json:"setting_value" gorm:"column:setting_value;type:jsonb;not null;default:'{}'::jsonb"`
+	SettingValue string `json:"setting_value" gorm:"column:setting_value;type:jsonb;not null;default:'{}'"`
 	Description  string `json:"description" gorm:"column:description;type:text"`
 	Status       string `json:"status" gorm:"column:status;type:varchar(32);not null;default:active"`
 	AITimeFields
