@@ -112,6 +112,7 @@ const currentTitle = computed(() => {
   return sections.find((item) => item.key === section.value)?.label ?? '经营看板'
 })
 const emptyText = computed(() => (error.value ? error.value : '暂无真实数据库记录'))
+const trendMaxValue = computed(() => Math.max(1, ...trends.value.map((row) => Number(row.gmv ?? 0))))
 
 function listOrEmpty<T>(value: T[] | null | undefined): T[] {
   return Array.isArray(value) ? value : []
@@ -123,6 +124,12 @@ function pageItems<T>(value: { items?: T[] | null } | null | undefined): T[] {
 
 function canAction(code: string) {
   return permissionStore.canUseAction(code)
+}
+
+function trendBarHeight(value: unknown) {
+  const n = Number(value ?? 0)
+  if (!Number.isFinite(n) || n <= 0) return 8
+  return Math.max(8, Math.round((n / trendMaxValue.value) * 168))
 }
 
 async function load() {
@@ -400,7 +407,7 @@ onMounted(load)
           <div v-if="!trends.length" class="dc-empty">{{ emptyText }}</div>
           <div v-else class="dc-bars">
             <div v-for="row in trends" :key="String(row.date)">
-              <i :style="{ height: `${Math.max(8, Number(row.gmv ?? 0) / 100)}px` }"></i>
+              <i :style="{ height: `${trendBarHeight(row.gmv)}px` }"></i>
               <span>{{ row.date }}</span>
             </div>
           </div>
