@@ -63,12 +63,12 @@ FROM information_schema.tables
 WHERE table_schema = 'public'
   AND table_name IN (
     'tenant','org_node','app_user','file_object','role','permission','role_permission','saas_plan','saas_feature','saas_quota',
-    'saas_plan_feature','saas_plan_quota','tenant_subscription','dict_type','dict_item','sys_param','audit_log','login_log','sys_app'
+    'saas_plan_feature','saas_plan_quota','tenant_subscription','dict_type','dict_item','sys_param','audit_log','login_log','sys_app','sys_app_client'
   )`)
 	if err != nil {
 		return BootstrapVerifyResult{}, err
 	}
-	add("required_tables", requiredTables, "19", requiredTables == 19)
+	add("required_tables", requiredTables, "20", requiredTables == 20)
 
 	legacyParamTables, err := count("SELECT CASE WHEN to_regclass('public.system_param') IS NULL THEN 0 ELSE 1 END")
 	if err != nil {
@@ -217,6 +217,20 @@ WHERE app_code IN ('app-center','system-management','system-monitor')
 		return BootstrapVerifyResult{}, err
 	}
 	add("builtin_sys_apps", builtinApps, "3", builtinApps == 3)
+
+	builtinAppClients, err := count(`
+SELECT COUNT(*)
+FROM sys_app_client c
+JOIN sys_app a ON a.id = c.app_id
+WHERE a.app_code IN ('app-center','system-management','system-monitor')
+  AND c.client_code = 'PC_WEB'
+  AND c.enabled = true
+  AND c.deleted_at IS NULL
+  AND a.deleted_at IS NULL`)
+	if err != nil {
+		return BootstrapVerifyResult{}, err
+	}
+	add("builtin_sys_app_clients", builtinAppClients, "3", builtinAppClients == 3)
 
 	permissionRoots, err := count(`
 SELECT COUNT(*)
