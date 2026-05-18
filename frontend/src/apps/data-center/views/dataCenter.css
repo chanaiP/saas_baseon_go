@@ -60,14 +60,15 @@
   padding: 28px;
 }
 
-.drawer-page {
-  display: flex;
+.dc-page .page.drawer-page {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) 410px;
   align-items: flex-start;
   gap: 20px;
+  flex-direction: initial;
 }
 
-.page-main {
-  flex: 1;
+.dc-page .drawer-page .page-main {
   min-width: 0;
 }
 
@@ -652,7 +653,7 @@
 .drawer-page .detail-drawer {
   position: sticky;
   top: 92px;
-  width: 410px;
+  width: 100%;
   max-height: calc(100vh - 110px);
   overflow: auto;
   padding: 20px;
@@ -914,7 +915,7 @@
   }
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 960px) {
   .drawer-page,
   .split-layout {
     display: block;
