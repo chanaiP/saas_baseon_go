@@ -61,7 +61,10 @@ defineOptions({ name: 'DataCenterView' })
 const route = useRoute()
 const router = useRouter()
 const permissionStore = usePermissionStore()
-const section = computed(() => String(route.params.section || 'overview'))
+const section = computed(() => {
+  const value = String(route.params.section || 'raw')
+  return value === 'overview' ? 'raw' : value
+})
 const loading = ref(false)
 const error = ref('')
 const { filters } = useDataCenterFilters()
@@ -98,7 +101,6 @@ const reviewForm = ref<Record<string, unknown>>({})
 
 const sections = [
   { key: 'dashboard', label: '经营看板' },
-  { key: 'overview', label: '数据总览' },
   { key: 'raw', label: '原始数据' },
   { key: 'standard', label: '标准数据' },
   { key: 'metrics', label: '指标中心' },
@@ -109,7 +111,7 @@ const sections = [
 ]
 
 const currentTitle = computed(() => {
-  if (!route.params.section) return '总览'
+  if (!route.params.section || route.params.section === 'overview') return '原始数据'
   return sections.find((item) => item.key === section.value)?.label ?? '经营看板'
 })
 const emptyText = computed(() => (error.value ? error.value : '暂无数据'))
@@ -206,6 +208,7 @@ function statusText(status?: string) {
     pending: '待处理',
     processing: '处理中',
     completed: '已完成',
+    normal: '正常',
     overdue: '已逾期',
     closed: '已关闭',
     generated: '已生成',
@@ -286,12 +289,10 @@ async function load() {
       }
       anomalies.value = pageItems(anomalyData)
       tasks.value = pageItems(taskData)
-    } else if (section.value === 'overview') {
+    } else if (section.value === 'raw') {
       const [pipeData, batchData] = await Promise.all([fetchPipeline(), fetchRawBatches(filters)])
       pipeline.value = pageItems(pipeData)
       rawBatches.value = pageItems(batchData)
-    } else if (section.value === 'raw') {
-      rawBatches.value = pageItems(await fetchRawBatches(filters))
     } else if (section.value === 'standard') {
       standardRows.value = pageItems(await fetchStandardData(standardType.value, filters))
     } else if (section.value === 'metrics') {
@@ -600,50 +601,22 @@ onMounted(load)
         </div>
       </section>
 
-      <section v-else-if="section === 'overview'" class="page">
+      <section v-else-if="section === 'raw'" class="page">
         <div class="page-head">
           <div>
-            <div class="eyebrow">数据总览</div>
-            <h1>数据链路运行状态</h1>
-            <p>查看原始数据接入、标准化清洗、指标计算、异常扫描、AI 分析和任务生成的链路状态。</p>
+            <div class="eyebrow">原始数据</div>
+            <h1>外部平台同步批次</h1>
+            <p>保留外部平台原始数据批次，用于追溯、错误排查、链路检查和重新清洗。</p>
           </div>
-          <button class="primary-btn" @click="load">重新执行链路检查</button>
+          <button class="primary-btn" @click="load">新增同步任务</button>
         </div>
-
-        <div class="pipeline">
+        <div class="pipeline raw-pipeline">
           <div v-for="(item, index) in pipeline" :key="String(item.code)" class="pipeline-card" :class="statusClass(String(item.status))">
             <div class="pipeline-index">{{ index + 1 }}</div>
             <h3>{{ item.name }}</h3>
             <b>{{ item.value }}</b>
             <p>{{ statusText(String(item.status)) }}</p>
           </div>
-        </div>
-
-        <div class="panel-card">
-          <div class="section-head">
-            <div><h3>最近任务批次</h3><p>同步、清洗、指标、异常扫描任务执行情况</p></div>
-            <button class="ghost-btn" @click="router.push('/data-center/raw')">查看日志</button>
-          </div>
-          <table class="data-table">
-            <thead><tr><th>任务编号</th><th>类型</th><th>来源</th><th>执行时间</th><th>记录数</th><th>成功</th><th>失败</th><th>状态</th></tr></thead>
-            <tbody>
-              <tr v-for="job in rawBatches" :key="job.id">
-                <td>{{ job.batch_code }}</td><td>{{ job.data_type }}</td><td>{{ job.platform_code || '-' }}</td><td>{{ dateText(job.sync_time) }}</td><td>{{ job.record_count.toLocaleString() }}</td><td>{{ job.success_count.toLocaleString() }}</td><td>{{ job.failed_count.toLocaleString() }}</td>
-                <td><span class="status-badge" :class="statusClass(job.status)">{{ statusText(job.status) }}</span></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section v-else-if="section === 'raw'" class="page">
-        <div class="page-head">
-          <div>
-            <div class="eyebrow">原始数据</div>
-            <h1>外部平台同步批次</h1>
-            <p>保留外部平台原始数据批次，用于追溯、错误排查和重新清洗。</p>
-          </div>
-          <button class="primary-btn" @click="load">新增同步任务</button>
         </div>
         <div class="split-layout">
           <aside class="left-tabs">
