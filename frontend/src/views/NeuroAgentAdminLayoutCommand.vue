@@ -924,11 +924,9 @@ const sidebarPrimaryTitle = computed(() =>
 )
 const sidebarSecondaryMenu = computed(() =>
   {
-    if (isIntegrationCenterRoute.value) {
-      return integrationSidebarItems
-    }
-
     const menu = activePrimary.value ? getSecondaryMenu(activePrimary.value) : []
+    if (activePrimary.value) return visibleSecondaryMenus(menu)
+    if (isIntegrationCenterRoute.value) return integrationSidebarItems
     return visibleSecondaryMenus(menu)
   },
 )
