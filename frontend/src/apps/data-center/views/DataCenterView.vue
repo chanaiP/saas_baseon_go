@@ -60,7 +60,7 @@ defineOptions({ name: 'DataCenterView' })
 
 const route = useRoute()
 const permissionStore = usePermissionStore()
-const section = computed(() => String(route.params.section || 'dashboard'))
+const section = computed(() => String(route.params.section || 'overview'))
 const loading = ref(false)
 const error = ref('')
 const { filters } = useDataCenterFilters()
@@ -107,7 +107,10 @@ const sections = [
   { key: 'reviews', label: '整改复盘' },
 ]
 
-const currentTitle = computed(() => sections.find((item) => item.key === section.value)?.label ?? '经营看板')
+const currentTitle = computed(() => {
+  if (!route.params.section) return '总览'
+  return sections.find((item) => item.key === section.value)?.label ?? '经营看板'
+})
 const emptyText = computed(() => (error.value ? error.value : '暂无真实数据库记录'))
 
 function listOrEmpty<T>(value: T[] | null | undefined): T[] {

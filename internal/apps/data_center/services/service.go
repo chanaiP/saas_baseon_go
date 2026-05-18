@@ -182,7 +182,11 @@ func (s *Service) OverviewPipeline(ctx context.Context, viewer dto.Viewer) (map[
 	if err != nil {
 		return nil, err
 	}
-	metrics, err := s.repo.CountModel(ctx, viewer.TenantID, &models.DataCenterMetricDefinition{}, "enabled")
+	var metrics int64
+	err = s.repo.DB().WithContext(ctx).
+		Model(&models.DataCenterMetricDefinition{}).
+		Where("tenant_id = ? AND enabled = ? AND deleted_at IS NULL", viewer.TenantID, true).
+		Count(&metrics).Error
 	if err != nil {
 		return nil, err
 	}
