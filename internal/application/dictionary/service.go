@@ -18,6 +18,7 @@ var (
 	ErrDictItemNotFound  = errors.New("字典项不存在")
 	ErrTenantOverrideOff = errors.New("该字典不允许租户覆盖")
 	ErrDictTypeNotFound  = errors.New("字典类型不存在")
+	ErrPlatformOnly      = errors.New("字典类型维护仅允许平台管理员操作")
 )
 
 type Viewer struct {
@@ -139,6 +140,9 @@ func (s *Service) ListTypes(ctx context.Context, viewer Viewer, query ListTypesQ
 }
 
 func (s *Service) CreateType(ctx context.Context, viewer Viewer, cmd CreateTypeCommand) (models.DictType, error) {
+	if !viewer.IsPlatformAdmin {
+		return models.DictType{}, ErrPlatformOnly
+	}
 	scope := strings.TrimSpace(cmd.Scope)
 	if scope == "" {
 		scope = "platform"
@@ -159,6 +163,9 @@ func (s *Service) CreateType(ctx context.Context, viewer Viewer, cmd CreateTypeC
 }
 
 func (s *Service) UpdateType(ctx context.Context, viewer Viewer, id uint64, cmd UpdateTypeCommand) (models.DictType, error) {
+	if !viewer.IsPlatformAdmin {
+		return models.DictType{}, ErrPlatformOnly
+	}
 	row, err := s.repo.GetOwnType(ctx, viewer.TenantID, id)
 	if err != nil {
 		return models.DictType{}, ErrNotFound
@@ -186,6 +193,9 @@ func (s *Service) UpdateType(ctx context.Context, viewer Viewer, id uint64, cmd 
 }
 
 func (s *Service) DeleteType(ctx context.Context, viewer Viewer, id uint64) (models.DictType, error) {
+	if !viewer.IsPlatformAdmin {
+		return models.DictType{}, ErrPlatformOnly
+	}
 	count, err := s.repo.CountItemsForOwnType(ctx, viewer.TenantID, id)
 	if err != nil {
 		return models.DictType{}, err

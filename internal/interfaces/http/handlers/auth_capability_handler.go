@@ -107,12 +107,16 @@ func (h *IdentityHandler) filterPermissionCodesForSubscription(codes []string, f
 }
 
 func (h *IdentityHandler) permissionCodesForUser(user models.AppUser, filterSubscription bool) []string {
+	if h.userHasSuperAdminScope(user) {
+		return h.allPermissionCodesForAdmin(user, filterSubscription)
+	}
 	var permissions []models.Permission
 	_ = h.db.
 		Joins("JOIN role_permission rp ON rp.permission_id = permission.id").
 		Joins("JOIN user_role ur ON ur.role_id = rp.role_id").
 		Joins("JOIN role r ON r.id = ur.role_id").
 		Where("ur.user_id = ? AND r.tenant_id = ? AND permission.enabled = ? AND permission.deleted_at IS NULL AND r.deleted_at IS NULL", user.ID, user.TenantID, true).
+		Where("r.code <> ?", "admin").
 		Where("permission.perm_type IN ?", []int{2, 3}).
 		Order("permission.id asc").
 		Find(&permissions).Error
@@ -187,7 +191,7 @@ func (h *IdentityHandler) viewerHasPlatformScope(user models.AppUser) bool {
 }
 
 func (h *IdentityHandler) userCanEditTenantBranding(user models.AppUser) bool {
-	if user.IsPlatformAdmin {
+	if h.userHasSuperAdminScope(user) {
 		return true
 	}
 	if !h.viewerHasPlatformScope(user) && !h.tenantFeatureAllowed(user.TenantID, "brand_config") {
@@ -202,11 +206,7 @@ func (h *IdentityHandler) userCanEditTenantBranding(user models.AppUser) bool {
 	if count > 0 {
 		return true
 	}
-	_ = h.db.Model(&models.Role{}).
-		Joins("JOIN user_role ur ON ur.role_id = role.id").
-		Where("ur.user_id = ? AND role.tenant_id = ? AND role.code = ? AND role.status = ? AND role.deleted_at IS NULL", user.ID, user.TenantID, "admin", 1).
-		Count(&count).Error
-	return count > 0
+	return false
 }
 
 func (h *IdentityHandler) invalidateSessionsForTenant(tenantID uint64) {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 defineOptions({ name: 'MenuView' })
 import { ArrowDown, ArrowDownBold, ArrowUp, ArrowUpBold } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 
 import type { MenuBundle, MenuBundleOp } from '@/api/permission'
@@ -9,6 +9,7 @@ import { fetchPermissionMenuBundles, updatePermission, updatePermissionPackageFe
 import { fetchAppCenterApps } from '@/apps/app-center/api'
 import type { AppCenterApp } from '@/apps/app-center/types'
 import { confirmArchiveAction } from '@/composables/useArchiveConfirm'
+import { confirmStandardAction } from '@/composables/useStandardConfirm'
 import { usePermissionStore } from '@/stores/permission'
 import { filterPlatformOnlyMenus, useSidebarMenuStore } from '@/stores/sidebarMenu'
 import type { MenuNode, MenuNodeType } from '@/types/menu'
@@ -365,7 +366,13 @@ function moveDown(id: string) {
 
 function reset() {
   if (!isPlatformAdmin.value || !canDeleteMenu.value) return
-  void ElMessageBox.confirm('将侧栏菜单恢复为系统默认结构，确定继续？', '恢复默认', { type: 'warning' })
+  void confirmStandardAction({
+    title: '恢复默认',
+    icon: '!',
+    message: '确定将侧栏菜单恢复为系统默认结构？',
+    detail: '当前自定义侧栏结构会被默认结构覆盖，请确认后继续。',
+    confirmText: '恢复',
+  })
     .then(() => {
       store.resetDefault()
       selectedMenuNode.value = null

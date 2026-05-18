@@ -1,14 +1,20 @@
 package handlers
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
+	"saas_baseon_go/internal/interfaces/http/response"
 )
 
 func TestAuthSessionKeyUsesOriginalRedisNamespace(t *testing.T) {
@@ -75,6 +81,40 @@ func TestNormalizeOptionalPhoneMatchesOriginalPolicy(t *testing.T) {
 	phone, msg = normalizeOptionalPhone(&bad)
 	require.Nil(t, phone)
 	require.Equal(t, "手机号只能包含数字、空格、短横线或括号", msg)
+}
+
+func TestLoginRejectsDisabledUserEvenWhenPasswordMatches(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.Tenant{}, &models.AppUser{}, &models.LoginLog{}, &models.TenantSubscription{}))
+	require.NoError(t, db.Create(&models.Tenant{ID: 1, Code: "demo", Name: "演示主体", Status: 1}).Error)
+	hash, err := hashPassword("pass1234")
+	require.NoError(t, err)
+	require.NoError(t, db.Create(&models.AppUser{
+		ID:           7,
+		TenantID:     1,
+		EmployeeNo:   "u0001",
+		Account:      "u0001",
+		PasswordHash: hash,
+		Name:         "停用用户",
+		Status:       0,
+	}).Error)
+	require.NoError(t, db.Model(&models.AppUser{}).Where("id = ?", 7).Update("status", 0).Error)
+
+	body := []byte(`{"account":"u0001","password":"pass1234","tenant_id":1}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	(&IdentityHandler{db: db}).Login(c)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	var payload response.Body
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	require.Equal(t, response.CodeBadRequest, payload.Code)
+	require.Equal(t, "账号已停用", payload.Message)
 }
 
 func TestNormalizedUserDepartmentIDsDedupesAndPrependsPrimary(t *testing.T) {

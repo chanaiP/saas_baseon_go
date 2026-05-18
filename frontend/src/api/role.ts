@@ -19,6 +19,11 @@ export interface RoleRow {
   description: string | null
   permission_ids: number[]
   data_overrides: RoleDataOverride[]
+  is_system?: boolean
+  is_locked?: boolean
+  can_edit?: boolean
+  can_delete?: boolean
+  can_config_perm?: boolean
 }
 
 export async function fetchRoles(skip = 0, limit = 50, kw?: string) {

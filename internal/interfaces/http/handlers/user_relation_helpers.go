@@ -60,12 +60,12 @@ func (h *IdentityHandler) assertDepartmentsInTenant(tenantID uint64, departmentI
 	}
 	var count int64
 	if err := h.db.Model(&models.OrgNode{}).
-		Where("tenant_id = ? AND id IN ? AND deleted_at IS NULL AND node_type IN ?", tenantID, ids, []string{"department", "store", "warehouse", "project_team", "group"}).
+		Where("tenant_id = ? AND id IN ? AND deleted_at IS NULL", tenantID, ids).
 		Count(&count).Error; err != nil {
 		return err
 	}
 	if count != int64(len(ids)) {
-		return fmt.Errorf("组织节点不存在、类型不可用于人员归属或不属于当前主体")
+		return fmt.Errorf("组织节点不存在或不属于当前主体")
 	}
 	return nil
 }

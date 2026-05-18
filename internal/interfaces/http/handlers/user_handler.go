@@ -110,7 +110,7 @@ func (h *IdentityHandler) CreateUser(c *gin.Context) {
 	var err error
 	user, err = h.userService().CreateWithRelations(c.Request.Context(), user, appuser.Relations{RoleIDs: uniqueUint64s(body.RoleIDs), PositionIDs: uniqueUint64s(body.PositionIDs), DepartmentIDs: departmentIDs})
 	if err != nil {
-		response.Error(c, 400, response.CodeBadRequest, safeDBErrorMessage(err))
+		response.Error(c, 400, response.CodeBadRequest, safeUserErrorMessage(err))
 		return
 	}
 	h.auditCurrentUser(c, "user", "create", "创建用户 "+user.Name, gin.H{"user_id": user.ID, "tenant_id": user.TenantID, "employee_no": user.EmployeeNo})
@@ -124,6 +124,10 @@ func (h *IdentityHandler) UpdateUser(c *gin.Context) {
 	var user models.AppUser
 	if err := h.tenantScope().ActiveByID(tenantID, c.Param("id")).First(&user).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "用户不存在")
+		return
+	}
+	if h.userIsInitialSuperAdmin(user) {
+		response.Error(c, 400, response.CodeBadRequest, "初始超级管理员不能编辑")
 		return
 	}
 	var body struct {
@@ -207,7 +211,7 @@ func (h *IdentityHandler) UpdateUser(c *gin.Context) {
 		roleIDs = uniqueUint64s(roleIDs)
 	}
 	if err := h.userService().UpdateWithRelations(c.Request.Context(), &user, updates, appuser.Relations{RoleIDs: roleIDs, PositionIDs: positionIDs, DepartmentIDs: departmentIDs}); err != nil {
-		response.Error(c, 400, response.CodeBadRequest, safeDBErrorMessage(err))
+		response.Error(c, 400, response.CodeBadRequest, safeUserErrorMessage(err))
 		return
 	}
 	if body.Status != nil && *body.Status != 1 {
@@ -219,4 +223,37 @@ func (h *IdentityHandler) UpdateUser(c *gin.Context) {
 
 func (h *IdentityHandler) userService() *appuser.Service {
 	return appuser.NewService(h.db, h)
+}
+
+func safeUserErrorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	raw := strings.TrimSpace(err.Error())
+	lower := strings.ToLower(raw)
+	if strings.Contains(lower, "duplicate key") || strings.Contains(lower, "unique constraint") {
+		switch {
+		case strings.Contains(lower, "employee_no") || strings.Contains(lower, "idx_app_user_tenant_employee"):
+			return "工号已存在"
+		case strings.Contains(lower, "phone") || strings.Contains(lower, "idx_app_user_tenant_phone"):
+			return "手机号已存在"
+		default:
+			return "数据已存在，请检查唯一字段"
+		}
+	}
+	for _, message := range []string{
+		"工号和姓名不能为空",
+		"工号已存在",
+		"手机号已存在",
+		"手机号格式不正确",
+		"组织节点不存在或不属于当前主体",
+		"岗位不存在或不属于当前主体",
+		"角色不存在或不属于当前主体",
+		"配额不足",
+	} {
+		if raw == message || strings.Contains(raw, message) {
+			return raw
+		}
+	}
+	return safeDBErrorMessage(err)
 }

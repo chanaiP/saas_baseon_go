@@ -53,6 +53,10 @@ func (h *IdentityHandler) DeleteUser(c *gin.Context) {
 		response.Error(c, 404, response.CodeNotFound, "用户不存在")
 		return
 	}
+	if h.userIsInitialSuperAdmin(user) {
+		response.Error(c, 400, response.CodeBadRequest, "初始超级管理员不能删除")
+		return
+	}
 	now := time.Now()
 	updates := map[string]interface{}{"deleted_at": now, "status": 0, "employee_no": tombstoneUniqueValue(user.EmployeeNo, user.ID, 64), "account": tombstoneUniqueValue(user.Account, user.ID, 64), "session_version": gorm.Expr("session_version + 1"), "password_changed_at": now}
 	if user.Phone != nil {

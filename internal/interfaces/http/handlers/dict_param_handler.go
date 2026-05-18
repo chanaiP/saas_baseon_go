@@ -68,6 +68,10 @@ func (h *IdentityHandler) CreateDictType(c *gin.Context) {
 		TenantEditable: body.TenantEditable,
 		IsPlatformOnly: body.IsPlatformOnly,
 	})
+	if errors.Is(err, dictionary.ErrPlatformOnly) {
+		response.Error(c, 403, response.CodeForbidden, err.Error())
+		return
+	}
 	if err != nil {
 		respondBadRequest(c, err)
 		return
@@ -101,6 +105,10 @@ func (h *IdentityHandler) UpdateDictType(c *gin.Context) {
 		TenantEditable: body.TenantEditable,
 		IsPlatformOnly: body.IsPlatformOnly,
 	})
+	if errors.Is(err, dictionary.ErrPlatformOnly) {
+		response.Error(c, 403, response.CodeForbidden, err.Error())
+		return
+	}
 	if errors.Is(err, dictionary.ErrNotFound) {
 		response.Error(c, 404, response.CodeNotFound, "不存在")
 		return
@@ -121,6 +129,10 @@ func (h *IdentityHandler) DeleteDictType(c *gin.Context) {
 	}
 	id := parseUintParam(c, "id")
 	row, err := h.dictionaryService().DeleteType(c.Request.Context(), h.dictionaryViewer(user), id)
+	if errors.Is(err, dictionary.ErrPlatformOnly) {
+		response.Error(c, 403, response.CodeForbidden, err.Error())
+		return
+	}
 	if errors.Is(err, dictionary.ErrNotFound) {
 		response.Error(c, 404, response.CodeNotFound, "不存在")
 		return

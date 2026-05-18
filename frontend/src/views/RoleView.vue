@@ -44,6 +44,7 @@ function openCreate() {
 }
 
 function openEditInfo(row: RoleRow) {
+  if (row.can_edit === false) return ElMessage.warning('系统内置角色不能编辑')
   editRow.value = row
   dlgCreate.value = false
   form.value = { code: row.code, name: row.name, description: row.description || '' }
@@ -51,6 +52,7 @@ function openEditInfo(row: RoleRow) {
 }
 
 function openPermissionConfig(row: RoleRow) {
+  if (row.can_config_perm === false) return ElMessage.warning('系统内置角色自动拥有权限，不能配置')
   void router.push({ name: 'RolePermissionConfigView', params: { roleId: String(row.id) } })
 }
 
@@ -73,6 +75,7 @@ async function saveDialog() {
 }
 
 async function remove(row: RoleRow) {
+  if (row.can_delete === false) return ElMessage.warning('系统内置角色不能删除')
   await confirmArchiveAction({ name: row.name || row.code, title: '归档角色' })
   try {
     await deleteRole(row.id)
@@ -143,9 +146,9 @@ onMounted(load)
       </template>
       <template #col-actions="{ row }">
         <span class="op-btns">
-          <el-button v-permission="'role:permission'" @click="openPermissionConfig(row)">权限</el-button>
-          <el-button v-permission="'role:edit'" @click="openEditInfo(row)">编辑</el-button>
-          <el-button v-permission="'role:delete'" type="danger" @click="remove(row)">删除</el-button>
+          <el-button v-permission="'role:permission'" :disabled="row.can_config_perm === false" @click="openPermissionConfig(row)">权限</el-button>
+          <el-button v-permission="'role:edit'" :disabled="row.can_edit === false" @click="openEditInfo(row)">编辑</el-button>
+          <el-button v-permission="'role:delete'" :disabled="row.can_delete === false" type="danger" @click="remove(row)">删除</el-button>
         </span>
       </template>
     </NeuroAgentListPage>

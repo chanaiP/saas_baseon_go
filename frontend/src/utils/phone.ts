@@ -13,6 +13,10 @@ export function isValidOptionalPhone(value: string): boolean {
   return digits.length >= 10 && digits.length <= 15
 }
 
+export function isValidMobilePhone(value: string): boolean {
+  return /^1[3-9]\d{9}$/.test(normalizePhoneInput(value))
+}
+
 /** 登录账号框：是否与后端「手机号登录」探测规则一致（仅数字与少量分隔符，且位数合法） */
 export function isLikelyPhoneAccountInput(raw: string): boolean {
   const t = raw.trim()

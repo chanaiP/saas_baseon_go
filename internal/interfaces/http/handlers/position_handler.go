@@ -50,6 +50,10 @@ func (h *IdentityHandler) CreatePositionType(c *gin.Context) {
 		return
 	}
 	row := models.PositionType{TenantID: user.TenantID, Name: strings.TrimSpace(body.Name), Code: strings.TrimSpace(body.Code)}
+	if msg := validatePositionTypePayload(h, user.TenantID, 0, row.Name, row.Code); msg != "" {
+		response.Error(c, 400, response.CodeBadRequest, msg)
+		return
+	}
 	if err := h.db.Create(&row).Error; err != nil {
 		respondBadRequest(c, err)
 		return
@@ -78,6 +82,10 @@ func (h *IdentityHandler) UpdatePositionType(c *gin.Context) {
 	}
 	if body.Code != nil {
 		updates["code"] = strings.TrimSpace(*body.Code)
+	}
+	if msg := validatePositionTypeUpdatePayload(h, user.TenantID, parseUintParam(c, "id"), body.Name, body.Code); msg != "" {
+		response.Error(c, 400, response.CodeBadRequest, msg)
+		return
 	}
 	result := h.db.Model(&models.PositionType{}).Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", c.Param("id"), user.TenantID).Updates(updates)
 	if result.Error != nil {
@@ -162,6 +170,10 @@ func (h *IdentityHandler) CreatePosition(c *gin.Context) {
 		return
 	}
 	row := models.Position{TenantID: user.TenantID, PositionTypeID: body.PositionTypeID, Name: strings.TrimSpace(body.Name), Code: strings.TrimSpace(body.Code)}
+	if msg := validatePositionPayload(h, user.TenantID, 0, row.Name, row.Code); msg != "" {
+		response.Error(c, 400, response.CodeBadRequest, msg)
+		return
+	}
 	if err := h.db.Create(&row).Error; err != nil {
 		respondBadRequest(c, err)
 		return
@@ -199,6 +211,10 @@ func (h *IdentityHandler) UpdatePosition(c *gin.Context) {
 	if body.Code != nil {
 		updates["code"] = strings.TrimSpace(*body.Code)
 	}
+	if msg := validatePositionUpdatePayload(h, user.TenantID, parseUintParam(c, "id"), body.Name, body.Code); msg != "" {
+		response.Error(c, 400, response.CodeBadRequest, msg)
+		return
+	}
 	result := h.db.Model(&models.Position{}).Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", c.Param("id"), user.TenantID).Updates(updates)
 	if result.Error != nil {
 		respondBadRequest(c, result.Error)
@@ -234,4 +250,86 @@ func (h *IdentityHandler) DeletePosition(c *gin.Context) {
 	}
 	h.audit(c, user.TenantID, user.ID, "position", "delete", "删除岗位 "+row.Name, gin.H{"id": id})
 	response.OK(c, gin.H{"deleted": id})
+}
+
+func validatePositionTypePayload(h *IdentityHandler, tenantID uint64, exceptID uint64, name string, code string) string {
+	name = strings.TrimSpace(name)
+	code = strings.TrimSpace(code)
+	if name == "" || code == "" {
+		return "岗位类型名称和编码不能为空"
+	}
+	if positionTypeFieldExists(h, tenantID, exceptID, "name", name) {
+		return "岗位类型名称已存在"
+	}
+	if positionTypeFieldExists(h, tenantID, exceptID, "code", code) {
+		return "岗位类型编码已存在"
+	}
+	return ""
+}
+
+func positionTypeFieldExists(h *IdentityHandler, tenantID uint64, exceptID uint64, field string, value string) bool {
+	var count int64
+	query := h.db.Model(&models.PositionType{}).Where("tenant_id = ? AND "+field+" = ? AND deleted_at IS NULL", tenantID, strings.TrimSpace(value))
+	if exceptID > 0 {
+		query = query.Where("id <> ?", exceptID)
+	}
+	_ = query.Count(&count).Error
+	return count > 0
+}
+
+func validatePositionTypeUpdatePayload(h *IdentityHandler, tenantID uint64, id uint64, name *string, code *string) string {
+	if name != nil && strings.TrimSpace(*name) == "" {
+		return "岗位类型名称不能为空"
+	}
+	if name != nil && positionTypeFieldExists(h, tenantID, id, "name", *name) {
+		return "岗位类型名称已存在"
+	}
+	if code != nil && strings.TrimSpace(*code) == "" {
+		return "岗位类型编码不能为空"
+	}
+	if code != nil && positionTypeFieldExists(h, tenantID, id, "code", *code) {
+		return "岗位类型编码已存在"
+	}
+	return ""
+}
+
+func validatePositionPayload(h *IdentityHandler, tenantID uint64, exceptID uint64, name string, code string) string {
+	name = strings.TrimSpace(name)
+	code = strings.TrimSpace(code)
+	if name == "" || code == "" {
+		return "岗位名称和编码不能为空"
+	}
+	if positionFieldExists(h, tenantID, exceptID, "name", name) {
+		return "岗位名称已存在"
+	}
+	if positionFieldExists(h, tenantID, exceptID, "code", code) {
+		return "岗位编码已存在"
+	}
+	return ""
+}
+
+func positionFieldExists(h *IdentityHandler, tenantID uint64, exceptID uint64, field string, value string) bool {
+	var count int64
+	query := h.db.Model(&models.Position{}).Where("tenant_id = ? AND "+field+" = ? AND deleted_at IS NULL", tenantID, strings.TrimSpace(value))
+	if exceptID > 0 {
+		query = query.Where("id <> ?", exceptID)
+	}
+	_ = query.Count(&count).Error
+	return count > 0
+}
+
+func validatePositionUpdatePayload(h *IdentityHandler, tenantID uint64, id uint64, name *string, code *string) string {
+	if name != nil && strings.TrimSpace(*name) == "" {
+		return "岗位名称不能为空"
+	}
+	if name != nil && positionFieldExists(h, tenantID, id, "name", *name) {
+		return "岗位名称已存在"
+	}
+	if code != nil && strings.TrimSpace(*code) == "" {
+		return "岗位编码不能为空"
+	}
+	if code != nil && positionFieldExists(h, tenantID, id, "code", *code) {
+		return "岗位编码已存在"
+	}
+	return ""
 }

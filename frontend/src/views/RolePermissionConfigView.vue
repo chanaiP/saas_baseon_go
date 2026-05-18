@@ -76,6 +76,34 @@ function buildDirectoryByMenuPath(nodes: MenuNode[]): Map<string, string> {
 }
 
 const directoryByMenuPath = buildDirectoryByMenuPath(buildDefaultMenuTreeSnapshot())
+const FALLBACK_APP_NAMES: Record<string, string> = {
+  'app-center': '应用中心',
+  'system-management': '系统管理',
+  'system-monitor': '系统监控',
+  'integration-center': '第三方集成中心',
+  'ai-capability-center': 'AI 能力中心',
+  'model-manager': '模型管理',
+}
+
+function fallbackAppsFromBundles(rows: MenuBundle[]): AppCenterApp[] {
+  const codes = [...new Set(rows.map((row) => row.app_code || 'system-management'))]
+  return codes.map((code, index) => ({
+    id: index + 1,
+    app_code: code,
+    app_name: FALLBACK_APP_NAMES[code] || code,
+    app_type: '',
+    source: '',
+    status: 'ONLINE',
+    charge_mode: '',
+    visibility_scope: '',
+    deployment_mode: '',
+    is_builtin: true,
+    is_platform_only: false,
+    sort_order: index + 1,
+    created_at: '',
+    updated_at: '',
+  }))
+}
 
 const displayBundleGroups = computed<BundleGroup[]>(() => {
   const groups = new Map<string, BundleGroup>()
@@ -452,15 +480,21 @@ async function load() {
       return
     }
     try {
-      const [r, b, appPage] = await Promise.all([
+      const [r, b] = await Promise.all([
         fetchRole(id),
         fetchMenuBundles(),
-        fetchAppCenterApps({ limit: 100 }),
       ])
+      let appItems: AppCenterApp[]
+      try {
+        const appPage = await fetchAppCenterApps({ limit: 100 })
+        appItems = appPage.items
+      } catch {
+        appItems = fallbackAppsFromBundles(b)
+      }
       role.value = r
       bundles.value = b
-      apps.value = appPage.items
-      if (!selectedAppCode.value && appPage.items.length) selectedAppCode.value = appPage.items[0].app_code
+      apps.value = appItems
+      if (!selectedAppCode.value && appItems.length) selectedAppCode.value = appItems[0].app_code
       initMenuStateFromRole(r)
       scopeTemplatePath.value = displayBundles.value[0]?.path ?? b[0]?.path ?? null
     } catch (e) {

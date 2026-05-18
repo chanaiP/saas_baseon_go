@@ -420,6 +420,7 @@ import { useTenantBrandingStore } from '@/stores/tenantBranding'
 import { useSidebarMenuStore, filterPlatformOnlyMenus, buildDefaultMenuTreeSnapshot } from '@/stores/sidebarMenu'
 import { useShortcutStore } from '@/stores/shortcut'
 import type { MenuNode } from '@/types/menu'
+import { confirmStandardAction } from '@/composables/useStandardConfirm'
 import { filterVisibleMenuTree } from '@/utils/menuVisibility'
 import NeuroLogoEditor from '@/components/NeuroLogoEditor.vue'
 import NeuroAvatarUpload from '@/components/NeuroAvatarUpload.vue'
@@ -1436,13 +1437,22 @@ const goToProfileSettings = () => {
 }
 
 // 退出登录
-const logout = () => {
-  if (confirm('确定要退出登录吗？退出后将需要重新登录。')) {
-    localStorage.removeItem('access_token')
-    usePermissionStore().clear()
-    sidebarMenu.clearTenantMenuRuntime()
-    router.push('/login')
+const logout = async () => {
+  try {
+    await confirmStandardAction({
+      title: '退出登录',
+      icon: '!',
+      message: '确定要退出登录吗？',
+      detail: '退出后将需要重新登录。',
+      confirmText: '退出',
+    })
+  } catch {
+    return
   }
+  localStorage.removeItem('access_token')
+  usePermissionStore().clear()
+  sidebarMenu.clearTenantMenuRuntime()
+  router.push('/login')
 }
 
 const toggleFullscreen = () => {

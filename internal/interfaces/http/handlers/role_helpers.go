@@ -37,7 +37,11 @@ func (h *IdentityHandler) roleToJSON(row models.Role, filterForSubscription bool
 	if filterForSubscription {
 		permissionIDs = h.filterPermissionIDsForTenantSubscription(row.TenantID, permissionIDs)
 	}
-	return gin.H{"id": row.ID, "code": row.Code, "name": row.Name, "description": row.Description, "permission_ids": permissionIDs, "data_overrides": h.roleDataOverrides(row.ID)}
+	item := gin.H{"id": row.ID, "code": row.Code, "name": row.Name, "description": row.Description, "permission_ids": permissionIDs, "data_overrides": h.roleDataOverrides(row.ID)}
+	for key, value := range systemRoleState(row) {
+		item[key] = value
+	}
+	return item
 }
 
 func (h *IdentityHandler) rolePermissionIDs(roleID uint64) []uint64 {

@@ -17,9 +17,12 @@
             type="text"
             class="search-input"
             :name="searchInputName"
-            autocomplete="off"
+            autocomplete="new-password"
             autocapitalize="off"
             autocorrect="off"
+            data-form-type="other"
+            data-lpignore="true"
+            data-1p-ignore="true"
             spellcheck="false"
             inputmode="search"
             role="searchbox"
@@ -345,10 +348,13 @@ function markSearchInteraction() {
 
 function activateSearchInput() {
   searchReadonly.value = false
-  markSearchInteraction()
 }
 
 function onSearch() {
+  if (!hasSearchInteraction && searchText.value) {
+    clearSearch()
+    return
+  }
   if (searchTimer) clearTimeout(searchTimer)
   searchTimer = setTimeout(() => emit('search', searchText.value), 300)
 }
@@ -367,11 +373,12 @@ onMounted(() => {
     theme.value = layout.getAttribute('data-theme') as 'dark' | 'light' || 'dark'
   }
 
-  autofillGuardTimer = setTimeout(() => {
-    if (!hasSearchInteraction && searchText.value) {
-      clearSearch()
-    }
-  }, 120)
+  const guardAutofill = () => {
+    if (!hasSearchInteraction && searchText.value) clearSearch()
+  }
+  autofillGuardTimer = setTimeout(guardAutofill, 1500)
+  setTimeout(guardAutofill, 120)
+  setTimeout(guardAutofill, 500)
 })
 
 onBeforeUnmount(() => {
@@ -380,6 +387,11 @@ onBeforeUnmount(() => {
 })
 
 watch(layout, (val) => emit('layout-change', val))
+
+watch(searchText, (value) => {
+  if (hasSearchInteraction || !value) return
+  clearSearch()
+}, { flush: 'post' })
 </script>
 
 <style scoped>

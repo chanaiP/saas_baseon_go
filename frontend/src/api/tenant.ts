@@ -71,7 +71,7 @@ export interface TenantCreatePayload {
   status?: number
   admin_name: string
   admin_employee_no: string
-  admin_phone?: string
+  admin_phone: string
   admin_password: string
 }
 

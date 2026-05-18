@@ -14,9 +14,14 @@ export interface UserRow {
   company_id: number | null
   department_id: number | null
   department_ids?: number[]
+  department_names?: string[]
   position_ids?: number[]
   role_ids: number[]
   is_platform_admin?: boolean
+  is_tenant_admin?: boolean
+  is_initial_admin?: boolean
+  can_edit?: boolean
+  can_delete?: boolean
   created_at?: string
 }
 

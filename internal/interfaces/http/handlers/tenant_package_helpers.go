@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"regexp"
 	"strings"
 	"time"
 
@@ -10,6 +11,8 @@ import (
 
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 )
+
+var tenantAdminMobilePattern = regexp.MustCompile(`^1[3-9][0-9]{9}$`)
 
 func (h *IdentityHandler) createTenantWithAdmin(code, name string, status int, adminName, adminEmployeeNo string, adminPhone *string, adminPassword string) (models.Tenant, error) {
 	var tenant models.Tenant
@@ -32,6 +35,12 @@ func (h *IdentityHandler) createTenantWithAdminOnDB(db *gorm.DB, code, name stri
 	if msg != "" {
 		return models.Tenant{}, errors.New(strings.Replace(msg, "手机号", "管理员手机号", 1))
 	}
+	if phone == nil {
+		return models.Tenant{}, errors.New("请填写管理员手机号")
+	}
+	if !tenantAdminMobilePattern.MatchString(*phone) {
+		return models.Tenant{}, errors.New("管理员手机号格式不正确")
+	}
 	var tenant models.Tenant
 	tenant = models.Tenant{Code: strings.TrimSpace(code), Name: strings.TrimSpace(name), Status: status, ContactName: nullableFromString(adminName), ContactPhone: phone}
 	if err := db.Create(&tenant).Error; err != nil {
@@ -43,25 +52,9 @@ func (h *IdentityHandler) createTenantWithAdminOnDB(db *gorm.DB, code, name stri
 	if err := db.Create(&company).Error; err != nil {
 		return tenant, err
 	}
-	roleDescription := "超级管理员（系统自动创建）"
-	role := models.Role{TenantID: tenant.ID, Code: "admin", Name: "超级管理员", Description: &roleDescription, Status: 1}
-	if err := db.Create(&role).Error; err != nil {
-		return tenant, err
-	}
-	user := models.AppUser{TenantID: tenant.ID, CompanyID: &company.ID, EmployeeNo: strings.TrimSpace(adminEmployeeNo), Account: strings.TrimSpace(adminEmployeeNo), PasswordHash: devPasswordHash(adminPassword), Name: strings.TrimSpace(adminName), Phone: phone, Status: 1, IsPlatformAdmin: false}
+	user := models.AppUser{TenantID: tenant.ID, CompanyID: &company.ID, EmployeeNo: strings.TrimSpace(adminEmployeeNo), Account: strings.TrimSpace(adminEmployeeNo), PasswordHash: devPasswordHash(adminPassword), Name: strings.TrimSpace(adminName), Phone: phone, Status: 1, IsPlatformAdmin: false, IsTenantAdmin: true}
 	if err := db.Create(&user).Error; err != nil {
 		return tenant, err
-	}
-	if err := db.Create(&models.UserRole{UserID: user.ID, RoleID: role.ID}).Error; err != nil {
-		return tenant, err
-	}
-	var permissions []models.Permission
-	if err := db.Where("tenant_id = ? OR tenant_id = ?", tenant.ID, 1).Find(&permissions).Error; err == nil {
-		for _, permission := range permissions {
-			if err := db.Where("role_id = ? AND permission_id = ?", role.ID, permission.ID).FirstOrCreate(&models.RolePermission{RoleID: role.ID, PermissionID: permission.ID, Source: "SYSTEM"}).Error; err != nil {
-				return tenant, err
-			}
-		}
 	}
 	return tenant, nil
 }
@@ -139,7 +132,7 @@ func tenantSubscriptionToJSON(row models.TenantSubscription) gin.H {
 
 func (h *IdentityHandler) primaryAdmin(tenantID uint64) (models.AppUser, bool) {
 	var user models.AppUser
-	err := h.db.Where("tenant_id = ?", tenantID).Order("is_platform_admin desc, id asc").First(&user).Error
+	err := h.db.Where("tenant_id = ?", tenantID).Order("is_tenant_admin desc, is_platform_admin desc, id asc").First(&user).Error
 	return user, err == nil
 }
 

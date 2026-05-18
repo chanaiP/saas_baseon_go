@@ -1,5 +1,6 @@
 <script setup lang="ts">
 defineOptions({ name: 'PositionView' })
+import { ElMessage } from 'element-plus'
 import { computed, onMounted, ref } from 'vue'
 
 import {
@@ -148,17 +149,27 @@ function openTypeEdit(row: PositionTypeRow) {
 }
 
 async function saveType() {
-  await createPositionType(tForm.value)
-  dlgT.value = false
-  await loadTypes()
-  await loadPos()
+  try {
+    await createPositionType(tForm.value)
+    dlgT.value = false
+    ElMessage.success('已保存')
+    await loadTypes()
+    await loadPos()
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '保存失败')
+  }
 }
 
 async function saveTypeEdit() {
   if (!tEdit.value) return
-  await updatePositionType(tEdit.value.id, { name: tForm.value.name, code: tForm.value.code })
-  dlgTEdit.value = false
-  await loadTypes()
+  try {
+    await updatePositionType(tEdit.value.id, { name: tForm.value.name, code: tForm.value.code })
+    dlgTEdit.value = false
+    ElMessage.success('已保存')
+    await loadTypes()
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '保存失败')
+  }
 }
 
 async function removeType(row: PositionTypeRow) {
@@ -188,23 +199,47 @@ async function openPosEdit(row: PositionRow) {
 }
 
 async function savePos() {
-  if (!selectedType.value) return
-  await createPosition({ position_type_id: selectedType.value, name: pForm.value.name, code: pForm.value.code })
-  dlgP.value = false
-  await loadPos()
-  await loadTypes()
+  if (!pForm.value.position_type_id) return
+  const nextTypeId = pForm.value.position_type_id
+  try {
+    await createPosition({ position_type_id: nextTypeId, name: pForm.value.name, code: pForm.value.code })
+    dlgP.value = false
+    if (selectedType.value !== nextTypeId) {
+      selectedType.value = nextTypeId
+      const nextType = typeOptions.value.find((x) => x.id === nextTypeId)
+      if (nextType) selectedTypeMeta.value = { id: nextType.id, name: nextType.name, code: nextType.code }
+      pageP.value = 1
+    }
+    ElMessage.success('已保存')
+    await loadTypes()
+    await loadPos()
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '保存失败')
+  }
 }
 
 async function savePosEdit() {
   if (!pEdit.value) return
-  await updatePosition(pEdit.value.id, {
-    name: pForm.value.name,
-    code: pForm.value.code,
-    position_type_id: pForm.value.position_type_id,
-  })
-  dlgPEdit.value = false
-  await loadPos()
-  await loadTypes()
+  const nextTypeId = pForm.value.position_type_id
+  try {
+    await updatePosition(pEdit.value.id, {
+      name: pForm.value.name,
+      code: pForm.value.code,
+      position_type_id: nextTypeId,
+    })
+    dlgPEdit.value = false
+    if (selectedType.value !== nextTypeId) {
+      selectedType.value = nextTypeId
+      const nextType = typeOptions.value.find((x) => x.id === nextTypeId)
+      if (nextType) selectedTypeMeta.value = { id: nextType.id, name: nextType.name, code: nextType.code }
+      pageP.value = 1
+    }
+    ElMessage.success('已保存')
+    await loadTypes()
+    await loadPos()
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '保存失败')
+  }
 }
 
 async function removePos(row: PositionRow) {
@@ -346,12 +381,14 @@ onMounted(async () => {
         <div class="nm-form-row">
           <div class="nm-form-item nm-form-item--full">
             <label class="nm-form-label">所属岗位类型</label>
-            <el-input
-              :model-value="
-                selectedTypeMeta ? `${selectedTypeMeta.name}（${selectedTypeMeta.code}）` : '—'
-              "
-              disabled
-            />
+            <el-select v-model="pForm.position_type_id" placeholder="选择类型" filterable style="width: 100%">
+              <el-option
+                v-for="t in typeOptions"
+                :key="t.id"
+                :label="`${t.name}（${t.code}）`"
+                :value="t.id"
+              />
+            </el-select>
           </div>
           <div class="nm-form-item">
             <label class="nm-form-label">名称</label>
@@ -373,6 +410,7 @@ onMounted(async () => {
         <div class="nm-form-row">
           <div class="nm-form-item nm-form-item--full">
             <label class="nm-form-label">所属岗位类型</label>
+            <p class="nm-form-tip">修改后岗位会移动到新的岗位类型，保存后右侧列表将自动切换过去。</p>
             <el-select v-model="pForm.position_type_id" placeholder="选择类型" filterable style="width: 100%">
               <el-option
                 v-for="t in typeOptions"

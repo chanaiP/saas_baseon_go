@@ -64,27 +64,15 @@ func seedCoreData(db *gorm.DB) error {
 		Name:            "平台管理员",
 		Status:          1,
 		IsPlatformAdmin: true,
+		IsTenantAdmin:   false,
 	}
 	if err := db.Where("tenant_id = ? AND account IN ?", tenant.ID, []string{"E10001", "admin"}).FirstOrCreate(&user).Error; err != nil {
 		return err
 	}
-	if err := db.Model(&user).Updates(map[string]interface{}{"company_id": company.ID, "employee_no": "E10001", "account": "E10001", "is_platform_admin": true, "status": 1}).Error; err != nil {
+	if err := db.Model(&user).Updates(map[string]interface{}{"company_id": company.ID, "employee_no": "E10001", "account": "E10001", "is_platform_admin": true, "is_tenant_admin": false, "status": 1}).Error; err != nil {
 		return err
 	}
 
-	role := models.Role{
-		TenantID: tenant.ID,
-		Code:     "admin",
-		Name:     "超级管理员",
-		Status:   1,
-	}
-	if err := db.Where("tenant_id = ? AND code = ?", tenant.ID, role.Code).FirstOrCreate(&role).Error; err != nil {
-		return err
-	}
-
-	if err := db.Where("user_id = ? AND role_id = ?", user.ID, role.ID).FirstOrCreate(&models.UserRole{UserID: user.ID, RoleID: role.ID}).Error; err != nil {
-		return err
-	}
 	if err := db.Where("user_id = ? AND position_id = ?", user.ID, position.ID).FirstOrCreate(&models.AppUserPosition{UserID: user.ID, PositionID: position.ID}).Error; err != nil {
 		return err
 	}
@@ -105,20 +93,10 @@ func seedCoreData(db *gorm.DB) error {
 	if err := db.Model(&demoUser).Updates(map[string]interface{}{"company_id": company.ID, "employee_no": "E10100", "status": 1}).Error; err != nil {
 		return err
 	}
-	if err := db.Where("user_id = ? AND role_id = ?", demoUser.ID, role.ID).FirstOrCreate(&models.UserRole{UserID: demoUser.ID, RoleID: role.ID}).Error; err != nil {
-		return err
-	}
 	_ = positionType
 
-	permissions, err := seedPermissions(db, tenant.ID)
-	if err != nil {
+	if _, err := seedPermissions(db, tenant.ID); err != nil {
 		return err
-	}
-	for _, permission := range permissions {
-		link := models.RolePermission{RoleID: role.ID, PermissionID: permission.ID}
-		if err := db.Where("role_id = ? AND permission_id = ?", role.ID, permission.ID).FirstOrCreate(&link).Error; err != nil {
-			return err
-		}
 	}
 
 	if err := seedSaasPlans(db, tenant.ID); err != nil {
@@ -128,9 +106,6 @@ func seedCoreData(db *gorm.DB) error {
 		return err
 	}
 	if err := seedBuiltinApps(db); err != nil {
-		return err
-	}
-	if err := seedPlatformAdminRolePermissions(db, tenant.ID, role.ID); err != nil {
 		return err
 	}
 	if err := seedSystemParams(db, tenant.ID); err != nil {
@@ -487,6 +462,28 @@ func seedPlatformAdminRolePermissions(db *gorm.DB, tenantID uint64, roleID uint6
 		link := models.RolePermission{RoleID: roleID, PermissionID: permission.ID}
 		if err := db.Where("role_id = ? AND permission_id = ?", roleID, permission.ID).FirstOrCreate(&link).Error; err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func seedTenantAdminRolePermissions(db *gorm.DB, platformTenantID uint64) error {
+	var roles []models.Role
+	if err := db.Where("code = ? AND tenant_id <> ? AND deleted_at IS NULL", "admin", platformTenantID).Find(&roles).Error; err != nil {
+		return err
+	}
+	for _, role := range roles {
+		var permissions []models.Permission
+		if err := db.
+			Where("(tenant_id = ? OR tenant_id = ?) AND enabled = ? AND deleted_at IS NULL AND is_platform_only = ?", role.TenantID, platformTenantID, true, false).
+			Find(&permissions).Error; err != nil {
+			return err
+		}
+		for _, permission := range permissions {
+			link := models.RolePermission{RoleID: role.ID, PermissionID: permission.ID, Source: "SYSTEM"}
+			if err := db.Where("role_id = ? AND permission_id = ?", role.ID, permission.ID).FirstOrCreate(&link).Error; err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -1194,15 +1191,15 @@ func upsertAIProviderAccountAndAPIs(db *gorm.DB, providerID string, seed aiProvi
 		if err := db.Where("provider_id = ? AND account_id = ? AND api_name = ?", providerID, account.ID, api.name).Order("deleted_at IS NULL DESC").FirstOrCreate(&row).Error; err != nil {
 			return err
 		}
-			if err := db.Model(&row).Updates(map[string]interface{}{
-				"api_type":     api.apiType,
-				"capabilities": aiJSONB(api.capabilities),
-				"auth_type":    seed.authType,
-				"qps_limit":    api.qpsLimit,
-				"timeout_ms":   api.timeoutMS,
-				"updated_at":   time.Now(),
-				"deleted_at":   nil,
-			}).Error; err != nil {
+		if err := db.Model(&row).Updates(map[string]interface{}{
+			"api_type":     api.apiType,
+			"capabilities": aiJSONB(api.capabilities),
+			"auth_type":    seed.authType,
+			"qps_limit":    api.qpsLimit,
+			"timeout_ms":   api.timeoutMS,
+			"updated_at":   time.Now(),
+			"deleted_at":   nil,
+		}).Error; err != nil {
 			return err
 		}
 	}

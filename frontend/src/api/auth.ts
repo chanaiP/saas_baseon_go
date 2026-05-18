@@ -46,6 +46,7 @@ export interface Profile {
   role_codes?: string[]
   permission_codes: string[]
   is_platform_admin?: boolean
+  is_tenant_admin?: boolean
   /** 所属主体为平台运营租户（可通过 RBAC 承担运维能力，不必具备超级管理员标记） */
   tenant_is_platform?: boolean
   shortcut_ids?: string[]

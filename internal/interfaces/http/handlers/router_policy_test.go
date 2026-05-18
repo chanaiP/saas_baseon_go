@@ -205,6 +205,11 @@ func TestMenuBundleOperationsIncludesManifestParentOperation(t *testing.T) {
 	require.Equal(t, "AI 能力中心-配置管理", items[0]["name"])
 }
 
+func TestHiddenCompatibilityMenuExcludedFromRoleBundles(t *testing.T) {
+	require.True(t, hiddenFromRoleMenuBundles(models.Permission{Path: "/permissions"}))
+	require.False(t, hiddenFromRoleMenuBundles(models.Permission{Path: "/roles"}))
+}
+
 func TestValidatePermissionPayloadMatchesOriginalDataPermissionPolicy(t *testing.T) {
 	dataPermType := 4
 	menuPermType := 3

@@ -65,6 +65,23 @@ func TestCreateWithRelationsChecksQuotaInsideService(t *testing.T) {
 	require.Equal(t, int64(0), count)
 }
 
+func TestCreateWithRelationsAllowsAnyTenantOrgNode(t *testing.T) {
+	db := newUserServiceTestDB(t)
+	service := NewService(db)
+	now := time.Now()
+	org := models.OrgNode{TenantID: 1, NodeType: "company", Name: "总部", Status: 1, CreatedAt: now, UpdatedAt: now}
+	require.NoError(t, db.Create(&org).Error)
+	row := models.AppUser{TenantID: 1, EmployeeNo: "E70005", Account: "E70005", PasswordHash: "hash", Name: "OrgNode", Status: 1, CreatedAt: now, UpdatedAt: now}
+
+	created, err := service.CreateWithRelations(context.Background(), row, Relations{DepartmentIDs: []uint64{org.ID}})
+
+	require.NoError(t, err)
+	require.NotZero(t, created.ID)
+	var count int64
+	require.NoError(t, db.Model(&models.AppUserDepartment{}).Where("user_id = ? AND department_id = ?", created.ID, org.ID).Count(&count).Error)
+	require.Equal(t, int64(1), count)
+}
+
 func TestImportUsersRollsBackBatchWhenOneRowFails(t *testing.T) {
 	db := newUserServiceTestDB(t)
 	quota := &countingQuotaChecker{}
@@ -108,6 +125,6 @@ func newUserServiceTestDB(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
-	require.NoError(t, db.AutoMigrate(&models.AppUser{}, &models.UserRole{}, &models.AppUserPosition{}, &models.AppUserDepartment{}))
+	require.NoError(t, db.AutoMigrate(&models.AppUser{}, &models.OrgNode{}, &models.UserRole{}, &models.AppUserPosition{}, &models.AppUserDepartment{}))
 	return db
 }

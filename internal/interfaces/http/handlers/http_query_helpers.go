@@ -181,9 +181,7 @@ func tenantContact(db *gorm.DB, tenant models.Tenant) (*string, *string) {
 func primaryAdminForTenant(db *gorm.DB, tenantID uint64) (models.AppUser, bool) {
 	var user models.AppUser
 	if err := db.
-		Joins("JOIN user_role ur ON ur.user_id = app_user.id").
-		Joins("JOIN role r ON r.id = ur.role_id").
-		Where("app_user.tenant_id = ? AND app_user.deleted_at IS NULL AND r.tenant_id = ? AND r.deleted_at IS NULL AND r.code = ?", tenantID, tenantID, "admin").
+		Where("tenant_id = ? AND is_tenant_admin = ? AND deleted_at IS NULL", tenantID, true).
 		Order("app_user.id asc").
 		First(&user).Error; err == nil {
 		return user, true

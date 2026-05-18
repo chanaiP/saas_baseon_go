@@ -134,7 +134,19 @@ const parentItemOptions = computed(() => {
     .map((item) => ({ label: `${item.label} / ${item.value}`, value: item.id }))
 })
 
-const canManageCurrentItems = computed(() => Boolean(currentType.value) && (isPlatformAdmin.value || currentType.value?.tenant_editable !== false))
+const currentTypeLabel = computed(() => {
+  if (!currentType.value) return ''
+  return `${currentType.value.name}（${currentType.value.code}）`
+})
+
+const canCreateDictTypes = computed(() => isPlatformAdmin.value && permStore.canUseAction('dict_type:create'))
+const currentTypeAllowsTenantItems = computed(() => Boolean(currentType.value) && currentType.value?.tenant_editable !== false)
+const canCreateCurrentItems = computed(() => {
+  if (!currentType.value) return false
+  if (isPlatformAdmin.value) return permStore.canUseAction('dict_item:create')
+  return currentTypeAllowsTenantItems.value && permStore.canUseAction('dict_item:create')
+})
+const canManageCurrentItems = computed(() => Boolean(currentType.value) && (isPlatformAdmin.value || currentTypeAllowsTenantItems.value))
 
 const dictTypeFilterFields = computed<FilterField[]>(() => {
   const rows: FilterField[] = [
@@ -397,14 +409,14 @@ const typeColumns = computed<TableColumn[]>(() => [
 ])
 
 const itemColumns = computed<TableColumn[]>(() => [
-  { key: 'default_label', title: '默认标签', minWidth: 100, hidden: isPlatformAdmin.value },
-  { key: 'label', title: isPlatformAdmin.value ? '默认标签' : '当前标签', minWidth: isPlatformAdmin.value ? 100 : 130 },
-  { key: 'default_value', title: '默认值', minWidth: 100, hidden: isPlatformAdmin.value },
-  { key: 'value', title: isPlatformAdmin.value ? '默认值' : '当前值', minWidth: isPlatformAdmin.value ? 100 : 130 },
-  { key: 'sort_order', title: '排序', minWidth: 96, width: 96, align: 'center' },
-  { key: 'enabled', title: '启用', minWidth: 96, width: 96, align: 'center' },
-  { key: 'is_override', title: '覆盖', minWidth: 96, width: 96, align: 'center', hidden: isPlatformAdmin.value },
-  { key: 'actions', title: '操作', width: canManageCurrentItems.value ? 280 : 180, minWidth: canManageCurrentItems.value ? 280 : 180, tooltip: false },
+  { key: 'default_label', title: '默认标签', minWidth: 86, hidden: isPlatformAdmin.value },
+  { key: 'label', title: isPlatformAdmin.value ? '默认标签' : '当前标签', minWidth: isPlatformAdmin.value ? 120 : 86 },
+  { key: 'default_value', title: '默认值', minWidth: 86, hidden: isPlatformAdmin.value },
+  { key: 'value', title: isPlatformAdmin.value ? '默认值' : '当前值', minWidth: isPlatformAdmin.value ? 120 : 86 },
+  { key: 'sort_order', title: '排序', minWidth: 72, width: 72, align: 'center' },
+  { key: 'enabled', title: '启用', minWidth: 76, width: 76, align: 'center' },
+  { key: 'is_override', title: '覆盖', minWidth: 76, width: 76, align: 'center', hidden: isPlatformAdmin.value },
+  { key: 'actions', title: '操作', width: canManageCurrentItems.value ? 188 : 128, minWidth: canManageCurrentItems.value ? 188 : 128, tooltip: false },
 ])
 
 onMounted(() => void loadTypes())
@@ -424,7 +436,7 @@ onMounted(() => void loadTypes())
           :page="pageT"
           :page-size="limitT"
           :page-sizes="[10, 20, 50]"
-          :show-create="canManageCurrentItems"
+          :show-create="canCreateDictTypes"
           :show-selection="false"
           :current-row-id="currentType?.id ?? undefined"
           :filter-fields="dictTypeFilterFields"
@@ -477,7 +489,7 @@ onMounted(() => void loadTypes())
           :default-expand-all="isTreeDict"
           :skip-client-sort="isTreeDict"
           :show-pagination="!isTreeDict"
-          :show-create="isPlatformAdmin"
+          :show-create="canCreateCurrentItems"
           :show-selection="false"
           :filter-fields="dictItemFilterFields"
           @create="openItemDlg"
@@ -486,7 +498,7 @@ onMounted(() => void loadTypes())
           @page-size-change="onItemPageSizeChange"
         >
           <template #actions>
-            <el-button v-if="canManageCurrentItems" v-permission="'dict_item:create'" class="btn-gradient" @click="openItemDlg">新增</el-button>
+            <el-button v-if="canCreateCurrentItems" v-permission="'dict_item:create'" class="btn-gradient" @click="openItemDlg">新增</el-button>
           </template>
           <template #col-enabled="{ row }">
             <el-tag
@@ -513,7 +525,7 @@ onMounted(() => void loadTypes())
               >
                 {{ isPlatformAdmin ? '编辑' : '覆盖' }}
               </el-button>
-              <el-button v-if="canManageCurrentItems" v-permission="'dict_item:create'" @click="openChildItemDlg(row)">增加子项</el-button>
+              <el-button v-if="canCreateCurrentItems" v-permission="'dict_item:create'" @click="openChildItemDlg(row)">增加子项</el-button>
               <el-button v-if="!isPlatformAdmin" :disabled="!row.is_override" @click="restoreItem(row)">恢复默认</el-button>
               <el-button v-if="isPlatformAdmin || row.is_custom" v-permission="'dict_item:delete'" type="danger" @click="removeItem(row)">删除</el-button>
             </span>
@@ -589,8 +601,12 @@ onMounted(() => void loadTypes())
     <NeuroAgentDialog v-model="dlgI" title="新增字典项" icon="📋" size="small">
       <div class="nm-form">
         <div class="nm-form-item">
-          <label class="nm-form-label">上级项</label>
-          <el-select v-model="iForm.parent_id" clearable filterable placeholder="无上级，作为一级项">
+          <label class="nm-form-label">所属字典类型</label>
+          <el-input :model-value="currentTypeLabel" disabled />
+        </div>
+        <div class="nm-form-item">
+          <label class="nm-form-label">父级字典项</label>
+          <el-select v-model="iForm.parent_id" clearable filterable placeholder="可选择已有字典项作为父级">
             <el-option
               v-for="opt in parentItemOptions"
               :key="opt.value"
@@ -626,8 +642,12 @@ onMounted(() => void loadTypes())
     <NeuroAgentDialog v-model="dlgIEdit" title="编辑字典项" icon="📋" size="small">
       <div class="nm-form">
         <div class="nm-form-item">
-          <label class="nm-form-label">上级项</label>
-          <el-select v-model="iForm.parent_id" clearable filterable placeholder="无上级，作为一级项">
+          <label class="nm-form-label">所属字典类型</label>
+          <el-input :model-value="currentTypeLabel" disabled />
+        </div>
+        <div class="nm-form-item">
+          <label class="nm-form-label">父级字典项</label>
+          <el-select v-model="iForm.parent_id" clearable filterable placeholder="可选择已有字典项作为父级">
             <el-option
               v-for="opt in parentItemOptions"
               :key="opt.value"
@@ -679,15 +699,18 @@ onMounted(() => void loadTypes())
 
 .page :deep(.dict-data-table .op-btns) {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  justify-content: flex-start;
+  gap: 8px 10px;
   max-width: 100%;
 }
 
 .page :deep(.dict-data-table .op-btns .el-button) {
   margin-left: 0;
-  min-width: 64px;
+  min-width: 72px;
+  height: 34px;
+  padding: 0 14px;
 }
 
 .page :deep(.dict-data-table .card-table),
@@ -702,13 +725,21 @@ onMounted(() => void loadTypes())
 .page :deep(.dict-data-table .el-table__fixed-right .el-table__fixed-body-wrapper) {
   height: auto !important;
   max-height: none !important;
-  overflow: visible !important;
   overflow-y: visible !important;
+}
+
+.page :deep(.dict-data-table .card-table),
+.page :deep(.dict-data-table .el-table),
+.page :deep(.dict-data-table .el-table__inner-wrapper),
+.page :deep(.dict-data-table .el-table__body-wrapper),
+.page :deep(.dict-data-table .el-scrollbar),
+.page :deep(.dict-data-table .el-scrollbar__wrap),
+.page :deep(.dict-data-table .el-scrollbar__view) {
+  overflow-x: clip !important;
 }
 
 .page :deep(.dict-data-table .el-table--scrollable-y .el-table__body-wrapper),
 .page :deep(.dict-data-table .el-table--scrollable-y .el-scrollbar__wrap) {
-  overflow: visible !important;
   overflow-y: visible !important;
 }
 

@@ -140,6 +140,27 @@ operations:
     permission_code: menu:package_feature
     include_in_package: true
     feature_code: button_menu_package_feature
+  - code: dict_type_create
+    name: 字典类型-新增
+    menu_code: dict_manage
+    permission_code: dict_type:create
+    platform_only: true
+    include_in_package: false
+    feature_code: button_dict_type_create
+  - code: dict_type_edit
+    name: 字典类型-编辑
+    menu_code: dict_manage
+    permission_code: dict_type:edit
+    platform_only: true
+    include_in_package: false
+    feature_code: button_dict_type_edit
+  - code: dict_type_delete
+    name: 字典类型-删除
+    menu_code: dict_manage
+    permission_code: dict_type:delete
+    platform_only: true
+    include_in_package: false
+    feature_code: button_dict_type_delete
   - code: dict_item_create
     name: 字典项-新增
     menu_code: dict_manage
@@ -250,6 +271,27 @@ permissions:
     type: OPERATION
     menu_code: menu_manage
     include_in_package: true
+    data_perm_mode: NONE
+  - code: dict_type:create
+    name: 字典类型-新增
+    type: OPERATION
+    menu_code: dict_manage
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: dict_type:edit
+    name: 字典类型-编辑
+    type: OPERATION
+    menu_code: dict_manage
+    platform_only: true
+    include_in_package: false
+    data_perm_mode: NONE
+  - code: dict_type:delete
+    name: 字典类型-删除
+    type: OPERATION
+    menu_code: dict_manage
+    platform_only: true
+    include_in_package: false
     data_perm_mode: NONE
   - code: dict_item:create
     name: 字典项-新增

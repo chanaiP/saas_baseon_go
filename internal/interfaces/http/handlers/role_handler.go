@@ -21,6 +21,9 @@ func (h *IdentityHandler) AssignableRoles(c *gin.Context) {
 	}
 	items := make([]gin.H, 0, len(roles))
 	for _, role := range roles {
+		if role.Code == "admin" {
+			continue
+		}
 		items = append(items, gin.H{"id": role.ID, "code": role.Code, "name": role.Name})
 	}
 	response.OK(c, paginated(items))
@@ -34,6 +37,7 @@ func (h *IdentityHandler) Roles(c *gin.Context) {
 	}
 	skip, limit := paginationParams(c)
 	query := h.tenantScope().Active(user.TenantID)
+	query = query.Where("code <> ?", "admin")
 	if kw := strings.TrimSpace(c.Query("kw")); kw != "" {
 		like := "%" + strings.ToLower(kw) + "%"
 		query = query.Where("lower(code) LIKE ? OR lower(name) LIKE ?", like, like)
@@ -89,6 +93,10 @@ func (h *IdentityHandler) CreateRole(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, "角色编码和名称不能为空")
 		return
 	}
+	if code == "admin" {
+		response.Error(c, 400, response.CodeBadRequest, "admin 为系统内置超级管理员身份，不能创建为普通角色")
+		return
+	}
 	role := models.Role{TenantID: user.TenantID, Code: code, Name: name, Description: nullableTrimmed(body.Description), Status: 1}
 	if err := h.db.Create(&role).Error; err != nil {
 		respondBadRequest(c, err)
@@ -112,6 +120,10 @@ func (h *IdentityHandler) UpdateRole(c *gin.Context) {
 	var role models.Role
 	if err := h.tenantScope().ActiveByID(user.TenantID, parseUintParam(c, "id")).First(&role).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "角色不存在")
+		return
+	}
+	if systemRoleLocked(role) {
+		response.Error(c, 400, response.CodeBadRequest, "系统内置超级管理员身份不能编辑")
 		return
 	}
 	if body.PermissionIDs != nil {
@@ -158,6 +170,10 @@ func (h *IdentityHandler) UpdateRolePermissions(c *gin.Context) {
 		response.Error(c, 404, response.CodeNotFound, "角色不存在")
 		return
 	}
+	if systemRoleLocked(role) {
+		response.Error(c, 400, response.CodeBadRequest, "系统内置超级管理员身份自动拥有权限，不能配置")
+		return
+	}
 	if err := h.validateRolePermissionIDs(user, body.PermissionIDs); err != nil {
 		respondBadRequest(c, err)
 		return
@@ -187,6 +203,10 @@ func (h *IdentityHandler) DeleteRole(c *gin.Context) {
 	var role models.Role
 	if err := h.tenantScope().ActiveByID(user.TenantID, parseUintParam(c, "id")).First(&role).Error; err != nil {
 		response.Error(c, 404, response.CodeNotFound, "角色不存在")
+		return
+	}
+	if systemRoleLocked(role) {
+		response.Error(c, 400, response.CodeBadRequest, "系统内置超级管理员身份不能删除")
 		return
 	}
 	now := time.Now()

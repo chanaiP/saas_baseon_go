@@ -36,6 +36,7 @@ CREATE TABLE public.app_user (
     avatar_url text,
     status bigint DEFAULT 1 NOT NULL,
     is_platform_admin boolean DEFAULT false NOT NULL,
+    is_tenant_admin boolean DEFAULT false NOT NULL,
     session_version bigint DEFAULT 1 NOT NULL,
     password_changed_at timestamp with time zone,
     created_at timestamp with time zone NOT NULL,

@@ -52,6 +52,7 @@ func (h *IdentityHandler) Profile(c *gin.Context) {
 		"role_codes":         roleCodes,
 		"permission_codes":   permissionCodes,
 		"is_platform_admin":  user.IsPlatformAdmin,
+		"is_tenant_admin":    h.userIsTenantAdmin(user),
 		"tenant_is_platform": tenantIsPlatform,
 		"shortcut_ids":       h.userShortcutIDs(user.ID),
 		"subscription":       capability.Subscription,

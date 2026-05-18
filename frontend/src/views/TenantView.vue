@@ -1,6 +1,6 @@
 <script setup lang="ts">
 defineOptions({ name: 'TenantView' })
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { computed, onMounted, ref } from 'vue'
 
 import {
@@ -24,12 +24,13 @@ import {
   updateTenant,
 } from '@/api/tenant'
 import { archiveSuccessMessage, confirmArchiveAction } from '@/composables/useArchiveConfirm'
+import { confirmStandardAction } from '@/composables/useStandardConfirm'
 import type { TenantPrimaryAdminPasswordResetResult } from '@/api/tenant'
 import type { Tenant, TenantBusinessUnitQuotaRecord, TenantCreatePayload, TenantOrgQuotaRecord } from '@/api/tenant'
 import { usePermissionStore } from '@/stores/permission'
 import { useTenantBrandingStore } from '@/stores/tenantBranding'
 import { sortQuotasByDisplayOrder } from '@/utils/quotaDisplayOrder'
-import { isValidOptionalPhone, normalizePhoneInput, sanitizePhoneInput } from '@/utils/phone'
+import { isValidMobilePhone, isValidOptionalPhone, normalizePhoneInput, sanitizePhoneInput } from '@/utils/phone'
 import type { TableColumn } from '@/views/components/NeuroAgentListPage.vue'
 import NeuroAgentDialog from '@/views/components/NeuroAgentDialog.vue'
 import NeuroAgentListPage from '@/views/components/NeuroAgentListPage.vue'
@@ -427,8 +428,10 @@ function saveCreate() {
   if (!form.value.admin_name || !form.value.admin_employee_no || !form.value.admin_password)
     return ElMessage.warning('请填写管理员姓名、工号和初始密码')
   if (form.value.admin_password.length < 6) return ElMessage.warning('初始密码至少 6 位')
-  if (!isValidOptionalPhone(form.value.admin_phone || '')) return ElMessage.warning('手机号需为 10-15 位数字')
-  form.value.admin_phone = form.value.admin_phone ? normalizePhoneInput(form.value.admin_phone) : ''
+  const adminPhone = form.value.admin_phone.trim()
+  if (!adminPhone) return ElMessage.warning('请填写管理员手机号')
+  if (!isValidMobilePhone(adminPhone)) return ElMessage.warning('管理员手机号格式不正确')
+  form.value.admin_phone = normalizePhoneInput(adminPhone)
   createStep.value = 2
 }
 
@@ -465,7 +468,12 @@ async function savePackageConfig() {
 async function toggleStatus(row: Tenant) {
   const action = row.status === 1 ? '停用' : '启用'
   try {
-    await ElMessageBox.confirm(`确定${action}「${row.name}」？`, '操作确认', { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' })
+    await confirmStandardAction({
+      title: '操作确认',
+      icon: '!',
+      message: `确定${action}「${row.name}」？`,
+      confirmText: '确定',
+    })
   } catch { return }
   await patchTenantStatus(row.id, row.status === 1 ? 0 : 1)
   await load()
@@ -596,11 +604,13 @@ async function resetPrimaryAdminPassword(row: Tenant) {
     ? `工号 ${brief.employee_no}、手机号 ${brief.phone}`
     : `工号 ${brief.employee_no}`
   try {
-    await ElMessageBox.confirm(
-      `主体「${row.name}」\n主管理员：${brief.name}\n登录账号：${loginHint}\n\n确定重置密码？系统将生成随机密码（字母与数字），请在弹窗中复制发给对方。`,
-      '重置主管理员密码',
-      { type: 'warning', confirmButtonText: '确定重置', cancelButtonText: '取消' },
-    )
+    await confirmStandardAction({
+      title: '重置主管理员密码',
+      icon: '!',
+      message: `确定重置主体「${row.name}」的主管理员密码？`,
+      detail: `主管理员：${brief.name}；登录账号：${loginHint}。系统将生成随机密码（字母与数字），请在弹窗中复制发给对方。`,
+      confirmText: '确定重置',
+    })
   } catch {
     return
   }
@@ -1147,11 +1157,11 @@ onMounted(async () => {
           </div>
           <div class="nm-form-row">
             <div class="nm-form-item">
-              <label class="nm-form-label">手机号</label>
+              <label class="nm-form-label">手机号 <span class="nm-form-required">*</span></label>
               <el-input
                 v-model="form.admin_phone"
                 inputmode="tel"
-                placeholder="选填"
+                placeholder="请输入手机号"
                 @input="form.admin_phone = sanitizePhoneInput(String($event))"
               />
             </div>

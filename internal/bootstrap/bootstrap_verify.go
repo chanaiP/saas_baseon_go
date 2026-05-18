@@ -113,20 +113,19 @@ WHERE t.code = 'platform'
 	}
 	add("platform_admin_user", platformAdminUser, "1", platformAdminUser == 1)
 
-	platformAdminMissingGrants, err := count(`
+	platformAdminIdentity, err := count(`
 SELECT COUNT(*)
-FROM permission p
-JOIN tenant t ON t.id = p.tenant_id
-JOIN role r ON r.tenant_id = t.id AND r.code = 'admin' AND r.deleted_at IS NULL
-LEFT JOIN role_permission rp ON rp.role_id = r.id AND rp.permission_id = p.id
+FROM app_user u
+JOIN tenant t ON t.id = u.tenant_id
 WHERE t.code = 'platform'
-  AND p.enabled = true
-  AND p.deleted_at IS NULL
-  AND rp.id IS NULL`)
+  AND u.employee_no = 'E10001'
+  AND u.is_platform_admin = true
+  AND u.is_tenant_admin = false
+  AND u.deleted_at IS NULL`)
 	if err != nil {
 		return BootstrapVerifyResult{}, err
 	}
-	add("platform_admin_missing_grants", platformAdminMissingGrants, "0", platformAdminMissingGrants == 0)
+	add("platform_admin_identity", platformAdminIdentity, "1", platformAdminIdentity == 1)
 
 	plans, err := count("SELECT COUNT(*) FROM saas_plan WHERE deleted_at IS NULL")
 	if err != nil {

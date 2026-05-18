@@ -21,6 +21,9 @@ func (h *IdentityHandler) MenuBundles(c *gin.Context) {
 	_ = h.db.Where("tenant_id IN ? AND perm_type = ? AND enabled = ? AND deleted_at IS NULL", h.permissionScopeTenantIDs(user.TenantID), 3, true).Order("sort_order asc, id asc").Find(&permissions).Error
 	bundles := make([]gin.H, 0, len(permissions))
 	for _, permission := range permissions {
+		if hiddenFromRoleMenuBundles(permission) {
+			continue
+		}
 		if !forPlatform && permission.IsPlatformOnly {
 			continue
 		}
@@ -48,6 +51,10 @@ func (h *IdentityHandler) MenuBundles(c *gin.Context) {
 	}
 	bundles = append(bundles, h.standaloneCapabilityBundles(user.TenantID, forPlatform)...)
 	response.OK(c, bundles)
+}
+
+func hiddenFromRoleMenuBundles(permission models.Permission) bool {
+	return permission.Path == "/permissions"
 }
 
 func (h *IdentityHandler) standaloneCapabilityBundles(tenantID uint64, forPlatform bool) []gin.H {

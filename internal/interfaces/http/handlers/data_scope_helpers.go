@@ -21,7 +21,7 @@ func (h *IdentityHandler) resolveOrganizationDataScope(user models.AppUser) orgD
 }
 
 func (h *IdentityHandler) resolveDataScopeForMenu(user models.AppUser, menuPath string) orgDataScope {
-	if user.IsPlatformAdmin {
+	if h.userHasSuperAdminScope(user) {
 		return orgDataScope{Scope: "ALL"}
 	}
 	prefixes := operationPrefixesForMenuPath(menuPath)
@@ -203,8 +203,8 @@ func filterOrgTree(nodes []gin.H, allowedCompanyIDs, allowedDepartmentIDs map[ui
 		_, companyHit := allowedCompanyIDs[id]
 		_, departmentHit := allowedDepartmentIDs[id]
 		_, companyIDHit := allowedCompanyIDs[companyID]
-		extendedHit := (nodeType == "warehouse" || nodeType == "project_team") && (departmentHit || companyIDHit)
-		if (nodeType == "company" && companyHit) || (nodeType == "department" && departmentHit) || (nodeType == "store" && companyIDHit) || extendedHit || len(children) > 0 {
+		extendedHit := nodeType != "company" && companyIDHit
+		if (nodeType == "company" && companyHit) || (nodeType == "department" && departmentHit) || extendedHit || len(children) > 0 {
 			next := gin.H{}
 			for key, value := range node {
 				next[key] = value

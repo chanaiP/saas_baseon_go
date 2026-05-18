@@ -1,7 +1,7 @@
 <script setup lang="ts">
 defineOptions({ name: 'UserView' })
 import { CaretBottom, CaretTop } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { computed, markRaw, onMounted, ref, shallowRef } from 'vue'
 
 import { fetchDictItemsByCode } from '@/api/dict'
@@ -49,6 +49,12 @@ const resetResultDlg = ref(false)
 const resetResult = ref<{ employee_no: string; phone: string; password: string } | null>(null)
 const credentialDialogTitle = ref('密码已重置')
 const credentialPasswordLabel = ref('重置后的密码')
+const resetConfirmDlg = ref(false)
+const resetConfirmRow = ref<UserRow | null>(null)
+const resetConfirmLoading = ref(false)
+const statusConfirmDlg = ref(false)
+const statusConfirmRow = ref<UserRow | null>(null)
+const statusConfirmLoading = ref(false)
 const form = ref({
   employee_no: '',
   name: '',
@@ -62,13 +68,9 @@ function flattenDepartmentOptions(nodes: OrgNode[], path: string[] = []): { valu
   const out: { value: number; label: string }[] = []
   for (const n of nodes) {
     const nextPath = [...path, n.name]
-    if (n.node_type === 'company') {
-      if (n.children?.length) out.push(...flattenDepartmentOptions(n.children, nextPath))
-    } else {
-      const typeLabel = orgNodeTypeLabel(n.node_type)
-      out.push({ value: n.id, label: `${nextPath.join(' · ')}（${typeLabel}）` })
-      if (n.children?.length) out.push(...flattenDepartmentOptions(n.children, nextPath))
-    }
+    const typeLabel = orgNodeTypeLabel(n.node_type)
+    out.push({ value: n.id, label: `${nextPath.join(' · ')}（${typeLabel}）` })
+    if (n.children?.length) out.push(...flattenDepartmentOptions(n.children, nextPath))
   }
   return out
 }
@@ -96,7 +98,6 @@ function buildDepartmentTreeOptions(nodes: OrgNode[], path: string[] = []): Depa
       value: n.id,
       label: `${n.name}（${typeLabel}）`,
       searchText: `${nextPath.join(' ')} ${n.name} ${n.code ?? ''} ${typeLabel} ${n.node_type ?? ''}`.toLowerCase(),
-      disabled: n.node_type === 'company',
     }
     if (n.children?.length) item.children = buildDepartmentTreeOptions(n.children, nextPath)
     return item
@@ -187,8 +188,15 @@ function orgNodeTypeLabel(nodeType: string | null | undefined): string {
 }
 
 const positionNameById = computed(() => Object.fromEntries(positions.value.map((p) => [p.id, p.name])))
+const validPositionIdSet = computed(() => new Set(positions.value.map((p) => p.id)))
 
 const roleNameById = computed(() => Object.fromEntries(roles.value.map((r) => [r.id, r.name])))
+
+function normalizedSelectedPositionIDs(ids: Array<number | string>) {
+  return ids
+    .map((id) => Number(id))
+    .filter((id) => Number.isFinite(id) && validPositionIdSet.value.has(id))
+}
 
 async function loadOrg() {
   try {
@@ -280,7 +288,7 @@ const userFilterFields = computed<FilterField[]>(() => {
   }
   return [
     {
-      key: 'userKeyword',
+      key: 'keyword',
       label: '工号 / 姓名 / 手机',
       type: 'text',
       placeholder: '模糊匹配',
@@ -312,6 +320,10 @@ function openCreate() {
 }
 
 function openEdit(row: UserRow) {
+  if (row.can_edit === false) {
+    ElMessage.warning('初始超级管理员不能编辑')
+    return
+  }
   edit.value = row
   const dIds =
     row.department_ids?.length ? [...row.department_ids] : row.department_id != null ? [row.department_id] : []
@@ -330,6 +342,7 @@ async function save() {
   if (!isValidOptionalPhone(form.value.phone)) {
     return ElMessage.warning('手机号需为 10-15 位数字')
   }
+  const positionIds = normalizedSelectedPositionIDs(form.value.position_ids)
   try {
     if (edit.value) {
       const body: Parameters<typeof updateUser>[1] = {
@@ -338,7 +351,7 @@ async function save() {
         role_ids: form.value.role_ids,
         company_id: edit.value.company_id,
         department_ids: form.value.department_ids,
-        position_ids: form.value.position_ids,
+        position_ids: positionIds,
         status: edit.value.status,
       }
       await updateUser(edit.value.id, body)
@@ -352,7 +365,7 @@ async function save() {
         company_id: companyId.value,
         department_id: primaryDepartmentId ?? null,
         department_ids: form.value.department_ids.length ? form.value.department_ids : undefined,
-        position_ids: form.value.position_ids.length ? form.value.position_ids : undefined,
+        position_ids: positionIds.length ? positionIds : undefined,
         role_ids: form.value.role_ids,
       })
       credentialDialogTitle.value = '用户已创建'
@@ -373,6 +386,10 @@ async function save() {
 }
 
 async function remove(row: UserRow) {
+  if (row.can_delete === false) {
+    ElMessage.warning('初始超级管理员不能删除')
+    return
+  }
   await confirmArchiveAction({ name: row.name || row.employee_no, title: '归档用户' })
   await deleteUser(row.id)
   ElMessage.success(archiveSuccessMessage(row.name || row.employee_no))
@@ -432,13 +449,22 @@ function onResetResultDlgClose() {
   resetResult.value = null
 }
 
-async function resetPwd(row: UserRow) {
+function resetPwd(row: UserRow) {
+  resetConfirmRow.value = row
+  resetConfirmDlg.value = true
+}
+
+function closeResetConfirmDlg() {
+  if (resetConfirmLoading.value) return
+  resetConfirmDlg.value = false
+  resetConfirmRow.value = null
+}
+
+async function confirmResetPassword() {
+  const row = resetConfirmRow.value
+  if (!row) return
+  resetConfirmLoading.value = true
   try {
-    await ElMessageBox.confirm(
-      '确定重置该用户登录密码？系统将生成随机密码（字母与数字），请妥善保管弹窗中的内容。',
-      '重置密码',
-      { type: 'warning' },
-    )
     const res = await resetUserPassword(row.id)
     credentialDialogTitle.value = '密码已重置'
     credentialPasswordLabel.value = '重置后的密码'
@@ -447,11 +473,47 @@ async function resetPwd(row: UserRow) {
       phone: (row.phone ?? '').trim(),
       password: res.new_password,
     }
+    resetConfirmDlg.value = false
+    resetConfirmRow.value = null
     resetResultDlg.value = true
     ElMessage.success('密码已重置')
   } catch (e) {
-    if (e === 'cancel') return
     ElMessage.error(e instanceof Error ? e.message : '重置密码失败')
+  } finally {
+    resetConfirmLoading.value = false
+  }
+}
+
+function openStatusConfirm(row: UserRow) {
+  if (row.can_edit === false) {
+    ElMessage.warning('初始超级管理员不能停用')
+    return
+  }
+  statusConfirmRow.value = row
+  statusConfirmDlg.value = true
+}
+
+function closeStatusConfirmDlg() {
+  if (statusConfirmLoading.value) return
+  statusConfirmDlg.value = false
+  statusConfirmRow.value = null
+}
+
+async function confirmToggleStatus() {
+  const row = statusConfirmRow.value
+  if (!row) return
+  const nextStatus = row.status === 1 ? 0 : 1
+  statusConfirmLoading.value = true
+  try {
+    await updateUser(row.id, { status: nextStatus })
+    statusConfirmDlg.value = false
+    statusConfirmRow.value = null
+    ElMessage.success(nextStatus === 1 ? '用户已启用' : '用户已停用')
+    await loadUsers()
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '更新用户状态失败')
+  } finally {
+    statusConfirmLoading.value = false
   }
 }
 
@@ -472,7 +534,7 @@ function onPageSizeChange(s: number) {
 }
 
 function onUserSearch(payload: { keyword: string; filters: Record<string, unknown> }) {
-  appliedKeyword.value = String(payload.filters?.userKeyword ?? '').trim()
+  appliedKeyword.value = String(payload.keyword || payload.filters?.keyword || payload.filters?.userKeyword || '').trim()
   const raw = payload.filters?.status
   if (raw === '' || raw === null || raw === undefined) {
     appliedStatus.value = undefined
@@ -487,7 +549,7 @@ function formatDeptCell(row: UserRow) {
   const ids = row.department_ids?.length ? row.department_ids : row.department_id != null ? [row.department_id] : []
   if (!ids.length) return '—'
   return ids
-    .map((id) => departmentOptions.value.find((o) => o.value === id)?.label ?? `#${id}`)
+    .map((id, index) => row.department_names?.[index] || departmentOptions.value.find((o) => o.value === id)?.label || `#${id}`)
     .join('；')
 }
 
@@ -498,20 +560,22 @@ function formatPositionCell(row: UserRow) {
 }
 
 function formatRolesTitle(row: UserRow) {
+  if (row.is_platform_admin) return '平台超级管理员'
+  if (row.is_tenant_admin) return '租户超级管理员'
   const ids = row.role_ids ?? []
   if (!ids.length) return ''
   return ids.map((id) => roleNameById.value[id] ?? `#${id}`).join('；')
 }
 
 const columns: TableColumn[] = [
-  { key: 'employee_no', title: '工号', width: 110 },
-  { key: 'name', title: '姓名', width: 100 },
-  { key: 'departments', title: '部门', minWidth: 168 },
-  { key: 'positions', title: '岗位', minWidth: 140 },
-  { key: 'roles', title: '角色', minWidth: 160 },
-  { key: 'phone', title: '手机', width: 130 },
-  { key: 'status', title: '状态', width: 90 },
-  { key: 'actions', title: '操作', minWidth: 306, width: 318, tooltip: false },
+  { key: 'employee_no', title: '工号', minWidth: 136 },
+  { key: 'name', title: '姓名', minWidth: 112 },
+  { key: 'departments', title: '部门', minWidth: 132 },
+  { key: 'positions', title: '岗位', minWidth: 132 },
+  { key: 'roles', title: '角色', minWidth: 178 },
+  { key: 'phone', title: '手机', minWidth: 136 },
+  { key: 'status', title: '状态', minWidth: 92 },
+  { key: 'actions', title: '操作', minWidth: 364, tooltip: false },
 ]
 
 onMounted(async () => {
@@ -605,6 +669,14 @@ onMounted(async () => {
           </template>
           <template #col-roles="{ row }">
             <div class="role-tags-cell" :title="formatRolesTitle(row)">
+              <el-tag
+                v-if="row.is_platform_admin || row.is_tenant_admin"
+                size="small"
+                effect="plain"
+                class="role-tag-chip role-tag-chip--admin"
+              >
+                {{ row.is_platform_admin ? '平台超级管理员' : '租户超级管理员' }}
+              </el-tag>
               <template v-if="(row.role_ids ?? []).length">
                 <el-tag
                   v-for="rid in row.role_ids"
@@ -616,7 +688,7 @@ onMounted(async () => {
                   {{ roleNameById[rid] ?? `#${rid}` }}
                 </el-tag>
               </template>
-              <span v-else class="muted">—</span>
+              <span v-else-if="!row.is_platform_admin && !row.is_tenant_admin" class="muted">—</span>
             </div>
           </template>
           <template #col-status="{ row }">
@@ -630,9 +702,17 @@ onMounted(async () => {
           </template>
           <template #col-actions="{ row }">
             <span class="op-btns user-mgmt-op-btns">
-              <el-button v-permission="'user:edit'" size="small" @click="openEdit(row)">编辑</el-button>
+              <el-button v-permission="'user:edit'" size="small" :disabled="row.can_edit === false" @click="openEdit(row)">编辑</el-button>
               <el-button v-permission="'user:reset_password'" size="small" @click="resetPwd(row)">重置密码</el-button>
-              <el-button v-permission="'user:delete'" size="small" type="danger" @click="remove(row)">删除</el-button>
+              <el-button
+                v-permission="'user:edit'"
+                size="small"
+                :disabled="row.can_edit === false"
+                @click="openStatusConfirm(row)"
+              >
+                {{ row.status === 1 ? '停用' : '启用' }}
+              </el-button>
+              <el-button v-permission="'user:delete'" size="small" :disabled="row.can_delete === false" type="danger" @click="remove(row)">删除</el-button>
             </span>
           </template>
         </NeuroAgentListPage>
@@ -661,7 +741,7 @@ onMounted(async () => {
           </div>
         </div>
         <div class="nm-form-item">
-          <label class="nm-form-label">任职部门</label>
+          <label class="nm-form-label">任职组织</label>
           <el-tree-select
             v-model="form.department_ids"
             :data="departmentTreeOptions"
@@ -675,7 +755,7 @@ onMounted(async () => {
             collapse-tags-tooltip
             render-after-expand
             default-expand-all
-            placeholder="搜索并选择任职部门；多项时第一项为主部门"
+            placeholder="搜索并选择任职组织；多项时第一项为主组织"
             style="width: 100%"
           />
         </div>
@@ -727,6 +807,50 @@ onMounted(async () => {
       <template #footer-right>
         <button class="nm-btn nm-btn--primary" @click="save">保存</button>
       </template>
+    </NeuroAgentDialog>
+
+    <NeuroAgentDialog
+      v-model="statusConfirmDlg"
+      :title="statusConfirmRow?.status === 1 ? '停用用户' : '启用用户'"
+      :icon="statusConfirmRow?.status === 1 ? '⏸️' : '▶️'"
+      size="small"
+      :confirm-text="statusConfirmRow?.status === 1 ? '确认停用' : '确认启用'"
+      cancel-text="取消"
+      :loading="statusConfirmLoading"
+      @confirm="confirmToggleStatus"
+      @cancel="closeStatusConfirmDlg"
+      @close="closeStatusConfirmDlg"
+    >
+      <div class="user-status-confirm-panel">
+        <p v-if="statusConfirmRow?.status === 1">停用后该用户将无法登录，当前登录会话也会失效。</p>
+        <p v-else>启用后该用户可以重新登录系统。</p>
+        <div v-if="statusConfirmRow" class="user-status-confirm-target">
+          <span>{{ statusConfirmRow.name || statusConfirmRow.employee_no }}</span>
+          <small>{{ statusConfirmRow.employee_no }}</small>
+        </div>
+      </div>
+    </NeuroAgentDialog>
+
+    <NeuroAgentDialog
+      v-model="resetConfirmDlg"
+      title="重置密码"
+      icon="⚠️"
+      size="small"
+      confirm-text="确认重置"
+      cancel-text="取消"
+      :loading="resetConfirmLoading"
+      @confirm="confirmResetPassword"
+      @cancel="closeResetConfirmDlg"
+      @close="closeResetConfirmDlg"
+    >
+      <div class="reset-confirm-panel">
+        <p>确定重置该用户登录密码？系统将生成随机密码（字母与数字）。</p>
+        <div v-if="resetConfirmRow" class="reset-confirm-target">
+          <span>{{ resetConfirmRow.name || resetConfirmRow.employee_no }}</span>
+          <small>{{ resetConfirmRow.employee_no }}</small>
+        </div>
+        <p class="reset-confirm-note">请妥善保管后续弹窗中的密码内容。</p>
+      </div>
     </NeuroAgentDialog>
 
     <NeuroAgentDialog
@@ -882,8 +1006,10 @@ onMounted(async () => {
 
 /* Chrome 对表格按钮组的最小宽度计算更激进，操作列必须固定单行横排。 */
 .user-mgmt-root :deep(.el-table__cell .cell) {
-  flex-wrap: wrap;
-  white-space: normal;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .user-mgmt-root :deep(.user-mgmt-op-btns.op-btns) {
@@ -915,11 +1041,17 @@ onMounted(async () => {
 }
 
 .role-tags-cell {
-  display: flex;
-  flex-wrap: wrap;
+  display: inline-flex;
+  flex-wrap: nowrap;
   gap: 4px;
   align-items: center;
   max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.role-tags-cell .role-tag-chip {
+  flex: 0 0 auto;
 }
 
 .role-tag-chip {
@@ -935,6 +1067,66 @@ onMounted(async () => {
   margin-top: 12px;
   display: flex;
   justify-content: flex-end;
+}
+
+.user-status-confirm-panel {
+  display: grid;
+  gap: 12px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.7;
+}
+
+.user-status-confirm-panel p {
+  margin: 0;
+}
+
+.user-status-confirm-target {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(0, 245, 212, 0.18);
+  border-radius: 10px;
+  background: rgba(0, 245, 212, 0.08);
+  color: var(--el-text-color-primary);
+}
+
+.user-status-confirm-target small {
+  color: var(--el-text-color-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.reset-confirm-panel {
+  display: grid;
+  gap: 12px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.7;
+}
+
+.reset-confirm-panel p {
+  margin: 0;
+}
+
+.reset-confirm-target {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(0, 245, 212, 0.18);
+  border-radius: 10px;
+  background: rgba(0, 245, 212, 0.08);
+  color: var(--el-text-color-primary);
+}
+
+.reset-confirm-target small {
+  color: var(--el-text-color-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.reset-confirm-note {
+  color: var(--el-color-warning);
 }
 
 .reset-result-panel {

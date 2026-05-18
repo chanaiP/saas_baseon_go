@@ -40,6 +40,7 @@ type AppUser struct {
 	AvatarURL         *string    `gorm:"column:avatar_url;type:text"`
 	Status            int        `gorm:"column:status;not null;default:1"`
 	IsPlatformAdmin   bool       `gorm:"column:is_platform_admin;not null;default:false"`
+	IsTenantAdmin     bool       `gorm:"column:is_tenant_admin;not null;default:false"`
 	SessionVersion    int        `gorm:"column:session_version;not null;default:1"`
 	PasswordChangedAt *time.Time `gorm:"column:password_changed_at"`
 	CreatedAt         time.Time  `gorm:"column:created_at;not null"`
