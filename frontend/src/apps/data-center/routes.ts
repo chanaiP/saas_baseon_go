@@ -3,7 +3,9 @@ import type { RouteRecordRaw } from 'vue-router'
 export const dataCenterRoutes: RouteRecordRaw[] = [
   {
     path: 'data-center',
-    redirect: '/data-center/dashboard',
+    name: 'DataCenterOverview',
+    meta: { title: 'Ai经营决策中心' },
+    component: () => import('./views/DataCenterView.vue'),
   },
   {
     path: 'data-center/:section',
