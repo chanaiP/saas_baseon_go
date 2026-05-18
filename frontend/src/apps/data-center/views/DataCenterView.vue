@@ -115,7 +115,6 @@ const currentTitle = computed(() => {
   return sections.find((item) => item.key === section.value)?.label ?? '经营看板'
 })
 const emptyText = computed(() => (error.value ? error.value : '暂无数据'))
-const trendMaxValue = computed(() => Math.max(1, ...trends.value.map((row) => Number(row.gmv ?? 0))))
 const taskStatuses = ['待处理', '处理中', '已完成', '已逾期']
 const rawTabs = ['全部数据', '订单原始数据', '广告原始数据', '库存原始数据', '门店销售原始数据', '退款原始数据']
 const ruleTabs = ['全部规则', '销售异常', '投流异常', '退款异常', '库存异常', '门店异常']
@@ -179,12 +178,6 @@ function canAction(code: string) {
   return permissionStore.canUseAction(code)
 }
 
-function trendBarHeight(value: unknown) {
-  const n = Number(value ?? 0)
-  if (!Number.isFinite(n) || n <= 0) return 8
-  return Math.max(8, Math.round((n / trendMaxValue.value) * 168))
-}
-
 function shortDate(value: unknown) {
   const text = String(value ?? '')
   return text.length > 10 ? text.slice(5, 10) : text
@@ -192,12 +185,6 @@ function shortDate(value: unknown) {
 
 function dateText(value: unknown) {
   return String(value ?? '-').slice(0, 10)
-}
-
-function percentBar(value: unknown, max: number) {
-  const n = Number(value ?? 0)
-  if (!Number.isFinite(n) || max <= 0) return 18
-  return Math.max(18, Math.round((n / max) * 190))
 }
 
 function statusText(status?: string) {
@@ -516,6 +503,39 @@ function kpiTrendClass(trend?: string) {
   return 'up'
 }
 
+function lineChartNodes(rows: Array<Record<string, unknown>>, key: string) {
+  const width = 640
+  const height = 230
+  const padding = { top: 34, right: 32, bottom: 42, left: 32 }
+  const values = rows.map((row) => Number(row[key] ?? 0)).filter(Number.isFinite)
+  const minValue = Math.min(...values, 0)
+  const maxValue = Math.max(...values, 1)
+  const range = maxValue - minValue || 1
+  const innerWidth = width - padding.left - padding.right
+  const innerHeight = height - padding.top - padding.bottom
+
+  return rows.map((row, index) => {
+    const value = Number(row[key] ?? 0)
+    const x = padding.left + (rows.length <= 1 ? innerWidth / 2 : (innerWidth / (rows.length - 1)) * index)
+    const y = padding.top + innerHeight - ((Number.isFinite(value) ? value : 0) - minValue) / range * innerHeight
+    return {
+      date: String(row.date ?? ''),
+      value: Number.isFinite(value) ? value : 0,
+      x: Math.round(x * 100) / 100,
+      y: Math.round(y * 100) / 100,
+    }
+  })
+}
+
+function lineChartPoints(rows: Array<Record<string, unknown>>, key: string) {
+  return lineChartNodes(rows, key).map((node) => `${node.x},${node.y}`).join(' ')
+}
+
+function lineChartValue(value: number, unit: 'gmv' | 'roi') {
+  if (unit === 'gmv') return `${value.toFixed(1)}万`
+  return value.toFixed(2)
+}
+
 watch([section, standardType], load)
 onMounted(load)
 </script>
@@ -550,21 +570,29 @@ onMounted(load)
           <section class="chart-card">
             <div class="section-head"><div><h3>GMV 趋势</h3><p>近 7 天全渠道 GMV</p></div><span class="pill">万元</span></div>
             <div v-if="!gmvTrendRows.length" class="dc-empty">{{ emptyText }}</div>
-            <div v-else class="bars">
-              <div v-for="row in gmvTrendRows" :key="row.date" class="bar-col">
-                <span class="bar" :style="{ height: `${percentBar(row.gmv, Math.max(...gmvTrendRows.map((item) => item.gmv), 1))}px` }"></span>
-                <span>{{ row.date }}</span>
-              </div>
+            <div v-else class="line-chart">
+              <svg viewBox="0 0 640 230" role="img" aria-label="GMV 趋势折线图">
+                <polyline class="trend-line" :points="lineChartPoints(gmvTrendRows, 'gmv')" />
+                <g v-for="node in lineChartNodes(gmvTrendRows, 'gmv')" :key="node.date">
+                  <text class="line-value" :x="node.x" :y="node.y - 14">{{ lineChartValue(node.value, 'gmv') }}</text>
+                  <circle class="line-node" :cx="node.x" :cy="node.y" r="5" />
+                  <text class="line-date" :x="node.x" y="220">{{ node.date }}</text>
+                </g>
+              </svg>
             </div>
           </section>
           <section class="chart-card">
             <div class="section-head"><div><h3>ROI 趋势</h3><p>投流综合 ROI 波动</p></div><span class="pill">ROI</span></div>
             <div v-if="!roiTrendRows.length" class="dc-empty">{{ emptyText }}</div>
-            <div v-else class="bars">
-              <div v-for="row in roiTrendRows" :key="row.date" class="bar-col">
-                <span class="bar" :style="{ height: `${percentBar(row.roi, Math.max(...roiTrendRows.map((item) => item.roi), 1))}px` }"></span>
-                <span>{{ row.date }}</span>
-              </div>
+            <div v-else class="line-chart">
+              <svg viewBox="0 0 640 230" role="img" aria-label="ROI 趋势折线图">
+                <polyline class="trend-line" :points="lineChartPoints(roiTrendRows, 'roi')" />
+                <g v-for="node in lineChartNodes(roiTrendRows, 'roi')" :key="node.date">
+                  <text class="line-value" :x="node.x" :y="node.y - 14">{{ lineChartValue(node.value, 'roi') }}</text>
+                  <circle class="line-node" :cx="node.x" :cy="node.y" r="5" />
+                  <text class="line-date" :x="node.x" y="220">{{ node.date }}</text>
+                </g>
+              </svg>
             </div>
           </section>
         </div>
