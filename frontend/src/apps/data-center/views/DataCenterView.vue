@@ -112,7 +112,7 @@ const currentTitle = computed(() => {
   if (!route.params.section) return '总览'
   return sections.find((item) => item.key === section.value)?.label ?? '经营看板'
 })
-const emptyText = computed(() => (error.value ? error.value : '暂无真实数据库记录'))
+const emptyText = computed(() => (error.value ? error.value : '暂无数据'))
 const trendMaxValue = computed(() => Math.max(1, ...trends.value.map((row) => Number(row.gmv ?? 0))))
 const taskStatuses = ['待处理', '处理中', '已完成', '已逾期']
 const rawTabs = ['全部数据', '订单原始数据', '广告原始数据', '库存原始数据', '门店销售原始数据', '退款原始数据']
@@ -121,8 +121,8 @@ const dashboardKpis = computed(() =>
   listOrEmpty(summary.value?.kpis).slice(0, 6).map((item) => ({
     label: item.label,
     value: valueText(item.value, item.unit),
-    change: item.trend || '实时',
-    trend: item.trend?.includes('-') ? 'down' : 'up',
+    change: kpiTrendText(item.trend),
+    trend: kpiTrendClass(item.trend),
   })),
 )
 const gmvTrendRows = computed(() => trends.value.map((row) => ({ date: shortDate(row.date), gmv: Number(row.gmv ?? 0) / 10000 })))
@@ -498,6 +498,23 @@ function valueText(value: unknown, unit?: string) {
   return Number.isFinite(num) ? num.toLocaleString() : String(value ?? '-')
 }
 
+function kpiTrendText(trend?: string) {
+  const raw = String(trend ?? '').trim()
+  if (!raw || raw === 'neutral') return '较上期持平'
+  if (raw === 'up') return '较上期上升'
+  if (raw === 'down') return '较上期下降'
+  if (raw.startsWith('+')) return `较上期 ${raw}`
+  if (raw.startsWith('-')) return `较上期 ${raw}`
+  return raw
+}
+
+function kpiTrendClass(trend?: string) {
+  const raw = String(trend ?? '').trim()
+  if (raw.startsWith('-') || raw === 'down') return 'down'
+  if (!raw || raw === 'neutral') return 'flat'
+  return 'up'
+}
+
 watch([section, standardType], load)
 onMounted(load)
 </script>
@@ -524,7 +541,7 @@ onMounted(load)
           <article v-for="item in dashboardKpis" :key="item.label" class="metric-card">
             <div class="metric-label">{{ item.label }}</div>
             <div class="metric-value">{{ item.value }}</div>
-            <div class="metric-row"><span class="change" :class="item.trend">{{ item.change }}</span><span>真实 API 汇总</span></div>
+            <div class="metric-row"><span class="change" :class="item.trend">{{ item.change }}</span><span>经营数据汇总</span></div>
           </article>
         </div>
 
