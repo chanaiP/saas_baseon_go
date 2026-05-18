@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { usePermissionStore } from '@/stores/permission'
@@ -59,6 +59,7 @@ import './dataCenter.css'
 defineOptions({ name: 'DataCenterView' })
 
 const route = useRoute()
+const router = useRouter()
 const permissionStore = usePermissionStore()
 const section = computed(() => String(route.params.section || 'overview'))
 const loading = ref(false)
@@ -113,6 +114,56 @@ const currentTitle = computed(() => {
 })
 const emptyText = computed(() => (error.value ? error.value : '暂无真实数据库记录'))
 const trendMaxValue = computed(() => Math.max(1, ...trends.value.map((row) => Number(row.gmv ?? 0))))
+const taskStatuses = ['待处理', '处理中', '已完成', '已逾期']
+const rawTabs = ['全部数据', '订单原始数据', '广告原始数据', '库存原始数据', '门店销售原始数据', '退款原始数据']
+const ruleTabs = ['全部规则', '销售异常', '投流异常', '退款异常', '库存异常', '门店异常']
+const dashboardKpis = computed(() =>
+  listOrEmpty(summary.value?.kpis).slice(0, 6).map((item) => ({
+    label: item.label,
+    value: valueText(item.value, item.unit),
+    change: item.trend || '实时',
+    trend: item.trend?.includes('-') ? 'down' : 'up',
+  })),
+)
+const gmvTrendRows = computed(() => trends.value.map((row) => ({ date: shortDate(row.date), gmv: Number(row.gmv ?? 0) / 10000 })))
+const roiTrendRows = computed(() => {
+  const roi = Number(summary.value?.kpis?.find((item) => item.code === 'roi')?.value ?? 0)
+  return trends.value.map((row) => ({ date: shortDate(row.date), roi: Number(row.roi ?? roi) }))
+})
+const channelRankRows = computed(() => {
+  const source = listOrEmpty(rankings.value.channel_rank?.length ? rankings.value.channel_rank : rankings.value.brand_rank)
+  const total = source.reduce((sum, item) => sum + Number(item.value ?? 0), 0) || 1
+  return source.slice(0, 5).map((item) => ({
+    name: String(item.name ?? item.code ?? '-'),
+    value: Number(item.value ?? 0) / 10000,
+    ratio: Math.max(5, Math.round((Number(item.value ?? 0) / total) * 100)),
+  }))
+})
+const metricSummaryCards = computed(() => {
+  const sales = metrics.value.filter((item) => item.metric_category?.includes('sales') || item.metric_category?.includes('销售')).length
+  const ad = metrics.value.filter((item) => item.metric_category?.includes('ad') || item.metric_category?.includes('投流')).length
+  const inventory = metrics.value.filter((item) => item.metric_category?.includes('inventory') || item.metric_category?.includes('库存')).length
+  const anomaly = metrics.value.filter((item) => item.anomaly_enabled).length
+  return [
+    { label: '销售指标', value: sales, desc: 'GMV、净销售额、订单数等' },
+    { label: '投流指标', value: ad, desc: '消耗、ROI、点击率、转化率等' },
+    { label: '商品库存', value: inventory, desc: '动销率、可售天数、库存周转等' },
+    { label: '参与异常判断', value: anomaly, desc: '已启用规则扫描' },
+  ]
+})
+const anomalySummaryCards = computed(() => [
+  { label: '高等级异常', value: anomalies.value.filter((item) => ['critical', 'high', '严重', '高'].includes(item.anomaly_level)).length, desc: '需优先整改', danger: true },
+  { label: '待 AI 分析', value: anomalies.value.filter((item) => item.ai_status !== 'completed').length, desc: '等待生成原因和建议' },
+  { label: '已生成任务', value: anomalies.value.filter((item) => item.task_status === 'generated').length, desc: '进入整改闭环' },
+  { label: '待复盘', value: anomalies.value.filter((item) => item.review_status !== 'confirmed').length, desc: '等待验证结果' },
+])
+const reviewSummaryCards = computed(() => [
+  { label: '已复盘', value: reviews.value.filter((item) => item.review_conclusion).length, desc: '近 30 天' },
+  { label: '整改有效', value: reviews.value.filter((item) => item.review_conclusion === 'effective').length, desc: '持续沉淀经验' },
+  { label: '无效整改', value: reviews.value.filter((item) => ['weak', 'ineffective'].includes(item.review_conclusion)).length, desc: '需继续跟进', danger: true },
+  { label: '待复盘', value: tasks.value.filter((item) => item.review_status !== 'confirmed').length, desc: '到期自动提醒' },
+])
+const selectedReview = computed(() => reviews.value[0] ?? null)
 
 function listOrEmpty<T>(value: T[] | null | undefined): T[] {
   return Array.isArray(value) ? value : []
@@ -130,6 +181,89 @@ function trendBarHeight(value: unknown) {
   const n = Number(value ?? 0)
   if (!Number.isFinite(n) || n <= 0) return 8
   return Math.max(8, Math.round((n / trendMaxValue.value) * 168))
+}
+
+function shortDate(value: unknown) {
+  const text = String(value ?? '')
+  return text.length > 10 ? text.slice(5, 10) : text
+}
+
+function dateText(value: unknown) {
+  return String(value ?? '-').slice(0, 10)
+}
+
+function percentBar(value: unknown, max: number) {
+  const n = Number(value ?? 0)
+  if (!Number.isFinite(n) || max <= 0) return 18
+  return Math.max(18, Math.round((n / max) * 190))
+}
+
+function statusText(status?: string) {
+  const map: Record<string, string> = {
+    success: '成功',
+    warning: '需关注',
+    failed: '失败',
+    pending: '待处理',
+    processing: '处理中',
+    completed: '已完成',
+    overdue: '已逾期',
+    closed: '已关闭',
+    generated: '已生成',
+    confirmed: '已确认',
+    ignored: '已忽略',
+    effective: '整改有效',
+    weak: '效果不明显',
+    ineffective: '整改无效',
+    follow_up: '需继续跟进',
+  }
+  return map[String(status ?? '')] ?? String(status ?? '-')
+}
+
+function statusClass(status?: string) {
+  if (['success', 'completed', 'confirmed', 'effective'].includes(String(status))) return 'success'
+  if (['failed', 'overdue', 'critical', 'high', 'ineffective'].includes(String(status))) return 'danger'
+  if (['warning', 'processing', 'generated', 'weak', 'follow_up'].includes(String(status))) return 'warning'
+  return 'normal'
+}
+
+function levelText(level?: string) {
+  const map: Record<string, string> = { critical: '严重', high: '高', medium: '中', low: '低' }
+  return map[String(level ?? '')] ?? String(level ?? '-')
+}
+
+function taskStatusText(status?: string) {
+  const map: Record<string, string> = { pending: '待处理', processing: '处理中', completed: '已完成', overdue: '已逾期' }
+  return map[String(status ?? '')] ?? statusText(status)
+}
+
+function tasksByStatus(status: string) {
+  return tasks.value.filter((item) => taskStatusText(item.status) === status)
+}
+
+function parseLooseJSON<T>(value: unknown, fallback: T): T {
+  if (!value) return fallback
+  if (typeof value !== 'string') return value as T
+  try {
+    return JSON.parse(value) as T
+  } catch {
+    return fallback
+  }
+}
+
+function ruleConditions(rule: AnomalyRule) {
+  const source = parseLooseJSON<Record<string, unknown>>((rule as unknown as Record<string, unknown>).metric_conditions_json ?? (rule as unknown as Record<string, unknown>).metric_conditions, {})
+  const entries = Object.entries(source)
+  if (!entries.length) return ['指标阈值由规则配置决定']
+  return entries.map(([key, value]) => `${key}: ${typeof value === 'object' ? JSON.stringify(value) : String(value)}`)
+}
+
+function evidenceCards(row: AnomalyRecord | null) {
+  const evidence = parseLooseJSON<Record<string, unknown>>(row?.evidence_json, {})
+  return Object.entries(evidence).slice(0, 4).map(([key, value]) => ({
+    label: key,
+    value: typeof value === 'number' ? valueText(value) : String(value),
+    desc: '指标证据',
+  }))
 }
 
 async function load() {
@@ -371,205 +505,400 @@ onMounted(load)
 <template>
   <div class="dc-page">
     <main class="dc-main" v-loading="loading">
-      <header class="dc-header">
-        <div>
-          <p>Data Center</p>
-          <h1>{{ currentTitle }}</h1>
-        </div>
-        <div class="dc-filters">
-          <select v-model="filters.time_range" @change="load">
-            <option value="today">今日</option>
-            <option value="last_7_days">近 7 天</option>
-            <option value="last_30_days">近 30 天</option>
-            <option value="this_month">本月</option>
-            <option value="last_month">上月</option>
-          </select>
-          <input v-model="filters.brand_code" placeholder="品牌 code" @keyup.enter="load" />
-          <input v-model="filters.platform_code" placeholder="平台 code" @keyup.enter="load" />
-          <button @click="load">刷新</button>
-        </div>
-      </header>
-
       <div v-if="error" class="dc-state error">{{ error }}</div>
 
-      <section v-if="section === 'dashboard'" class="dc-grid">
-        <article class="dc-hero">
-          <span>经营健康分</span>
-          <strong>{{ summary?.health_score ?? 0 }}</strong>
-          <p>来自真实订单、投流、异常和任务数据的聚合结果。</p>
-        </article>
-        <article v-for="item in summary?.kpis ?? []" :key="item.code" class="dc-card">
-          <span>{{ item.label }}</span>
-          <strong>{{ valueText(item.value, item.unit) }}</strong>
-        </article>
-        <section class="dc-panel wide">
-          <h3>趋势</h3>
-          <div v-if="!trends.length" class="dc-empty">{{ emptyText }}</div>
-          <div v-else class="dc-bars">
-            <div v-for="row in trends" :key="String(row.date)">
-              <i :style="{ height: `${trendBarHeight(row.gmv)}px` }"></i>
-              <span>{{ row.date }}</span>
+      <section v-if="section === 'dashboard'" class="page">
+        <div class="hero-panel">
+          <div>
+            <div class="eyebrow">经营看板</div>
+            <h1>集团经营健康分 {{ summary?.health_score ?? 0 }}</h1>
+            <p>系统基于销售、投流、退款、库存和整改进度综合计算，当前最大风险来自投流 ROI 下滑和部分门店 GMV 下滑。</p>
+          </div>
+          <div class="hero-actions">
+            <button class="primary-btn" @click="router.push('/data-center/anomalies')">查看高风险异常</button>
+            <button class="secondary-btn" @click="load">生成会议包</button>
+          </div>
+        </div>
+
+        <div class="metric-grid">
+          <article v-for="item in dashboardKpis" :key="item.label" class="metric-card">
+            <div class="metric-label">{{ item.label }}</div>
+            <div class="metric-value">{{ item.value }}</div>
+            <div class="metric-row"><span class="change" :class="item.trend">{{ item.change }}</span><span>真实 API 汇总</span></div>
+          </article>
+        </div>
+
+        <div class="content-grid two-col">
+          <section class="chart-card">
+            <div class="section-head"><div><h3>GMV 趋势</h3><p>近 7 天全渠道 GMV</p></div><span class="pill">万元</span></div>
+            <div v-if="!gmvTrendRows.length" class="dc-empty">{{ emptyText }}</div>
+            <div v-else class="bars">
+              <div v-for="row in gmvTrendRows" :key="row.date" class="bar-col">
+                <span class="bar" :style="{ height: `${percentBar(row.gmv, Math.max(...gmvTrendRows.map((item) => item.gmv), 1))}px` }"></span>
+                <span>{{ row.date }}</span>
+              </div>
+            </div>
+          </section>
+          <section class="chart-card">
+            <div class="section-head"><div><h3>ROI 趋势</h3><p>投流综合 ROI 波动</p></div><span class="pill">ROI</span></div>
+            <div v-if="!roiTrendRows.length" class="dc-empty">{{ emptyText }}</div>
+            <div v-else class="bars">
+              <div v-for="row in roiTrendRows" :key="row.date" class="bar-col">
+                <span class="bar" :style="{ height: `${percentBar(row.roi, Math.max(...roiTrendRows.map((item) => item.roi), 1))}px` }"></span>
+                <span>{{ row.date }}</span>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div class="content-grid three-col">
+          <div class="panel-card span-2">
+            <div class="section-head">
+              <div><h3>重点异常</h3><p>规则引擎识别，AI 已完成原因分析</p></div>
+              <button class="ghost-btn" @click="router.push('/data-center/anomalies')">全部异常</button>
+            </div>
+            <div v-if="!anomalies.length" class="dc-empty">{{ emptyText }}</div>
+            <div v-else class="anomaly-list compact">
+              <div v-for="item in anomalies.slice(0, 3)" :key="item.id" class="anomaly-row">
+                <div>
+                  <span class="level" :class="levelText(item.anomaly_level)">{{ levelText(item.anomaly_level) }}</span>
+                  <b>{{ item.title }}</b>
+                  <p>{{ valueText(item.impact_amount, 'CNY') }} · 置信度 {{ item.confidence_score }}%</p>
+                </div>
+                <button class="secondary-btn" @click="selectedAnomaly = item; router.push('/data-center/anomalies')">查看分析</button>
+              </div>
             </div>
           </div>
-        </section>
-        <section class="dc-panel">
-          <h3>品牌排行</h3>
-          <p v-for="row in rankings.brand_rank ?? []" :key="String(row.code)">{{ row.code }} · {{ valueText(row.value, 'CNY') }}</p>
-          <div v-if="!(rankings.brand_rank ?? []).length" class="dc-empty">{{ emptyText }}</div>
-        </section>
+          <div class="panel-card">
+            <div class="section-head"><div><h3>渠道贡献</h3><p>GMV 占比</p></div></div>
+            <div v-if="!channelRankRows.length" class="dc-empty">{{ emptyText }}</div>
+            <div v-else class="rank-list">
+              <div v-for="item in channelRankRows" :key="item.name" class="rank-row">
+                <div class="rank-top"><b>{{ item.name }}</b><span>{{ item.ratio }}%</span></div>
+                <div class="rank-bar"><span :style="{ width: item.ratio + '%' }"></span></div>
+                <p>{{ item.value.toFixed(2) }} 万</p>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
 
-      <section v-else-if="section === 'overview'" class="dc-grid">
-        <article v-for="item in pipeline" :key="String(item.code)" class="dc-card">
-          <span>{{ item.name }}</span>
-          <strong>{{ item.value }}</strong>
-          <small>{{ item.status }}</small>
-        </article>
+      <section v-else-if="section === 'overview'" class="page">
+        <div class="page-head">
+          <div>
+            <div class="eyebrow">数据总览</div>
+            <h1>数据链路运行状态</h1>
+            <p>查看原始数据接入、标准化清洗、指标计算、异常扫描、AI 分析和任务生成的链路状态。</p>
+          </div>
+          <button class="primary-btn" @click="load">重新执行链路检查</button>
+        </div>
+
+        <div class="pipeline">
+          <div v-for="(item, index) in pipeline" :key="String(item.code)" class="pipeline-card" :class="statusClass(String(item.status))">
+            <div class="pipeline-index">{{ index + 1 }}</div>
+            <h3>{{ item.name }}</h3>
+            <b>{{ item.value }}</b>
+            <p>{{ statusText(String(item.status)) }}</p>
+          </div>
+        </div>
+
+        <div class="panel-card">
+          <div class="section-head">
+            <div><h3>最近任务批次</h3><p>同步、清洗、指标、异常扫描任务执行情况</p></div>
+            <button class="ghost-btn" @click="router.push('/data-center/raw')">查看日志</button>
+          </div>
+          <table class="data-table">
+            <thead><tr><th>任务编号</th><th>类型</th><th>来源</th><th>执行时间</th><th>记录数</th><th>成功</th><th>失败</th><th>状态</th></tr></thead>
+            <tbody>
+              <tr v-for="job in rawBatches" :key="job.id">
+                <td>{{ job.batch_code }}</td><td>{{ job.data_type }}</td><td>{{ job.platform_code || '-' }}</td><td>{{ dateText(job.sync_time) }}</td><td>{{ job.record_count.toLocaleString() }}</td><td>{{ job.success_count.toLocaleString() }}</td><td>{{ job.failed_count.toLocaleString() }}</td>
+                <td><span class="status-badge" :class="statusClass(job.status)">{{ statusText(job.status) }}</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
-      <section v-else-if="section === 'raw'" class="dc-panel">
-        <h3>原始数据批次</h3>
-        <el-table :data="rawBatches" border :empty-text="emptyText">
-          <el-table-column prop="batch_code" label="批次号" min-width="180" />
-          <el-table-column prop="data_type" label="数据类型" />
-          <el-table-column prop="platform_code" label="平台" />
-          <el-table-column prop="record_count" label="记录数" />
-          <el-table-column prop="failed_count" label="失败" />
-          <el-table-column prop="status" label="状态" />
-          <el-table-column label="操作" width="190">
-            <template #default="{ row }">
-              <button @click="openRawDetail(row)">详情</button>
-              <button v-if="canAction('data_center:batch_retry')" @click="runReprocess(row)">重处理</button>
-            </template>
-          </el-table-column>
-        </el-table>
+      <section v-else-if="section === 'raw'" class="page">
+        <div class="page-head">
+          <div>
+            <div class="eyebrow">原始数据</div>
+            <h1>外部平台同步批次</h1>
+            <p>保留外部平台原始数据批次，用于追溯、错误排查和重新清洗。</p>
+          </div>
+          <button class="primary-btn" @click="load">新增同步任务</button>
+        </div>
+        <div class="split-layout">
+          <aside class="left-tabs">
+            <button v-for="tab in rawTabs" :key="tab" :class="{ active: tab === '全部数据' }">{{ tab }}</button>
+          </aside>
+          <div class="panel-card fill">
+            <div class="section-head">
+              <div><h3>同步批次列表</h3><p>原始数据不直接参与分析，必须先进入标准数据。</p></div>
+              <button class="ghost-btn" @click="load">重新清洗失败批次</button>
+            </div>
+            <table class="data-table">
+              <thead><tr><th>批次号</th><th>数据类型</th><th>平台</th><th>连接实例</th><th>记录数</th><th>成功</th><th>失败</th><th>时间</th><th>状态</th><th>操作</th></tr></thead>
+              <tbody>
+                <tr v-for="item in rawBatches" :key="item.id">
+                  <td>{{ item.batch_code }}</td><td>{{ item.data_type }}</td><td>{{ item.platform_code || '-' }}</td><td>{{ item.connection_code || '-' }}</td><td>{{ item.record_count.toLocaleString() }}</td><td>{{ item.success_count.toLocaleString() }}</td><td>{{ item.failed_count.toLocaleString() }}</td><td>{{ dateText(item.sync_time) }}</td>
+                  <td><span class="status-badge" :class="statusClass(item.status)">{{ statusText(item.status) }}</span></td>
+                  <td><button class="link-btn" @click="openRawDetail(item)">查看</button><button v-if="canAction('data_center:batch_retry')" class="link-btn" @click="runReprocess(item)">重清洗</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
-      <section v-else-if="section === 'standard'" class="dc-panel">
-        <div class="dc-tabs">
+      <section v-else-if="section === 'standard'" class="page">
+        <div class="page-head">
+          <div>
+            <div class="eyebrow">标准数据</div>
+            <h1>清洗后的统一业务数据</h1>
+            <p>不同平台字段差异被统一到标准模型，后续指标计算只依赖标准数据。</p>
+          </div>
+          <button class="primary-btn" @click="load">查看清洗规则</button>
+        </div>
+        <div class="tabbar">
           <button :class="{ active: standardType === 'sales' }" @click="standardType = 'sales'">销售标准数据</button>
           <button :class="{ active: standardType === 'ad' }" @click="standardType = 'ad'">投流标准数据</button>
           <button :class="{ active: standardType === 'inventory' }" @click="standardType = 'inventory'">库存标准数据</button>
-          <button :class="{ active: standardType === 'refund' }" @click="standardType = 'refund'">退款标准数据</button>
           <button :class="{ active: standardType === 'product' }" @click="standardType = 'product'">商品标准数据</button>
-          <button :class="{ active: standardType === 'store-sales' }" @click="standardType = 'store-sales'">门店销售数据</button>
+          <button :class="{ active: standardType === 'refund' }" @click="standardType = 'refund'">退款标准数据</button>
         </div>
-        <el-table :data="standardRows" border :empty-text="emptyText">
-          <el-table-column v-for="key in Object.keys(standardRows[0] ?? { id: '' })" :key="key" :prop="key" :label="key" min-width="140" />
-        </el-table>
+        <div class="panel-card">
+          <div class="section-head"><div><h3>{{ currentTitle }}</h3><p>数据来自数据库标准化结果，表头跟随当前标准模型。</p></div></div>
+          <table class="data-table">
+            <thead><tr><th v-for="key in Object.keys(standardRows[0] ?? { id: '' })" :key="key">{{ key }}</th></tr></thead>
+            <tbody>
+              <tr v-for="(row, index) in standardRows" :key="index">
+                <td v-for="key in Object.keys(standardRows[0] ?? { id: '' })" :key="key">{{ row[key] }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
-      <section v-else-if="section === 'metrics'" class="dc-panel">
-        <div class="dc-panel-head">
-          <h3>指标定义</h3>
-          <button v-if="canAction('data_center:metric_manage')" @click="openMetricForm()">新建指标</button>
-        </div>
-        <el-table :data="metrics" border :empty-text="emptyText">
-          <el-table-column prop="metric_code" label="指标 code" />
-          <el-table-column prop="metric_name" label="指标名称" />
-          <el-table-column prop="metric_category" label="分类" />
-          <el-table-column prop="formula" label="公式" min-width="220" />
-          <el-table-column prop="enabled" label="启用" />
-          <el-table-column label="操作" width="190">
-            <template #default="{ row }">
-              <button v-if="canAction('data_center:metric_manage')" @click="openMetricForm(row)">编辑</button>
-              <button v-if="canAction('data_center:metric_manage')" @click="toggleMetric(row)">{{ row.enabled ? '禁用' : '启用' }}</button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </section>
-
-      <section v-else-if="section === 'rules'" class="dc-panel">
-        <div class="dc-panel-head">
-          <h3>异常规则</h3>
-          <button v-if="canAction('data_center:rule_manage')" @click="openRuleForm()">新建规则</button>
-        </div>
-        <el-table :data="rules" border :empty-text="emptyText">
-          <el-table-column prop="rule_code" label="规则 code" />
-          <el-table-column prop="rule_name" label="规则名称" />
-          <el-table-column prop="business_domain" label="业务域" />
-          <el-table-column prop="target_object_type" label="适用对象" />
-          <el-table-column prop="enabled" label="启用" />
-          <el-table-column label="操作" width="260">
-            <template #default="{ row }">
-              <button @click="openRuleDetail(row)">详情</button>
-              <button v-if="canAction('data_center:rule_manage')" @click="openRuleForm(row)">编辑</button>
-              <button v-if="canAction('data_center:rule_manage')" @click="runRuleTest(row)">测试</button>
-              <button v-if="canAction('data_center:rule_manage')" @click="toggleRule(row)">{{ row.enabled ? '禁用' : '启用' }}</button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </section>
-
-      <section v-else-if="section === 'anomalies'" class="dc-split">
-        <div class="dc-panel">
-          <div class="dc-panel-head">
-            <h3>异常列表</h3>
-            <button v-if="canAction('data_center:scan')" @click="runScan">扫描</button>
+      <section v-else-if="section === 'metrics'" class="page">
+        <div class="page-head">
+          <div>
+            <div class="eyebrow">指标中心</div>
+            <h1>经营指标定义与口径</h1>
+            <p>指标是异常规则的输入，必须定义清楚计算口径、统计周期和可分析维度。</p>
           </div>
-          <div v-if="!anomalies.length" class="dc-empty">{{ emptyText }}</div>
-          <article v-for="row in anomalies" :key="row.id" class="dc-list-row" @click="selectedAnomaly = row">
-            <b>{{ row.title }}</b>
-            <span>{{ row.anomaly_level }} · {{ row.confidence_score }}% · {{ row.status }}</span>
-          </article>
+          <button v-if="canAction('data_center:metric_manage')" class="primary-btn" @click="openMetricForm()">新增指标</button>
         </div>
-        <aside class="dc-panel">
-          <h3>异常详情</h3>
+        <div class="content-grid four-col">
+          <div v-for="item in metricSummaryCards" :key="item.label" class="summary-card"><span>{{ item.label }}</span><b>{{ item.value }}</b><p>{{ item.desc }}</p></div>
+        </div>
+        <div class="panel-card">
+          <div class="section-head">
+            <div><h3>指标定义</h3><p>第一版建议只维护核心经营指标，避免指标膨胀。</p></div>
+            <button class="ghost-btn" @click="load">导出口径文档</button>
+          </div>
+          <table class="data-table">
+            <thead><tr><th>指标 code</th><th>指标名称</th><th>分类</th><th>计算公式 / 口径</th><th>周期</th><th>统计维度</th><th>数据来源</th><th>异常判断</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr v-for="item in metrics" :key="item.id">
+                <td>{{ item.metric_code }}</td><td><b>{{ item.metric_name }}</b></td><td>{{ item.metric_category }}</td><td>{{ item.formula || '-' }}</td><td>{{ item.statistic_period || '-' }}</td><td>-</td><td>{{ item.data_source || '-' }}</td><td>{{ item.anomaly_enabled ? '是' : '否' }}</td><td><span class="status-badge" :class="statusClass(item.enabled ? 'success' : 'warning')">{{ item.enabled ? '启用' : '禁用' }}</span></td>
+                <td><button v-if="canAction('data_center:metric_manage')" class="link-btn" @click="openMetricForm(item)">编辑</button><button v-if="canAction('data_center:metric_manage')" class="link-btn" @click="toggleMetric(item)">{{ item.enabled ? '禁用' : '启用' }}</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section v-else-if="section === 'rules'" class="page">
+        <div class="page-head">
+          <div>
+            <div class="eyebrow">异常规则</div>
+            <h1>定义什么是异常</h1>
+            <p>异常必须由规则引擎基于指标判断，AI 不负责决定异常是否成立。</p>
+          </div>
+          <button v-if="canAction('data_center:rule_manage')" class="primary-btn" @click="openRuleForm()">新增异常规则</button>
+        </div>
+        <div class="split-layout">
+          <aside class="left-tabs">
+            <button v-for="tab in ruleTabs" :key="tab" :class="{ active: tab === '全部规则' }">{{ tab }}</button>
+          </aside>
+          <div class="panel-card fill">
+            <div class="section-head">
+              <div><h3>规则列表</h3><p>规则配置包括适用对象、触发条件、异常等级、置信度、任务和复盘。</p></div>
+              <button class="ghost-btn" @click="rules[0] && runRuleTest(rules[0])">规则测试</button>
+            </div>
+            <div class="rule-list">
+              <article v-for="rule in rules" :key="rule.id" class="rule-card">
+                <div class="rule-head">
+                  <div>
+                    <div class="rule-title"><b>{{ rule.rule_name }}</b><span class="status-badge" :class="statusClass(rule.enabled ? 'success' : 'warning')">{{ rule.enabled ? '启用' : '禁用' }}</span></div>
+                    <p>{{ rule.business_domain }} · 适用对象：{{ rule.target_object_type }} · 最近触发 {{ rule.priority || 0 }} 次</p>
+                  </div>
+                  <button v-if="canAction('data_center:rule_manage')" class="secondary-btn" @click="openRuleForm(rule)">编辑规则</button>
+                </div>
+                <div class="condition-box">
+                  <span v-for="condition in ruleConditions(rule)" :key="condition">{{ condition }}</span>
+                </div>
+                <div class="rule-foot">
+                  <span>异常等级：{{ rule.priority >= 3 ? '高' : '中' }}</span>
+                  <span>AI 分析：{{ rule.ai_enabled ? '开启' : '关闭' }}</span>
+                  <span>生成任务：{{ rule.task_enabled ? '开启' : '关闭' }}</span>
+                  <span>默认责任：运营负责人</span>
+                  <span>复盘：任务完成后自动进入</span>
+                  <button class="link-btn" @click="openRuleDetail(rule)">详情</button>
+                  <button v-if="canAction('data_center:rule_manage')" class="link-btn" @click="toggleRule(rule)">{{ rule.enabled ? '禁用' : '启用' }}</button>
+                </div>
+              </article>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section v-else-if="section === 'anomalies'" class="page drawer-page">
+        <div class="page-main">
+          <div class="page-head">
+            <div>
+              <div class="eyebrow">异常分析</div>
+              <h1>规则引擎识别的经营异常</h1>
+              <p>异常由指标规则确定，AI 只对异常证据做原因分析和整改建议。</p>
+            </div>
+            <button v-if="canAction('data_center:scan')" class="primary-btn" @click="runScan">扫描最新异常</button>
+          </div>
+          <div class="content-grid four-col">
+            <div v-for="item in anomalySummaryCards" :key="item.label" class="summary-card" :class="{ danger: item.danger }"><span>{{ item.label }}</span><b>{{ item.value }}</b><p>{{ item.desc }}</p></div>
+          </div>
+          <div class="panel-card">
+            <div class="section-head">
+              <div><h3>异常列表</h3><p>每条异常都必须有触发规则、指标证据、AI 分析、任务状态。</p></div>
+              <div class="filter-chips"><span>全部</span><span>高</span><span>投流异常</span><span>销售异常</span></div>
+            </div>
+            <div v-if="!anomalies.length" class="dc-empty">{{ emptyText }}</div>
+            <div v-else class="anomaly-list">
+              <div v-for="item in anomalies" :key="item.id" class="anomaly-item" @click="selectedAnomaly = item">
+                <div class="anomaly-top">
+                  <div>
+                    <span class="level" :class="levelText(item.anomaly_level)">{{ levelText(item.anomaly_level) }}</span>
+                    <b>{{ item.title }}</b>
+                  </div>
+                  <span class="confidence">{{ item.confidence_score }}%</span>
+                </div>
+                <p>{{ item.business_domain }} · {{ item.object_name || item.object_code }} · {{ dateText(item.occurred_at) }}</p>
+                <div class="anomaly-meta">
+                  <span>{{ valueText(item.impact_amount, 'CNY') }}</span>
+                  <span>AI：{{ statusText(item.ai_status) }}</span>
+                  <span>任务：{{ statusText(item.task_status) }}</span>
+                  <span>复盘：{{ statusText(item.review_status) }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <aside class="detail-drawer">
           <template v-if="selectedAnomaly">
-            <h4>{{ selectedAnomaly.title }}</h4>
-            <p>影响金额：{{ valueText(selectedAnomaly.impact_amount, 'CNY') }}</p>
-            <p>AI：{{ selectedAnomaly.ai_status }} · 任务：{{ selectedAnomaly.task_status }} · 复盘：{{ selectedAnomaly.review_status }}</p>
-            <pre>{{ selectedAnomaly.evidence_json }}</pre>
-            <button v-if="canAction('data_center:ai_analyze')" @click="runAnalyze(selectedAnomaly)">触发 AI 分析</button>
-            <button v-if="canAction('data_center:ai_analyze')" @click="runReanalyze(selectedAnomaly)">重新分析</button>
-            <button v-if="canAction('data_center:task_generate')" @click="runGenerateTask(selectedAnomaly)">生成整改任务</button>
-            <button v-if="canAction('data_center:task_generate')" @click="runAnomalyStatus(selectedAnomaly, 'confirm')">确认</button>
-            <button v-if="canAction('data_center:task_generate')" @click="runAnomalyStatus(selectedAnomaly, 'ignore')">忽略</button>
-            <button v-if="canAction('data_center:task_generate')" @click="runAnomalyStatus(selectedAnomaly, 'close')">关闭</button>
+            <div class="drawer-head">
+              <div><span class="level" :class="levelText(selectedAnomaly.anomaly_level)">{{ levelText(selectedAnomaly.anomaly_level) }}</span><h2>{{ selectedAnomaly.title }}</h2></div>
+            </div>
+            <div class="detail-grid two">
+              <div class="detail-item"><span>影响金额</span><b>{{ valueText(selectedAnomaly.impact_amount, 'CNY') }}</b></div>
+              <div class="detail-item"><span>置信度</span><b>{{ selectedAnomaly.confidence_score }}%</b></div>
+              <div class="detail-item"><span>对象</span><b>{{ selectedAnomaly.object_name || selectedAnomaly.object_code }}</b></div>
+              <div class="detail-item"><span>状态</span><b>{{ statusText(selectedAnomaly.status) }}</b></div>
+            </div>
+            <div class="drawer-section">
+              <h3>指标证据</h3>
+              <div class="evidence-grid">
+                <div v-for="item in evidenceCards(selectedAnomaly)" :key="item.label" class="evidence-card"><span>{{ item.label }}</span><b>{{ item.value }}</b><p>{{ item.desc }}</p></div>
+              </div>
+            </div>
+            <div class="drawer-section">
+              <h3>AI 分析摘要</h3>
+              <ol class="reason-list"><li>基于异常证据与历史趋势识别主要波动原因。</li><li>建议生成整改任务，并在任务完成后进入复盘。</li></ol>
+            </div>
+            <div class="drawer-actions">
+              <button v-if="canAction('data_center:ai_analyze')" class="secondary-btn" @click="runAnalyze(selectedAnomaly)">触发 AI 分析</button>
+              <button v-if="canAction('data_center:ai_analyze')" class="secondary-btn" @click="runReanalyze(selectedAnomaly)">重新分析</button>
+              <button v-if="canAction('data_center:task_generate')" class="primary-btn" @click="runGenerateTask(selectedAnomaly)">生成整改任务</button>
+            </div>
           </template>
           <div v-else class="dc-empty">{{ emptyText }}</div>
         </aside>
       </section>
 
-      <section v-else-if="section === 'tasks'" class="dc-panel">
-        <div class="dc-panel-head">
-          <h3>整改任务</h3>
-          <button v-if="canAction('data_center:task_flow')" @click="openTaskForm()">新建任务</button>
+      <section v-else-if="section === 'tasks'" class="page">
+        <div class="page-head">
+          <div>
+            <div class="eyebrow">整改任务</div>
+            <h1>异常生成的整改闭环</h1>
+            <p>任务必须关联来源异常、AI 建议、责任人、整改目标和复盘指标。</p>
+          </div>
+          <button v-if="canAction('data_center:task_flow')" class="primary-btn" @click="openTaskForm()">新建整改任务</button>
         </div>
-        <el-table :data="tasks" border :empty-text="emptyText">
-          <el-table-column prop="task_code" label="任务编号" />
-          <el-table-column prop="title" label="任务标题" min-width="220" />
-          <el-table-column prop="priority" label="优先级" />
-          <el-table-column prop="progress" label="进度" />
-          <el-table-column prop="status" label="状态" />
-          <el-table-column label="操作" width="300">
-            <template #default="{ row }">
-              <button @click="openTaskDetail(row)">详情</button>
-              <button v-if="canAction('data_center:task_flow')" @click="openTaskForm(row)">编辑</button>
-              <button v-if="canAction('data_center:task_flow')" @click="runTask('start', row)">开始</button>
-              <button v-if="canAction('data_center:task_flow')" @click="runFeedback(row)">反馈</button>
-              <button v-if="canAction('data_center:task_flow')" @click="runTask('complete', row)">完成</button>
-              <button v-if="canAction('data_center:task_flow')" @click="runCloseTask(row)">关闭</button>
-            </template>
-          </el-table-column>
-        </el-table>
+        <div class="kanban">
+          <div v-for="status in taskStatuses" :key="status" class="kanban-col">
+            <div class="kanban-head"><b>{{ status }}</b><span>{{ tasksByStatus(status).length }}</span></div>
+            <article v-for="task in tasksByStatus(status)" :key="task.id" class="task-card">
+              <div class="task-top"><b>{{ task.title }}</b><span :class="['priority', levelText(task.priority)]">{{ levelText(task.priority) }}</span></div>
+              <p>来源异常：{{ task.anomaly_code || '-' }}</p>
+              <p>责任人：{{ task.owner_role || '运营负责人' }}</p>
+              <p>协同人：跨部门协同</p>
+              <div class="progress"><span :style="{ width: `${Number(task.progress ?? 0)}%` }"></span></div>
+              <div class="task-foot"><span>截止：{{ dateText(task.deadline) }}</span><button class="link-btn" @click="openTaskDetail(task)">详情</button></div>
+            </article>
+          </div>
+        </div>
+        <div class="panel-card">
+          <div class="section-head"><div><h3>任务列表</h3><p>用于批量查看、导出和会议复盘。</p></div></div>
+          <table class="data-table">
+            <thead><tr><th>任务编号</th><th>任务标题</th><th>来源异常</th><th>责任人</th><th>优先级</th><th>截止时间</th><th>整改目标</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr v-for="task in tasks" :key="task.id">
+                <td>{{ task.task_code }}</td><td><b>{{ task.title }}</b></td><td>{{ task.anomaly_code || '-' }}</td><td>{{ task.owner_role || '-' }}</td><td>{{ levelText(task.priority) }}</td><td>{{ dateText(task.deadline) }}</td><td>{{ task.target_desc || '-' }}</td><td>{{ taskStatusText(task.status) }}</td>
+                <td><button class="link-btn" @click="openTaskDetail(task)">详情</button><button v-if="canAction('data_center:task_flow')" class="link-btn" @click="openTaskForm(task)">编辑</button><button v-if="canAction('data_center:task_flow')" class="link-btn" @click="runTask('start', task)">开始</button><button v-if="canAction('data_center:task_flow')" class="link-btn" @click="runTask('complete', task)">完成</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
-      <section v-else-if="section === 'reviews'" class="dc-panel">
-        <h3>整改复盘</h3>
-        <el-table :data="reviews" border :empty-text="emptyText">
-          <el-table-column prop="review_code" label="复盘编号" />
-          <el-table-column prop="task_code" label="任务编号" />
-          <el-table-column prop="improvement_result" label="改善幅度" />
-          <el-table-column prop="review_conclusion" label="结论" />
-          <el-table-column prop="reviewed_at" label="复盘时间" />
-          <el-table-column label="操作" width="210">
-            <template #default="{ row }">
-              <button @click="openReviewDetail(row)">详情</button>
-              <button v-if="canAction('data_center:review_confirm')" @click="openReviewForm(row)">编辑</button>
-            </template>
-          </el-table-column>
-        </el-table>
+      <section v-else-if="section === 'reviews'" class="page">
+        <div class="page-head">
+          <div>
+            <div class="eyebrow">整改复盘</div>
+            <h1>验证整改是否有效</h1>
+            <p>复盘对比整改前后指标，判断任务是否真的解决异常，并沉淀经验。</p>
+          </div>
+          <button class="primary-btn" @click="load">生成复盘报告</button>
+        </div>
+        <div class="content-grid four-col">
+          <div v-for="item in reviewSummaryCards" :key="item.label" class="summary-card" :class="{ danger: item.danger }"><span>{{ item.label }}</span><b>{{ item.value }}</b><p>{{ item.desc }}</p></div>
+        </div>
+        <div class="content-grid two-col">
+          <div class="panel-card">
+            <div class="section-head"><div><h3>复盘记录</h3><p>每条复盘都关联任务和来源异常。</p></div></div>
+            <div class="review-list">
+              <div v-for="item in reviews" :key="item.id" class="review-item" @click="openReviewDetail(item)">
+                <div><b>{{ item.task_code }}</b><p>{{ item.review_code }} · {{ item.anomaly_code || '-' }} · {{ dateText(item.reviewed_at) }}</p></div>
+                <span class="review-result" :class="item.review_conclusion === 'effective' ? 'good' : 'bad'">{{ statusText(item.review_conclusion) }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="panel-card">
+            <div class="section-head"><div><h3>复盘详情示例</h3><p>整改前后指标对比</p></div></div>
+            <div v-if="selectedReview" class="review-detail">
+              <h2>{{ selectedReview.task_code }}</h2>
+              <div class="compare-box">
+                <div><span>整改前</span><b>异常触发</b></div>
+                <div><span>整改后</span><b>{{ statusText(selectedReview.review_conclusion) }}</b></div>
+                <div><span>改善幅度</span><b>{{ selectedReview.improvement_result || '-' }}</b></div>
+              </div>
+              <div class="ai-summary">
+                <h3>AI 复盘总结</h3>
+                <p>整改动作执行后，核心指标已重新验证。建议将有效动作沉淀为标准经验，并纳入后续门店巡检清单。</p>
+              </div>
+              <button v-if="canAction('data_center:review_confirm')" class="secondary-btn" @click="openReviewForm(selectedReview)">沉淀为经验</button>
+            </div>
+          </div>
+        </div>
       </section>
 
       <el-drawer v-model="detailDrawer" :title="detailTitle" size="46%">
