@@ -16,7 +16,7 @@ function apiOriginHostIsLoopback(hostname: string): boolean {
 
 /**
  * 开发时用局域网 IP 打开 Vite（如 http://192.168.x.x:5173），若 VITE_API_BASE 指向本机 loopback，
- * 浏览器会在「访问者电脑」上找 localhost:8000，导致 /api/* 全部失败（登录页 footer、phone-login-tenants 等）。
+ * 浏览器会在「访问者电脑」上找 localhost:8081，导致 /api/* 全部失败（登录页 footer、phone-login-tenants 等）。
  * 此时改为走相对路径，由 Vite 把请求转到运行 dev 的那台机器上的后端。
  */
 function ignoreConfiguredLoopbackBaseInDev(): boolean {
@@ -125,7 +125,7 @@ http.interceptors.response.use(
     if (!err.response) {
       const hint =
         err.code === 'ERR_NETWORK' || err.message === 'Network Error'
-          ? '无法连接后端：请确认已执行 docker compose up -d，并在 backend 目录启动 uvicorn（开发时前端需 npm run dev 以启用代理）。'
+          ? '无法连接后端：请确认已执行 docker compose up -d，并启动 Go API：DB_AUTO_MIGRATE=false go run ./cmd/api（开发时前端需 npm run dev 以启用 Vite 代理）。'
           : err.message
       return Promise.reject(new Error(hint))
     }

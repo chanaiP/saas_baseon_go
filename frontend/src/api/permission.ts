@@ -71,7 +71,7 @@ export async function fetchMenuBundles(): Promise<MenuBundle[]> {
     return res.data.data as MenuBundle[]
   }
   throw new Error(
-    '无法加载菜单权限数据：请在后端目录使用当前代码重启 uvicorn（需包含菜单 bundle 接口）。',
+    '无法加载菜单权限数据：请使用当前代码重启 Go API（需包含菜单 bundle 接口）：DB_AUTO_MIGRATE=false go run ./cmd/api。',
   )
 }
 

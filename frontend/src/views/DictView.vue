@@ -37,6 +37,8 @@ const items = ref<DictItemRow[]>([])
 const totalI = ref(0)
 const pageI = ref(1)
 const limitI = ref(10)
+const dictItemNameOrValue = ref('')
+const dictItemEnabled = ref<boolean | undefined>(undefined)
 
 const dlgT = ref(false)
 const dlgTEdit = ref(false)
@@ -57,13 +59,42 @@ const iEdit = ref<DictItemRow | null>(null)
 
 type DictItemTreeRow = DictItemRow & { children?: DictItemTreeRow[] }
 
-const isTreeDict = computed(() => items.value.some((item) => item.parent_id != null))
+function matchesDictItemQuery(item: DictItemRow) {
+  if (dictItemEnabled.value !== undefined && (item.enabled !== false) !== dictItemEnabled.value) {
+    return false
+  }
+  const keyword = dictItemNameOrValue.value.trim().toLowerCase()
+  if (!keyword) return true
+  return [item.label, item.value, item.default_label, item.default_value]
+    .filter(Boolean)
+    .some((text) => String(text).toLowerCase().includes(keyword))
+}
+
+const filteredItems = computed(() => {
+  if (!dictItemNameOrValue.value.trim() && dictItemEnabled.value === undefined) return items.value
+  const itemMap = new Map(items.value.map((item) => [item.id, item]))
+  const visibleIDs = new Set<number>()
+  items.value.forEach((item) => {
+    if (!matchesDictItemQuery(item)) return
+    visibleIDs.add(item.id)
+    let parentID = item.parent_id
+    while (parentID != null) {
+      const parent = itemMap.get(parentID)
+      if (!parent || visibleIDs.has(parent.id)) break
+      visibleIDs.add(parent.id)
+      parentID = parent.parent_id
+    }
+  })
+  return items.value.filter((item) => visibleIDs.has(item.id))
+})
+
+const isTreeDict = computed(() => filteredItems.value.some((item) => item.parent_id != null))
 
 const displayItems = computed<DictItemTreeRow[]>(() => {
-  if (!isTreeDict.value) return items.value as DictItemTreeRow[]
+  if (!isTreeDict.value) return filteredItems.value as DictItemTreeRow[]
   const rowMap = new Map<number, DictItemTreeRow>()
   const roots: DictItemTreeRow[] = []
-  items.value.forEach((item) => rowMap.set(item.id, { ...item, children: [] }))
+  filteredItems.value.forEach((item) => rowMap.set(item.id, { ...item, children: [] }))
   rowMap.forEach((item) => {
     const parentID = item.parent_id
     const parent = parentID == null ? null : rowMap.get(parentID)
@@ -123,6 +154,20 @@ const dictTypeFilterFields = computed<FilterField[]>(() => {
   }
   return rows
 })
+
+const dictItemFilterFields = computed<FilterField[]>(() => [
+  { key: 'nameOrValue', label: '标签 / 值', type: 'text', placeholder: '模糊匹配' },
+  {
+    key: 'enabled',
+    label: '启用状态',
+    type: 'select',
+    options: [
+      { label: '全部', value: '' },
+      { label: '启用', value: '1' },
+      { label: '停用', value: '0' },
+    ],
+  },
+])
 
 async function loadTypes() {
   loadingT.value = true
@@ -196,6 +241,15 @@ function onDictTypeSearch(payload: { keyword: string; filters: Record<string, un
   else dictTypePlatformOnly.value = undefined
   pageT.value = 1
   void loadTypes()
+}
+
+function onDictItemSearch(payload: { keyword: string; filters: Record<string, unknown> }) {
+  dictItemNameOrValue.value = String(payload.filters?.nameOrValue ?? payload.keyword ?? '').trim()
+  const enabled = String(payload.filters?.enabled ?? '')
+  if (enabled === '1') dictItemEnabled.value = true
+  else if (enabled === '0') dictItemEnabled.value = false
+  else dictItemEnabled.value = undefined
+  pageI.value = 1
 }
 
 function onItemPageChange(p: number) {
@@ -335,7 +389,8 @@ async function restoreItem(row: DictItemRow) {
 }
 
 const typeColumns = computed<TableColumn[]>(() => [
-  { key: 'name_code', title: '名称 / 编码', minWidth: 196, tooltip: true },
+  { key: 'name', title: '名称', minWidth: 140, tooltip: true },
+  { key: 'code', title: '编码', minWidth: 160, tooltip: true },
   { key: 'tenant_editable', title: '租户覆盖', minWidth: 112, width: 120 },
   { key: 'is_platform_only', title: '平台专属', minWidth: 100, width: 108, hidden: !isPlatformAdmin.value },
   { key: 'actions', title: '操作', width: 184, minWidth: 184, tooltip: false, hidden: !isPlatformAdmin.value },
@@ -358,7 +413,7 @@ onMounted(() => void loadTypes())
 <template>
   <div class="page">
     <el-row :gutter="20">
-      <el-col :xs="24" :lg="10" class="dict-data-table">
+      <el-col :xs="24" :lg="12" class="dict-data-table">
         <NeuroAgentListPage
           mode="el-table"
           title="字典类型"
@@ -382,11 +437,11 @@ onMounted(() => void loadTypes())
           <template #actions>
             <el-button v-if="isPlatformAdmin" v-permission="'dict_type:create'" class="btn-gradient" @click="openTypeDlg">新增</el-button>
           </template>
-          <template #col-name_code="{ row }">
-            <div class="dict-type-title-cell">
-              <div class="dict-type-title-cell__name">{{ row.name }}</div>
-              <code class="dict-type-title-cell__code">{{ row.code }}</code>
-            </div>
+          <template #col-name="{ row }">
+            <span class="dict-type-name">{{ row.name }}</span>
+          </template>
+          <template #col-code="{ row }">
+            <code class="dict-type-code">{{ row.code }}</code>
           </template>
           <template #col-tenant_editable="{ row }">
             <el-tag size="small" :type="row.tenant_editable === false ? 'info' : 'success'">
@@ -406,7 +461,7 @@ onMounted(() => void loadTypes())
           </template>
         </NeuroAgentListPage>
       </el-col>
-      <el-col :xs="24" :lg="14" class="dict-data-table">
+      <el-col :xs="24" :lg="12" class="dict-data-table">
         <el-empty v-if="!currentType" :description="`请选择字典类型`" />
         <NeuroAgentListPage
           v-else
@@ -424,7 +479,9 @@ onMounted(() => void loadTypes())
           :show-pagination="!isTreeDict"
           :show-create="isPlatformAdmin"
           :show-selection="false"
+          :filter-fields="dictItemFilterFields"
           @create="openItemDlg"
+          @search="onDictItemSearch"
           @page-change="onItemPageChange"
           @page-size-change="onItemPageSizeChange"
         >
@@ -634,47 +691,57 @@ onMounted(() => void loadTypes())
 }
 
 .page :deep(.dict-data-table .card-table),
+.page :deep(.dict-data-table .el-table),
 .page :deep(.dict-data-table .el-table__inner-wrapper),
 .page :deep(.dict-data-table .el-table__body-wrapper),
 .page :deep(.dict-data-table .el-scrollbar),
 .page :deep(.dict-data-table .el-scrollbar__wrap),
-.page :deep(.dict-data-table .el-scrollbar__view) {
+.page :deep(.dict-data-table .el-scrollbar__view),
+.page :deep(.dict-data-table .el-table__fixed-body-wrapper),
+.page :deep(.dict-data-table .el-table__fixed-right),
+.page :deep(.dict-data-table .el-table__fixed-right .el-table__fixed-body-wrapper) {
   height: auto !important;
   max-height: none !important;
+  overflow: visible !important;
   overflow-y: visible !important;
 }
 
-.page :deep(.dict-data-table .el-scrollbar__bar) {
-  display: none !important;
+.page :deep(.dict-data-table .el-table--scrollable-y .el-table__body-wrapper),
+.page :deep(.dict-data-table .el-table--scrollable-y .el-scrollbar__wrap) {
+  overflow: visible !important;
+  overflow-y: visible !important;
 }
 
-.page :deep(.dict-data-table .el-table__body-wrapper) {
+.page :deep(.dict-data-table .el-scrollbar__bar),
+.page :deep(.dict-data-table .el-scrollbar__bar.is-vertical) {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+.page :deep(.dict-data-table .el-table__body-wrapper),
+.page :deep(.dict-data-table .el-scrollbar__wrap) {
   scrollbar-width: none;
 }
 
-.page :deep(.dict-data-table .el-table__body-wrapper::-webkit-scrollbar) {
+.page :deep(.dict-data-table .el-table__body-wrapper::-webkit-scrollbar),
+.page :deep(.dict-data-table .el-scrollbar__wrap::-webkit-scrollbar) {
   width: 0;
   height: 0;
 }
 
-.dict-type-title-cell {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  min-width: 0;
-  padding: 2px 0;
-}
-
-.dict-type-title-cell__name {
+.dict-type-name {
   font-size: 13px;
   font-weight: 600;
   color: var(--el-text-color-primary);
   line-height: 1.35;
-  word-break: break-word;
+  white-space: nowrap;
 }
 
-.dict-type-title-cell__code {
+.dict-type-code {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
   font-weight: 500;
@@ -682,7 +749,8 @@ onMounted(() => void loadTypes())
   background: var(--el-fill-color-light);
   padding: 3px 8px;
   border-radius: 6px;
-  max-width: 100%;
-  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

@@ -103,18 +103,18 @@ async function checkBackend() {
     }
     if (r.status === 503) {
       backendHint.value =
-        '后端已启动，但 MySQL 或 Redis 不可用。请在项目根目录执行 docker compose up -d，并检查 backend/.env 中的数据库与 REDIS_URL。'
+        'Go API 已启动，但 PostgreSQL 或 Redis 不可用。请在项目根目录执行 docker compose up -d，并检查 DATABASE_DSN 与 REDIS_ADDR。'
       return
     }
     if (r.status === 502 || r.status === 504) {
       backendHint.value =
-        `健康检查返回 HTTP ${r.status}（多为 Vite 连不上 8000）。请确认 uvicorn 正在运行；并查看运行 npm run dev 的终端是否出现 [vite-proxy] … ECONNREFUSED。`
+        `健康检查返回 HTTP ${r.status}（多为 Vite 连不上 Go API 8081）。请确认后端已启动：DB_AUTO_MIGRATE=false go run ./cmd/api；并查看运行 npm run dev 的终端是否出现 [vite-proxy] … ECONNREFUSED。`
       return
     }
     backendHint.value = `健康检查返回 HTTP ${r.status}，请查看后端日志。`
   } catch {
     backendHint.value =
-      '当前无法连上后端（Vite 会把 /api、/health 转到本机 8000）。请先：① 项目根目录 docker compose up -d；② cd backend 后启动 uvicorn：uvicorn app.main:app --reload --host 0.0.0.0 --port 8000。'
+      '当前无法连上后端（Vite 会把 /api、/health 代理到本机 8081）。请先：① 项目根目录 docker compose up -d；② 启动 Go API：DB_AUTO_MIGRATE=false go run ./cmd/api。'
   }
 }
 
