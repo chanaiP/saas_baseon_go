@@ -899,7 +899,7 @@ const neuronChain = ref<NeuronNode[]>([
 
 // 方法
 const activatePrimary = (id: string) => {
-  activePrimary.value = activePrimary.value === id ? '' : id
+  activePrimary.value = id
 }
 
 const getPrimaryTitle = (id: string) => primaryMenu.value.find((item) => item.id === id)?.title ?? ''
@@ -929,13 +929,17 @@ const sidebarSecondaryMenu = computed(() =>
     }
 
     const menu = activePrimary.value ? getSecondaryMenu(activePrimary.value) : []
-    return menu
+    return visibleSecondaryMenus(menu)
   },
 )
 
 function canonicalSecondaryMenuPath(path: string): string {
   if (path === '/data-center' || path === '/data-center/overview') return '/data-center/raw'
   return path
+}
+
+function visibleSecondaryMenus(items: Array<{ id: string; title: string; description: string; path: string }>) {
+  return items.filter((item) => item.path !== '/data-center' && item.path !== '/data-center/overview')
 }
 
 const currentRouteMenuPath = computed(() => {
