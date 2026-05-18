@@ -1278,9 +1278,6 @@ func (s *AppService) syncManifestPermissions(tx *gorm.DB, env manifestEnvelope, 
 }
 
 func (s *AppService) grantPlatformManifestPermissions(tx *gorm.DB, env manifestEnvelope) error {
-	if !strings.EqualFold(defaultString(env.parse.VisibilityScope, env.manifest.App.VisibilityScope), "PLATFORM_ONLY") {
-		return nil
-	}
 	platformTenantID, err := platformTenantID(tx)
 	if err != nil {
 		return err
@@ -1303,7 +1300,16 @@ func (s *AppService) grantPlatformManifestPermissions(tx *gorm.DB, env manifestE
 			return err
 		}
 	}
-	return nil
+	return bumpRoleUsersSessionVersion(tx, platformTenantID, role.ID)
+}
+
+func bumpRoleUsersSessionVersion(tx *gorm.DB, tenantID uint64, roleID uint64) error {
+	if !tx.Migrator().HasTable(&models.AppUser{}) || !tx.Migrator().HasTable(&models.UserRole{}) {
+		return nil
+	}
+	return tx.Model(&models.AppUser{}).
+		Where("tenant_id = ? AND id IN (?)", tenantID, tx.Model(&models.UserRole{}).Select("user_id").Where("role_id = ?", roleID)).
+		Update("session_version", gorm.Expr("session_version + 1")).Error
 }
 
 func upsertPermissionByPath(tx *gorm.DB, row *models.Permission) error {

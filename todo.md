@@ -1,146 +1,204 @@
-# AI 能力中心生产级诊断 TODO
+# 经营数据决策中心生产级开发 TODO
 
-诊断时间：2026-05-15  
-范围：仅 `ai-capability-center` 应用，包括 `internal/apps/ai_capability_center`、`frontend/src/apps/ai-capability-center`、AI 相关表、Manifest 与应用文档。
+创建时间：2026-05-18
+应用定位：合并部署内置业务中台应用
+应用编码：`data-center`
+后端目录：`internal/apps/data_center`
+前端目录：`frontend/src/apps/data-center`
+API 前缀：`/api/data-center`
+验收口径：本文件所有任务全部打勾后，才算“经营数据决策中心”真正完成。禁止用 mock 数据冒充生产链路，禁止只完成前端静态页面。
 
-## 总结
+## 0. 执行纪律
 
-当前 AI 能力中心还不是完整生产级可用状态。它已经具备供应商、模型、场景、路由、策略、用量日志和平台页壳，并已打通 OpenAI-compatible chat/text_generation、responses、embeddings、images 的真实调用骨架；但 demo 清理脚本、内容记录完整治理、Manifest 重装载保护、文档和前端可信表达仍需继续收口。
+- [x] 每开始一个开发阶段前，先确认本 TODO 中对应任务未完成项。
+- [x] 每完成一个可验证任务后，只在验证通过后打勾。
+- [x] 任一任务如果降级实现，必须在本文件追加“降级原因、影响范围、后续补齐方案”，不得直接打勾。
+- [x] 所有新增业务数据访问必须带 `tenant_id` 约束，不能信任前端传入的租户参数。
+- [x] 所有列表接口必须返回统一分页结构：`items`、`total`、`skip`、`limit`。
+- [x] 所有接口必须返回统一响应结构：`code`、`message`、`data`。
+- [x] 删除、关闭、忽略、归档类操作必须保留历史，不做业务数据物理删除。
 
-最关键的问题不是单个页面样式，而是：真实供应商配置和健康状态尚未恢复，历史 seed/demo 数据需要被长期隔离；`Invoke` 已补上 provider request id、重试、超时记录、平台/租户门禁和 OpenAI-compatible 主要协议族，但完整治理、文档和可观测表达还要继续补齐。
+## 1. 应用接入与 Manifest
 
-## 已验证事实
+- [x] 创建后端应用目录 `internal/apps/data_center`，包含 `app.go`、`app.manifest.yaml`、`handlers`、`services`、`repositories`、`dto`、`domain`、`tests`。
+- [x] 创建前端应用目录 `frontend/src/apps/data-center`，包含 `manifest.ts`、`routes.ts`、`api.ts`、`views`、`components`、`composables`、`types`。
+- [x] 在 `app.manifest.yaml` 声明 `app_code=data-center`、`deployment_mode=MERGED`、`source=BUILTIN`、`app_type=BUSINESS_MIDDLE_PLATFORM`。
+- [x] 在 Manifest 中声明 9 个菜单：经营看板、数据总览、原始数据、标准数据、指标中心、异常分析、异常规则、整改任务、整改复盘。
+- [x] 在 Manifest 中声明所有操作权限：指标维护、规则维护、异常扫描、AI 分析、生成任务、任务流转、复盘确认、批次重试、数据导出。
+- [x] 在 Manifest 中声明 `/api/data-center/**` API 权限矩阵，GET 对应菜单权限，写操作对应操作权限。
+- [x] 在 Manifest 中声明套餐功能点 `package_features`，来源必须是应用能力而非前端临时列表。
+- [x] 在 Manifest 中声明配额 `quotas`，至少包含数据批次保留量、每日异常扫描次数、每日 AI 分析次数、活跃规则数量。
+- [x] 确保应用装载重复执行后不会重复生成菜单、权限、套餐功能点和配额。
+- [x] 更新或补充应用说明文档，记录菜单、权限、套餐、配额、API 和初始化方式。
 
-- `ai_usage_records` 共 18 条，18 条都是 `request_id like 'seed%'`，且 `request_params.channel` 只有 `demo-history-seed` 和 `demo-seed`。
-- 当前库里没有 2026-05-15 的真实调用记录；总览今日指标为 0，近 7 天趋势来自历史 demo seed。
-- `ai_provider_apis` 中 26 个启用 API 的 `health_status` 全部为 `error`。
-- 多数 API 异常原因是未配置 API Key / Key Alias 环境变量；部分是占位 Endpoint，例如 Azure 的 `{resource}`；OpenAI 相关接口存在 TLS 证书校验失败记录。
-- `marketing-center / campaign_image_generate` 和 `product-center / product_copy_generate` 当前绑定的基础路由已逻辑删除：`image-marketing-default`、`chat-cost-first` 的 `deleted_at` 非空。
-- `internal/apps/ai_capability_center/services/service.go` 的 `Invoke` 会校验场景、策略、路由、配额、限流和价格，并已通过 provider adapter 支持 OpenAI-compatible chat/text_generation 真实 HTTP 调用。
-- `Invoke` 的 chat/text_generation 成功路径会返回标准化 `Data`、按供应商 usage 回填计费、记录真实响应 hash；其他协议仍待补齐。
-- 文档 `docs/apps/ai-capability-center.md` 已恢复“调用日志”菜单、真实调用链路、内容记录级别和 demo 数据隔离说明。
-- 系统参数 `ai.gateway.content_record_level` 已存在，值为 `1`，但数据库显示 `tenant_editable=true`，与 seed 代码里 `TenantEditable: false` 的意图不一致，需要确认参数覆写逻辑。
+## 2. 数据库结构与迁移
 
-## P0 阻断项
+- [x] 新增版本化迁移 SQL，创建数据中心业务表，不依赖 GORM AutoMigrate 作为生产建库方式。
+- [x] 同步更新 `internal/infrastructure/persistence/postgres/schema/current_schema.sql`。
+- [x] 所有租户业务表使用 `tenant_id bigint not null`，必要时包含 `company_id`、`department_id`、`business_unit_id`。
+- [x] 创建原始数据批次表 `data_center_raw_data_batches`，支持批次、来源、状态、错误摘要、逻辑删除和审计字段。
+- [x] 创建原始错误明细表 `data_center_raw_data_errors`，用于批次错误追溯。
+- [x] 创建标准销售订单表 `data_center_std_sales_orders`。
+- [x] 创建标准投流日表 `data_center_std_ad_daily`。
+- [x] 创建标准库存日表 `data_center_std_inventory_daily`。
+- [x] 创建标准退款、商品、门店销售相关表，满足第一版页面与指标计算需要。
+- [x] 创建指标定义表 `data_center_metric_definitions`，支持启停、异常判断标记、逻辑删除。
+- [x] 创建指标结果表 `data_center_metric_results`，按租户、指标、对象、周期、日期建立唯一约束或去重索引。
+- [x] 创建异常规则表 `data_center_anomaly_rules`，保存条件 JSON、等级 JSON、置信度 JSON、AI 设置、任务设置、复盘规则。
+- [x] 创建异常记录表 `data_center_anomaly_records`，保存规则、对象、证据 JSON、置信度、影响金额、AI/任务/复盘状态。
+- [x] 创建 AI 分析记录表 `data_center_ai_diagnosis_records`，结构化保存问题摘要、原因、证据引用、建议、任务建议。
+- [x] 创建整改任务表 `data_center_rectification_tasks`，关联异常、责任人、协同人、目标、进度、状态和反馈。
+- [x] 创建任务过程记录表 `data_center_task_logs`，记录状态流转、反馈、操作人、操作时间。
+- [x] 创建整改复盘表 `data_center_rectification_reviews`，保存整改前后指标、改善幅度、AI 总结、人工结论和经验沉淀。
+- [x] 创建关键唯一约束：同一租户下指标 code、规则 code、批次 code、异常 code、任务 code、复盘 code 不重复。
+- [x] 创建异常去重约束：`tenant_id + rule_code + object_type + object_code + stat_date` 同周期不重复生成。
+- [x] 为列表查询建立必要索引：租户、状态、时间、业务域、等级、来源批次、责任人。
+- [x] 迁移脚本提供 down 回滚，且不清空已有业务表。
 
-- [x] 实现真实 AI Gateway 调用链路
-  - [x] 在 `Invoke` 中接入 provider adapter，不再只写日志。
-  - [x] 先支持 OpenAI-compatible chat/text_generation 真实调用。
-  - [x] 继续补齐 OpenAI-compatible responses、embeddings、images。
-  - [x] 真实记录请求开始时间、结束时间、供应商 HTTP 状态、错误码、延迟、重试次数。
-  - [x] `Data` 必须返回模型供应商响应的标准化结果，不能继续为空对象。
-  - [x] `ResponseHash` 必须基于真实响应或标准化响应计算。
+## 3. 后端分层与领域模型
 
-- [x] 修复供应商 API 连通性
-  - [x] 明确 Key Alias 到环境变量 / KMS / 密钥服务的解析规则。
-  - [x] 对未配置密钥的供应商，Gateway 调用必须明确失败且不能请求供应商或产生成功计费。
-  - [x] 对未配置密钥的供应商，不能在 UI 上给用户“可用”的暗示。
-  - [x] 占位 Endpoint 必须标记为模板或禁用，不能参与可执行路由。
-  - [x] 解决容器内 TLS 证书链问题，至少给出 CA 配置和失败诊断。
-  - [x] 连通性检查结果需要区分“未配置”“网络失败”“鉴权失败”“协议不兼容”“供应商返回错误”。
+- [x] 定义 `internal/apps/data_center/domain` 下的领域类型和状态枚举，避免魔法字符串散落。
+- [x] 定义 DTO：筛选请求、分页响应、创建/更新指标、规则、任务、复盘、批次重试等请求响应结构。
+- [x] 实现 repository 层，所有 list/detail/update/delete 均强制接收租户上下文。
+- [x] repository 不读取 HTTP、Header、Authorization，不做权限判断。
+- [x] 实现 service 层，负责业务规则、事务、权限/套餐/配额校验、异常转换、审计点。
+- [x] 实现 handler 层，只做参数绑定、当前用户读取、调用 service、统一响应。
+- [x] 在 `internal/bootstrap/router.go` 初始化 data-center service、repository、handler。
+- [x] 在 `internal/bootstrap/api_routes.go` 注册 `/api/data-center` 路由。
+- [x] 更新 `internal/interfaces/http/handlers/auth_policy.go`，补齐所有 data-center 路由权限映射。
+- [x] 更新 router policy 测试，确保所有新增 API 都有权限分类或明确 optional。
+- [x] 更新 OpenAPI 标签和路径，包含 data-center API。
 
-- [x] 清理 demo 用量和生产数据口径
-  - [x] seed/demo 用量不能混入生产指标；需要增加 `data_source`、`is_demo` 或独立 demo tenant 标记。
-  - [x] 总览、趋势、排行榜、调用日志默认必须排除 demo 数据。
-  - [x] 如果保留演示数据，页面必须明确标识“演示数据”，不能伪装成真实生产调用；当前生产口径默认不展示 demo，并提供清理脚本。
-  - [x] 提供一键清理 demo AI 用量的脚本或迁移说明。
+## 4. 真实业务 API
 
-- [x] 修复场景到路由的失效绑定
-  - [x] 所有 `ai_scenarios.default_base_route_id` 必须指向 `deleted_at IS NULL` 的 active 路由。
-  - [x] 删除或归档基础路由时，必须阻断被 active 场景引用的路由，或同步迁移场景绑定。
-  - [x] 需要增加启动/装载校验：active 场景不能绑定已删除路由、空模型池路由或全量不可用模型。
+- [x] 实现经营看板 API：summary、trends、rankings、anomalies、tasks，全部从数据库聚合。
+- [x] 实现数据总览 API：pipeline、jobs、errors，展示真实批次和处理状态。
+- [x] 实现原始数据 API：批次列表、详情、错误明细、重新清洗、重新同步占位门禁。
+- [x] 实现标准数据 API：sales、ad、inventory、refund、store-sales、详情。
+- [x] 实现指标中心 API：列表、新增、编辑、启用、禁用、指标结果查询。
+- [x] 实现异常规则 API：列表、详情、新增、编辑、启用、禁用、规则测试。
+- [x] 实现异常分析 API：列表、详情、触发 AI 分析、重新分析、生成任务、确认、忽略、关闭。
+- [x] 实现整改任务 API：列表、详情、新建、编辑、开始处理、反馈、更新进度、完成、关闭。
+- [x] 实现整改复盘 API：列表、详情、生成复盘、确认复盘、编辑复盘。
+- [x] 所有列表支持 `skip`、`limit`、时间、品牌、渠道、平台、门店、商品、状态等筛选。
+- [x] 所有写操作记录审计信息，至少包含操作人、租户、操作类型、对象 code、IP、User-Agent。
 
-- [x] 把用量、计费、成功率建立在真实执行结果上
-  - [x] `calls` 只能表示一次网关请求或一次标准化模型调用，不能由客户端任意传入或 seed 随意构造。
-  - [x] chat/text_generation token 用量优先来自供应商响应 usage 字段。
-  - [x] image、embedding 等用量应优先来自供应商响应 usage 字段；拿不到时图片按返回数量或请求数量回填。
-  - [x] chat/text_generation 成本、销售额、平台费用按真实 usage 和命中价格策略计算。
-  - [x] 成功率必须基于真实调用状态，区分 success、provider_error、gateway_error、rejected、timeout。
+## 5. 数据导入、标准化与种子数据
 
-## P1 高优先级
+- [x] 提供生产可用的第一版数据录入或导入入口，不能只依赖前端 mock。
+- [x] 提供原始批次写入服务，支持订单、退款、广告、商品、库存、门店销售。
+- [x] 提供标准化服务，将原始批次转入标准表并记录成功/失败数量。
+- [x] 失败数据必须写入错误明细，页面可追溯。
+- [x] 初始 seed 只允许写入系统内置指标定义和内置异常规则，不写伪装成真实经营的业务流水。
+- [x] 内置指标 seed 幂等，不覆盖用户修改的启停、名称、公式说明和异常判断开关。
+- [x] 内置异常规则 seed 幂等，不覆盖用户修改的阈值、范围、AI 设置、任务生成和复盘规则。
+- [x] 如需要演示样例，必须标记为 demo tenant 或 demo 数据源，默认生产 API 不展示。
 
-- [x] 补齐权限与平台门禁
-  - [x] AI 能力中心是 `PLATFORM_ONLY`，前端路由需要显式 `requiresPlatformAdmin` 或统一应用门禁。
-  - [x] 后端 API 当前在登录后可访问，需要确认是否有菜单/权限二次校验，而不是只靠前端隐藏。
-  - [x] `GET /api/ai-capability-center/{resource}` 当前统一使用 `/ai-capability-center` 权限，生产级应按资源或菜单拆分读权限。
-  - [x] `POST /api/ai-gateway/v1/invoke` 应明确调用方身份、scope、租户上下文和调用来源，不能只信任 body 里的 `tenant_id`。
+## 6. 指标计算与规则引擎
 
-- [x] 收紧内容记录策略
-  - [x] `ai.gateway.content_record_level` 的 0/1/2/3 方案可用，但必须补齐安全边界。
-  - [x] 级别 2 的脱敏规则需要覆盖手机号、邮箱、身份证、银行卡、token、apikey、authorization、cookie、地址等。
-  - [x] 级别 3 记录完整内容必须有强告警、权限限制、保留周期和审计。
-  - [x] 调用日志抽屉需要明确“内容记录级别”和“实际记录范围”，避免误解为完整 AI 结果。
+- [x] 实现 GMV、净销售额、订单数、客单价、退款率指标计算。
+- [x] 实现广告消耗、广告 GMV、ROI、点击率、转化率、成交成本指标计算。
+- [x] 实现库存、销量、动销率、可售天数相关指标计算。
+- [x] 指标计算结果写入 `data_center_metric_results`，并保留 compare value、compare rate、target value。
+- [x] 实现规则条件解析，支持固定阈值、环比、目标偏差、多条件 AND/OR。
+- [x] 实现异常等级计算，支持低、中、高、严重。
+- [x] 实现系统置信度计算，AI 不参与异常是否命中判断。
+- [x] 异常命中必须生成证据 JSON，包含 metric_code、label、value、desc。
+- [x] 同一租户、规则、对象、周期内不得重复生成异常。
+- [x] 提供异常扫描 service，可由 API 手动触发，后续可接定时任务。
+- [x] 为 MVP 完成 3 条闭环：GMV 下滑、投流增加但 ROI 下降、库存销售异常。
 
-- [x] 建立路由执行计划的生产校验
-  - [x] 基础路由必须至少有一个 active route model。
-  - [x] route model 对应模型、供应商账号、供应商 API 必须全部可用。
-  - [x] 如果健康状态为 error，执行计划应拒绝或降级到可用 fallback，并记录原因。
-  - [x] 概览健康检查要展示“影响哪些场景”，而不仅是总数。
+## 7. AI 分析接入
 
-- [x] 修复 seed 与运行时数据互相污染
-  - [x] `seedAIProviderCatalog` 会逻辑删除 legacy route，但场景表仍可能保留旧引用，需要幂等修复。
-  - [x] seed 不应在生产环境写入演示调用记录。
-  - [x] seed 不得覆盖人工维护的供应商状态、账号密钥 alias、API/模型/路由/场景状态；场景绑定仅在失效时修复。
-  - [x] Manifest 重装载、导入接口不得覆盖人工维护的供应商状态、密钥 alias、健康状态和场景绑定。
+- [x] AI 分析必须读取异常记录、触发规则和 evidence_json 作为输入。
+- [x] AI 不得决定异常是否成立，只能输出原因、影响、建议、任务文案、复盘总结。
+- [x] 接入现有 AI 能力中心或网关，不在 data-center 内硬编码供应商密钥。
+- [x] AI 输出必须解析为结构化 JSON，并保存到 `data_center_ai_diagnosis_records`。
+- [x] AI 调用失败时更新 `ai_status=failed`，保留安全错误信息，不泄露密钥、SQL、内部堆栈。
+- [x] 重新分析必须保留历史记录或可追溯版本，不直接覆盖无痕结果。
+- [x] 达到规则任务生成阈值时，允许从 AI 建议生成任务，但必须防重复。
 
-- [x] 补齐测试
-  - [x] 增加 `Invoke` 的真实 provider adapter 单测和 mock HTTP 集成测试。
-  - [x] 覆盖供应商不可用、路由为空、场景绑定删除路由、配额拒绝、限流拒绝、供应商超时、供应商返回 4xx/5xx。
-  - [x] 覆盖供应商返回 5xx 时记录 `provider_error`，且不累计成功配额。
-  - [x] 覆盖供应商 5xx 可重试成功并记录 `retry_count`。
-  - [x] 覆盖供应商超时时记录 `timeout` 且不产生成功计费。
-  - [x] 覆盖 `content_record_level` 0/1/2/3 的日志存储行为和脱敏规则。
-  - [x] 覆盖平台权限、租户伪造 `tenant_id`、非平台用户访问 AI 能力中心。
+## 8. 整改任务与复盘闭环
 
-## P2 中优先级
+- [x] 异常生成任务时必须关联 anomaly_code、rule_code、evidence、AI 建议。
+- [x] 已生成任务的异常不能重复生成相同任务。
+- [x] 任务状态流转必须受控：待处理、处理中、已完成、已逾期、已关闭。
+- [x] 任务开始、反馈、进度更新、完成、关闭均写入过程记录。
+- [x] 任务完成后进入待复盘状态。
+- [x] 复盘生成必须读取整改前后指标并计算改善幅度。
+- [x] 复盘结论支持：整改有效、效果不明显、整改无效、需继续跟进。
+- [x] 人工确认或修改复盘结论时必须保存操作人和时间。
+- [x] 复盘完成后回写异常和任务复盘状态。
 
-- [x] 更新文档
-  - [x] `docs/apps/ai-capability-center.md` 需要恢复“调用日志”菜单说明。
-  - [x] 同步说明总览、调用日志、健康检查、内容记录级别、真实调用链路和 demo 数据策略。
-  - [x] 文档中的调用示例要和当前字段一致，例如 `product-center` vs `product_center` 的命名口径。
+## 9. 前端生产化实现
 
-- [x] 优化前端可信表达
-  - [x] 总览页需要显示数据时间范围和数据来源，例如“今日真实调用”“近 7 天真实调用”。
-  - [x] 如果没有真实数据，应展示空态或接入引导，不应该用 seed 趋势撑场面。
-  - [x] 调用日志默认今日是合理的，但需要给“暂无今日调用”的解释和快捷切换近 7 天。
-  - [x] 抽屉里 UUID 类字段应尽量展示中文业务名称，技术 ID 放在可复制区域。
+- [x] 从原型迁移 UI 体验，但不得在组件中写死业务数据。
+- [x] 前端所有请求集中在 `frontend/src/apps/data-center/api.ts`。
+- [x] 前端路由集中在 `frontend/src/apps/data-center/routes.ts`，再由全局 router 引入。
+- [x] 前端类型集中在 `frontend/src/apps/data-center/types.ts`。
+- [x] 实现全局筛选 composable，时间、品牌、渠道、平台、门店、商品筛选联动所有页面 API。
+- [x] 经营看板从真实 API 获取指标、趋势、排行、重点异常、待处理任务。
+- [x] 数据总览从真实 API 获取链路状态和批次列表。
+- [x] 原始数据页支持批次筛选、详情抽屉、错误明细、重新清洗操作。
+- [x] 标准数据页支持销售、投流、商品、库存、门店、退款数据域切换。
+- [x] 指标中心支持指标列表、新增、编辑、启用、禁用。
+- [x] 异常规则页支持规则列表、详情抽屉、新增/编辑表单、JSON 条件预览和规则测试。
+- [x] 异常分析页支持统计、筛选、详情抽屉、触发/重新 AI 分析、生成任务、确认、忽略、关闭。
+- [x] 整改任务页支持列表/看板、详情抽屉、开始处理、反馈、进度、完成、关闭。
+- [x] 整改复盘页支持列表、详情、前后指标对比、确认结论、经验沉淀。
+- [x] 所有页面处理 loading、empty、error 三态。
+- [x] 所有危险操作有二次确认和成功/失败反馈。
+- [x] 按后端权限和套餐结果显示菜单与按钮，不硬编码角色判断。
+- [x] 页面不得出现“演示数据”“mockData”作为生产数据来源。
 
-- [x] 统一应用内路由来源
-  - [x] 当前前端路由仍写在全局 `frontend/src/router/index.ts`，AI 应用目录只有 `manifest.ts`，没有独立 `routes.ts`。
-  - [x] 后续应让应用中心/Manifest 成为路由、菜单和权限的准入来源，避免新增菜单后再次漏配。
+## 10. 权限、套餐、配额与租户隔离
 
-- [x] 观测与运维
-  - [x] 增加网关调用 trace id、provider request id、重试日志、超时分布、错误分布。
-  - [x] 调用日志记录并展示 provider request id、HTTP 状态、开始/结束时间、重试次数。
-  - [x] Gateway 按路由/模型节点配置执行超时和 5xx/429/网络错误重试，并记录重试次数。
-  - [x] 健康检查后台任务现在每 10 分钟跑一次，需要明确是否会对外部供应商产生真实调用成本。
-  - [x] 连通性检查应支持 dry-run / HEAD / lightweight model list 等低成本探测方式。
+- [x] 后端所有 data-center API 通过登录态获取当前用户和租户。
+- [x] 普通租户不能通过 query/body/path 伪造 `tenant_id` 访问其他租户数据。
+- [x] 平台管理员跨租户查询必须显式表达，并有权限保护。
+- [x] 菜单可见性来源于 Manifest 装载后的权限数据。
+- [x] 写操作必须校验操作权限。
+- [x] 进入可售套餐的能力来自 Manifest `package_features`。
+- [x] AI 分析、异常扫描、活跃规则数量等能力必须校验套餐和配额。
+- [x] 配额消耗失败不得产生业务成功状态。
+- [x] 租户菜单运行时应受平台专属、套餐、角色权限、租户覆盖共同约束。
 
-## 建议实施顺序
+## 11. 测试
 
-- [x] 先冻结 demo 数据进入生产指标，给总览和调用日志加数据来源边界。
-- [x] 修复 active 场景绑定已删除路由的问题，保证目录配置自洽。
-- [x] 建立 provider adapter 接口和 OpenAI-compatible 第一个真实调用实现。
-- [x] 把调用结果、usage、latency、error、response hash 写入 `ai_usage_records`。
-- [x] 重做健康检查和执行计划校验，让“可用”只代表真实可调用。
-- [x] 补齐平台权限、租户上下文和内容记录安全策略的第一阶段门禁。
-- [x] 最后再继续打磨前端布局、趋势切换和调用日志抽屉。
+- [x] 后端 repository/service 单测覆盖 tenant 隔离。
+- [x] 后端测试覆盖普通租户伪造 `tenant_id` 被拒绝。
+- [x] 后端测试覆盖指标计算核心口径。
+- [x] 后端测试覆盖规则引擎命中、未命中、AND/OR、置信度、去重。
+- [x] 后端测试覆盖异常生成任务防重复。
+- [x] 后端测试覆盖任务状态流转和过程记录。
+- [x] 后端测试覆盖复盘前后指标计算。
+- [x] 后端测试覆盖 AI 分析成功、失败、结构化解析错误。
+- [x] 后端测试覆盖权限映射和 unclassified API 失败关闭策略。
+- [x] 前端构建通过。
+- [x] 关键前端交互至少通过浏览器验证：看板、异常详情、规则编辑、任务流转、复盘详情。
 
-## 验收标准
+## 12. 验证与交付
 
-- [x] 任意 active AI 场景都能通过校验：场景 -> 基础路由 -> route model -> 模型 -> 供应商账号 -> API 全链路可用。
-- [x] 未配置密钥时，网关调用明确失败并记录安全错误，不请求供应商且不产生成功计费。
-- [x] 健康检查失败时，网关调用明确失败，不请求失败 API 且不产生成功用量；存在健康 fallback 时自动降级。
-- [x] 一次真实调用能返回模型结果，写入真实延迟、真实状态、真实 usage、真实成本和真实日志。
-- [x] 总览、趋势、排行榜、调用日志均默认只统计真实调用；demo 数据不会影响生产指标。
-- [x] 非平台管理员不能进入 AI 能力中心管理页；业务调用方不能伪造其他租户的 `tenant_id`。
-- [x] `content_record_level` 0/1/2/3 均有测试证明存储行为符合预期。
-- [x] Manifest、文档、前端路由、后端 API 权限声明一致。
+- [x] `go test ./...` 通过。
+- [x] `cd frontend && npm run build` 通过。
+- [x] `git diff --check` 通过。
+- [x] 本地数据库执行迁移成功。
+- [x] Manifest 扫描/装载成功，重复装载资源数量稳定。
+- [x] 使用真实数据库数据打开 9 个页面，无控制台错误。
+- [x] 从原始批次到标准数据、指标、异常、AI 分析、任务、复盘至少跑通 3 条 MVP 闭环。
+- [x] 更新 README 或应用文档，说明启动、迁移、初始化、验收和故障排查。
+- [x] 提交前执行 `git status`，只暂存本次 data-center 相关文件。
+- [x] 完成一次 Git 提交，提交信息说明做了什么以及为什么。
 
-## 复查命令
+## 13. 最终验收定义
 
-```bash
-docker exec saas-go-postgres psql -U saas -d saas_baseon -P pager=off -c "select count(*) total, count(*) filter (where request_id like 'seed%') seed_records, count(*) filter (where request_params::text like '%demo%') demo_records from ai_usage_records;"
-docker exec saas-go-postgres psql -U saas -d saas_baseon -P pager=off -c "select health_status, count(*) from ai_provider_apis where deleted_at is null group by health_status;"
-docker exec saas-go-postgres psql -U saas -d saas_baseon -P pager=off -c "select s.app_code, s.ai_scenario_code, r.route_code, r.deleted_at from ai_scenarios s left join ai_base_routes r on r.id=s.default_base_route_id where s.deleted_at is null order by s.app_code, s.ai_scenario_code;"
-```
+- [x] 原始数据可以入库、追溯错误并重新清洗。
+- [x] 标准数据来自数据库，可被指标计算消费。
+- [x] 指标定义和指标结果来自数据库，可维护、可启停。
+- [x] 异常由规则引擎基于指标生成，且每条异常都有证据。
+- [x] AI 分析只基于异常证据输出结构化原因和建议。
+- [x] 整改任务必须关联异常、规则、证据和 AI 建议。
+- [x] 整改复盘必须展示整改前后指标和改善幅度。
+- [x] 前端 9 个页面全部打通真实 API 和数据库。
+- [x] Manifest、菜单、权限、套餐、配额、前端路由、后端 API 保持一致。
+- [x] 所有任务打勾，本 TODO 才允许标记为完成。

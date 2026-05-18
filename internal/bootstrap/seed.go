@@ -793,7 +793,7 @@ func seedBuiltinApps(db *gorm.DB) error {
 		},
 		{
 			AppCode:         "data-center",
-			AppName:         "数据中心",
+			AppName:         "Ai经营决策中心",
 			Icon:            stringPtr("DataAnalysis"),
 			AppType:         "ABILITY_APP",
 			Source:          "BUILTIN",
@@ -1194,15 +1194,15 @@ func upsertAIProviderAccountAndAPIs(db *gorm.DB, providerID string, seed aiProvi
 		if err := db.Where("provider_id = ? AND account_id = ? AND api_name = ?", providerID, account.ID, api.name).Order("deleted_at IS NULL DESC").FirstOrCreate(&row).Error; err != nil {
 			return err
 		}
-			if err := db.Model(&row).Updates(map[string]interface{}{
-				"api_type":     api.apiType,
-				"capabilities": aiJSONB(api.capabilities),
-				"auth_type":    seed.authType,
-				"qps_limit":    api.qpsLimit,
-				"timeout_ms":   api.timeoutMS,
-				"updated_at":   time.Now(),
-				"deleted_at":   nil,
-			}).Error; err != nil {
+		if err := db.Model(&row).Updates(map[string]interface{}{
+			"api_type":     api.apiType,
+			"capabilities": aiJSONB(api.capabilities),
+			"auth_type":    seed.authType,
+			"qps_limit":    api.qpsLimit,
+			"timeout_ms":   api.timeoutMS,
+			"updated_at":   time.Now(),
+			"deleted_at":   nil,
+		}).Error; err != nil {
 			return err
 		}
 	}
@@ -1377,7 +1377,8 @@ func seedAIRoutesAndScenarios(db *gorm.DB, modelByCapability map[string][]string
 	}{
 		{appCode: "app-center", appName: "应用中心", code: "app_description_generate", name: "应用说明生成", sceneType: "text", capability: "chat_completion", modelType: "text", routeID: routeIDs["chat_completion"]},
 		{appCode: "integration-center", appName: "第三方集成中心", code: "connector_mapping_reasoning", name: "连接器映射推理", sceneType: "reasoning", capability: "reasoning", modelType: "text", routeID: routeIDs["reasoning"]},
-		{appCode: "data-center", appName: "数据中心", code: "knowledge_embedding", name: "知识库向量化", sceneType: "embedding", capability: "embedding", modelType: "embedding", routeID: routeIDs["embedding"]},
+		{appCode: "data-center", appName: "Ai经营决策中心", code: "anomaly_analysis", name: "经营异常诊断", sceneType: "reasoning", capability: "reasoning", modelType: "text", routeID: routeIDs["reasoning"]},
+		{appCode: "data-center", appName: "Ai经营决策中心", code: "knowledge_embedding", name: "知识库向量化", sceneType: "embedding", capability: "embedding", modelType: "embedding", routeID: routeIDs["embedding"]},
 		{appCode: "workbench", appName: "工作台", code: "poster_image_generate", name: "运营图片生成", sceneType: "image", capability: "image_generation", modelType: "image", routeID: routeIDs["image_generation"]},
 		{appCode: "system-management", appName: "系统管理", code: "policy_doc_review", name: "制度长文审阅", sceneType: "text", capability: "long_context", modelType: "text", routeID: routeIDs["long_context"]},
 	}
