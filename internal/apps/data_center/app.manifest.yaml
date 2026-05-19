@@ -1,0 +1,606 @@
+manifest_version: "1.0"
+fragment_role: main
+app:
+  app_code: data-center
+  app_name: Ai经营决策中心
+  app_type: BUSINESS_MIDDLE_PLATFORM
+  source: BUILTIN
+  status: ONLINE
+  icon: DataLine
+  deployment_mode: MERGED
+  communication_modes:
+    - PLATFORM_API
+    - DATA_SYNC
+  visibility_scope: TENANT
+  charge_policy: PAID
+  billing_mode: SUBSCRIPTION
+  package_policy: IN_PACKAGE
+  version: 0.1.0
+  description: 以标准数据、经营指标、异常规则、AI 分析、整改任务和复盘构成经营闭环的数据决策应用
+  backend_dir: internal/apps/data_center
+  frontend_dir: frontend/src/apps/data-center
+clients:
+  - PC_WEB
+menus:
+  - code: data_center_root
+    name: Ai经营决策中心
+    path: /data-center
+    sort_order: 90
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: data_center_access
+    data_perm_mode: TENANT
+  - code: data_center_dashboard
+    name: 经营看板
+    path: /data-center/dashboard
+    parent_code: data_center_root
+    sort_order: 91
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: data_center_dashboard
+    data_perm_mode: TENANT
+  - code: data_center_overview
+    name: 数据总览
+    path: /data-center/overview
+    parent_code: data_center_root
+    sort_order: 92
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: data_center_overview
+    data_perm_mode: TENANT
+  - code: data_center_raw
+    name: 原始数据
+    path: /data-center/raw
+    parent_code: data_center_root
+    sort_order: 93
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: data_center_raw_data
+    data_perm_mode: TENANT
+  - code: data_center_standard
+    name: 标准数据
+    path: /data-center/standard
+    parent_code: data_center_root
+    sort_order: 94
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: data_center_standard_data
+    data_perm_mode: TENANT
+  - code: data_center_metrics
+    name: 指标中心
+    path: /data-center/metrics
+    parent_code: data_center_root
+    sort_order: 95
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: data_center_metrics
+    data_perm_mode: TENANT
+  - code: data_center_anomalies
+    name: 异常分析
+    path: /data-center/anomalies
+    parent_code: data_center_root
+    sort_order: 96
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: data_center_anomalies
+    data_perm_mode: TENANT
+  - code: data_center_rules
+    name: 异常规则
+    path: /data-center/rules
+    parent_code: data_center_root
+    sort_order: 97
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: data_center_rules
+    data_perm_mode: TENANT
+  - code: data_center_tasks
+    name: 整改任务
+    path: /data-center/tasks
+    parent_code: data_center_root
+    sort_order: 98
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: data_center_tasks
+    data_perm_mode: TENANT
+  - code: data_center_reviews
+    name: 整改复盘
+    path: /data-center/reviews
+    parent_code: data_center_root
+    sort_order: 99
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: data_center_reviews
+    data_perm_mode: TENANT
+operations:
+  - code: data_center_metric_manage
+    name: 指标维护
+    menu_code: data_center_metrics
+    permission_code: data_center:metric_manage
+    include_in_package: true
+    feature_code: data_center_metrics
+  - code: data_center_rule_manage
+    name: 规则维护
+    menu_code: data_center_rules
+    permission_code: data_center:rule_manage
+    include_in_package: true
+    feature_code: data_center_rules
+  - code: data_center_scan
+    name: 异常扫描
+    menu_code: data_center_anomalies
+    permission_code: data_center:scan
+    include_in_package: true
+    feature_code: data_center_anomalies
+  - code: data_center_ai_analyze
+    name: AI 分析
+    menu_code: data_center_anomalies
+    permission_code: data_center:ai_analyze
+    include_in_package: true
+    feature_code: data_center_anomalies
+  - code: data_center_task_generate
+    name: 生成整改任务
+    menu_code: data_center_anomalies
+    permission_code: data_center:task_generate
+    include_in_package: true
+    feature_code: data_center_tasks
+  - code: data_center_task_flow
+    name: 任务流转
+    menu_code: data_center_tasks
+    permission_code: data_center:task_flow
+    include_in_package: true
+    feature_code: data_center_tasks
+  - code: data_center_review_confirm
+    name: 复盘确认
+    menu_code: data_center_reviews
+    permission_code: data_center:review_confirm
+    include_in_package: true
+    feature_code: data_center_reviews
+  - code: data_center_batch_retry
+    name: 批次重试
+    menu_code: data_center_raw
+    permission_code: data_center:batch_retry
+    include_in_package: true
+    feature_code: data_center_raw_data
+  - code: data_center_export
+    name: 数据导出
+    menu_code: data_center_root
+    permission_code: data_center:export
+    include_in_package: true
+    feature_code: data_center_access
+permissions:
+  - code: /data-center
+    name: Ai经营决策中心
+    type: MENU
+    menu_code: data_center_root
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /data-center/dashboard
+    name: 经营看板
+    type: MENU
+    menu_code: data_center_dashboard
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /data-center/overview
+    name: 数据总览
+    type: MENU
+    menu_code: data_center_overview
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /data-center/raw
+    name: 原始数据
+    type: MENU
+    menu_code: data_center_raw
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /data-center/standard
+    name: 标准数据
+    type: MENU
+    menu_code: data_center_standard
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /data-center/metrics
+    name: 指标中心
+    type: MENU
+    menu_code: data_center_metrics
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /data-center/anomalies
+    name: 异常分析
+    type: MENU
+    menu_code: data_center_anomalies
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /data-center/rules
+    name: 异常规则
+    type: MENU
+    menu_code: data_center_rules
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /data-center/tasks
+    name: 整改任务
+    type: MENU
+    menu_code: data_center_tasks
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /data-center/reviews
+    name: 整改复盘
+    type: MENU
+    menu_code: data_center_reviews
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: data_center:metric_manage
+    name: 指标维护
+    type: OPERATION
+    menu_code: data_center_metrics
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: data_center:rule_manage
+    name: 规则维护
+    type: OPERATION
+    menu_code: data_center_rules
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: data_center:scan
+    name: 异常扫描
+    type: OPERATION
+    menu_code: data_center_anomalies
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: data_center:ai_analyze
+    name: AI 分析
+    type: OPERATION
+    menu_code: data_center_anomalies
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: data_center:task_generate
+    name: 生成整改任务
+    type: OPERATION
+    menu_code: data_center_anomalies
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: data_center:task_flow
+    name: 任务流转
+    type: OPERATION
+    menu_code: data_center_tasks
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: data_center:review_confirm
+    name: 复盘确认
+    type: OPERATION
+    menu_code: data_center_reviews
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: data_center:batch_retry
+    name: 批次重试
+    type: OPERATION
+    menu_code: data_center_raw
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: data_center:export
+    name: 数据导出
+    type: OPERATION
+    menu_code: data_center_root
+    include_in_package: true
+    data_perm_mode: TENANT
+apis:
+  - method: GET
+    path: /api/data-center/dashboard/summary
+    permission_code: /data-center/dashboard
+  - method: GET
+    path: /api/data-center/dashboard/trends
+    permission_code: /data-center/dashboard
+  - method: GET
+    path: /api/data-center/dashboard/rankings
+    permission_code: /data-center/dashboard
+  - method: GET
+    path: /api/data-center/dashboard/anomalies
+    permission_code: /data-center/dashboard
+  - method: GET
+    path: /api/data-center/dashboard/tasks
+    permission_code: /data-center/dashboard
+  - method: GET
+    path: /api/data-center/overview/pipeline
+    permission_code: /data-center/overview
+  - method: GET
+    path: /api/data-center/overview/jobs
+    permission_code: /data-center/overview
+  - method: GET
+    path: /api/data-center/overview/errors
+    permission_code: /data-center/overview
+  - method: GET
+    path: /api/data-center/raw/batches
+    permission_code: /data-center/raw
+  - method: POST
+    path: /api/data-center/raw/batches
+    permission_code: data_center:batch_retry
+    audit: true
+  - method: GET
+    path: /api/data-center/raw/batches/:id
+    permission_code: /data-center/raw
+  - method: GET
+    path: /api/data-center/raw/batches/:id/errors
+    permission_code: /data-center/raw
+  - method: POST
+    path: /api/data-center/raw/batches/:id/reprocess
+    permission_code: data_center:batch_retry
+    audit: true
+  - method: GET
+    path: /api/data-center/standard/:data_type
+    permission_code: /data-center/standard
+  - method: GET
+    path: /api/data-center/standard/:data_type/:id
+    permission_code: /data-center/standard
+  - method: GET
+    path: /api/data-center/metrics
+    permission_code: /data-center/metrics
+  - method: POST
+    path: /api/data-center/metrics
+    permission_code: data_center:metric_manage
+    audit: true
+  - method: GET
+    path: /api/data-center/metrics/:id
+    permission_code: /data-center/metrics
+  - method: PUT
+    path: /api/data-center/metrics/:id
+    permission_code: data_center:metric_manage
+    audit: true
+  - method: POST
+    path: /api/data-center/metrics/:id/enable
+    permission_code: data_center:metric_manage
+    audit: true
+  - method: POST
+    path: /api/data-center/metrics/:id/disable
+    permission_code: data_center:metric_manage
+    audit: true
+  - method: GET
+    path: /api/data-center/metrics/results
+    permission_code: /data-center/metrics
+  - method: GET
+    path: /api/data-center/anomaly-rules
+    permission_code: /data-center/rules
+  - method: POST
+    path: /api/data-center/anomaly-rules
+    permission_code: data_center:rule_manage
+    audit: true
+  - method: GET
+    path: /api/data-center/anomaly-rules/:id
+    permission_code: /data-center/rules
+  - method: PUT
+    path: /api/data-center/anomaly-rules/:id
+    permission_code: data_center:rule_manage
+    audit: true
+  - method: POST
+    path: /api/data-center/anomaly-rules/:id/enable
+    permission_code: data_center:rule_manage
+    audit: true
+  - method: POST
+    path: /api/data-center/anomaly-rules/:id/disable
+    permission_code: data_center:rule_manage
+    audit: true
+  - method: POST
+    path: /api/data-center/anomaly-rules/:id/test
+    permission_code: data_center:rule_manage
+  - method: GET
+    path: /api/data-center/anomalies
+    permission_code: /data-center/anomalies
+  - method: GET
+    path: /api/data-center/anomalies/:id
+    permission_code: /data-center/anomalies
+  - method: POST
+    path: /api/data-center/anomalies/scan
+    permission_code: data_center:scan
+    audit: true
+  - method: POST
+    path: /api/data-center/anomalies/:id/analyze
+    permission_code: data_center:ai_analyze
+    audit: true
+  - method: POST
+    path: /api/data-center/anomalies/:id/reanalyze
+    permission_code: data_center:ai_analyze
+    audit: true
+  - method: POST
+    path: /api/data-center/anomalies/:id/generate-task
+    permission_code: data_center:task_generate
+    audit: true
+  - method: POST
+    path: /api/data-center/anomalies/:id/confirm
+    permission_code: data_center:task_generate
+    audit: true
+  - method: POST
+    path: /api/data-center/anomalies/:id/ignore
+    permission_code: data_center:task_generate
+    audit: true
+  - method: POST
+    path: /api/data-center/anomalies/:id/close
+    permission_code: data_center:task_generate
+    audit: true
+  - method: GET
+    path: /api/data-center/tasks
+    permission_code: /data-center/tasks
+  - method: POST
+    path: /api/data-center/tasks
+    permission_code: data_center:task_flow
+    audit: true
+  - method: GET
+    path: /api/data-center/tasks/:id
+    permission_code: /data-center/tasks
+  - method: PUT
+    path: /api/data-center/tasks/:id
+    permission_code: data_center:task_flow
+    audit: true
+  - method: POST
+    path: /api/data-center/tasks/:id/start
+    permission_code: data_center:task_flow
+    audit: true
+  - method: POST
+    path: /api/data-center/tasks/:id/feedback
+    permission_code: data_center:task_flow
+    audit: true
+  - method: POST
+    path: /api/data-center/tasks/:id/complete
+    permission_code: data_center:task_flow
+    audit: true
+  - method: POST
+    path: /api/data-center/tasks/:id/close
+    permission_code: data_center:task_flow
+    audit: true
+  - method: GET
+    path: /api/data-center/reviews
+    permission_code: /data-center/reviews
+  - method: GET
+    path: /api/data-center/reviews/:id
+    permission_code: /data-center/reviews
+  - method: POST
+    path: /api/data-center/reviews/generate
+    permission_code: data_center:review_confirm
+    audit: true
+  - method: POST
+    path: /api/data-center/reviews/:id/confirm
+    permission_code: data_center:review_confirm
+    audit: true
+  - method: PUT
+    path: /api/data-center/reviews/:id
+    permission_code: data_center:review_confirm
+    audit: true
+package_features:
+  - feature_code: data_center_access
+    feature_name: Ai经营决策中心
+    feature_type: MENU
+    source_code: data_center_root
+    package_policy: IN_PACKAGE
+    include_in_package: true
+    description: 经营数据闭环应用入口
+  - feature_code: data_center_dashboard
+    feature_name: 经营看板
+    feature_type: MENU
+    parent_code: data_center_access
+    source_code: data_center_dashboard
+    package_policy: IN_PACKAGE
+    include_in_package: true
+    description: 查看经营健康、趋势、排行、异常和任务
+  - feature_code: data_center_overview
+    feature_name: 数据总览
+    feature_type: MENU
+    parent_code: data_center_access
+    source_code: data_center_overview
+    package_policy: IN_PACKAGE
+    include_in_package: true
+    description: 数据处理链路、作业和错误概览
+  - feature_code: data_center_raw_data
+    feature_name: 原始数据
+    feature_type: MENU
+    parent_code: data_center_access
+    source_code: data_center_raw
+    package_policy: IN_PACKAGE
+    include_in_package: true
+    description: 原始数据批次、错误明细和重新清洗
+  - feature_code: data_center_standard_data
+    feature_name: 标准数据
+    feature_type: MENU
+    parent_code: data_center_access
+    source_code: data_center_standard
+    package_policy: IN_PACKAGE
+    include_in_package: true
+    description: 销售、投流、库存、退款、商品和门店销售标准数据
+  - feature_code: data_center_metrics
+    feature_name: 指标中心
+    feature_type: MENU
+    parent_code: data_center_access
+    source_code: data_center_metrics
+    package_policy: IN_PACKAGE
+    include_in_package: true
+    description: 经营指标定义和结果
+  - feature_code: data_center_anomalies
+    feature_name: 异常分析
+    feature_type: MENU
+    parent_code: data_center_access
+    source_code: data_center_anomalies
+    package_policy: IN_PACKAGE
+    include_in_package: true
+    description: 异常列表、扫描、AI 分析和生成整改任务
+  - feature_code: data_center_rules
+    feature_name: 异常规则
+    feature_type: MENU
+    parent_code: data_center_access
+    source_code: data_center_rules
+    package_policy: IN_PACKAGE
+    include_in_package: true
+    description: 异常规则配置、启停和测试
+  - feature_code: data_center_tasks
+    feature_name: 整改任务
+    feature_type: MENU
+    parent_code: data_center_access
+    source_code: data_center_tasks
+    package_policy: IN_PACKAGE
+    include_in_package: true
+    description: 整改任务处理、反馈、完成和关闭
+  - feature_code: data_center_reviews
+    feature_name: 整改复盘
+    feature_type: MENU
+    parent_code: data_center_access
+    source_code: data_center_reviews
+    package_policy: IN_PACKAGE
+    include_in_package: true
+    description: 整改前后指标对比和复盘结论
+quotas:
+  - quota_code: data_center_active_rules
+    quota_name: 活跃异常规则数
+    quota_type: COUNT
+    unit: 条
+    period_type: ""
+    include_in_package: true
+    description: 租户可启用的异常规则数量
+  - quota_code: data_center_daily_scans
+    quota_name: 每日异常扫描次数
+    quota_type: USAGE
+    unit: 次
+    period_type: DAY
+    include_in_package: true
+    description: 每个租户每日可触发的规则扫描次数
+  - quota_code: data_center_daily_ai_analyses
+    quota_name: 每日 AI 分析次数
+    quota_type: USAGE
+    unit: 次
+    period_type: DAY
+    include_in_package: true
+    description: 每个租户每日可触发的 AI 分析次数
+  - quota_code: data_center_raw_batch_retention
+    quota_name: 原始批次保留量
+    quota_type: COUNT
+    unit: 批
+    period_type: ""
+    include_in_package: true
+    description: 租户可保留的原始数据批次数量
+documents:
+  - code: data_center_readme
+    name: Ai经营决策中心说明
+    url: docs/apps/data-center.md

@@ -220,9 +220,9 @@
             <div class="neuron-menu-container">
               <div v-for="(item, index) in sidebarSecondaryMenu" :key="item.id"
                    class="neuron-menu-item"
-                   :class="{
-                     'neuron-current': currentPage?.path === item.path
-                   }"
+                  :class="{
+                    'neuron-current': isCurrentSecondaryMenu(item.path)
+                  }"
                    @click="navigateTo(item.path, item.title, item.id)"
                    :style="{ '--neuron-delay': index * 0.1 + 's' }">
 
@@ -230,8 +230,8 @@
                 <div class="neuron-core-wrapper">
                   <div class="neuron-core">
                     <div class="core-inner"></div>
-                    <div class="core-glow" v-if="currentPage?.path === item.path"></div>
-                    <div class="core-pulse" v-if="currentPage?.path === item.path"></div>
+                    <div class="core-glow" v-if="isCurrentSecondaryMenu(item.path)"></div>
+                    <div class="core-pulse" v-if="isCurrentSecondaryMenu(item.path)"></div>
                   </div>
 
                   <!-- 连接线（除了最后一个） -->
@@ -249,9 +249,9 @@
                   <!-- Dock 指示器：页面已打开时显示 -->
                   <div v-if="isPageOpen(item.path)"
                        class="dock-indicator"
-                       :class="{ 'is-active': currentPage?.path === item.path }"
+                       :class="{ 'is-active': isCurrentSecondaryMenu(item.path) }"
                        @click.stop="closePage(item.path)"
-                       :title="currentPage?.path === item.path ? '点击关闭当前页面' : '点击切换到此页面'">
+                       :title="isCurrentSecondaryMenu(item.path) ? '点击关闭当前页面' : '点击切换到此页面'">
                     <span class="indicator-dot"></span>
                   </div>
                 </div>
@@ -682,6 +682,16 @@ const pathToComponentName: Record<string, string> = {
   '/ai-capability-center/strategy': 'AiStrategyView',
   '/ai-capability-center/test-console': 'AiTestConsoleView',
   '/ai-capability-center/settings': 'AiSettingsView',
+  '/data-center': 'DataCenterView',
+  '/data-center/dashboard': 'DataCenterView',
+  '/data-center/overview': 'DataCenterView',
+  '/data-center/raw': 'DataCenterView',
+  '/data-center/standard': 'DataCenterView',
+  '/data-center/metrics': 'DataCenterView',
+  '/data-center/anomalies': 'DataCenterView',
+  '/data-center/rules': 'DataCenterView',
+  '/data-center/tasks': 'DataCenterView',
+  '/data-center/reviews': 'DataCenterView',
   '/integration-center': 'IntegrationCenterOverview',
   '/integration-center/platforms': 'IntegrationCenterPlatforms',
   '/integration-center/workspace': 'IntegrationCenterWorkspace',
@@ -890,7 +900,7 @@ const neuronChain = ref<NeuronNode[]>([
 
 // 方法
 const activatePrimary = (id: string) => {
-  activePrimary.value = activePrimary.value === id ? '' : id
+  activePrimary.value = id
 }
 
 const getPrimaryTitle = (id: string) => primaryMenu.value.find((item) => item.id === id)?.title ?? ''
@@ -915,14 +925,30 @@ const sidebarPrimaryTitle = computed(() =>
 )
 const sidebarSecondaryMenu = computed(() =>
   {
-    if (isIntegrationCenterRoute.value) {
-      return integrationSidebarItems
-    }
-
     const menu = activePrimary.value ? getSecondaryMenu(activePrimary.value) : []
-    return menu
+    if (activePrimary.value) return visibleSecondaryMenus(menu)
+    if (isIntegrationCenterRoute.value) return integrationSidebarItems
+    return visibleSecondaryMenus(menu)
   },
 )
+
+function canonicalSecondaryMenuPath(path: string): string {
+  if (path === '/data-center' || path === '/data-center/overview') return '/data-center/raw'
+  return path
+}
+
+function visibleSecondaryMenus(items: Array<{ id: string; title: string; description: string; path: string }>) {
+  return items.filter((item) => item.path !== '/data-center' && item.path !== '/data-center/overview')
+}
+
+const currentRouteMenuPath = computed(() => {
+  const matched = findRouteMenuMatch(route.path)?.menu.path ?? currentPage.value?.path ?? ''
+  return canonicalSecondaryMenuPath(matched)
+})
+
+function isCurrentSecondaryMenu(path: string): boolean {
+  return currentRouteMenuPath.value === canonicalSecondaryMenuPath(path)
+}
 
 // 导航到页面
 const navigateTo = (path: string, title: string, id: string) => {

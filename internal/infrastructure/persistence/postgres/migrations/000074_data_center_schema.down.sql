@@ -1,0 +1,16 @@
+DROP TABLE IF EXISTS data_center_rectification_reviews;
+DROP TABLE IF EXISTS data_center_task_logs;
+DROP TABLE IF EXISTS data_center_rectification_tasks;
+DROP TABLE IF EXISTS data_center_ai_diagnosis_records;
+DROP TABLE IF EXISTS data_center_anomaly_records;
+DROP TABLE IF EXISTS data_center_anomaly_rules;
+DROP TABLE IF EXISTS data_center_metric_results;
+DROP TABLE IF EXISTS data_center_metric_definitions;
+DROP TABLE IF EXISTS data_center_std_store_sales_daily;
+DROP TABLE IF EXISTS data_center_std_products;
+DROP TABLE IF EXISTS data_center_std_refund_orders;
+DROP TABLE IF EXISTS data_center_std_inventory_daily;
+DROP TABLE IF EXISTS data_center_std_ad_daily;
+DROP TABLE IF EXISTS data_center_std_sales_orders;
+DROP TABLE IF EXISTS data_center_raw_data_errors;
+DROP TABLE IF EXISTS data_center_raw_data_batches;

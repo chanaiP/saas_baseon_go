@@ -51,6 +51,7 @@ func (h *IdentityHandler) AuthRequired() gin.HandlerFunc {
 		}
 		c.Set("user_id", user.ID)
 		c.Set("tenant_id", user.TenantID)
+		c.Set("is_platform_admin", user.IsPlatformAdmin || h.viewerHasPlatformScope(user))
 		c.Next()
 	}
 }

@@ -5,11 +5,12 @@ import (
 
 	aicchandlers "saas_baseon_go/internal/apps/ai_capability_center/handlers"
 	apphandlers "saas_baseon_go/internal/apps/app_center/handlers"
+	dchandlers "saas_baseon_go/internal/apps/data_center/handlers"
 	ichandlers "saas_baseon_go/internal/apps/integration_center/handlers"
 	"saas_baseon_go/internal/interfaces/http/handlers"
 )
 
-func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHandler, paramHandler *handlers.ParamHandler, appHandler *apphandlers.AppHandler, aiCapabilityCenterHandler *aicchandlers.Handler, integrationCenterHandler *ichandlers.Handler) {
+func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHandler, paramHandler *handlers.ParamHandler, appHandler *apphandlers.AppHandler, aiCapabilityCenterHandler *aicchandlers.Handler, integrationCenterHandler *ichandlers.Handler, dataCenterHandler *dchandlers.Handler) {
 	api := router.Group("/api")
 	{
 		api.GET("/auth/captcha", identityHandler.Captcha)
@@ -280,6 +281,60 @@ func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHan
 			integration.GET("/logs", integrationCenterHandler.Logs)
 			integration.GET("/logs/:id", integrationCenterHandler.LogDetail)
 			integration.POST("/logs/export", integrationCenterHandler.ExportLogs)
+		}
+		dataCenter := api.Group("/data-center")
+		{
+			dataCenter.GET("/dashboard/summary", dataCenterHandler.DashboardSummary)
+			dataCenter.GET("/dashboard/trends", dataCenterHandler.DashboardTrends)
+			dataCenter.GET("/dashboard/rankings", dataCenterHandler.DashboardRankings)
+			dataCenter.GET("/dashboard/anomalies", dataCenterHandler.DashboardAnomalies)
+			dataCenter.GET("/dashboard/tasks", dataCenterHandler.DashboardTasks)
+			dataCenter.GET("/overview/pipeline", dataCenterHandler.OverviewPipeline)
+			dataCenter.GET("/overview/jobs", dataCenterHandler.OverviewJobs)
+			dataCenter.GET("/overview/errors", dataCenterHandler.OverviewErrors)
+			dataCenter.GET("/raw/batches", dataCenterHandler.RawBatches)
+			dataCenter.POST("/raw/batches", dataCenterHandler.CreateRawBatch)
+			dataCenter.GET("/raw/batches/:id", dataCenterHandler.RawBatch)
+			dataCenter.GET("/raw/batches/:id/errors", dataCenterHandler.RawErrors)
+			dataCenter.POST("/raw/batches/:id/reprocess", dataCenterHandler.ReprocessRawBatch)
+			dataCenter.GET("/standard/:data_type", dataCenterHandler.StandardData)
+			dataCenter.GET("/standard/:data_type/:id", dataCenterHandler.StandardDataDetail)
+			dataCenter.GET("/metrics", dataCenterHandler.Metrics)
+			dataCenter.POST("/metrics", dataCenterHandler.CreateMetric)
+			dataCenter.GET("/metrics/:id", dataCenterHandler.Metric)
+			dataCenter.PUT("/metrics/:id", dataCenterHandler.UpdateMetric)
+			dataCenter.POST("/metrics/:id/enable", dataCenterHandler.EnableMetric)
+			dataCenter.POST("/metrics/:id/disable", dataCenterHandler.DisableMetric)
+			dataCenter.GET("/metrics/results", dataCenterHandler.MetricResults)
+			dataCenter.GET("/anomaly-rules", dataCenterHandler.Rules)
+			dataCenter.POST("/anomaly-rules", dataCenterHandler.CreateRule)
+			dataCenter.GET("/anomaly-rules/:id", dataCenterHandler.Rule)
+			dataCenter.PUT("/anomaly-rules/:id", dataCenterHandler.UpdateRule)
+			dataCenter.POST("/anomaly-rules/:id/enable", dataCenterHandler.EnableRule)
+			dataCenter.POST("/anomaly-rules/:id/disable", dataCenterHandler.DisableRule)
+			dataCenter.POST("/anomaly-rules/:id/test", dataCenterHandler.TestRule)
+			dataCenter.GET("/anomalies", dataCenterHandler.Anomalies)
+			dataCenter.GET("/anomalies/:id", dataCenterHandler.Anomaly)
+			dataCenter.POST("/anomalies/scan", dataCenterHandler.ScanAnomalies)
+			dataCenter.POST("/anomalies/:id/analyze", dataCenterHandler.AnalyzeAnomaly)
+			dataCenter.POST("/anomalies/:id/reanalyze", dataCenterHandler.ReanalyzeAnomaly)
+			dataCenter.POST("/anomalies/:id/generate-task", dataCenterHandler.GenerateTask)
+			dataCenter.POST("/anomalies/:id/confirm", dataCenterHandler.ConfirmAnomaly)
+			dataCenter.POST("/anomalies/:id/ignore", dataCenterHandler.IgnoreAnomaly)
+			dataCenter.POST("/anomalies/:id/close", dataCenterHandler.CloseAnomaly)
+			dataCenter.GET("/tasks", dataCenterHandler.Tasks)
+			dataCenter.POST("/tasks", dataCenterHandler.CreateTask)
+			dataCenter.GET("/tasks/:id", dataCenterHandler.Task)
+			dataCenter.PUT("/tasks/:id", dataCenterHandler.UpdateTask)
+			dataCenter.POST("/tasks/:id/start", dataCenterHandler.StartTask)
+			dataCenter.POST("/tasks/:id/feedback", dataCenterHandler.FeedbackTask)
+			dataCenter.POST("/tasks/:id/complete", dataCenterHandler.CompleteTask)
+			dataCenter.POST("/tasks/:id/close", dataCenterHandler.CloseTask)
+			dataCenter.GET("/reviews", dataCenterHandler.Reviews)
+			dataCenter.GET("/reviews/:id", dataCenterHandler.Review)
+			dataCenter.POST("/reviews/generate", dataCenterHandler.GenerateReview)
+			dataCenter.POST("/reviews/:id/confirm", dataCenterHandler.ConfirmReview)
+			dataCenter.PUT("/reviews/:id", dataCenterHandler.UpdateReview)
 		}
 	}
 }

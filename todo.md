@@ -1,142 +1,262 @@
-# 业务单元 v3 重构 TODO
+# 经营数据决策中心生产级开发 TODO
 
-> 完成标准：本文件所有任务全部打勾，且后端测试、前端构建、浏览器验证、`git diff --check` 全部通过。
+> 合并说明：本文件保留 `codex/data-center` 分支的经营数据中心验收清单。`main` 上业务单元 v3 重构清单在合并前已全部完成，本次合并不再作为当前待办展开。
 
-## 1. 需求定版
+创建时间：2026-05-18
+应用定位：合并部署内置业务中台应用
+应用编码：`data-center`
+后端目录：`internal/apps/data_center`
+前端目录：`frontend/src/apps/data-center`
+API 前缀：`/api/data-center`
+验收口径：本文件所有任务全部打勾后，才算“经营数据决策中心”真正完成。禁止用 mock 数据冒充生产链路，禁止只完成前端静态页面。
 
-- [x] 确认业务单元模块定位为基础业务对象登记中心。
-- [x] 确认页面结构为“类型 -> 分组 -> 列表”。
-- [x] 确认只使用一个业务单元数据字典。
-- [x] 确认业务单元字典一级项为类型，二级项为分组。
-- [x] 确认真实业务单元由用户登记，不是字典项。
-- [x] 确认新增入口改为“新增业务单元”。
-- [x] 确认父子关系用于层级归属和 BI 汇总。
-- [x] 确认关联关系用于表达业务单元之间的横向依赖。
-- [x] 确认自定义属性使用模板加载，填写后转换为 JSON 保存。
-- [x] 确认属性模板匹配优先级为“类型 + 分组”优先，“类型 + 空分组”兜底。
-- [x] 确认负责组织和负责人非必填，并复用 `OrgUserPicker`。
+## 0. 执行纪律
 
-## 2. 文档
+- [x] 每开始一个开发阶段前，先确认本 TODO 中对应任务未完成项。
+- [x] 每完成一个可验证任务后，只在验证通过后打勾。
+- [x] 任一任务如果降级实现，必须在本文件追加“降级原因、影响范围、后续补齐方案”，不得直接打勾。
+- [x] 所有新增业务数据访问必须带 `tenant_id` 约束，不能信任前端传入的租户参数。
+- [x] 所有列表接口必须返回统一分页结构：`items`、`total`、`skip`、`limit`。
+- [x] 所有接口必须返回统一响应结构：`code`、`message`、`data`。
+- [x] 删除、关闭、忽略、归档类操作必须保留历史，不做业务数据物理删除。
 
-- [x] 更新 `docs/req_design/业务单元.md`。
-- [x] 更新 `docs/tech_design/业务单元.md`。
-- [x] 更新 `docs/sql_design/05-业务单元-数据库设计.md`。
-- [x] 更新 `docs/test_cases/05-业务单元-测试用例.md`。
-- [x] 根据最终实现补充 API 文档和字段说明。
-- [x] 根据最终实现补充交接说明。
+## 1. 应用接入与 Manifest
 
-## 3. 数据字典与数据库
+- [x] 创建后端应用目录 `internal/apps/data_center`，包含 `app.go`、`app.manifest.yaml`、`handlers`、`services`、`repositories`、`dto`、`domain`、`tests`。
+- [x] 创建前端应用目录 `frontend/src/apps/data-center`，包含 `manifest.ts`、`routes.ts`、`api.ts`、`views`、`components`、`composables`、`types`。
+- [x] 在 `app.manifest.yaml` 声明 `app_code=data-center`、`deployment_mode=MERGED`、`source=BUILTIN`、`app_type=BUSINESS_MIDDLE_PLATFORM`。
+- [x] 在 Manifest 中声明 9 个菜单：经营看板、数据总览、原始数据、标准数据、指标中心、异常分析、异常规则、整改任务、整改复盘。
+- [x] 在 Manifest 中声明所有操作权限：指标维护、规则维护、异常扫描、AI 分析、生成任务、任务流转、复盘确认、批次重试、数据导出。
+- [x] 在 Manifest 中声明 `/api/data-center/**` API 权限矩阵，GET 对应菜单权限，写操作对应操作权限。
+- [x] 在 Manifest 中声明套餐功能点 `package_features`，来源必须是应用能力而非前端临时列表。
+- [x] 在 Manifest 中声明配额 `quotas`，至少包含数据批次保留量、每日异常扫描次数、每日 AI 分析次数、活跃规则数量。
+- [x] 确保应用装载重复执行后不会重复生成菜单、权限、套餐功能点和配额。
+- [x] 更新或补充应用说明文档，记录菜单、权限、套餐、配额、API 和初始化方式。
 
-- [x] 清理旧版业务单元字典，仅保留运行态 `business_unit`。
-- [x] 将旧 `business_unit_tree` 数据迁移到 `business_unit` 后软归档旧字典。
-- [x] 将旧 `business_unit_type`、`base_business.unit_scenario`、`base_business.unit_form` 软归档，避免新旧字典混用。
-- [x] 保持数据字典表结构不变，继续使用 `dict_item.parent_id`。
-- [x] 将一级字典项作为 `unit_type_code` 可选范围。
-- [x] 将二级字典项作为 `unit_group_code` 可选范围。
-- [x] 调整或新增业务单元主表字段：`unit_type_code`、`unit_type_name`、`unit_group_code`、`unit_group_name`、`unit_name`、`unit_code`、`parent_id`、`attr_template_id`、`attrs`、`remark`。
-- [x] 新增或调整业务单元关系表，支持 `source_unit_id`、`target_unit_id`、`relation_type_code`。
-- [x] 新增或调整业务单元责任方表，支持负责组织和负责人。
-- [x] 新增属性模板表。
-- [x] 新增属性模板字段表。
-- [x] 新增属性模板唯一约束：同租户、同模板名称、同适用类型、同适用分组不可重复。
-- [x] 更新 GORM model。
-- [x] 更新 `current_schema.sql`。
-- [x] 新增幂等迁移 SQL。
-- [x] 确保迁移不破坏历史业务单元、业务资源、角色授权、套餐和租户覆盖配置。
+## 2. 数据库结构与迁移
 
-## 4. 后端接口
+- [x] 新增版本化迁移 SQL，创建数据中心业务表，不依赖 GORM AutoMigrate 作为生产建库方式。
+- [x] 同步更新 `internal/infrastructure/persistence/postgres/schema/current_schema.sql`。
+- [x] 所有租户业务表使用 `tenant_id bigint not null`，必要时包含 `company_id`、`department_id`、`business_unit_id`。
+- [x] 创建原始数据批次表 `data_center_raw_data_batches`，支持批次、来源、状态、错误摘要、逻辑删除和审计字段。
+- [x] 创建原始错误明细表 `data_center_raw_data_errors`，用于批次错误追溯。
+- [x] 创建标准销售订单表 `data_center_std_sales_orders`。
+- [x] 创建标准投流日表 `data_center_std_ad_daily`。
+- [x] 创建标准库存日表 `data_center_std_inventory_daily`。
+- [x] 创建标准退款、商品、门店销售相关表，满足第一版页面与指标计算需要。
+- [x] 创建指标定义表 `data_center_metric_definitions`，支持启停、异常判断标记、逻辑删除。
+- [x] 创建指标结果表 `data_center_metric_results`，按租户、指标、对象、周期、日期建立唯一约束或去重索引。
+- [x] 创建异常规则表 `data_center_anomaly_rules`，保存条件 JSON、等级 JSON、置信度 JSON、AI 设置、任务设置、复盘规则。
+- [x] 创建异常记录表 `data_center_anomaly_records`，保存规则、对象、证据 JSON、置信度、影响金额、AI/任务/复盘状态。
+- [x] 创建 AI 分析记录表 `data_center_ai_diagnosis_records`，结构化保存问题摘要、原因、证据引用、建议、任务建议。
+- [x] 创建整改任务表 `data_center_rectification_tasks`，关联异常、责任人、协同人、目标、进度、状态和反馈。
+- [x] 创建任务过程记录表 `data_center_task_logs`，记录状态流转、反馈、操作人、操作时间。
+- [x] 创建整改复盘表 `data_center_rectification_reviews`，保存整改前后指标、改善幅度、AI 总结、人工结论和经验沉淀。
+- [x] 创建关键唯一约束：同一租户下指标 code、规则 code、批次 code、异常 code、任务 code、复盘 code 不重复。
+- [x] 创建异常去重约束：`tenant_id + rule_code + object_type + object_code + stat_date` 同周期不重复生成。
+- [x] 为列表查询建立必要索引：租户、状态、时间、业务域、等级、来源批次、责任人。
+- [x] 迁移脚本提供 down 回滚，且不清空已有业务表。
 
-- [x] 新增或调整 `GET /api/base/business-units/dictionary/tree`，读取业务单元字典。
-- [x] 新增或调整 `GET /api/base/business-units/summary`，按类型和分组聚合业务单元数量。
-- [x] 新增或调整 `GET /api/base/business-units`，按类型、分组、关键字、状态分页查询。
-- [x] 新增或调整 `POST /api/base/business-units`，新增业务单元。
-- [x] 新增或调整 `PUT /api/base/business-units/:id`，编辑业务单元。
-- [x] 新增或调整 `DELETE /api/base/business-units/:id`，逻辑归档业务单元。
-- [x] 新增或调整 `GET /api/base/business-units/:id/actors`，查询负责组织和负责人。
-- [x] 新增或调整 `PUT /api/base/business-units/:id/actors`，保存负责组织和负责人。
-- [x] 新增或调整 `GET /api/base/business-units/:id/relations`，查询关联业务单元。
-- [x] 新增或调整 `PUT /api/base/business-units/:id/relations`，保存关联业务单元。
-- [x] 新增 `GET /api/base/business-unit-attr-templates/match`，按类型和分组匹配模板。
-- [x] 新增属性模板 CRUD 接口。
-- [x] 后端校验类型和分组必须来自同一个业务单元字典且父子匹配。
-- [x] 后端校验父级业务单元不能跨租户、不能自引用、不能形成循环。
-- [x] 后端校验关联业务单元不能跨租户、不能关联自身。
-- [x] 后端校验负责组织和负责人不能跨租户。
-- [x] 后端校验 attrs 必须为合法 JSON 对象，并按模板校验必填字段。
-- [x] 后端校验属性模板同一适用范围下名称唯一。
+## 3. 后端分层与领域模型
 
-## 5. 菜单、权限与套餐
+- [x] 定义 `internal/apps/data_center/domain` 下的领域类型和状态枚举，避免魔法字符串散落。
+- [x] 定义 DTO：筛选请求、分页响应、创建/更新指标、规则、任务、复盘、批次重试等请求响应结构。
+- [x] 实现 repository 层，所有 list/detail/update/delete 均强制接收租户上下文。
+- [x] repository 不读取 HTTP、Header、Authorization，不做权限判断。
+- [x] 实现 service 层，负责业务规则、事务、权限/套餐/配额校验、异常转换、审计点。
+- [x] 实现 handler 层，只做参数绑定、当前用户读取、调用 service、统一响应。
+- [x] 在 `internal/bootstrap/router.go` 初始化 data-center service、repository、handler。
+- [x] 在 `internal/bootstrap/api_routes.go` 注册 `/api/data-center` 路由。
+- [x] 更新 `internal/interfaces/http/handlers/auth_policy.go`，补齐所有 data-center 路由权限映射。
+- [x] 更新 router policy 测试，确保所有新增 API 都有权限分类或明确 optional。
+- [x] 更新 OpenAPI 标签和路径，包含 data-center API。
 
-- [x] 保持业务单元页面挂在系统管理下的 `/business-units` 菜单。
-- [x] 将新增按钮权限改为 `business_unit:create`。
-- [x] 将编辑权限改为 `business_unit:edit`。
-- [x] 将归档权限改为 `business_unit:delete`。
-- [x] 新增或调整 `business_unit:relation_manage`。
-- [x] 新增或调整 `business_unit:actor_manage`。
-- [x] 新增或调整 `business_unit:attr_template_manage`。
-- [x] 更新后端接口权限矩阵。
-- [x] 更新前端按钮权限判断。
-- [x] 更新系统管理 Manifest。
-- [x] 更新套餐功能点，保持应用 -> 目录 -> 菜单 -> 操作树。
-- [x] 验证 Manifest 装载不覆盖人工套餐配置、租户菜单覆盖和角色授权。
+## 4. 真实业务 API
 
-## 6. 前端页面
+- [x] 实现经营看板 API：summary、trends、rankings、anomalies、tasks，全部从数据库聚合。
+- [x] 实现数据总览 API：pipeline、jobs、errors，展示真实批次和处理状态。
+- [x] 实现原始数据 API：批次列表、详情、错误明细、重新清洗、重新同步占位门禁。
+- [x] 实现标准数据 API：sales、ad、inventory、refund、store-sales、详情。
+- [x] 实现指标中心 API：列表、新增、编辑、启用、禁用、指标结果查询。
+- [x] 实现异常规则 API：列表、详情、新增、编辑、启用、禁用、规则测试。
+- [x] 实现异常分析 API：列表、详情、触发 AI 分析、重新分析、生成任务、确认、忽略、关闭。
+- [x] 实现整改任务 API：列表、详情、新建、编辑、开始处理、反馈、更新进度、完成、关闭。
+- [x] 实现整改复盘 API：列表、详情、生成复盘、确认复盘、编辑复盘。
+- [x] 所有列表支持 `skip`、`limit`、时间、品牌、渠道、平台、门店、商品、状态等筛选。
+- [x] 所有写操作记录审计信息，至少包含操作人、租户、操作类型、对象 code、IP、User-Agent。
 
-- [x] 将页面主对象从“业务资源”调整为“业务单元”。
-- [x] 左侧展示有业务单元数据的类型。
-- [x] 右上展示当前类型下有业务单元数据的分组统计。
-- [x] 右下展示当前类型 + 分组下的业务单元列表。
-- [x] 新增按钮文案改为“新增业务单元”。
-- [x] 新增表单包含类型、分组、名称、编码、父级、状态、备注。
-- [x] 新增表单按类型和分组自动匹配属性模板。
-- [x] 支持手动选择属性模板。
-- [x] 根据模板字段渲染 text、number、date、select、textarea、switch 控件。
-- [x] 保存时将模板字段值转换成 `attrs` JSON。
-- [x] 编辑时根据 `attrs` 回填模板字段。
-- [x] 负责组织和负责人区域复用 `OrgUserPicker`。
-- [x] 将 `OrgUserPicker` 输出的 `c_`、`d_`、`u_` key 转换为 actor 记录。
-- [x] 负责组织和负责人允许为空。
-- [x] 增加关联业务单元维护区域。
-- [x] 增加属性模板页内维护入口和抽屉，不新增左侧菜单。
-- [x] 增加业务单元详情侧边抽屉，展示基础信息、责任方、关联关系和自定义属性。
-- [x] 右上分组卡片固定尺寸，文字适配，不撑满屏幕。
-- [x] 页面风格保持 NeuroAgent 深色风格。
-- [x] 页面短内容不出现多余滚动条。
+## 5. 数据导入、标准化与种子数据
 
-## 7. 后端测试
+- [x] 提供生产可用的第一版数据录入或导入入口，不能只依赖前端 mock。
+- [x] 提供原始批次写入服务，支持订单、退款、广告、商品、库存、门店销售。
+- [x] 提供标准化服务，将原始批次转入标准表并记录成功/失败数量。
+- [x] 失败数据必须写入错误明细，页面可追溯。
+- [x] 初始 seed 只允许写入系统内置指标定义和内置异常规则，不写伪装成真实经营的业务流水。
+- [x] 内置指标 seed 幂等，不覆盖用户修改的启停、名称、公式说明和异常判断开关。
+- [x] 内置异常规则 seed 幂等，不覆盖用户修改的阈值、范围、AI 设置、任务生成和复盘规则。
+- [x] 如需要演示样例，必须标记为 demo tenant 或 demo 数据源，默认生产 API 不展示。
 
-- [x] 字典父子校验：类型和分组必须匹配。
-- [x] Summary 聚合：按类型和分组统计业务单元数量。
-- [x] 新增业务单元：名称、编码、类型、分组保存正确。
-- [x] 编码唯一：同租户有效业务单元编码唯一。
-- [x] 父子关系：禁止自引用、禁止循环、禁止跨租户。
-- [x] 关联关系：禁止自关联、禁止跨租户。
-- [x] 属性模板匹配：类型+分组优先，类型+空分组兜底。
-- [x] 属性模板唯一性：重复名称 + 类型 + 分组创建被拒绝。
-- [x] attrs 校验：非法 JSON 或必填缺失被拒绝。
-- [x] 责任方：组织和人员保存、回显、跨租户保护。
-- [x] 权限矩阵：无权限接口返回 403。
-- [x] Manifest、菜单、套餐功能点存在且不覆盖人工配置。
+## 6. 指标计算与规则引擎
 
-## 8. 前端验证
+- [x] 实现 GMV、净销售额、订单数、客单价、退款率指标计算。
+- [x] 实现广告消耗、广告 GMV、ROI、点击率、转化率、成交成本指标计算。
+- [x] 实现库存、销量、动销率、可售天数相关指标计算。
+- [x] 指标计算结果写入 `data_center_metric_results`，并保留 compare value、compare rate、target value。
+- [x] 实现规则条件解析，支持固定阈值、环比、目标偏差、多条件 AND/OR。
+- [x] 实现异常等级计算，支持低、中、高、严重。
+- [x] 实现系统置信度计算，AI 不参与异常是否命中判断。
+- [x] 异常命中必须生成证据 JSON，包含 metric_code、label、value、desc。
+- [x] 同一租户、规则、对象、周期内不得重复生成异常。
+- [x] 提供异常扫描 service，可由 API 手动触发，后续可接定时任务。
+- [x] 为 MVP 完成 3 条闭环：GMV 下滑、投流增加但 ROI 下降、库存销售异常。
 
-- [x] 运行 `cd frontend && npm run build`。
-- [x] 浏览器验证 `http://127.0.0.1:5177/business-units` 页面能访问。
-- [x] 验证左侧类型、右上分组、右下列表联动。
-- [x] 验证抖音、京东等分组能显示业务单元数量。
-- [x] 验证新增业务单元可保存。
-- [x] 验证属性模板加载、填写、保存、编辑回显。
-- [x] 验证属性模板维护抽屉入口可见并可打开。
-- [x] 验证业务单元详情抽屉可打开并回显当前业务单元。
-- [x] 验证负责组织和负责人可为空。
-- [x] 验证 `OrgUserPicker` 可选择组织和人员并保存回显。
-- [x] 验证关联业务单元可保存和回显。
-- [x] 验证无权限时按钮隐藏、接口拒绝。
+## 7. AI 分析接入
 
-## 9. 全量验证
+- [x] AI 分析必须读取异常记录、触发规则和 evidence_json 作为输入。
+- [x] AI 不得决定异常是否成立，只能输出原因、影响、建议、任务文案、复盘总结。
+- [x] 接入现有 AI 能力中心或网关，不在 data-center 内硬编码供应商密钥。
+- [x] AI 输出必须解析为结构化 JSON，并保存到 `data_center_ai_diagnosis_records`。
+- [x] AI 调用失败时更新 `ai_status=failed`，保留安全错误信息，不泄露密钥、SQL、内部堆栈。
+- [x] 重新分析必须保留历史记录或可追溯版本，不直接覆盖无痕结果。
+- [x] 达到规则任务生成阈值时，允许从 AI 建议生成任务，但必须防重复。
 
-- [x] 运行 `go test ./internal/interfaces/http/handlers`。
-- [x] 运行 `go test ./...`。
-- [x] 运行 `cd frontend && npm run build`。
-- [x] 运行 `git diff --check`。
-- [x] 浏览器完成主流程验收。
+## 8. 整改任务与复盘闭环
+
+- [x] 异常生成任务时必须关联 anomaly_code、rule_code、evidence、AI 建议。
+- [x] 已生成任务的异常不能重复生成相同任务。
+- [x] 任务状态流转必须受控：待处理、处理中、已完成、已逾期、已关闭。
+- [x] 任务开始、反馈、进度更新、完成、关闭均写入过程记录。
+- [x] 任务完成后进入待复盘状态。
+- [x] 复盘生成必须读取整改前后指标并计算改善幅度。
+- [x] 复盘结论支持：整改有效、效果不明显、整改无效、需继续跟进。
+- [x] 人工确认或修改复盘结论时必须保存操作人和时间。
+- [x] 复盘完成后回写异常和任务复盘状态。
+
+## 9. 前端生产化实现
+
+- [x] 从原型迁移 UI 体验，但不得在组件中写死业务数据。
+- [x] 前端所有请求集中在 `frontend/src/apps/data-center/api.ts`。
+- [x] 前端路由集中在 `frontend/src/apps/data-center/routes.ts`，再由全局 router 引入。
+- [x] 前端类型集中在 `frontend/src/apps/data-center/types.ts`。
+- [x] 实现全局筛选 composable，时间、品牌、渠道、平台、门店、商品筛选联动所有页面 API。
+- [x] 经营看板从真实 API 获取指标、趋势、排行、重点异常、待处理任务。
+- [x] 数据总览从真实 API 获取链路状态和批次列表。
+- [x] 原始数据页支持批次筛选、详情抽屉、错误明细、重新清洗操作。
+- [x] 标准数据页支持销售、投流、商品、库存、门店、退款数据域切换。
+- [x] 指标中心支持指标列表、新增、编辑、启用、禁用。
+- [x] 异常规则页支持规则列表、详情抽屉、新增/编辑表单、JSON 条件预览和规则测试。
+- [x] 异常分析页支持统计、筛选、详情抽屉、触发/重新 AI 分析、生成任务、确认、忽略、关闭。
+- [x] 整改任务页支持列表/看板、详情抽屉、开始处理、反馈、进度、完成、关闭。
+- [x] 整改复盘页支持列表、详情、前后指标对比、确认结论、经验沉淀。
+- [x] 所有页面处理 loading、empty、error 三态。
+- [x] 所有危险操作有二次确认和成功/失败反馈。
+- [x] 按后端权限和套餐结果显示菜单与按钮，不硬编码角色判断。
+- [x] 页面不得出现“演示数据”“mockData”作为生产数据来源。
+
+## 10. 权限、套餐、配额与租户隔离
+
+- [x] 后端所有 data-center API 通过登录态获取当前用户和租户。
+- [x] 普通租户不能通过 query/body/path 伪造 `tenant_id` 访问其他租户数据。
+- [x] 平台管理员跨租户查询必须显式表达，并有权限保护。
+- [x] 菜单可见性来源于 Manifest 装载后的权限数据。
+- [x] 写操作必须校验操作权限。
+- [x] 进入可售套餐的能力来自 Manifest `package_features`。
+- [x] AI 分析、异常扫描、活跃规则数量等能力必须校验套餐和配额。
+- [x] 配额消耗失败不得产生业务成功状态。
+- [x] 租户菜单运行时应受平台专属、套餐、角色权限、租户覆盖共同约束。
+
+## 11. 测试
+
+- [x] 后端 repository/service 单测覆盖 tenant 隔离。
+- [x] 后端测试覆盖普通租户伪造 `tenant_id` 被拒绝。
+- [x] 后端测试覆盖指标计算核心口径。
+- [x] 后端测试覆盖规则引擎命中、未命中、AND/OR、置信度、去重。
+- [x] 后端测试覆盖异常生成任务防重复。
+- [x] 后端测试覆盖任务状态流转和过程记录。
+- [x] 后端测试覆盖复盘前后指标计算。
+- [x] 后端测试覆盖 AI 分析成功、失败、结构化解析错误。
+- [x] 后端测试覆盖权限映射和 unclassified API 失败关闭策略。
+- [x] 前端构建通过。
+- [x] 关键前端交互至少通过浏览器验证：看板、异常详情、规则编辑、任务流转、复盘详情。
+
+## 12. 验证与交付
+
+- [x] `go test ./...` 通过。
+- [x] `cd frontend && npm run build` 通过。
+- [x] `git diff --check` 通过。
+- [x] 本地数据库执行迁移成功。
+- [x] Manifest 扫描/装载成功，重复装载资源数量稳定。
+- [x] 使用真实数据库数据打开 9 个页面，无控制台错误。
+- [x] 从原始批次到标准数据、指标、异常、AI 分析、任务、复盘至少跑通 3 条 MVP 闭环。
+- [x] 更新 README 或应用文档，说明启动、迁移、初始化、验收和故障排查。
+- [x] 提交前执行 `git status`，只暂存本次 data-center 相关文件。
+- [x] 完成一次 Git 提交，提交信息说明做了什么以及为什么。
+
+## 13. 最终验收定义
+
+- [x] 原始数据可以入库、追溯错误并重新清洗。
+- [x] 标准数据来自数据库，可被指标计算消费。
+- [x] 指标定义和指标结果来自数据库，可维护、可启停。
+- [x] 异常由规则引擎基于指标生成，且每条异常都有证据。
+- [x] AI 分析只基于异常证据输出结构化原因和建议。
+- [x] 整改任务必须关联异常、规则、证据和 AI 建议。
+- [x] 整改复盘必须展示整改前后指标和改善幅度。
+- [x] 前端 9 个页面全部打通真实 API 和数据库。
+- [x] Manifest、菜单、权限、套餐、配额、前端路由、后端 API 保持一致。
+- [x] 所有任务打勾，本 TODO 才允许标记为完成。
+
+## 14. 现场问题修复
+
+- [x] 修复框架菜单“总览”点击进入 `/data-center` 后被重定向导致页签与页面不同步的问题。
+- [x] 浏览器复测“总览”可进入真实页面，且无控制台错误。
+- [x] 修复“总览”和“经营看板”都显示经营看板的问题，`/data-center` 显示总览链路，`/data-center/dashboard` 显示经营看板。
+- [x] 修复总览接口启用指标统计误用 `status` 字段导致的请求失败。
+- [x] 向本地数据库写入生产级服装行业经营数据，覆盖原始批次、标准数据、指标、异常、AI 诊断、整改任务和复盘。
+- [x] 修复 data-center 前端 API 对后端 PascalCase 模型响应的字段兼容，确保真实数据库记录在列表和详情中完整显示。
+- [x] 修复 data-center 页面浅色/深色主题适配，卡片、输入框、表格和空状态跟随框架主题。
+- [x] 修复经营趋势柱状图按绝对 GMV 放大导致穿透页面的问题，改为按当前数据比例缩放。
+- [x] 按原型页面结构恢复经营看板、数据总览、原始数据、标准数据、指标、规则、异常、任务、复盘布局，仅保留框架菜单。
+- [x] 将 `DataCenterView` 登记到后台框架页面缓存映射，保证菜单进入和直达刷新都能正常渲染。
+- [x] 浏览器复测 9 个子菜单、浅色/深色模式和旧布局节点清理结果。
+- [x] 修复异常分析页被后台框架 `.content-main .page` 样式覆盖导致右侧详情掉到底部的问题。
+- [x] 浏览器复测异常分析页详情栏固定在右侧且与列表同一行。
+- [x] 基于服装行业重建本地经营数据，覆盖 Lee、Mardi Mercredi、安德玛、Happy Socks、Carhartt WIP、New Balance Apparel 等品牌。
+- [x] 执行服装行业数据脚本并核对订单、投放、库存、门店、退款、指标、异常、任务和复盘数量。
+- [x] 移除经营看板 KPI 卡片中的工程说明文案，改为业务口径展示。
+- [x] 浏览器复测看板和异常分析页展示服装行业品牌、经营指标与异常闭环。
+- [x] 将数据总览降级合并到原始数据页，保留链路状态但不再作为独立页面呈现。
+- [x] `/data-center` 与 `/data-center/overview` 统一进入原始数据内容，避免总览页和原始数据页重复。
+- [x] 修复链路状态卡片直接显示后端状态值 `normal` 的问题，改为业务状态文案。
+- [x] 修复点击一级目录 Ai经营决策中心后，二级菜单无法按当前页面正确高亮和切换的问题。
+- [x] 修复点击一级目录 Ai经营决策中心时左侧仍停留在上一个目录菜单的问题，并过滤已合并的总览入口。
+- [x] 修复在第三方集成中心页面点击 Ai经营决策中心时，左侧二级菜单被当前路由强制覆盖成第三方集成中心菜单的问题。
+- [x] 将经营看板 GMV 趋势和 ROI 趋势从柱状图改为折线图，并在每个节点显示对应数值。
+
+## 15. 真实 AI 模型分析链路跑通
+
+执行日期：2026-05-19
+目标：基于 AI 能力中心已有真实 API 配置，跑通 `Ai经营决策中心` 异常分析链路，并输出验收报告。
+
+方案：
+
+```text
+服装行业经营异常
+  -> data-center 异常分析接口
+  -> anomaly_analysis AI 场景
+  -> AI 能力中心租户策略 / 基础路由
+  -> 真实供应商账号与 API
+  -> ai_usage_records 调用审计
+  -> data_center_ai_diagnosis_records 结构化诊断
+  -> 异常记录 ai_status 回写
+```
+
+- [x] 核对 AI 能力中心 `anomaly_analysis` 场景、基础路由、模型池、供应商账号、供应商 API 均为启用状态。
+- [x] 核对基础路由模型已绑定真实 `provider_account_id` 和 `provider_api_id`，避免走空端点或占位端点。
+- [x] 核对租户 1 对 `data-center/anomaly_analysis` 有启用策略、配额和限流规则。
+- [x] 选取一条服装行业异常记录作为链路样本，记录异常编号、品牌、业务域和当前 AI 状态。
+- [x] 调用 `/api/data-center/anomalies/:id/analyze` 触发真实模型分析。
+- [x] 验证 `ai_usage_records` 生成真实网关调用记录，状态、供应商、模型、路由、耗时、成本字段完整。
+- [x] 验证 `data_center_ai_diagnosis_records` 生成结构化诊断，包含问题摘要、影响、原因、建议、任务建议。
+- [x] 验证异常记录 `ai_status` 回写为成功，且不泄露密钥、token、SQL 或内部错误。
+- [x] 通过 API 读取异常详情，确认前端可展示 AI 诊断内容。
+- [x] 形成验收报告，记录链路、样本、数据库证据、剩余风险和上线建议。

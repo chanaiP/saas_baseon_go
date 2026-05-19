@@ -16,6 +16,9 @@ import (
 	apphandlers "saas_baseon_go/internal/apps/app_center/handlers"
 	apprepos "saas_baseon_go/internal/apps/app_center/repositories"
 	appservices "saas_baseon_go/internal/apps/app_center/services"
+	dchandlers "saas_baseon_go/internal/apps/data_center/handlers"
+	dcrepos "saas_baseon_go/internal/apps/data_center/repositories"
+	dcservices "saas_baseon_go/internal/apps/data_center/services"
 	ichandlers "saas_baseon_go/internal/apps/integration_center/handlers"
 	icrepos "saas_baseon_go/internal/apps/integration_center/repositories"
 	icservices "saas_baseon_go/internal/apps/integration_center/services"
@@ -53,6 +56,9 @@ func NewRouter(cfg Config, db *gorm.DB, redisClient *redis.Client) *gin.Engine {
 	integrationCenterService.StartSyncJobWorker(context.Background(), time.Minute)
 	integrationCenterService.StartAPICallLogRetentionWorker(context.Background(), 24*time.Hour)
 	integrationCenterHandler := ichandlers.NewHandler(integrationCenterService)
+	dataCenterService := dcservices.NewService(dcrepos.NewRepository(db))
+	dataCenterService.SetAIAnalyzer(dcservices.NewGatewayAIAnalyzer(aiCapabilityCenterService))
+	dataCenterHandler := dchandlers.NewHandler(dataCenterService)
 
 	router.GET("/health", healthHandler.Check)
 	router.GET("/health/live", healthHandler.Live)
@@ -66,7 +72,7 @@ func NewRouter(cfg Config, db *gorm.DB, redisClient *redis.Client) *gin.Engine {
 		c.String(200, swaggerUIHTML())
 	})
 
-	registerAPIRoutes(router, identityHandler, paramHandler, appHandler, aiCapabilityCenterHandler, integrationCenterHandler)
+	registerAPIRoutes(router, identityHandler, paramHandler, appHandler, aiCapabilityCenterHandler, integrationCenterHandler, dataCenterHandler)
 
 	if missing := handlers.UnclassifiedAPIRoutes(router.Routes()); len(missing) > 0 {
 		panic("unclassified API routes: " + strings.Join(missing, ", "))
@@ -139,6 +145,7 @@ func openAPISpec() gin.H {
 			{"name": "apps", "description": "应用中心"},
 			{"name": "ai-capability-center", "description": "AI 能力中心"},
 			{"name": "integration-center", "description": "第三方集成中心"},
+			{"name": "data-center", "description": "Ai经营决策中心"},
 			{"name": "tenants", "description": "主体管理"},
 			{"name": "users", "description": "用户管理"},
 			{"name": "roles", "description": "角色权限"},
@@ -224,6 +231,49 @@ func openAPISpec() gin.H {
 			"/api/integration-center/logs":                               gin.H{"get": api("integration-center", "调用日志")},
 			"/api/integration-center/logs/{id}":                          gin.H{"get": api("integration-center", "调用日志详情")},
 			"/api/integration-center/logs/export":                        gin.H{"post": api("integration-center", "调用日志导出")},
+			"/api/data-center/dashboard/summary":                         gin.H{"get": api("data-center", "经营看板汇总")},
+			"/api/data-center/dashboard/trends":                          gin.H{"get": api("data-center", "经营趋势")},
+			"/api/data-center/dashboard/rankings":                        gin.H{"get": api("data-center", "经营排行")},
+			"/api/data-center/dashboard/anomalies":                       gin.H{"get": api("data-center", "看板重点异常")},
+			"/api/data-center/dashboard/tasks":                           gin.H{"get": api("data-center", "看板待处理任务")},
+			"/api/data-center/overview/pipeline":                         gin.H{"get": api("data-center", "数据链路状态")},
+			"/api/data-center/overview/jobs":                             gin.H{"get": api("data-center", "数据处理批次")},
+			"/api/data-center/overview/errors":                           gin.H{"get": api("data-center", "数据处理错误")},
+			"/api/data-center/raw/batches":                               gin.H{"get": api("data-center", "原始数据批次"), "post": api("data-center", "创建原始数据批次")},
+			"/api/data-center/raw/batches/{id}":                          gin.H{"get": api("data-center", "原始数据批次详情")},
+			"/api/data-center/raw/batches/{id}/errors":                   gin.H{"get": api("data-center", "原始数据错误明细")},
+			"/api/data-center/raw/batches/{id}/reprocess":                gin.H{"post": api("data-center", "重新清洗原始批次")},
+			"/api/data-center/standard/{data_type}":                      gin.H{"get": api("data-center", "标准数据列表")},
+			"/api/data-center/standard/{data_type}/{id}":                 gin.H{"get": api("data-center", "标准数据详情")},
+			"/api/data-center/metrics":                                   gin.H{"get": api("data-center", "指标定义列表"), "post": api("data-center", "新增指标定义")},
+			"/api/data-center/metrics/results":                           gin.H{"get": api("data-center", "指标结果列表")},
+			"/api/data-center/metrics/{id}":                              gin.H{"get": api("data-center", "指标定义详情"), "put": api("data-center", "更新指标定义")},
+			"/api/data-center/metrics/{id}/enable":                       gin.H{"post": api("data-center", "启用指标")},
+			"/api/data-center/metrics/{id}/disable":                      gin.H{"post": api("data-center", "禁用指标")},
+			"/api/data-center/anomaly-rules":                             gin.H{"get": api("data-center", "异常规则列表"), "post": api("data-center", "新增异常规则")},
+			"/api/data-center/anomaly-rules/{id}":                        gin.H{"get": api("data-center", "异常规则详情"), "put": api("data-center", "更新异常规则")},
+			"/api/data-center/anomaly-rules/{id}/enable":                 gin.H{"post": api("data-center", "启用异常规则")},
+			"/api/data-center/anomaly-rules/{id}/disable":                gin.H{"post": api("data-center", "禁用异常规则")},
+			"/api/data-center/anomaly-rules/{id}/test":                   gin.H{"post": api("data-center", "测试异常规则")},
+			"/api/data-center/anomalies":                                 gin.H{"get": api("data-center", "异常列表")},
+			"/api/data-center/anomalies/{id}":                            gin.H{"get": api("data-center", "异常详情")},
+			"/api/data-center/anomalies/scan":                            gin.H{"post": api("data-center", "扫描异常")},
+			"/api/data-center/anomalies/{id}/analyze":                    gin.H{"post": api("data-center", "AI 分析异常")},
+			"/api/data-center/anomalies/{id}/reanalyze":                  gin.H{"post": api("data-center", "重新 AI 分析异常")},
+			"/api/data-center/anomalies/{id}/generate-task":              gin.H{"post": api("data-center", "生成整改任务")},
+			"/api/data-center/anomalies/{id}/confirm":                    gin.H{"post": api("data-center", "确认异常")},
+			"/api/data-center/anomalies/{id}/ignore":                     gin.H{"post": api("data-center", "忽略异常")},
+			"/api/data-center/anomalies/{id}/close":                      gin.H{"post": api("data-center", "关闭异常")},
+			"/api/data-center/tasks":                                     gin.H{"get": api("data-center", "整改任务列表"), "post": api("data-center", "创建整改任务")},
+			"/api/data-center/tasks/{id}":                                gin.H{"get": api("data-center", "整改任务详情"), "put": api("data-center", "更新整改任务")},
+			"/api/data-center/tasks/{id}/start":                          gin.H{"post": api("data-center", "开始整改任务")},
+			"/api/data-center/tasks/{id}/feedback":                       gin.H{"post": api("data-center", "添加整改反馈")},
+			"/api/data-center/tasks/{id}/complete":                       gin.H{"post": api("data-center", "完成整改任务")},
+			"/api/data-center/tasks/{id}/close":                          gin.H{"post": api("data-center", "关闭整改任务")},
+			"/api/data-center/reviews":                                   gin.H{"get": api("data-center", "整改复盘列表")},
+			"/api/data-center/reviews/{id}":                              gin.H{"get": api("data-center", "整改复盘详情"), "put": api("data-center", "更新整改复盘")},
+			"/api/data-center/reviews/generate":                          gin.H{"post": api("data-center", "生成整改复盘")},
+			"/api/data-center/reviews/{id}/confirm":                      gin.H{"post": api("data-center", "确认整改复盘")},
 			"/api/batch/companies/export":                                gin.H{"get": api("batch", "公司导出")},
 			"/api/batch/departments/export":                              gin.H{"get": api("batch", "部门导出")},
 			"/api/batch/users/export":                                    gin.H{"get": api("batch", "用户导出")},

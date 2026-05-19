@@ -50,6 +50,13 @@ func TestRequiredPermissionForOperationRoutes(t *testing.T) {
 	require.Equal(t, "business_unit:attr_template_manage", requiredPermission("POST", "/api/base/business-unit-attr-templates"))
 	require.Equal(t, "business_unit:attr_template_manage", requiredPermission("PUT", "/api/base/business-unit-attr-templates/:id"))
 	require.Equal(t, "business_unit:attr_template_manage", requiredPermission("DELETE", "/api/base/business-unit-attr-templates/:id"))
+	require.Equal(t, "data_center:metric_manage", requiredPermission("PUT", "/api/data-center/metrics/:id"))
+	require.Equal(t, "data_center:rule_manage", requiredPermission("POST", "/api/data-center/anomaly-rules/:id/test"))
+	require.Equal(t, "data_center:scan", requiredPermission("POST", "/api/data-center/anomalies/scan"))
+	require.Equal(t, "data_center:ai_analyze", requiredPermission("POST", "/api/data-center/anomalies/:id/analyze"))
+	require.Equal(t, "data_center:task_generate", requiredPermission("POST", "/api/data-center/anomalies/:id/generate-task"))
+	require.Equal(t, "data_center:task_flow", requiredPermission("PUT", "/api/data-center/tasks/:id"))
+	require.Equal(t, "data_center:review_confirm", requiredPermission("PUT", "/api/data-center/reviews/:id"))
 }
 
 func TestRequiredPermissionForMenuRoutes(t *testing.T) {
@@ -76,6 +83,14 @@ func TestRequiredPermissionForMenuRoutes(t *testing.T) {
 	require.Equal(t, "/integration-center/my-connections", requiredPermission("GET", "/api/integration-center/my-sync-jobs/:id"))
 	require.Equal(t, "/integration-center/sync-monitor", requiredPermission("GET", "/api/integration-center/sync-jobs/:id"))
 	require.Equal(t, "/integration-center/logs", requiredPermission("GET", "/api/integration-center/logs/:id"))
+	require.Equal(t, "/data-center/dashboard", requiredPermission("GET", "/api/data-center/dashboard/summary"))
+	require.Equal(t, "/data-center/raw", requiredPermission("GET", "/api/data-center/raw/batches/:id"))
+	require.Equal(t, "/data-center/standard", requiredPermission("GET", "/api/data-center/standard/:data_type/:id"))
+	require.Equal(t, "/data-center/metrics", requiredPermission("GET", "/api/data-center/metrics/:id"))
+	require.Equal(t, "/data-center/rules", requiredPermission("GET", "/api/data-center/anomaly-rules/:id"))
+	require.Equal(t, "/data-center/anomalies", requiredPermission("GET", "/api/data-center/anomalies/:id"))
+	require.Equal(t, "/data-center/tasks", requiredPermission("GET", "/api/data-center/tasks/:id"))
+	require.Equal(t, "/data-center/reviews", requiredPermission("GET", "/api/data-center/reviews/:id"))
 	require.Empty(t, requiredPermission("GET", "/api/dict-types/by-code/:code/items"))
 	require.Empty(t, requiredPermission("GET", "/api/users/me"))
 }
