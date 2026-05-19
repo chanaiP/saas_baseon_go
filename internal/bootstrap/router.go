@@ -234,6 +234,29 @@ func openAPISpec() gin.H {
 			"/api/business-units/tree":                                   gin.H{"get": api("organizations", "业务单元树")},
 			"/api/business-units/{id}":                                   gin.H{"put": api("organizations", "更新业务单元"), "delete": api("organizations", "删除业务单元")},
 			"/api/business-units/{id}/org-mappings":                      gin.H{"get": api("organizations", "业务单元组织映射"), "post": api("organizations", "新增业务单元组织映射")},
+			"/api/business-units/{id}/resources":                         gin.H{"get": api("organizations", "业务单元资源绑定"), "post": api("organizations", "新增业务单元资源绑定")},
+			"/api/business-units/{id}/resources/{relationId}":            gin.H{"delete": api("organizations", "删除业务单元资源绑定")},
+			"/api/business-resources":                                    gin.H{"get": api("organizations", "业务资源列表"), "post": api("organizations", "创建业务资源")},
+			"/api/business-resources/{id}":                               gin.H{"put": api("organizations", "更新业务资源"), "delete": api("organizations", "删除业务资源")},
+			"/api/business-resources/{id}/relations":                     gin.H{"get": api("organizations", "业务资源关系"), "post": api("organizations", "新增业务资源关系")},
+			"/api/business-resources/{id}/relations/{relationId}":        gin.H{"delete": api("organizations", "删除业务资源关系")},
+			"/api/base/business-resources":                               gin.H{"get": api("organizations", "业务资源列表"), "post": api("organizations", "创建业务资源")},
+			"/api/base/business-resources/dictionary/tree":               gin.H{"get": api("organizations", "业务单元资源字典树")},
+			"/api/base/business-resources/summary":                       gin.H{"get": api("organizations", "业务资源聚合摘要")},
+			"/api/base/business-resources/field-configs":                 gin.H{"get": api("organizations", "业务资源字段配置"), "put": api("organizations", "保存业务资源字段配置")},
+			"/api/base/business-resources/import-template":               gin.H{"get": api("organizations", "业务资源导入模板")},
+			"/api/base/business-resources/{id}":                          gin.H{"put": api("organizations", "更新业务资源"), "delete": api("organizations", "删除业务资源")},
+			"/api/base/business-resources/{id}/actors":                   gin.H{"get": api("organizations", "业务资源责任方"), "put": api("organizations", "保存业务资源责任方")},
+			"/api/base/business-resources/{id}/relations":                gin.H{"get": api("organizations", "业务资源关系"), "put": api("organizations", "保存业务资源关系")},
+			"/api/base/business-units":                                   gin.H{"get": api("organizations", "业务单元列表"), "post": api("organizations", "创建业务单元")},
+			"/api/base/business-units/dictionary/tree":                   gin.H{"get": api("organizations", "业务单元字典树")},
+			"/api/base/business-units/summary":                           gin.H{"get": api("organizations", "业务单元聚合摘要")},
+			"/api/base/business-units/{id}":                              gin.H{"put": api("organizations", "更新业务单元"), "delete": api("organizations", "归档业务单元")},
+			"/api/base/business-units/{id}/actors":                       gin.H{"get": api("organizations", "业务单元责任方"), "put": api("organizations", "保存业务单元责任方")},
+			"/api/base/business-units/{id}/relations":                    gin.H{"get": api("organizations", "业务单元关系"), "put": api("organizations", "保存业务单元关系")},
+			"/api/base/business-unit-attr-templates":                     gin.H{"get": api("organizations", "业务单元属性模板列表"), "post": api("organizations", "创建业务单元属性模板")},
+			"/api/base/business-unit-attr-templates/{id}":                gin.H{"get": api("organizations", "业务单元属性模板详情"), "put": api("organizations", "更新业务单元属性模板"), "delete": api("organizations", "归档业务单元属性模板")},
+			"/api/base/business-unit-attr-templates/match":               gin.H{"get": api("organizations", "业务单元属性模板匹配")},
 			"/api/companies":                                             gin.H{"post": api("organizations", "创建公司")},
 			"/api/companies/{id}":                                        gin.H{"put": api("organizations", "更新公司"), "delete": api("organizations", "删除公司")},
 			"/api/departments":                                           gin.H{"post": api("organizations", "创建部门")},
@@ -401,6 +424,9 @@ func withOpenAPISchemas(spec gin.H) gin.H {
 	setOpenAPIOperation(paths, "/api/business-units", "get", "", "#/components/schemas/BusinessUnitPage")
 	setOpenAPIOperation(paths, "/api/business-units", "post", "#/components/schemas/BusinessUnitRequest", "#/components/schemas/IDResult")
 	setOpenAPIOperation(paths, "/api/business-units/{id}", "put", "#/components/schemas/BusinessUnitRequest", "#/components/schemas/IDResult")
+	setOpenAPIOperation(paths, "/api/business-resources", "get", "", "#/components/schemas/BusinessResourcePage")
+	setOpenAPIOperation(paths, "/api/business-resources", "post", "#/components/schemas/BusinessResourceRequest", "#/components/schemas/BusinessResource")
+	setOpenAPIOperation(paths, "/api/business-resources/{id}", "put", "#/components/schemas/BusinessResourceRequest", "#/components/schemas/BusinessResource")
 	setOpenAPIOperation(paths, "/api/logs/audit", "get", "", "#/components/schemas/AuditLogPage")
 	setIntegrationCenterOpenAPIOperations(paths)
 	return spec
@@ -531,9 +557,12 @@ func openAPIComponents() gin.H {
 		"OrgNodeRequest":                       objectSchema(gin.H{"node_type": stringSchema(), "name": stringSchema(), "code": stringSchema(), "company_type": stringSchema(), "company_id": integerSchema(), "parent_id": integerSchema(), "status": integerSchema()}, "name"),
 		"OrgNode":                              objectSchema(gin.H{"id": integerSchema(), "node_type": stringSchema(), "name": stringSchema(), "code": nullableStringSchema(), "parent_id": integerSchema(), "status": integerSchema(), "children": gin.H{"type": "array", "items": gin.H{"type": "object"}}}),
 		"OrgNodeList":                          gin.H{"type": "array", "items": refSchema("#/components/schemas/OrgNode")},
-		"BusinessUnitRequest":                  objectSchema(gin.H{"name": stringSchema(), "code": stringSchema(), "bu_type": stringSchema(), "org_node_ids": integerArraySchema(), "status": integerSchema(), "remark": stringSchema()}, "name", "code"),
-		"BusinessUnit":                         objectSchema(gin.H{"id": integerSchema(), "tenant_id": integerSchema(), "name": stringSchema(), "code": stringSchema(), "bu_type": nullableStringSchema(), "status": integerSchema(), "org_node_ids": integerArraySchema()}),
+		"BusinessUnitRequest":                  objectSchema(gin.H{"name": stringSchema(), "code": stringSchema(), "bu_type": stringSchema(), "unit_scenario": stringSchema(), "unit_form": stringSchema(), "parent_id": nullableIntegerSchema(), "owner_user_id": nullableIntegerSchema(), "owner_org_id": nullableIntegerSchema(), "operation_enabled": booleanSchema(), "settlement_enabled": booleanSchema(), "data_scope_enabled": booleanSchema(), "org_node_ids": integerArraySchema(), "status": integerSchema(), "remark": stringSchema()}, "name", "code"),
+		"BusinessUnit":                         objectSchema(gin.H{"id": integerSchema(), "tenant_id": integerSchema(), "name": stringSchema(), "code": stringSchema(), "bu_type": nullableStringSchema(), "unit_scenario": nullableStringSchema(), "unit_form": nullableStringSchema(), "parent_id": nullableIntegerSchema(), "owner_user_id": nullableIntegerSchema(), "owner_org_id": nullableIntegerSchema(), "status": integerSchema(), "billing_enabled": booleanSchema(), "statistic_enabled": booleanSchema(), "operation_enabled": booleanSchema(), "settlement_enabled": booleanSchema(), "data_scope_enabled": booleanSchema(), "org_node_ids": integerArraySchema()}),
 		"BusinessUnitPage":                     pageSchema("#/components/schemas/BusinessUnit"),
+		"BusinessResourceRequest":              objectSchema(gin.H{"resource_name": stringSchema(), "resource_code": stringSchema(), "resource_category": stringSchema(), "resource_type": stringSchema(), "source_mode": stringSchema(), "source_app_code": nullableStringSchema(), "source_table": nullableStringSchema(), "source_id": nullableIntegerSchema(), "platform_code": nullableStringSchema(), "external_id": nullableStringSchema(), "connection_instance_id": nullableIntegerSchema(), "parent_resource_id": nullableIntegerSchema(), "resource_attrs": gin.H{"type": "object"}, "status": stringSchema()}, "resource_name", "resource_code", "resource_category", "resource_type"),
+		"BusinessResource":                     objectSchema(gin.H{"id": integerSchema(), "tenant_id": integerSchema(), "resource_name": stringSchema(), "resource_code": stringSchema(), "resource_category": stringSchema(), "resource_type": stringSchema(), "source_mode": stringSchema(), "source_app_code": nullableStringSchema(), "source_table": nullableStringSchema(), "source_id": nullableIntegerSchema(), "platform_code": nullableStringSchema(), "external_id": nullableStringSchema(), "connection_instance_id": nullableIntegerSchema(), "parent_resource_id": nullableIntegerSchema(), "resource_attrs": nullableStringSchema(), "status": stringSchema()}),
+		"BusinessResourcePage":                 pageSchema("#/components/schemas/BusinessResource"),
 		"AuditLog":                             objectSchema(gin.H{"id": integerSchema(), "tenant_id": integerSchema(), "user_id": integerSchema(), "module": stringSchema(), "action": stringSchema(), "summary": stringSchema(), "ip": nullableStringSchema(), "created_at": stringSchema()}),
 		"AuditLogPage":                         pageSchema("#/components/schemas/AuditLog"),
 		"IntegrationOverview":                  objectSchema(gin.H{"metrics": arraySchema("#/components/schemas/ObjectData"), "connectors": arraySchema("#/components/schemas/ObjectData"), "events": arraySchema("#/components/schemas/ObjectData"), "checklist": arraySchema("#/components/schemas/ObjectData")}),
@@ -606,6 +635,10 @@ func booleanSchema() gin.H {
 
 func integerSchema() gin.H {
 	return gin.H{"type": "integer", "format": "int64"}
+}
+
+func nullableIntegerSchema() gin.H {
+	return gin.H{"type": "integer", "format": "int64", "nullable": true}
 }
 
 func integerArraySchema() gin.H {

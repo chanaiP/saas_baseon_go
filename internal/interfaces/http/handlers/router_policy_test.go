@@ -42,6 +42,14 @@ func TestRequiredPermissionForOperationRoutes(t *testing.T) {
 	require.Equal(t, "integration_center:connection_manage", requiredPermission("POST", "/api/integration-center/gateway/invoke"))
 	require.Equal(t, "ai_gateway:invoke", requiredPermission("POST", "/api/ai-gateway/v1/invoke"))
 	require.Equal(t, "ai_gateway:invoke", requiredPermission("GET", "/api/ai-gateway/v1/video-tasks/:task_id"))
+	require.Equal(t, "business_unit:create", requiredPermission("POST", "/api/base/business-units"))
+	require.Equal(t, "business_unit:edit", requiredPermission("PUT", "/api/base/business-units/:id"))
+	require.Equal(t, "business_unit:delete", requiredPermission("DELETE", "/api/base/business-units/:id"))
+	require.Equal(t, "business_unit:actor_manage", requiredPermission("PUT", "/api/base/business-units/:id/actors"))
+	require.Equal(t, "business_unit:relation_manage", requiredPermission("PUT", "/api/base/business-units/:id/relations"))
+	require.Equal(t, "business_unit:attr_template_manage", requiredPermission("POST", "/api/base/business-unit-attr-templates"))
+	require.Equal(t, "business_unit:attr_template_manage", requiredPermission("PUT", "/api/base/business-unit-attr-templates/:id"))
+	require.Equal(t, "business_unit:attr_template_manage", requiredPermission("DELETE", "/api/base/business-unit-attr-templates/:id"))
 }
 
 func TestRequiredPermissionForMenuRoutes(t *testing.T) {
@@ -54,6 +62,11 @@ func TestRequiredPermissionForMenuRoutes(t *testing.T) {
 	require.Equal(t, "/monitor/cache-keys", requiredPermission("GET", "/api/monitor/cache-keys"))
 	require.Equal(t, "/tenants", requiredPermission("GET", "/api/tenants/:id/quota-usage"))
 	require.Equal(t, "/business-units", requiredPermission("GET", "/api/business-units/:id/org-mappings"))
+	require.Equal(t, "/business-units", requiredPermission("GET", "/api/base/business-units/dictionary/tree"))
+	require.Equal(t, "/business-units", requiredPermission("GET", "/api/base/business-units/summary"))
+	require.Equal(t, "/business-units", requiredPermission("GET", "/api/base/business-unit-attr-templates"))
+	require.Equal(t, "/business-units", requiredPermission("GET", "/api/base/business-unit-attr-templates/:id"))
+	require.Equal(t, "/business-units", requiredPermission("GET", "/api/base/business-unit-attr-templates/match"))
 	require.Equal(t, "/params", requiredPermission("GET", "/api/sys-params/batch"))
 	require.Equal(t, "/params", requiredPermission("GET", "/api/params/:key"))
 	require.Equal(t, "/roles", requiredPermission("GET", "/api/roles/permission-menu-bundles"))
