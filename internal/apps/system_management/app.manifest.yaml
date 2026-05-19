@@ -164,6 +164,42 @@ operations:
     permission_code: brand:edit
     include_in_package: true
     feature_code: brand_config
+  - code: business_unit_create
+    name: 业务单元-新增
+    menu_code: business_unit_manage
+    permission_code: business_unit:create
+    include_in_package: true
+    feature_code: button_business_unit_create
+  - code: business_unit_edit
+    name: 业务单元-编辑
+    menu_code: business_unit_manage
+    permission_code: business_unit:edit
+    include_in_package: true
+    feature_code: button_business_unit_edit
+  - code: business_unit_delete
+    name: 业务单元-归档
+    menu_code: business_unit_manage
+    permission_code: business_unit:delete
+    include_in_package: true
+    feature_code: button_business_unit_delete
+  - code: business_unit_relation_manage
+    name: 业务单元-关系维护
+    menu_code: business_unit_manage
+    permission_code: business_unit:relation_manage
+    include_in_package: true
+    feature_code: button_business_unit_relation_manage
+  - code: business_unit_actor_manage
+    name: 业务单元-责任方维护
+    menu_code: business_unit_manage
+    permission_code: business_unit:actor_manage
+    include_in_package: true
+    feature_code: button_business_unit_actor_manage
+  - code: business_unit_attr_template_manage
+    name: 业务单元-属性模板
+    menu_code: business_unit_manage
+    permission_code: business_unit:attr_template_manage
+    include_in_package: true
+    feature_code: button_business_unit_attr_template_manage
 permissions:
   - code: /tenants
     name: 主体管理
@@ -275,6 +311,42 @@ permissions:
     menu_code: menu_manage
     include_in_package: true
     data_perm_mode: NONE
+  - code: business_unit:create
+    name: 业务单元-新增
+    type: OPERATION
+    menu_code: business_unit_manage
+    include_in_package: true
+    data_perm_mode: BU
+  - code: business_unit:edit
+    name: 业务单元-编辑
+    type: OPERATION
+    menu_code: business_unit_manage
+    include_in_package: true
+    data_perm_mode: BU
+  - code: business_unit:delete
+    name: 业务单元-归档
+    type: OPERATION
+    menu_code: business_unit_manage
+    include_in_package: true
+    data_perm_mode: BU
+  - code: business_unit:relation_manage
+    name: 业务单元-关系维护
+    type: OPERATION
+    menu_code: business_unit_manage
+    include_in_package: true
+    data_perm_mode: BU
+  - code: business_unit:actor_manage
+    name: 业务单元-责任方维护
+    type: OPERATION
+    menu_code: business_unit_manage
+    include_in_package: true
+    data_perm_mode: BU
+  - code: business_unit:attr_template_manage
+    name: 业务单元-属性模板
+    type: OPERATION
+    menu_code: business_unit_manage
+    include_in_package: true
+    data_perm_mode: NONE
 apis:
   - method: GET
     path: /api/users
@@ -285,6 +357,62 @@ apis:
   - method: PUT
     path: /api/permissions/menu-package-feature/{id}
     permission_code: menu:package_feature
+    audit: true
+  - method: GET
+    path: /api/base/business-units/dictionary/tree
+    permission_code: /business-units
+  - method: GET
+    path: /api/base/business-units/summary
+    permission_code: /business-units
+  - method: GET
+    path: /api/base/business-units
+    permission_code: /business-units
+  - method: POST
+    path: /api/base/business-units
+    permission_code: business_unit:create
+    audit: true
+  - method: PUT
+    path: /api/base/business-units/{id}
+    permission_code: business_unit:edit
+    audit: true
+  - method: DELETE
+    path: /api/base/business-units/{id}
+    permission_code: business_unit:delete
+    audit: true
+  - method: GET
+    path: /api/base/business-units/{id}/actors
+    permission_code: /business-units
+  - method: PUT
+    path: /api/base/business-units/{id}/actors
+    permission_code: business_unit:actor_manage
+    audit: true
+  - method: GET
+    path: /api/base/business-units/{id}/relations
+    permission_code: /business-units
+  - method: PUT
+    path: /api/base/business-units/{id}/relations
+    permission_code: business_unit:relation_manage
+    audit: true
+  - method: GET
+    path: /api/base/business-unit-attr-templates/match
+    permission_code: /business-units
+  - method: GET
+    path: /api/base/business-unit-attr-templates
+    permission_code: /business-units
+  - method: POST
+    path: /api/base/business-unit-attr-templates
+    permission_code: business_unit:attr_template_manage
+    audit: true
+  - method: GET
+    path: /api/base/business-unit-attr-templates/{id}
+    permission_code: /business-units
+  - method: PUT
+    path: /api/base/business-unit-attr-templates/{id}
+    permission_code: business_unit:attr_template_manage
+    audit: true
+  - method: DELETE
+    path: /api/base/business-unit-attr-templates/{id}
+    permission_code: business_unit:attr_template_manage
     audit: true
 package_features:
   - feature_code: user_manage
@@ -370,6 +498,48 @@ package_features:
     feature_name: 业务单元
     feature_type: MENU
     source_code: /business-units
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: button_business_unit_create
+    feature_name: 业务单元-新增
+    feature_type: OPERATION
+    parent_code: business_unit_manage
+    source_code: business_unit:create
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: button_business_unit_edit
+    feature_name: 业务单元-编辑
+    feature_type: OPERATION
+    parent_code: business_unit_manage
+    source_code: business_unit:edit
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: button_business_unit_delete
+    feature_name: 业务单元-归档
+    feature_type: OPERATION
+    parent_code: business_unit_manage
+    source_code: business_unit:delete
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: button_business_unit_relation_manage
+    feature_name: 业务单元-关系维护
+    feature_type: OPERATION
+    parent_code: business_unit_manage
+    source_code: business_unit:relation_manage
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: button_business_unit_actor_manage
+    feature_name: 业务单元-责任方维护
+    feature_type: OPERATION
+    parent_code: business_unit_manage
+    source_code: business_unit:actor_manage
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: button_business_unit_attr_template_manage
+    feature_name: 业务单元-属性模板
+    feature_type: OPERATION
+    parent_code: business_unit_manage
+    source_code: business_unit:attr_template_manage
     package_policy: IN_PACKAGE
     include_in_package: true
   - feature_code: login_log

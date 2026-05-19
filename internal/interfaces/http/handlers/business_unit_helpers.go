@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,13 +11,93 @@ import (
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 )
 
+const businessUnitDictCode = "business_unit"
+
+func (h *IdentityHandler) validateBusinessUnitDictValue(ctx context.Context, user models.AppUser, dictCode string, value *string, fieldName string) error {
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return nil
+	}
+	_, items, err := h.dictionaryService().ItemsByCode(ctx, h.dictionaryViewer(user), dictCode)
+	if err != nil {
+		return err
+	}
+	needle := strings.TrimSpace(*value)
+	for _, item := range items {
+		if item.Enabled && item.Value == needle {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s不在字典范围内", fieldName)
+}
+
+func (h *IdentityHandler) validateBusinessUnitRootDictValue(ctx context.Context, user models.AppUser, value *string, fieldName string) (string, error) {
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return "", nil
+	}
+	_, items, err := h.dictionaryService().ItemsByCode(ctx, h.dictionaryViewer(user), businessUnitDictCode)
+	if err != nil {
+		return "", err
+	}
+	needle := strings.TrimSpace(*value)
+	for _, item := range items {
+		if item.Enabled && item.ParentID == nil && item.Value == needle {
+			return item.Label, nil
+		}
+	}
+	return "", fmt.Errorf("%s不在字典范围内", fieldName)
+}
+
+func (h *IdentityHandler) validateBusinessUnitRefs(tenantID uint64, currentID uint64, parentID *uint64, ownerUserID *uint64, ownerOrgID *uint64) error {
+	if parentID != nil {
+		if *parentID == currentID && currentID != 0 {
+			return errors.New("上级业务单元不能选择自身")
+		}
+		var total int64
+		if err := h.db.Model(&models.BusinessUnit{}).Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", *parentID, tenantID).Count(&total).Error; err != nil {
+			return err
+		}
+		if total == 0 {
+			return errors.New("上级业务单元不存在")
+		}
+	}
+	if ownerUserID != nil {
+		var total int64
+		if err := h.db.Model(&models.AppUser{}).Where("id = ? AND tenant_id = ? AND deleted_at IS NULL", *ownerUserID, tenantID).Count(&total).Error; err != nil {
+			return err
+		}
+		if total == 0 {
+			return errors.New("负责人用户不存在")
+		}
+	}
+	if ownerOrgID != nil {
+		if _, err := h.orgNodeByID(tenantID, *ownerOrgID); err != nil {
+			return errors.New("主负责组织不存在")
+		}
+	}
+	return nil
+}
+
+func boolValue(value *bool, fallback bool) bool {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
+}
+
 func (h *IdentityHandler) replaceBusinessUnitMappingsTx(tx *gorm.DB, tenantID, buID uint64, orgIDs []uint64) error {
 	ids := uniqueUint64s(orgIDs)
-	if len(ids) == 0 {
-		return errors.New("请至少选择一个关联组织节点")
-	}
 	if err := tx.Model(&models.BusinessUnitOrgMap{}).Where("tenant_id = ? AND business_unit_id = ? AND scope_type = ?", tenantID, buID, "PRIMARY").Update("status", 0).Error; err != nil {
 		return err
+	}
+	if len(ids) == 0 {
+		return nil
 	}
 	for _, orgID := range ids {
 		node, err := h.orgNodeByID(tenantID, orgID)
@@ -33,7 +114,7 @@ func (h *IdentityHandler) replaceBusinessUnitMappingsTx(tx *gorm.DB, tenantID, b
 func (h *IdentityHandler) validateBusinessUnitOrgMaps(tenantID, excludeBUID uint64, orgIDs []uint64) error {
 	ids := uniqueUint64s(orgIDs)
 	if len(ids) == 0 {
-		return errors.New("请至少选择一个关联组织节点")
+		return nil
 	}
 	for _, orgID := range ids {
 		if _, err := h.orgNodeByID(tenantID, orgID); err != nil {

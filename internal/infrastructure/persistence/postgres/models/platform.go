@@ -45,21 +45,105 @@ type Position struct {
 func (Position) TableName() string { return "position" }
 
 type BusinessUnit struct {
+	ID                uint64     `gorm:"primaryKey;autoIncrement;column:id"`
+	TenantID          uint64     `gorm:"column:tenant_id;not null;index:idx_business_unit_tenant_code,unique"`
+	Name              string     `gorm:"column:name;type:varchar(200);not null"`
+	Code              string     `gorm:"column:code;type:varchar(64);not null;index:idx_business_unit_tenant_code,unique"`
+	UnitTypeCode      *string    `gorm:"column:unit_type_code;type:varchar(64)"`
+	UnitTypeName      *string    `gorm:"column:unit_type_name;type:varchar(128)"`
+	UnitGroupCode     *string    `gorm:"column:unit_group_code;type:varchar(64)"`
+	UnitGroupName     *string    `gorm:"column:unit_group_name;type:varchar(128)"`
+	BUType            *string    `gorm:"column:bu_type;type:varchar(32)"`
+	UnitScenario      *string    `gorm:"column:unit_scenario;type:varchar(64)"`
+	UnitForm          *string    `gorm:"column:unit_form;type:varchar(64)"`
+	ParentID          *uint64    `gorm:"column:parent_id;index"`
+	OwnerUserID       *uint64    `gorm:"column:owner_user_id;index"`
+	OwnerOrgID        *uint64    `gorm:"column:owner_org_id;index"`
+	AttrTemplateID    *uint64    `gorm:"column:attr_template_id;index"`
+	Attrs             *string    `gorm:"column:attrs;type:jsonb"`
+	Status            int        `gorm:"column:status;not null;default:1"`
+	BillingEnabled    bool       `gorm:"column:billing_enabled;not null;default:false"`
+	StatisticEnabled  bool       `gorm:"column:statistic_enabled;not null;default:true"`
+	OperationEnabled  bool       `gorm:"column:operation_enabled;not null;default:false"`
+	SettlementEnabled bool       `gorm:"column:settlement_enabled;not null;default:false"`
+	DataScopeEnabled  bool       `gorm:"column:data_scope_enabled;not null;default:false"`
+	Remark            *string    `gorm:"column:remark;type:text"`
+	CreatedAt         time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt         time.Time  `gorm:"column:updated_at;not null"`
+	DeletedAt         *time.Time `gorm:"column:deleted_at"`
+}
+
+func (BusinessUnit) TableName() string { return "business_unit" }
+
+type BusinessUnitRelation struct {
 	ID               uint64     `gorm:"primaryKey;autoIncrement;column:id"`
-	TenantID         uint64     `gorm:"column:tenant_id;not null;index:idx_business_unit_tenant_code,unique"`
-	Name             string     `gorm:"column:name;type:varchar(200);not null"`
-	Code             string     `gorm:"column:code;type:varchar(64);not null;index:idx_business_unit_tenant_code,unique"`
-	BUType           *string    `gorm:"column:bu_type;type:varchar(32)"`
-	Status           int        `gorm:"column:status;not null;default:1"`
-	BillingEnabled   bool       `gorm:"column:billing_enabled;not null;default:false"`
-	StatisticEnabled bool       `gorm:"column:statistic_enabled;not null;default:true"`
+	TenantID         uint64     `gorm:"column:tenant_id;not null;index"`
+	SourceUnitID     uint64     `gorm:"column:source_unit_id;not null;index"`
+	TargetUnitID     uint64     `gorm:"column:target_unit_id;not null;index"`
+	RelationTypeCode string     `gorm:"column:relation_type_code;type:varchar(64);not null"`
+	RelationTypeName string     `gorm:"column:relation_type_name;type:varchar(128);not null"`
+	Status           string     `gorm:"column:status;type:varchar(32);not null;default:active"`
 	Remark           *string    `gorm:"column:remark;type:text"`
 	CreatedAt        time.Time  `gorm:"column:created_at;not null"`
 	UpdatedAt        time.Time  `gorm:"column:updated_at;not null"`
 	DeletedAt        *time.Time `gorm:"column:deleted_at"`
 }
 
-func (BusinessUnit) TableName() string { return "business_unit" }
+func (BusinessUnitRelation) TableName() string { return "business_unit_relation" }
+
+type BusinessUnitActor struct {
+	ID              uint64     `gorm:"primaryKey;autoIncrement;column:id"`
+	TenantID        uint64     `gorm:"column:tenant_id;not null;index"`
+	BusinessUnitID  uint64     `gorm:"column:business_unit_id;not null;index"`
+	ActorType       string     `gorm:"column:actor_type;type:varchar(32);not null"`
+	ActorID         uint64     `gorm:"column:actor_id;not null;index"`
+	RoleType        string     `gorm:"column:role_type;type:varchar(32);not null"`
+	IncludeChildren bool       `gorm:"column:include_children;not null;default:false"`
+	Status          string     `gorm:"column:status;type:varchar(32);not null;default:active"`
+	CreatedAt       time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt       time.Time  `gorm:"column:updated_at;not null"`
+	DeletedAt       *time.Time `gorm:"column:deleted_at"`
+}
+
+func (BusinessUnitActor) TableName() string { return "business_unit_actor" }
+
+type BusinessUnitAttrTemplate struct {
+	ID            uint64     `gorm:"primaryKey;autoIncrement;column:id"`
+	TenantID      *uint64    `gorm:"column:tenant_id;index"`
+	TemplateName  string     `gorm:"column:template_name;type:varchar(128);not null"`
+	UnitTypeCode  string     `gorm:"column:unit_type_code;type:varchar(64);not null"`
+	UnitTypeName  string     `gorm:"column:unit_type_name;type:varchar(128);not null"`
+	UnitGroupCode *string    `gorm:"column:unit_group_code;type:varchar(64)"`
+	UnitGroupName *string    `gorm:"column:unit_group_name;type:varchar(128)"`
+	SortOrder     int        `gorm:"column:sort_order;not null;default:0"`
+	Status        string     `gorm:"column:status;type:varchar(32);not null;default:active"`
+	Remark        *string    `gorm:"column:remark;type:text"`
+	CreatedAt     time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt     time.Time  `gorm:"column:updated_at;not null"`
+	DeletedAt     *time.Time `gorm:"column:deleted_at"`
+}
+
+func (BusinessUnitAttrTemplate) TableName() string { return "business_unit_attr_template" }
+
+type BusinessUnitAttrTemplateField struct {
+	ID           uint64     `gorm:"primaryKey;autoIncrement;column:id"`
+	TenantID     *uint64    `gorm:"column:tenant_id;index"`
+	TemplateID   uint64     `gorm:"column:template_id;not null;index"`
+	FieldKey     string     `gorm:"column:field_key;type:varchar(128);not null"`
+	FieldLabel   string     `gorm:"column:field_label;type:varchar(128);not null"`
+	FieldType    string     `gorm:"column:field_type;type:varchar(32);not null"`
+	Required     bool       `gorm:"column:required;not null;default:false"`
+	DefaultValue *string    `gorm:"column:default_value;type:text"`
+	Placeholder  *string    `gorm:"column:placeholder;type:varchar(255)"`
+	OptionsJSON  *string    `gorm:"column:options_json;type:jsonb"`
+	SortOrder    int        `gorm:"column:sort_order;not null;default:0"`
+	Status       string     `gorm:"column:status;type:varchar(32);not null;default:active"`
+	CreatedAt    time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt    time.Time  `gorm:"column:updated_at;not null"`
+	DeletedAt    *time.Time `gorm:"column:deleted_at"`
+}
+
+func (BusinessUnitAttrTemplateField) TableName() string { return "business_unit_attr_template_field" }
 
 type BusinessUnitOrgMap struct {
 	ID             uint64     `gorm:"primaryKey;autoIncrement;column:id"`
@@ -86,6 +170,122 @@ type BusinessUnitScope struct {
 }
 
 func (BusinessUnitScope) TableName() string { return "business_unit_scope" }
+
+type BusinessResource struct {
+	ID                   uint64     `gorm:"primaryKey;autoIncrement;column:id"`
+	TenantID             uint64     `gorm:"column:tenant_id;not null;index"`
+	UnitTypeCode         string     `gorm:"column:unit_type_code;type:varchar(64);not null"`
+	UnitTypeName         string     `gorm:"column:unit_type_name;type:varchar(64);not null"`
+	BusinessUnitCode     string     `gorm:"column:business_unit_code;type:varchar(64);not null"`
+	BusinessUnitName     string     `gorm:"column:business_unit_name;type:varchar(64);not null"`
+	ResourceName         string     `gorm:"column:resource_name;type:varchar(128);not null"`
+	ResourceCode         string     `gorm:"column:resource_code;type:varchar(64);not null"`
+	ResourceCategory     string     `gorm:"column:resource_category;type:varchar(64);not null"`
+	ResourceType         string     `gorm:"column:resource_type;type:varchar(64);not null"`
+	SourceMode           string     `gorm:"column:source_mode;type:varchar(32);not null;default:native"`
+	SourceAppCode        *string    `gorm:"column:source_app_code;type:varchar(64)"`
+	SourceTable          *string    `gorm:"column:source_table;type:varchar(128)"`
+	SourceID             *uint64    `gorm:"column:source_id"`
+	PlatformCode         *string    `gorm:"column:platform_code;type:varchar(64)"`
+	ExternalID           *string    `gorm:"column:external_id;type:varchar(128)"`
+	ConnectionInstanceID *uint64    `gorm:"column:connection_instance_id"`
+	ParentResourceID     *uint64    `gorm:"column:parent_resource_id;index"`
+	ResourceAttrs        *string    `gorm:"column:resource_attrs;type:jsonb"`
+	Status               string     `gorm:"column:status;type:varchar(32);not null;default:active"`
+	CreatedAt            time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt            time.Time  `gorm:"column:updated_at;not null"`
+	DeletedAt            *time.Time `gorm:"column:deleted_at"`
+}
+
+func (BusinessResource) TableName() string { return "business_resource" }
+
+type BusinessResourceActor struct {
+	ID              uint64     `gorm:"primaryKey;autoIncrement;column:id"`
+	TenantID        uint64     `gorm:"column:tenant_id;not null;index"`
+	ResourceID      uint64     `gorm:"column:resource_id;not null;index"`
+	ActorType       string     `gorm:"column:actor_type;type:varchar(32);not null"`
+	ActorID         uint64     `gorm:"column:actor_id;not null;index"`
+	RoleType        string     `gorm:"column:role_type;type:varchar(32);not null"`
+	IncludeChildren bool       `gorm:"column:include_children;not null;default:false"`
+	StartDate       *time.Time `gorm:"column:start_date"`
+	EndDate         *time.Time `gorm:"column:end_date"`
+	Status          string     `gorm:"column:status;type:varchar(32);not null;default:active"`
+	CreatedAt       time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt       time.Time  `gorm:"column:updated_at;not null"`
+	DeletedAt       *time.Time `gorm:"column:deleted_at"`
+}
+
+func (BusinessResourceActor) TableName() string { return "business_resource_actor" }
+
+type BusinessResourceFieldConfig struct {
+	ID                       uint64     `gorm:"primaryKey;autoIncrement;column:id"`
+	TenantID                 *uint64    `gorm:"column:tenant_id;index"`
+	UnitTypeCode             string     `gorm:"column:unit_type_code;type:varchar(64);not null"`
+	BusinessUnitCode         string     `gorm:"column:business_unit_code;type:varchar(64);not null"`
+	FieldKey                 string     `gorm:"column:field_key;type:varchar(128);not null"`
+	FieldLabel               string     `gorm:"column:field_label;type:varchar(128);not null"`
+	FieldType                string     `gorm:"column:field_type;type:varchar(32);not null"`
+	DictCode                 *string    `gorm:"column:dict_code;type:varchar(128)"`
+	RelationUnitTypeCode     *string    `gorm:"column:relation_unit_type_code;type:varchar(64)"`
+	RelationBusinessUnitCode *string    `gorm:"column:relation_business_unit_code;type:varchar(64)"`
+	Required                 bool       `gorm:"column:required;not null;default:false"`
+	DefaultValue             *string    `gorm:"column:default_value;type:text"`
+	Placeholder              *string    `gorm:"column:placeholder;type:varchar(256)"`
+	HelpText                 *string    `gorm:"column:help_text;type:varchar(256)"`
+	ValidationRule           *string    `gorm:"column:validation_rule;type:jsonb"`
+	ShowInList               bool       `gorm:"column:show_in_list;not null;default:false"`
+	ShowInDetail             bool       `gorm:"column:show_in_detail;not null"`
+	ShowInImport             bool       `gorm:"column:show_in_import;not null"`
+	ImportRequired           bool       `gorm:"column:import_required;not null;default:false"`
+	SortOrder                int        `gorm:"column:sort_order;not null;default:0"`
+	Status                   string     `gorm:"column:status;type:varchar(32);not null;default:active"`
+	CreatedAt                time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt                time.Time  `gorm:"column:updated_at;not null"`
+	DeletedAt                *time.Time `gorm:"column:deleted_at"`
+}
+
+func (BusinessResourceFieldConfig) TableName() string { return "business_resource_field_config" }
+
+type BusinessUnitResource struct {
+	ID               uint64     `gorm:"primaryKey;autoIncrement;column:id"`
+	TenantID         uint64     `gorm:"column:tenant_id;not null;index"`
+	BusinessUnitID   uint64     `gorm:"column:business_unit_id;not null;index"`
+	ResourceID       uint64     `gorm:"column:resource_id;not null;index"`
+	ResourceCategory string     `gorm:"column:resource_category;type:varchar(64);not null"`
+	ResourceType     string     `gorm:"column:resource_type;type:varchar(64);not null"`
+	RelationType     string     `gorm:"column:relation_type;type:varchar(64);not null"`
+	IsPrimary        bool       `gorm:"column:is_primary;not null;default:false"`
+	UseForPermission bool       `gorm:"column:use_for_permission;not null;default:false"`
+	UseForOperation  bool       `gorm:"column:use_for_operation;not null;default:false"`
+	UseForSettlement bool       `gorm:"column:use_for_settlement;not null;default:false"`
+	StartDate        *time.Time `gorm:"column:start_date"`
+	EndDate          *time.Time `gorm:"column:end_date"`
+	CreatedAt        time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt        time.Time  `gorm:"column:updated_at;not null"`
+	DeletedAt        *time.Time `gorm:"column:deleted_at"`
+}
+
+func (BusinessUnitResource) TableName() string { return "business_unit_resource" }
+
+type BusinessResourceRelation struct {
+	ID                     uint64     `gorm:"primaryKey;autoIncrement;column:id"`
+	TenantID               uint64     `gorm:"column:tenant_id;not null;index"`
+	ParentResourceID       uint64     `gorm:"column:parent_resource_id;not null;index"`
+	ChildResourceID        uint64     `gorm:"column:child_resource_id;not null;index"`
+	ParentResourceCategory string     `gorm:"column:parent_resource_category;type:varchar(64);not null"`
+	ParentResourceType     string     `gorm:"column:parent_resource_type;type:varchar(64);not null"`
+	ChildResourceCategory  string     `gorm:"column:child_resource_category;type:varchar(64);not null"`
+	ChildResourceType      string     `gorm:"column:child_resource_type;type:varchar(64);not null"`
+	RelationType           string     `gorm:"column:relation_type;type:varchar(64);not null"`
+	StartDate              *time.Time `gorm:"column:start_date"`
+	EndDate                *time.Time `gorm:"column:end_date"`
+	Status                 string     `gorm:"column:status;type:varchar(32);not null;default:active"`
+	CreatedAt              time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt              time.Time  `gorm:"column:updated_at;not null"`
+	DeletedAt              *time.Time `gorm:"column:deleted_at"`
+}
+
+func (BusinessResourceRelation) TableName() string { return "business_resource_relation" }
 
 type DictType struct {
 	ID             uint64     `gorm:"primaryKey;autoIncrement;column:id"`

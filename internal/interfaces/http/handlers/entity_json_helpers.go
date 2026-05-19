@@ -8,7 +8,25 @@ import (
 )
 
 func businessUnitToJSON(row models.BusinessUnit) gin.H {
-	return gin.H{"id": row.ID, "tenant_id": row.TenantID, "name": row.Name, "code": row.Code, "bu_type": row.BUType, "status": row.Status, "billing_enabled": row.BillingEnabled, "statistic_enabled": row.StatisticEnabled, "remark": row.Remark}
+	return gin.H{
+		"id":                 row.ID,
+		"tenant_id":          row.TenantID,
+		"name":               row.Name,
+		"code":               row.Code,
+		"bu_type":            row.BUType,
+		"unit_scenario":      row.UnitScenario,
+		"unit_form":          row.UnitForm,
+		"parent_id":          row.ParentID,
+		"owner_user_id":      row.OwnerUserID,
+		"owner_org_id":       row.OwnerOrgID,
+		"status":             row.Status,
+		"billing_enabled":    row.BillingEnabled,
+		"statistic_enabled":  row.StatisticEnabled,
+		"operation_enabled":  row.OperationEnabled,
+		"settlement_enabled": row.SettlementEnabled,
+		"data_scope_enabled": row.DataScopeEnabled,
+		"remark":             row.Remark,
+	}
 }
 
 func businessUnitOrgMapToJSON(row models.BusinessUnitOrgMap) gin.H {

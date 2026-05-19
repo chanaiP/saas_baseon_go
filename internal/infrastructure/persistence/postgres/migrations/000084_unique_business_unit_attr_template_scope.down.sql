@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS uq_business_unit_attr_template_scope;

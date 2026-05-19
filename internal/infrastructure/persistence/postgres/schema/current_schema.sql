@@ -217,10 +217,24 @@ CREATE TABLE public.business_unit (
     tenant_id bigint NOT NULL,
     name character varying(200) NOT NULL,
     code character varying(64) NOT NULL,
+    unit_type_code character varying(64),
+    unit_type_name character varying(128),
+    unit_group_code character varying(64),
+    unit_group_name character varying(128),
     bu_type character varying(32),
+    unit_scenario character varying(64),
+    unit_form character varying(64),
+    parent_id bigint,
+    owner_user_id bigint,
+    owner_org_id bigint,
+    attr_template_id bigint,
+    attrs jsonb,
     status bigint DEFAULT 1 NOT NULL,
     billing_enabled boolean DEFAULT false NOT NULL,
     statistic_enabled boolean DEFAULT true NOT NULL,
+    operation_enabled boolean DEFAULT false NOT NULL,
+    settlement_enabled boolean DEFAULT false NOT NULL,
+    data_scope_enabled boolean DEFAULT false NOT NULL,
     remark text,
     created_at timestamp with time zone NOT NULL,
     updated_at timestamp with time zone NOT NULL,
@@ -245,6 +259,88 @@ CREATE SEQUENCE public.business_unit_id_seq
 --
 
 ALTER SEQUENCE public.business_unit_id_seq OWNED BY public.business_unit.id;
+
+
+--
+-- Name: business_unit_relation; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.business_unit_relation (
+    id bigserial PRIMARY KEY,
+    tenant_id bigint NOT NULL,
+    source_unit_id bigint NOT NULL,
+    target_unit_id bigint NOT NULL,
+    relation_type_code character varying(64) NOT NULL,
+    relation_type_name character varying(128) NOT NULL,
+    status character varying(32) DEFAULT 'active'::character varying NOT NULL,
+    remark text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone
+);
+
+
+--
+-- Name: business_unit_actor; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.business_unit_actor (
+    id bigserial PRIMARY KEY,
+    tenant_id bigint NOT NULL,
+    business_unit_id bigint NOT NULL,
+    actor_type character varying(32) NOT NULL,
+    actor_id bigint NOT NULL,
+    role_type character varying(32) NOT NULL,
+    include_children boolean DEFAULT false NOT NULL,
+    status character varying(32) DEFAULT 'active'::character varying NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone
+);
+
+
+--
+-- Name: business_unit_attr_template; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.business_unit_attr_template (
+    id bigserial PRIMARY KEY,
+    tenant_id bigint,
+    template_name character varying(128) NOT NULL,
+    unit_type_code character varying(64) NOT NULL,
+    unit_type_name character varying(128) NOT NULL,
+    unit_group_code character varying(64),
+    unit_group_name character varying(128),
+    sort_order integer DEFAULT 0 NOT NULL,
+    status character varying(32) DEFAULT 'active'::character varying NOT NULL,
+    remark text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone
+);
+
+
+--
+-- Name: business_unit_attr_template_field; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.business_unit_attr_template_field (
+    id bigserial PRIMARY KEY,
+    tenant_id bigint,
+    template_id bigint NOT NULL,
+    field_key character varying(128) NOT NULL,
+    field_label character varying(128) NOT NULL,
+    field_type character varying(32) NOT NULL,
+    required boolean DEFAULT false NOT NULL,
+    default_value text,
+    placeholder character varying(255),
+    options_json jsonb,
+    sort_order integer DEFAULT 0 NOT NULL,
+    status character varying(32) DEFAULT 'active'::character varying NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone
+);
 
 
 --
@@ -315,6 +411,157 @@ CREATE SEQUENCE public.business_unit_scope_id_seq
 --
 
 ALTER SEQUENCE public.business_unit_scope_id_seq OWNED BY public.business_unit_scope.id;
+
+CREATE TABLE public.business_resource (
+    id bigint NOT NULL,
+    tenant_id bigint NOT NULL,
+    unit_type_code character varying(64) NOT NULL,
+    unit_type_name character varying(64) NOT NULL,
+    business_unit_code character varying(64) NOT NULL,
+    business_unit_name character varying(64) NOT NULL,
+    resource_name character varying(128) NOT NULL,
+    resource_code character varying(64) NOT NULL,
+    resource_category character varying(64) NOT NULL,
+    resource_type character varying(64) NOT NULL,
+    source_mode character varying(32) DEFAULT 'native'::character varying NOT NULL,
+    source_app_code character varying(64),
+    source_table character varying(128),
+    source_id bigint,
+    platform_code character varying(64),
+    external_id character varying(128),
+    connection_instance_id bigint,
+    parent_resource_id bigint,
+    resource_attrs jsonb,
+    status character varying(32) DEFAULT 'active'::character varying NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone
+);
+
+CREATE SEQUENCE public.business_resource_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE public.business_resource_id_seq OWNED BY public.business_resource.id;
+
+CREATE TABLE public.business_resource_actor (
+    id bigint NOT NULL,
+    tenant_id bigint NOT NULL,
+    resource_id bigint NOT NULL,
+    actor_type character varying(32) NOT NULL,
+    actor_id bigint NOT NULL,
+    role_type character varying(32) NOT NULL,
+    include_children boolean DEFAULT false NOT NULL,
+    start_date date,
+    end_date date,
+    status character varying(32) DEFAULT 'active'::character varying NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone
+);
+
+CREATE SEQUENCE public.business_resource_actor_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE public.business_resource_actor_id_seq OWNED BY public.business_resource_actor.id;
+
+CREATE TABLE public.business_resource_field_config (
+    id bigint NOT NULL,
+    tenant_id bigint,
+    unit_type_code character varying(64) NOT NULL,
+    business_unit_code character varying(64) NOT NULL,
+    field_key character varying(128) NOT NULL,
+    field_label character varying(128) NOT NULL,
+    field_type character varying(32) NOT NULL,
+    dict_code character varying(128),
+    relation_unit_type_code character varying(64),
+    relation_business_unit_code character varying(64),
+    required boolean DEFAULT false NOT NULL,
+    default_value text,
+    placeholder character varying(256),
+    help_text character varying(256),
+    validation_rule jsonb,
+    show_in_list boolean DEFAULT false NOT NULL,
+    show_in_detail boolean DEFAULT true NOT NULL,
+    show_in_import boolean DEFAULT true NOT NULL,
+    import_required boolean DEFAULT false NOT NULL,
+    sort_order integer DEFAULT 0 NOT NULL,
+    status character varying(32) DEFAULT 'active'::character varying NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone
+);
+
+CREATE SEQUENCE public.business_resource_field_config_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE public.business_resource_field_config_id_seq OWNED BY public.business_resource_field_config.id;
+
+CREATE TABLE public.business_unit_resource (
+    id bigint NOT NULL,
+    tenant_id bigint NOT NULL,
+    business_unit_id bigint NOT NULL,
+    resource_id bigint NOT NULL,
+    resource_category character varying(64) NOT NULL,
+    resource_type character varying(64) NOT NULL,
+    relation_type character varying(64) NOT NULL,
+    is_primary boolean DEFAULT false NOT NULL,
+    use_for_permission boolean DEFAULT false NOT NULL,
+    use_for_operation boolean DEFAULT false NOT NULL,
+    use_for_settlement boolean DEFAULT false NOT NULL,
+    start_date date,
+    end_date date,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone
+);
+
+CREATE SEQUENCE public.business_unit_resource_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE public.business_unit_resource_id_seq OWNED BY public.business_unit_resource.id;
+
+CREATE TABLE public.business_resource_relation (
+    id bigint NOT NULL,
+    tenant_id bigint NOT NULL,
+    parent_resource_id bigint NOT NULL,
+    child_resource_id bigint NOT NULL,
+    parent_resource_category character varying(64) NOT NULL,
+    parent_resource_type character varying(64) NOT NULL,
+    child_resource_category character varying(64) NOT NULL,
+    child_resource_type character varying(64) NOT NULL,
+    relation_type character varying(64) NOT NULL,
+    start_date date,
+    end_date date,
+    status character varying(32) DEFAULT 'active'::character varying NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone
+);
+
+CREATE SEQUENCE public.business_resource_relation_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE public.business_resource_relation_id_seq OWNED BY public.business_resource_relation.id;
 
 
 --
@@ -1361,6 +1608,16 @@ ALTER TABLE ONLY public.business_unit_org_map ALTER COLUMN id SET DEFAULT nextva
 
 ALTER TABLE ONLY public.business_unit_scope ALTER COLUMN id SET DEFAULT nextval('public.business_unit_scope_id_seq'::regclass);
 
+ALTER TABLE ONLY public.business_resource ALTER COLUMN id SET DEFAULT nextval('public.business_resource_id_seq'::regclass);
+
+ALTER TABLE ONLY public.business_resource_actor ALTER COLUMN id SET DEFAULT nextval('public.business_resource_actor_id_seq'::regclass);
+
+ALTER TABLE ONLY public.business_resource_field_config ALTER COLUMN id SET DEFAULT nextval('public.business_resource_field_config_id_seq'::regclass);
+
+ALTER TABLE ONLY public.business_unit_resource ALTER COLUMN id SET DEFAULT nextval('public.business_unit_resource_id_seq'::regclass);
+
+ALTER TABLE ONLY public.business_resource_relation ALTER COLUMN id SET DEFAULT nextval('public.business_resource_relation_id_seq'::regclass);
+
 
 --
 -- Name: dict_item id; Type: DEFAULT; Schema: public; Owner: -
@@ -1613,6 +1870,21 @@ ALTER TABLE ONLY public.business_unit
 
 ALTER TABLE ONLY public.business_unit_scope
     ADD CONSTRAINT business_unit_scope_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.business_resource
+    ADD CONSTRAINT business_resource_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.business_resource_actor
+    ADD CONSTRAINT business_resource_actor_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.business_resource_field_config
+    ADD CONSTRAINT business_resource_field_config_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.business_unit_resource
+    ADD CONSTRAINT business_unit_resource_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.business_resource_relation
+    ADD CONSTRAINT business_resource_relation_pkey PRIMARY KEY (id);
 
 
 --
@@ -1943,6 +2215,22 @@ CREATE INDEX idx_audit_log_tenant_created ON public.audit_log USING btree (tenan
 
 CREATE INDEX idx_audit_log_app_code_created ON public.audit_log USING btree (app_code, created_at DESC);
 
+CREATE INDEX idx_business_unit_group ON public.business_unit USING btree (tenant_id, unit_type_code, unit_group_code) WHERE (deleted_at IS NULL);
+
+CREATE INDEX idx_business_unit_relation_source ON public.business_unit_relation USING btree (tenant_id, source_unit_id) WHERE (deleted_at IS NULL);
+
+CREATE INDEX idx_business_unit_relation_target ON public.business_unit_relation USING btree (tenant_id, target_unit_id) WHERE (deleted_at IS NULL);
+
+CREATE UNIQUE INDEX idx_business_unit_relation_unique ON public.business_unit_relation USING btree (tenant_id, source_unit_id, target_unit_id, relation_type_code) WHERE (deleted_at IS NULL);
+
+CREATE UNIQUE INDEX idx_business_unit_actor_unique ON public.business_unit_actor USING btree (tenant_id, business_unit_id, actor_type, actor_id, role_type) WHERE (deleted_at IS NULL);
+
+CREATE INDEX idx_business_unit_attr_template_scope ON public.business_unit_attr_template USING btree (tenant_id, unit_type_code, unit_group_code) WHERE (deleted_at IS NULL);
+
+CREATE UNIQUE INDEX uq_business_unit_attr_template_scope ON public.business_unit_attr_template USING btree ((COALESCE(tenant_id, (0)::bigint)), template_name, unit_type_code, (COALESCE(unit_group_code, ''::character varying))) WHERE (deleted_at IS NULL);
+
+CREATE INDEX idx_business_unit_attr_template_field_template ON public.business_unit_attr_template_field USING btree (template_id, sort_order, id) WHERE (deleted_at IS NULL);
+
 
 --
 -- Name: idx_business_unit_org_map_business_unit_id; Type: INDEX; Schema: public; Owner: -
@@ -2000,6 +2288,46 @@ CREATE INDEX idx_business_unit_scope_role_permission_id ON public.business_unit_
 CREATE UNIQUE INDEX idx_business_unit_tenant_code ON public.business_unit USING btree (tenant_id, code);
 
 CREATE INDEX idx_business_unit_tenant_status_deleted ON public.business_unit USING btree (tenant_id, status, deleted_at);
+
+CREATE INDEX idx_business_unit_parent_id ON public.business_unit USING btree (parent_id);
+
+CREATE INDEX idx_business_unit_tenant_scenario_form ON public.business_unit USING btree (tenant_id, unit_scenario, unit_form) WHERE (deleted_at IS NULL);
+
+CREATE INDEX idx_business_unit_owner_user_id ON public.business_unit USING btree (owner_user_id);
+
+CREATE INDEX idx_business_unit_owner_org_id ON public.business_unit USING btree (owner_org_id);
+
+CREATE UNIQUE INDEX idx_business_resource_tenant_code ON public.business_resource USING btree (tenant_id, resource_code) WHERE (deleted_at IS NULL);
+
+CREATE INDEX idx_business_resource_tenant_type ON public.business_resource USING btree (tenant_id, resource_category, resource_type) WHERE (deleted_at IS NULL);
+
+CREATE INDEX idx_business_resource_unit_tree ON public.business_resource USING btree (tenant_id, unit_type_code, business_unit_code) WHERE (deleted_at IS NULL);
+
+CREATE INDEX idx_business_resource_source ON public.business_resource USING btree (source_app_code, source_table, source_id);
+
+CREATE INDEX idx_business_resource_parent_id ON public.business_resource USING btree (parent_resource_id);
+
+CREATE INDEX idx_business_resource_actor_resource ON public.business_resource_actor USING btree (tenant_id, resource_id) WHERE (deleted_at IS NULL);
+
+CREATE INDEX idx_business_resource_actor_actor ON public.business_resource_actor USING btree (tenant_id, actor_type, actor_id) WHERE (deleted_at IS NULL);
+
+CREATE UNIQUE INDEX idx_business_resource_actor_unique ON public.business_resource_actor USING btree (tenant_id, resource_id, actor_type, actor_id, role_type) WHERE (deleted_at IS NULL);
+
+CREATE UNIQUE INDEX idx_business_resource_field_config_unique ON public.business_resource_field_config USING btree (COALESCE(tenant_id, (0)::bigint), unit_type_code, business_unit_code, field_key) WHERE (deleted_at IS NULL);
+
+CREATE INDEX idx_business_resource_field_config_scope ON public.business_resource_field_config USING btree (tenant_id, unit_type_code, business_unit_code) WHERE (deleted_at IS NULL);
+
+CREATE INDEX idx_business_unit_resource_unit ON public.business_unit_resource USING btree (tenant_id, business_unit_id) WHERE (deleted_at IS NULL);
+
+CREATE INDEX idx_business_unit_resource_resource ON public.business_unit_resource USING btree (tenant_id, resource_id) WHERE (deleted_at IS NULL);
+
+CREATE UNIQUE INDEX idx_business_unit_resource_primary ON public.business_unit_resource USING btree (tenant_id, resource_id, relation_type) WHERE ((deleted_at IS NULL) AND (is_primary = true));
+
+CREATE INDEX idx_business_resource_relation_parent ON public.business_resource_relation USING btree (tenant_id, parent_resource_id) WHERE (deleted_at IS NULL);
+
+CREATE INDEX idx_business_resource_relation_child ON public.business_resource_relation USING btree (tenant_id, child_resource_id) WHERE (deleted_at IS NULL);
+
+CREATE UNIQUE INDEX idx_business_resource_relation_unique ON public.business_resource_relation USING btree (tenant_id, parent_resource_id, child_resource_id, relation_type) WHERE (deleted_at IS NULL);
 
 
 --
