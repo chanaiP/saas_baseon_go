@@ -12,6 +12,8 @@ export interface PositionTypeRow {
 export interface PositionRow {
   id: number
   position_type_id: number
+  position_type_name?: string
+  position_type_code?: string
   name: string
   code: string
 }

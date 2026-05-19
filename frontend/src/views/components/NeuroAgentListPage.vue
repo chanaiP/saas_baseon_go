@@ -439,6 +439,7 @@ export interface FilterField {
   type: 'text' | 'number' | 'select' | 'date' | 'daterange' | 'switch'
   placeholder?: string
   options?: { label: string; value: any }[]
+  defaultValue?: any
 }
 
 /** 主行/更多筛选：无独立标签，将字段名并入控件描述 */
@@ -760,8 +761,18 @@ const showFiltersMoreToggle = computed(() => extraFilterFields.value.length > 0)
 const localKeyword = ref(props.keyword)
 const filterValues = reactive<Record<string, any>>({})
 props.filterFields.forEach(f => {
-  if (filterValues[f.key] === undefined) filterValues[f.key] = f.type === 'switch' ? false : ''
+  if (filterValues[f.key] === undefined) filterValues[f.key] = f.defaultValue ?? (f.type === 'switch' ? false : '')
 })
+
+watch(
+  () => props.filterFields.map(f => [f.key, f.defaultValue ?? (f.type === 'switch' ? false : '')] as const),
+  (fields) => {
+    fields.forEach(([key, value]) => {
+      if (filterValues[key] !== value) filterValues[key] = value
+    })
+  },
+  { deep: true },
+)
 
 const hasActiveFilters = computed(() => {
   if (localKeyword.value) return true
@@ -788,7 +799,7 @@ function handleSearch() {
 
 function handleReset() {
   localKeyword.value = ''
-  props.filterFields.forEach(f => { filterValues[f.key] = f.type === 'switch' ? false : '' })
+  props.filterFields.forEach(f => { filterValues[f.key] = f.defaultValue ?? (f.type === 'switch' ? false : '') })
   currentPage.value = 1
   emit('reset')
   emit('search', { keyword: '', filters: { ...filterValues } })

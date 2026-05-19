@@ -34,6 +34,8 @@ const pageP = ref(1)
 const limitP = ref(10)
 /** 岗位列表：名称或编码合一筛选（与查询按钮联动） */
 const posNameOrCode = ref('')
+/** 岗位列表：岗位类型筛选；为空表示全部岗位 */
+const posTypeFilter = ref<number | ''>('')
 /** 岗位类型列表：名称或编码（与查询按钮联动） */
 const typeKw = ref('')
 
@@ -41,9 +43,17 @@ const typeFilterFields: FilterField[] = [
   { key: 'typeHint', label: '名称 / 编码', type: 'text', placeholder: '模糊匹配' },
 ]
 
-const posFilterFields: FilterField[] = [
-  { key: 'nameOrCode', label: '名称 / 编码', type: 'text', placeholder: '模糊匹配' },
-]
+const posFilterFields = computed<FilterField[]>(() => [
+  { key: 'nameOrCode', label: '名称 / 编码', type: 'text', placeholder: '模糊匹配', defaultValue: posNameOrCode.value },
+  {
+    key: 'positionTypeId',
+    label: '岗位类型',
+    type: 'select',
+    placeholder: '全部岗位类型',
+    defaultValue: posTypeFilter.value,
+    options: typeOptions.value.map((item) => ({ label: `${item.name}（${item.code}）`, value: item.id })),
+  },
+])
 
 const dlgT = ref(false)
 const dlgTEdit = ref(false)
@@ -65,11 +75,7 @@ async function loadTypes() {
   const res = await fetchPositionTypes(skip, limitT.value, typeKw.value || undefined)
   types.value = res.items
   totalT.value = res.total
-  if (!selectedType.value && res.items.length) {
-    const first = res.items[0]
-    selectedType.value = first.id
-    selectedTypeMeta.value = { id: first.id, name: first.name, code: first.code }
-  } else if (selectedType.value) {
+  if (selectedType.value) {
     const hit = res.items.find((x) => x.id === selectedType.value)
     if (hit) {
       selectedTypeMeta.value = { id: hit.id, name: hit.name, code: hit.code }
@@ -78,14 +84,9 @@ async function loadTypes() {
 }
 
 async function loadPos() {
-  if (!selectedType.value) {
-    positions.value = []
-    totalP.value = 0
-    return
-  }
   const skip = (pageP.value - 1) * limitP.value
   const res = await fetchPositions({
-    position_type_id: selectedType.value,
+    position_type_id: posTypeFilter.value === '' ? undefined : Number(posTypeFilter.value),
     keyword: posNameOrCode.value || undefined,
     skip,
     limit: limitP.value,
@@ -98,6 +99,7 @@ function onTypeRowChange(row: PositionTypeRow | undefined) {
   if (!row) return
   selectedType.value = row.id
   selectedTypeMeta.value = { id: row.id, name: row.name, code: row.code }
+  posTypeFilter.value = row.id
   pageP.value = 1
   void loadPos()
 }
@@ -121,6 +123,25 @@ function onTypeSearch(payload: { keyword: string; filters: Record<string, any> }
 
 function onPosSearch(v: { keyword: string; filters: Record<string, any> }) {
   posNameOrCode.value = String(v.filters?.nameOrCode ?? '').trim()
+  const nextTypeID = v.filters?.positionTypeId
+  posTypeFilter.value = nextTypeID === '' || nextTypeID == null ? '' : Number(nextTypeID)
+  if (posTypeFilter.value === '') {
+    selectedType.value = null
+    selectedTypeMeta.value = null
+  } else {
+    selectedType.value = Number(posTypeFilter.value)
+    const hit = typeOptions.value.find((x) => x.id === selectedType.value) || types.value.find((x) => x.id === selectedType.value)
+    selectedTypeMeta.value = hit ? { id: hit.id, name: hit.name, code: hit.code } : selectedTypeMeta.value
+  }
+  pageP.value = 1
+  void loadPos()
+}
+
+function onPosReset() {
+  posNameOrCode.value = ''
+  posTypeFilter.value = ''
+  selectedType.value = null
+  selectedTypeMeta.value = null
   pageP.value = 1
   void loadPos()
 }
@@ -134,6 +155,11 @@ function onPosPageSizeChange(s: number) {
   limitP.value = s
   pageP.value = 1
   void loadPos()
+}
+
+function positionTypeName(id: number) {
+  const hit = typeOptions.value.find((item) => item.id === id) || types.value.find((item) => item.id === id)
+  return hit ? `${hit.name}（${hit.code}）` : `#${id}`
 }
 
 function openTypeDlg() {
@@ -184,10 +210,10 @@ async function removeType(row: PositionTypeRow) {
 }
 
 async function openPosDlg() {
-  if (!selectedType.value) return
   await loadTypeOptions()
   pEdit.value = null
-  pForm.value = { name: '', code: '', position_type_id: selectedType.value }
+  const defaultTypeID = posTypeFilter.value === '' ? 0 : Number(posTypeFilter.value)
+  pForm.value = { name: '', code: '', position_type_id: defaultTypeID }
   dlgP.value = true
 }
 
@@ -204,12 +230,11 @@ async function savePos() {
   try {
     await createPosition({ position_type_id: nextTypeId, name: pForm.value.name, code: pForm.value.code })
     dlgP.value = false
-    if (selectedType.value !== nextTypeId) {
-      selectedType.value = nextTypeId
-      const nextType = typeOptions.value.find((x) => x.id === nextTypeId)
-      if (nextType) selectedTypeMeta.value = { id: nextType.id, name: nextType.name, code: nextType.code }
-      pageP.value = 1
-    }
+    const nextType = typeOptions.value.find((x) => x.id === nextTypeId)
+    if (nextType) selectedTypeMeta.value = { id: nextType.id, name: nextType.name, code: nextType.code }
+    selectedType.value = nextTypeId
+    posTypeFilter.value = nextTypeId
+    pageP.value = 1
     ElMessage.success('已保存')
     await loadTypes()
     await loadPos()
@@ -228,12 +253,11 @@ async function savePosEdit() {
       position_type_id: nextTypeId,
     })
     dlgPEdit.value = false
-    if (selectedType.value !== nextTypeId) {
-      selectedType.value = nextTypeId
-      const nextType = typeOptions.value.find((x) => x.id === nextTypeId)
-      if (nextType) selectedTypeMeta.value = { id: nextType.id, name: nextType.name, code: nextType.code }
-      pageP.value = 1
-    }
+    const nextType = typeOptions.value.find((x) => x.id === nextTypeId)
+    if (nextType) selectedTypeMeta.value = { id: nextType.id, name: nextType.name, code: nextType.code }
+    selectedType.value = nextTypeId
+    posTypeFilter.value = nextTypeId
+    pageP.value = 1
     ElMessage.success('已保存')
     await loadTypes()
     await loadPos()
@@ -259,28 +283,30 @@ const typeColumns: TableColumn[] = [
 const posColumns = computed<TableColumn[]>(() => [
   { key: 'name', title: '名称' },
   { key: 'code', title: '编码' },
-  { key: 'actions', title: '操作', width: 160, fixed: 'right', tooltip: false, hidden: !selectedType.value },
+  { key: 'position_type', title: '岗位类型', minWidth: 140 },
+  { key: 'actions', title: '操作', width: 160, fixed: 'right', tooltip: false },
 ])
 
 const positionSubtitle = computed(() => {
-  if (!selectedTypeMeta.value) return '请先在左侧选择一个岗位类型，右侧将展示该类型下的岗位'
-  return `当前岗位归属于：${selectedTypeMeta.value.name}（编码 ${selectedTypeMeta.value.code}）`
+  if (!selectedTypeMeta.value) return '默认展示全部岗位；点击左侧岗位类型或使用筛选框可查看指定类型'
+  return `当前筛选岗位类型：${selectedTypeMeta.value.name}（编码 ${selectedTypeMeta.value.code}）`
 })
 
 onMounted(async () => {
+  await loadTypeOptions()
   await loadTypes()
   await loadPos()
 })
 </script>
 
 <template>
-  <div class="page">
+  <div class="page position-page">
     <el-row :gutter="16">
-      <el-col :xs="24" :lg="10">
+      <el-col :xs="24" :lg="10" class="position-panel-col">
         <NeuroAgentListPage
           mode="el-table"
           title="岗位类型"
-          subtitle="点击一行联动右侧岗位列表"
+          subtitle="默认展示全部类型；点击一行筛选右侧岗位"
           :columns="typeColumns"
           :data="types"
           :total="totalT"
@@ -308,7 +334,7 @@ onMounted(async () => {
           </template>
         </NeuroAgentListPage>
       </el-col>
-      <el-col :xs="24" :lg="14">
+      <el-col :xs="24" :lg="14" class="position-panel-col">
         <NeuroAgentListPage
           mode="el-table"
           title="岗位"
@@ -323,12 +349,16 @@ onMounted(async () => {
           :show-selection="false"
           :filter-fields="posFilterFields"
           @create="openPosDlg"
+          @reset="onPosReset"
           @search="onPosSearch"
           @page-change="onPosPageChange"
           @page-size-change="onPosPageSizeChange"
         >
           <template #actions>
-            <el-button v-permission="'pos:create'" class="btn-gradient" :disabled="!selectedType" @click="openPosDlg">新增</el-button>
+            <el-button v-permission="'pos:create'" class="btn-gradient" @click="openPosDlg">新增</el-button>
+          </template>
+          <template #col-position_type="{ row }">
+            <span>{{ row.position_type_name || positionTypeName(row.position_type_id) }}</span>
           </template>
           <template #col-actions="{ row }">
             <span class="op-btns">
@@ -440,6 +470,44 @@ onMounted(async () => {
 <style scoped>
 .page {
   padding: 16px;
+}
+
+.position-page :deep(.position-panel-col),
+.position-page :deep(.position-panel-col .list-card),
+.position-page :deep(.position-panel-col .list-el-panel),
+.position-page :deep(.position-panel-col .card-table),
+.position-page :deep(.position-panel-col .el-table),
+.position-page :deep(.position-panel-col .el-table__inner-wrapper),
+.position-page :deep(.position-panel-col .el-table__body-wrapper),
+.position-page :deep(.position-panel-col .el-table__fixed-body-wrapper),
+.position-page :deep(.position-panel-col .el-table__fixed-right),
+.position-page :deep(.position-panel-col .el-table__fixed-left),
+.position-page :deep(.position-panel-col .el-scrollbar),
+.position-page :deep(.position-panel-col .el-scrollbar__wrap),
+.position-page :deep(.position-panel-col .el-scrollbar__view) {
+  height: auto !important;
+  max-height: none !important;
+}
+
+.position-page :deep(.position-panel-col .list-card),
+.position-page :deep(.position-panel-col .list-el-panel),
+.position-page :deep(.position-panel-col .card-table),
+.position-page :deep(.position-panel-col .el-table__inner-wrapper),
+.position-page :deep(.position-panel-col .el-table__body-wrapper),
+.position-page :deep(.position-panel-col .el-table__fixed-body-wrapper),
+.position-page :deep(.position-panel-col .el-scrollbar__wrap) {
+  overflow-y: visible !important;
+}
+
+.position-page :deep(.position-panel-col .el-scrollbar__bar.is-vertical),
+.position-page :deep(.position-panel-col .el-table__body-wrapper::-webkit-scrollbar),
+.position-page :deep(.position-panel-col .el-scrollbar__wrap::-webkit-scrollbar) {
+  display: none !important;
+}
+
+.position-page :deep(.position-panel-col .el-table__body-wrapper),
+.position-page :deep(.position-panel-col .el-scrollbar__wrap) {
+  scrollbar-width: none;
 }
 
 .nm-form-item--full {

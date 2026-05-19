@@ -143,9 +143,26 @@ func (h *IdentityHandler) Positions(c *gin.Context) {
 	var total int64
 	_ = query.Model(&models.Position{}).Count(&total).Error
 	_ = query.Order("id asc").Offset(skip).Limit(limit).Find(&rows).Error
+	typeIDs := make([]uint64, 0, len(rows))
+	for _, row := range rows {
+		typeIDs = append(typeIDs, row.PositionTypeID)
+	}
+	typeByID := map[uint64]models.PositionType{}
+	if len(typeIDs) > 0 {
+		var positionTypes []models.PositionType
+		_ = h.db.Where("tenant_id = ? AND id IN ? AND deleted_at IS NULL", user.TenantID, uniqueUint64s(typeIDs)).Find(&positionTypes).Error
+		for _, row := range positionTypes {
+			typeByID[row.ID] = row
+		}
+	}
 	items := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, gin.H{"id": row.ID, "position_type_id": row.PositionTypeID, "name": row.Name, "code": row.Code})
+		item := gin.H{"id": row.ID, "position_type_id": row.PositionTypeID, "name": row.Name, "code": row.Code}
+		if positionType, ok := typeByID[row.PositionTypeID]; ok {
+			item["position_type_name"] = positionType.Name
+			item["position_type_code"] = positionType.Code
+		}
+		items = append(items, item)
 	}
 	response.OK(c, paginatedWithTotal(items, total, skip, limit))
 }
