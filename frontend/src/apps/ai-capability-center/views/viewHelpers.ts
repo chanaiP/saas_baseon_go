@@ -90,7 +90,10 @@ export function numberText(value: unknown) {
 
 export function moneyText(value: unknown) {
   const numeric = Number(value ?? 0)
-  return Number.isFinite(numeric) ? `¥${numeric.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '¥0.00'
+  if (!Number.isFinite(numeric)) return '¥0.00'
+  const abs = Math.abs(numeric)
+  const fractionDigits = abs > 0 && abs < 0.01 ? 6 : 2
+  return `¥${numeric.toLocaleString('zh-CN', { minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits })}`
 }
 
 export function priceText(value: unknown) {

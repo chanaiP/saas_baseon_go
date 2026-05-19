@@ -274,6 +274,7 @@ type AIUsageRecord struct {
 	PlatformUnit       string     `json:"platform_unit" gorm:"column:platform_unit;type:varchar(32)"`
 	PlatformAmount     float64    `json:"platform_amount" gorm:"column:platform_amount;type:numeric(18,6);not null;default:0"`
 	LatencyMS          int        `json:"latency_ms" gorm:"column:latency_ms;not null;default:0"`
+	TaskDurationMS     int        `json:"task_duration_ms" gorm:"column:task_duration_ms;not null;default:0"`
 	ProviderHTTPStatus int        `json:"provider_http_status" gorm:"column:provider_http_status;not null;default:0"`
 	ProviderRequestID  string     `json:"provider_request_id" gorm:"column:provider_request_id;type:varchar(200)"`
 	StartedAt          *time.Time `json:"started_at" gorm:"column:started_at"`

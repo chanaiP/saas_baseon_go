@@ -4,7 +4,7 @@ import { ElMessage } from 'element-plus'
 
 import NeuroAgentDialog from '@/views/components/NeuroAgentDialog.vue'
 
-type FieldOption = { label: string; value: string | number }
+type FieldOption = { label: string; value: string | number; fill?: Record<string, unknown> }
 
 const props = defineProps<{
   modelValue: boolean
@@ -33,7 +33,7 @@ const fields = computed(() => Object.entries(sampleObject.value)
     arrayObject: isArrayOfObjects(value),
     arrayColumns: arrayObjectColumns(value),
     options: fieldOptions(key),
-    multiple: key === 'capabilities' || key === 'default_for',
+    multiple: isMultipleField(key),
     complex: isComplex(value) && !fieldOptions(key).length && !isArrayOfObjects(value),
     inputType: typeof value === 'number' ? 'number' : 'text',
   })))
@@ -93,6 +93,8 @@ function fieldLabel(key: string) {
     monthly_budget: '月预算',
     name: '名称',
     owner: '负责人',
+    override_base_route_id: '覆盖基础路由',
+    policy_name: '策略名称',
     priority: '优先级',
     provider_id: '供应商 ID',
     price_policy_id: '价格策略',
@@ -105,6 +107,7 @@ function fieldLabel(key: string) {
     strategy: '路由策略',
     success_rate: '成功率',
     tenant_scope: '租户范围',
+    tenant_ids: '租户',
     timeout_ms: '超时时间',
     type: '类型',
     unit: '计费单位',
@@ -112,6 +115,10 @@ function fieldLabel(key: string) {
     version: '版本',
   }
   return labels[key] || key
+}
+
+function isMultipleField(key: string) {
+  return key === 'capabilities' || key === 'default_for' || key === 'tenant_ids'
 }
 
 function isComplex(value: unknown) {
@@ -143,7 +150,7 @@ function arrayObjectColumns(value: unknown) {
     key,
     label: fieldLabel(key),
     options: fieldOptions(key),
-    multiple: key === 'capabilities' || key === 'default_for',
+    multiple: isMultipleField(key),
     complex: isComplex(first[key]) && !fieldOptions(key).length,
     inputType: typeof first[key] === 'number' ? 'number' : 'text',
   }))
@@ -257,6 +264,12 @@ function selectValue(key: string) {
 
 function updateFormValue(key: string, value: unknown) {
   formData[key] = value
+  const selected = fieldOptions(key).find((option) => option.value === value)
+  if (selected?.fill) {
+    for (const [fillKey, fillValue] of Object.entries(selected.fill)) {
+      formData[fillKey] = fillValue
+    }
+  }
 }
 
 function arrayRows(key: string) {

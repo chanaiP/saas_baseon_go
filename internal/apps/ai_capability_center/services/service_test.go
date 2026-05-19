@@ -70,6 +70,15 @@ func TestOverviewAggregatesUsageMetrics(t *testing.T) {
 	require.Len(t, overview.CoreBaseRoutes, 1)
 }
 
+func TestBillingUnitConversion(t *testing.T) {
+	require.InDelta(t, 245, billableUsageAmount(245, "tokens"), 0.0001)
+	require.InDelta(t, 0.245, billableUsageAmount(245, "1K tokens"), 0.0001)
+	require.InDelta(t, 0.000245, billableUsageAmount(245, "1M tokens"), 0.000001)
+	require.InDelta(t, 0.245, platformUsageAmount(245, "1K tokens", 999), 0.0001)
+	require.InDelta(t, 0.000245, platformUsageAmount(245, "1M tokens", 999), 0.000001)
+	require.InDelta(t, 490, platformUsageAmount(245, "tokens", 2), 0.0001)
+}
+
 func TestOverviewReturnsEmptySeriesWithoutUsage(t *testing.T) {
 	db := newAICapabilityTestDB(t)
 	overview, err := NewService(db).Overview(context.Background())
@@ -1296,8 +1305,8 @@ func TestInvokeExecutesOpenAICompatibleChatAndRecordsProviderUsage(t *testing.T)
 	}).Error)
 	pricePolicy := models.AIModelPricePolicy{
 		ID: "price-policy-openai-real", ModelID: model.ID, FeatureKey: "chat_tokens", FeatureName: "对话 Token", ModelType: "text",
-		CapabilityCode: "chat_completion", BillingMode: "flat", BillingUnit: "tokens", PlatformUnit: "tokens",
-		BaseCostPrice: 0.01, BaseSalePrice: 0.03, Currency: "CNY", Status: "active",
+		CapabilityCode: "chat_completion", BillingMode: "flat", BillingUnit: "1M tokens", PlatformUnit: "1M tokens",
+		BaseCostPrice: 2, BaseSalePrice: 12, Currency: "CNY", Status: "active",
 		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
 	}
 	require.NoError(t, db.Create(&pricePolicy).Error)
@@ -1318,8 +1327,11 @@ func TestInvokeExecutesOpenAICompatibleChatAndRecordsProviderUsage(t *testing.T)
 	require.Equal(t, "success", record.Status)
 	require.Equal(t, "真实供应商调用成功，已记录路由、策略、配额、限流和价格命中结果", record.UsageDetail)
 	require.InDelta(t, 42, record.UsageAmount, 0.0001)
-	require.InDelta(t, 0.42, record.CostAmount, 0.0001)
-	require.InDelta(t, 1.26, record.BillingAmount, 0.0001)
+	require.Equal(t, "tokens", record.UsageUnit)
+	require.Equal(t, "1M tokens", record.PlatformUnit)
+	require.InDelta(t, 0.000042, record.PlatformAmount, 0.000001)
+	require.InDelta(t, 0.000084, record.CostAmount, 0.000001)
+	require.InDelta(t, 0.000504, record.BillingAmount, 0.000001)
 	require.Equal(t, http.StatusOK, record.ProviderHTTPStatus)
 	require.Equal(t, "provider-req-success", record.ProviderRequestID)
 	require.NotNil(t, record.StartedAt)
@@ -1329,6 +1341,76 @@ func TestInvokeExecutesOpenAICompatibleChatAndRecordsProviderUsage(t *testing.T)
 	require.NotEmpty(t, record.ResponseHash)
 	require.NotEqual(t, record.PromptHash, record.ResponseHash)
 	require.Contains(t, record.RequestParams, `"content_record_level":1`)
+}
+
+func TestInvokeDeepSeekReasonerUsesOfficialTokenBreakdownPricing(t *testing.T) {
+	db := newAICapabilityTestDB(t)
+	seedCapability(t, db, "reasoning", "tokens")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/v1/chat/completions", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-deepseek","choices":[{"message":{"role":"assistant","content":"诊断完成"},"finish_reason":"stop"}],"usage":{"prompt_tokens":300,"prompt_cache_hit_tokens":100,"prompt_cache_miss_tokens":200,"completion_tokens":50,"total_tokens":350}}`))
+	}))
+	defer server.Close()
+
+	now := time.Now()
+	provider := models.AIProvider{
+		ID: "provider-deepseek-reasoner", Name: "DeepSeek", Code: "deepseek", Type: "public_cloud",
+		BaseURL: server.URL, AuthType: "api_key", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&provider).Error)
+	account := models.AIProviderAccount{
+		ID: "account-deepseek-reasoner", ProviderID: provider.ID, AccountName: "prod", KeyAlias: "DEEPSEEK_TEST_KEY", EncryptedAPIKey: "sk-test",
+		Status: "active", AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&account).Error)
+	api := models.AIProviderAPI{
+		ID: "api-deepseek-reasoner", ProviderID: provider.ID, AccountID: account.ID, APIName: "chat.completions", APIPath: "/v1/chat/completions", APIType: "chat",
+		Capabilities: []string{"reasoning"}, AuthType: "api_key", TimeoutMS: 30000, Status: "active", HealthStatus: "active", HealthCheckedAt: &now,
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&api).Error)
+	model := models.AIModel{
+		ID: "model-deepseek-reasoner", ProviderID: provider.ID, ModelCode: "deepseek-reasoner", ModelName: "DeepSeek Reasoner",
+		ModelType: "text", Capabilities: []string{"reasoning"}, Status: "active", DefaultFor: []string{},
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}
+	require.NoError(t, db.Create(&model).Error)
+	route := seedBaseRoute(t, db, "route-deepseek-reasoner", "reasoning")
+	seedScenario(t, db, route.ID)
+	require.NoError(t, db.Model(&models.AIScenario{}).Where("id = ?", "scenario-copy").Updates(map[string]interface{}{
+		"scenario_type": "reasoning", "capability_code": "reasoning", "model_type": "text",
+	}).Error)
+	require.NoError(t, db.Create(&models.AIBaseRouteModel{
+		ID: "route-model-deepseek-reasoner", BaseRouteID: route.ID, ModelID: model.ID, ProviderAccountID: account.ID, ProviderAPIID: api.ID,
+		Role: "primary", Priority: 1, Weight: 100, TimeoutMS: 30000, Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+	require.NoError(t, db.Create(&models.AIModelPricePolicy{
+		ID: "price-policy-deepseek-reasoner", ModelID: model.ID, FeatureKey: "reasoning_tokens", FeatureName: "推理 Token", ModelType: "text",
+		CapabilityCode: "reasoning", BillingMode: "flat", BillingUnit: "1M tokens", PlatformUnit: "1M tokens",
+		BaseCostPrice: 4, BaseSalePrice: 8, Currency: "CNY", Status: "active",
+		AITimeFields: models.AITimeFields{CreatedAt: now, UpdatedAt: now},
+	}).Error)
+
+	resp, err := NewService(db).Invoke(context.Background(), InvokeRequest{
+		TenantID: "tenant-a", AppCode: "product_center", AIScenarioCode: "copy_gen", RequestID: "invoke-deepseek-reasoner",
+		Input: map[string]interface{}{"messages": []map[string]string{
+			{"role": "user", "content": "分析异常"},
+		}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "success", resp.Status)
+
+	var record models.AIUsageRecord
+	require.NoError(t, db.Where("request_id = ?", "invoke-deepseek-reasoner").First(&record).Error)
+	require.InDelta(t, 350, record.UsageAmount, 0.0001)
+	require.Equal(t, "tokens", record.UsageUnit)
+	require.Equal(t, "1M tokens", record.PlatformUnit)
+	require.InDelta(t, 0.00035, record.PlatformAmount, 0.000001)
+	require.InDelta(t, 0.0017, record.CostAmount, 0.000001)
+	require.InDelta(t, 0.0034, record.BillingAmount, 0.000001)
 }
 
 func TestInvokeExecutesOpenAICompatibleEmbeddingsAndRecordsProviderUsage(t *testing.T) {
@@ -2253,6 +2335,7 @@ func newAICapabilityTestDB(t *testing.T) *gorm.DB {
 		platform_unit TEXT,
 		platform_amount NUMERIC NOT NULL DEFAULT 0,
 		latency_ms INTEGER NOT NULL DEFAULT 0,
+		task_duration_ms INTEGER NOT NULL DEFAULT 0,
 		provider_http_status INTEGER NOT NULL DEFAULT 0,
 		provider_request_id TEXT,
 		started_at DATETIME,

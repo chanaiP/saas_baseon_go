@@ -172,7 +172,7 @@ onMounted(loadData)
                   </template>
                 </el-table-column>
                 <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag></template></el-table-column>
-                <el-table-column label="操作" width="140"><template #default="{ row }"><AiResourceActions resource="models" :row="row" :options="{ provider_id: providerOptions }" @saved="loadData" /></template></el-table-column>
+                <el-table-column label="操作" width="140"><template #default="{ row }"><AiResourceActions resource="models" :row="{ ...row, latency_p95: undefined, success_rate: undefined }" :options="{ provider_id: providerOptions }" @saved="loadData" /></template></el-table-column>
               </el-table>
             </div>
           </section>
@@ -223,7 +223,7 @@ onMounted(loadData)
     <AiJsonDialog
       v-model="createVisible"
       title="新增模型"
-      :sample="{ provider_id: rowId(selectedProvider), model_code: 'gpt-4.1', model_name: 'GPT 4.1', model_type: 'text', capabilities: ['chat_completion'], context_window: 128000, unit: 'tokens', status: 'active', latency_p95: 900, success_rate: 99.5 }"
+      :sample="{ provider_id: rowId(selectedProvider), model_code: 'gpt-4.1', model_name: 'GPT 4.1', model_type: 'text', capabilities: ['chat_completion'], context_window: 128000, unit: 'tokens', status: 'active' }"
       :options="{ provider_id: providerOptions }"
       @submit="createModel"
     />

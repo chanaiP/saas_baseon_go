@@ -39,7 +39,6 @@ var demoProviderCatalogCodes = map[string]struct{}{
 	"openai":            {},
 	"azure-openai":      {},
 	"anthropic":         {},
-	"deepseek":          {},
 	"dashscope":         {},
 	"volcengine":        {},
 	"zhipu":             {},
@@ -737,14 +736,15 @@ type InvokeResponse struct {
 }
 
 type VideoTaskQueryResponse struct {
-	RequestID string                 `json:"request_id"`
-	TaskID    string                 `json:"task_id"`
-	Status    string                 `json:"task_status"`
-	VideoURL  string                 `json:"video_url,omitempty"`
-	Code      string                 `json:"code,omitempty"`
-	Message   string                 `json:"message,omitempty"`
-	Usage     map[string]interface{} `json:"usage,omitempty"`
-	Raw       map[string]interface{} `json:"raw,omitempty"`
+	RequestID  string                 `json:"request_id"`
+	TaskID     string                 `json:"task_id"`
+	Status     string                 `json:"task_status"`
+	VideoURL   string                 `json:"video_url,omitempty"`
+	DurationMS int                    `json:"duration_ms,omitempty"`
+	Code       string                 `json:"code,omitempty"`
+	Message    string                 `json:"message,omitempty"`
+	Usage      map[string]interface{} `json:"usage,omitempty"`
+	Raw        map[string]interface{} `json:"raw,omitempty"`
 }
 
 type quotaCheckResult struct {
@@ -776,6 +776,7 @@ type pricingResult struct {
 	TierID         string
 	UsageAmount    float64
 	UsageUnit      string
+	BillingUnit    string
 	CostAmount     float64
 	BillingAmount  float64
 	PlatformUnit   string
@@ -804,6 +805,7 @@ type providerExecutionResult struct {
 	Data              map[string]interface{}
 	UsageAmount       float64
 	UsageUnit         string
+	UsageBreakdown    map[string]float64
 	ErrorCode         string
 	ErrorMessage      string
 	LatencyMS         int
@@ -921,6 +923,7 @@ func executeOpenAICompatibleAttempt(ctx context.Context, client *http.Client, ra
 	}
 	data := standardizeOpenAICompatibleResponse(requestKind, decoded)
 	usageAmount := openAIUsageAmount(requestKind, decoded, req.InvokeRequest)
+	usageBreakdown := openAIUsageBreakdown(decoded)
 	usageUnit := "tokens"
 	if requestKind == "images" || requestKind == "dashscope_image" {
 		usageUnit = "images"
@@ -937,6 +940,7 @@ func executeOpenAICompatibleAttempt(ctx context.Context, client *http.Client, ra
 		Data:              data,
 		UsageAmount:       usageAmount,
 		UsageUnit:         usageUnit,
+		UsageBreakdown:    usageBreakdown,
 		LatencyMS:         latencyMS,
 		StartedAt:         startedAt,
 		FinishedAt:        finishedAt,
@@ -1331,6 +1335,30 @@ func openAIUsageAmount(kind string, decoded map[string]interface{}, req InvokeRe
 		return value
 	}
 	return numberFromInterface(usage["prompt_tokens"]) + numberFromInterface(usage["completion_tokens"])
+}
+
+func openAIUsageBreakdown(decoded map[string]interface{}) map[string]float64 {
+	usage, _ := decoded["usage"].(map[string]interface{})
+	if len(usage) == 0 {
+		return nil
+	}
+	keys := []string{
+		"prompt_tokens",
+		"completion_tokens",
+		"total_tokens",
+		"prompt_cache_hit_tokens",
+		"prompt_cache_miss_tokens",
+	}
+	breakdown := map[string]float64{}
+	for _, key := range keys {
+		if value := numberFromInterface(usage[key]); value > 0 {
+			breakdown[key] = value
+		}
+	}
+	if len(breakdown) == 0 {
+		return nil
+	}
+	return breakdown
 }
 
 func providerErrorMessage(decoded map[string]interface{}, rawBody []byte) string {
@@ -2515,6 +2543,9 @@ func (s *Service) Invoke(ctx context.Context, req InvokeRequest) (InvokeResponse
 				if providerResult.UsageUnit != "" {
 					req.Params["usage_unit"] = providerResult.UsageUnit
 				}
+				for key, value := range providerResult.UsageBreakdown {
+					req.Params[key] = value
+				}
 				actualPricing, err := s.matchPricing(ctx, model, scenario, req)
 				if err != nil {
 					return InvokeResponse{}, err
@@ -2687,17 +2718,52 @@ func (s *Service) QueryVideoTask(ctx context.Context, tenantID, requestID, taskI
 	if status == "" {
 		status = "UNKNOWN"
 	}
+	durationMS := record.TaskDurationMS
+	if videoTaskTerminalStatus(status) && record.StartedAt != nil {
+		finishedAt := time.Now()
+		durationMS = int(finishedAt.Sub(*record.StartedAt).Milliseconds())
+		if durationMS < 0 {
+			durationMS = 0
+		}
+		updates := map[string]interface{}{
+			"task_duration_ms": durationMS,
+			"finished_at":      finishedAt,
+		}
+		if status == "SUCCEEDED" || status == "SUCCESS" {
+			updates["status"] = "success"
+			if videoURL := cleanProviderString(output["video_url"]); videoURL != "" {
+				updates["usage_detail"] = "视频任务完成，已记录任务总耗时"
+			}
+		}
+		if status == "FAILED" || status == "CANCELED" || status == "UNKNOWN" {
+			updates["status"] = "error"
+			updates["error_code"] = defaultString(cleanProviderString(output["code"]), strings.ToLower(status))
+			updates["error_message"] = cleanProviderString(output["message"])
+			updates["usage_detail"] = "视频任务失败，已记录任务总耗时"
+		}
+		_ = s.db.WithContext(ctx).Model(&models.AIUsageRecord{}).Where("id = ?", record.ID).Updates(updates).Error
+	}
 	usage, _ := decoded["usage"].(map[string]interface{})
 	return VideoTaskQueryResponse{
-		RequestID: cleanProviderString(decoded["request_id"]),
-		TaskID:    defaultString(cleanProviderString(output["task_id"]), taskID),
-		Status:    status,
-		VideoURL:  cleanProviderString(output["video_url"]),
-		Code:      cleanProviderString(output["code"]),
-		Message:   cleanProviderString(output["message"]),
-		Usage:     usage,
-		Raw:       decoded,
+		RequestID:  cleanProviderString(decoded["request_id"]),
+		TaskID:     defaultString(cleanProviderString(output["task_id"]), taskID),
+		Status:     status,
+		VideoURL:   cleanProviderString(output["video_url"]),
+		DurationMS: durationMS,
+		Code:       cleanProviderString(output["code"]),
+		Message:    cleanProviderString(output["message"]),
+		Usage:      usage,
+		Raw:        decoded,
 	}, nil
+}
+
+func videoTaskTerminalStatus(status string) bool {
+	switch strings.ToUpper(strings.TrimSpace(status)) {
+	case "SUCCEEDED", "SUCCESS", "FAILED", "CANCELED", "UNKNOWN":
+		return true
+	default:
+		return false
+	}
 }
 
 func dashScopeTaskQueryURL(providerBaseURL, accountEndpoint, apiPath, taskID string) string {
@@ -3145,10 +3211,13 @@ func (s *Service) matchPricing(ctx context.Context, model models.AIModel, scenar
 		return pricingResult{}, err
 	}
 	result.PolicyID = policy.ID
-	result.UsageUnit = defaultString(policy.BillingUnit, result.UsageUnit)
+	result.BillingUnit = defaultString(policy.BillingUnit, result.UsageUnit)
 	result.PlatformUnit = policy.PlatformUnit
-	result.PlatformAmount = policy.BasePlatformAmount * usageAmount
+	result.PlatformAmount = platformUsageAmount(usageAmount, result.PlatformUnit, policy.BasePlatformAmount)
 	result.FeatureKey = policy.FeatureKey
+	if applyDeepSeekOfficialPricing(&result, model.ModelCode, req.Params, policy) {
+		return result, nil
+	}
 	costPrice := policy.BaseCostPrice
 	salePrice := policy.BaseSalePrice
 	var tiers []models.AIModelPriceTier
@@ -3160,12 +3229,62 @@ func (s *Service) matchPricing(ctx context.Context, model models.AIModel, scenar
 		costPrice = tier.CostPrice
 		salePrice = tier.SalePrice
 		if tier.PlatformAmount > 0 {
-			result.PlatformAmount = tier.PlatformAmount * usageAmount
+			result.PlatformAmount = platformUsageAmount(usageAmount, result.PlatformUnit, tier.PlatformAmount)
 		}
 	}
-	result.CostAmount = costPrice * usageAmount
-	result.BillingAmount = salePrice * usageAmount
+	billableAmount := billableUsageAmount(usageAmount, result.BillingUnit)
+	result.CostAmount = costPrice * billableAmount
+	result.BillingAmount = salePrice * billableAmount
 	return result, nil
+}
+
+func applyDeepSeekOfficialPricing(result *pricingResult, modelCode string, params map[string]interface{}, policy models.AIModelPricePolicy) bool {
+	model := strings.ToLower(strings.TrimSpace(modelCode))
+	if !strings.Contains(model, "deepseek") || normalizeUsageUnit(result.BillingUnit) != "1mtokens" {
+		return false
+	}
+	hitRate, missRate, outputRate, ok := deepSeekOfficialCNYRates(model)
+	if !ok {
+		return false
+	}
+	hitTokens := numberParam(params, "prompt_cache_hit_tokens", 0)
+	missTokens := numberParam(params, "prompt_cache_miss_tokens", 0)
+	promptTokens := numberParam(params, "prompt_tokens", 0)
+	outputTokens := numberParam(params, "completion_tokens", 0)
+	if hitTokens+missTokens <= 0 && promptTokens > 0 {
+		missTokens = promptTokens
+	}
+	totalTokens := hitTokens + missTokens + outputTokens
+	if totalTokens <= 0 {
+		return false
+	}
+	if result.UsageAmount <= 0 || result.UsageAmount < totalTokens {
+		result.UsageAmount = totalTokens
+	}
+	result.UsageUnit = "tokens"
+	result.BillingUnit = "1M tokens"
+	result.PlatformUnit = "1M tokens"
+	result.PlatformAmount = totalTokens / 1000000
+	result.CostAmount = ((hitTokens * hitRate) + (missTokens * missRate) + (outputTokens * outputRate)) / 1000000
+	result.BillingAmount = result.CostAmount * saleMarkup(policy.BaseCostPrice, policy.BaseSalePrice)
+	return true
+}
+
+func deepSeekOfficialCNYRates(modelCode string) (hitRate, missRate, outputRate float64, ok bool) {
+	if strings.Contains(modelCode, "reasoner") {
+		return 1, 4, 16, true
+	}
+	if strings.Contains(modelCode, "chat") {
+		return 0.5, 2, 8, true
+	}
+	return 0, 0, 0, false
+}
+
+func saleMarkup(costPrice, salePrice float64) float64 {
+	if costPrice <= 0 || salePrice <= 0 {
+		return 1
+	}
+	return salePrice / costPrice
 }
 
 func matchPriceTier(tiers []models.AIModelPriceTier, params map[string]interface{}) (models.AIModelPriceTier, bool) {
@@ -3191,6 +3310,43 @@ func matchPriceTier(tiers []models.AIModelPriceTier, params map[string]interface
 		return tiers[0], true
 	}
 	return models.AIModelPriceTier{}, false
+}
+
+func billableUsageAmount(usageAmount float64, unit string) float64 {
+	switch normalizeUsageUnit(unit) {
+	case "1ktokens":
+		return usageAmount / 1000
+	case "1mtokens":
+		return usageAmount / 1000000
+	default:
+		return usageAmount
+	}
+}
+
+func platformUsageAmount(usageAmount float64, unit string, fallbackFactor float64) float64 {
+	switch normalizeUsageUnit(unit) {
+	case "1ktokens":
+		return usageAmount / 1000
+	case "1mtokens":
+		return usageAmount / 1000000
+	default:
+		return fallbackFactor * usageAmount
+	}
+}
+
+func normalizeUsageUnit(unit string) string {
+	normalized := strings.ToLower(strings.TrimSpace(unit))
+	normalized = strings.ReplaceAll(normalized, " ", "")
+	normalized = strings.ReplaceAll(normalized, "_", "")
+	normalized = strings.ReplaceAll(normalized, "-", "")
+	switch normalized {
+	case "1ktoken", "1ktokens", "ktoken", "ktokens", "千token", "千tokens":
+		return "1ktokens"
+	case "1mtoken", "1mtokens", "mtoken", "mtokens", "milliontoken", "milliontokens", "百万token", "百万tokens":
+		return "1mtokens"
+	default:
+		return normalized
+	}
 }
 
 func (s *Service) evaluateQuotaRules(ctx context.Context, req InvokeRequest, scenario models.AIScenario, strategy models.AITenantStrategyPolicy, found bool, routeModel models.AIBaseRouteModel, pricing pricingResult, accountID, apiID string, now time.Time) ([]quotaCheckResult, error) {

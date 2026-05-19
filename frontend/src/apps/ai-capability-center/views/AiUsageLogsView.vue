@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Close, CopyDocument, Refresh, Search } from '@element-plus/icons-vue'
 
@@ -8,6 +8,7 @@ import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
 import { fetchTenants } from '@/api/tenant'
 
 import { fetchAiResource } from '../api'
+import type { AiPage } from '../types'
 import { emptyPage, moneyText, numberText, rowId, statusText, statusType, text, type AiRow } from './viewHelpers'
 import './aiPrototype.css'
 
@@ -17,12 +18,20 @@ const loading = ref(false)
 const keyword = ref('')
 const startDate = ref(todayChinaDate())
 const endDate = ref(todayChinaDate())
+const customRangeVisible = ref(false)
+const customDateRange = ref<[string, string]>([todayChinaDate(), todayChinaDate()])
 const scenarioKey = ref('')
 const page = ref(1)
 const pageSize = ref(20)
 const records = ref(emptyPage())
 const scenarios = ref(emptyPage())
 const tenants = ref(emptyPage())
+const providers = ref(emptyPage())
+const accounts = ref(emptyPage())
+const apis = ref(emptyPage())
+const models = ref(emptyPage())
+const baseRoutes = ref(emptyPage())
+const tenantStrategies = ref(emptyPage())
 const selected = ref<AiRow | null>(null)
 
 interface UsageTotals {
@@ -38,6 +47,15 @@ interface ContentPolicy {
   description: string
   tone: 'success' | 'warning' | 'danger' | 'info'
 }
+
+type TimePreset = 'today' | 'yesterday' | 'last3' | 'last7'
+
+const timePresets: Array<{ key: TimePreset, label: string, startOffset: number, endOffset: number }> = [
+  { key: 'today', label: '今日', startOffset: 0, endOffset: 0 },
+  { key: 'yesterday', label: '昨日', startOffset: -1, endOffset: -1 },
+  { key: 'last3', label: '近三天', startOffset: -2, endOffset: 0 },
+  { key: 'last7', label: '近七天', startOffset: -6, endOffset: 0 },
+]
 
 const summaryRows = computed(() => {
   const summary = records.value.summary as AiRow | AiRow[] | undefined
@@ -59,6 +77,7 @@ const successRate = computed(() => {
 
 const selectedContentPolicy = computed(() => selected.value ? contentRecordPolicy(selected.value) : null)
 const selectedContentMode = computed(() => selectedContentPolicy.value?.title || '-')
+const drawerScrollLockClass = 'ai-usage-drawer-open'
 const scenarioOptions = computed(() => scenarios.value.items.map((row) => {
   const appCode = text(row.app_code, '')
   const scenarioCode = text(row.ai_scenario_code, '')
@@ -77,6 +96,23 @@ const selectedScenarioFilter = computed(() => {
   const [appCode = '', scenarioCode = ''] = scenarioKey.value.split('::')
   return { appCode, scenarioCode }
 })
+const activeTimePreset = computed<TimePreset | 'custom'>(() => {
+  const matched = timePresets.find((preset) => {
+    return startDate.value === chinaDateOffset(preset.startOffset) && endDate.value === chinaDateOffset(preset.endOffset)
+  })
+  return matched?.key || 'custom'
+})
+const dateRangeLabel = computed(() => startDate.value === endDate.value ? startDate.value : `${startDate.value} 至 ${endDate.value}`)
+
+function setDrawerScrollLock(locked: boolean) {
+  if (typeof document === 'undefined') return
+  document.documentElement.classList.toggle(drawerScrollLockClass, locked)
+  document.body.classList.toggle(drawerScrollLockClass, locked)
+}
+
+watch(selected, (value) => setDrawerScrollLock(Boolean(value)))
+
+onBeforeUnmount(() => setDrawerScrollLock(false))
 
 async function loadScenarios() {
   try {
@@ -92,6 +128,32 @@ async function loadTenants() {
     tenants.value = { ...page, items: page.items as unknown as AiRow[] }
   } catch {
     tenants.value = emptyPage()
+  }
+}
+
+async function loadLookups() {
+  try {
+    const [providerPage, accountPage, apiPage, modelPage, routePage, strategyPage] = await Promise.all([
+      fetchAiResource('providers', { skip: 0, limit: 500 }),
+      fetchAiResource('accounts', { skip: 0, limit: 500 }),
+      fetchAiResource('apis', { skip: 0, limit: 500 }),
+      fetchAiResource('models', { skip: 0, limit: 500 }),
+      fetchAiResource('base-routes', { skip: 0, limit: 500 }),
+      fetchAiResource('tenant-strategies', { skip: 0, limit: 500 }),
+    ])
+    providers.value = providerPage
+    accounts.value = accountPage
+    apis.value = apiPage
+    models.value = modelPage
+    baseRoutes.value = routePage
+    tenantStrategies.value = strategyPage
+  } catch {
+    providers.value = emptyPage()
+    accounts.value = emptyPage()
+    apis.value = emptyPage()
+    models.value = emptyPage()
+    baseRoutes.value = emptyPage()
+    tenantStrategies.value = emptyPage()
   }
 }
 
@@ -123,17 +185,34 @@ function search() {
   loadData()
 }
 
-function reset() {
+function setDateRange(start: string, end: string) {
+  startDate.value = start
+  endDate.value = end
+  customDateRange.value = [start, end]
+}
+
+async function reset() {
   keyword.value = ''
   scenarioKey.value = ''
-  startDate.value = todayChinaDate()
-  endDate.value = todayChinaDate()
+  customRangeVisible.value = false
+  setDateRange(todayChinaDate(), todayChinaDate())
+  page.value = 1
+  await nextTick()
+  await loadData()
+}
+
+function applyTimePreset(preset: TimePreset) {
+  const option = timePresets.find((item) => item.key === preset)
+  if (!option) return
+  customRangeVisible.value = false
+  setDateRange(chinaDateOffset(option.startOffset), chinaDateOffset(option.endOffset))
   search()
 }
 
-function showLast7Days() {
-  startDate.value = chinaDateOffset(-6)
-  endDate.value = todayChinaDate()
+function applyCustomRange(value: [string, string] | null) {
+  if (!value?.[0] || !value?.[1]) return
+  setDateRange(value[0], value[1])
+  customRangeVisible.value = false
   search()
 }
 
@@ -156,6 +235,45 @@ function techId(value: unknown) {
   const raw = text(value, '')
   if (!raw) return '-'
   return raw.length > 18 ? `${raw.slice(0, 10)} · ${raw.slice(-8)}` : raw
+}
+
+function lookupById(pageRef: { value: AiPage<AiRow> }, id: unknown) {
+  const raw = text(id, '')
+  if (!raw) return undefined
+  return pageRef.value.items.find((item) => String(item.id || '') === raw)
+}
+
+function techName(row: AiRow, pageRef: { value: AiPage<AiRow> }, idKey: string, nameKeys: string[], codeKeys: string[] = []) {
+  const item = lookupById(pageRef, row[idKey])
+  if (!item) return techId(row[idKey])
+  const name = nameKeys.map((key) => text(item[key], '')).find(Boolean)
+  const code = codeKeys.map((key) => text(item[key], '')).find(Boolean)
+  if (name && code && name !== code) return `${name}（${code}）`
+  return name || code || techId(row[idKey])
+}
+
+function providerName(row: AiRow) {
+  return techName(row, providers, 'provider_id', ['name', 'provider_name'], ['code', 'provider_code'])
+}
+
+function providerAccountName(row: AiRow) {
+  return techName(row, accounts, 'provider_account_id', ['account_name', 'name'], ['environment', 'status'])
+}
+
+function providerAPIName(row: AiRow) {
+  return techName(row, apis, 'provider_api_id', ['api_name', 'name'], ['api_type', 'api_path'])
+}
+
+function modelName(row: AiRow) {
+  return techName(row, models, 'model_id', ['model_name', 'name'], ['model_code'])
+}
+
+function baseRouteName(row: AiRow) {
+  return techName(row, baseRoutes, 'base_route_id', ['route_name', 'name'], ['route_code', 'strategy'])
+}
+
+function tenantStrategyName(row: AiRow) {
+  return techName(row, tenantStrategies, 'tenant_strategy_id', ['policy_name', 'name'], ['policy_code', 'strategy_type'])
 }
 
 function dateTime(value: unknown) {
@@ -213,6 +331,17 @@ function usageUnitText(value: unknown, fallback = '-') {
 
 function usageAmountText(amount: unknown, unit: unknown) {
   return `${numberText(amount)} ${usageUnitText(unit, '')}`.trim()
+}
+
+function durationText(value: unknown, fallback = '等待任务完成') {
+  const ms = Number(value ?? 0)
+  if (!Number.isFinite(ms) || ms <= 0) return fallback
+  if (ms < 1000) return `${numberText(ms)}ms`
+  const seconds = ms / 1000
+  if (seconds < 60) return `${seconds.toLocaleString('zh-CN', { maximumFractionDigits: 1 })} 秒`
+  const minutes = Math.floor(seconds / 60)
+  const rest = Math.round(seconds % 60)
+  return rest > 0 ? `${minutes} 分 ${rest} 秒` : `${minutes} 分`
 }
 
 function tenantDisplayName(row: AiRow) {
@@ -368,6 +497,7 @@ function contentValueText(key: string, value: unknown) {
 
 onMounted(() => {
   loadTenants()
+  loadLookups()
   loadScenarios()
   loadData()
 })
@@ -395,12 +525,47 @@ onMounted(() => {
               <span class="ai-select-option"><strong>{{ row.appName }} - {{ row.scenarioName }}</strong><small>{{ row.appCode }} · {{ row.scenarioCode }}</small></span>
             </el-option>
           </el-select>
-          <el-date-picker v-model="startDate" class="ai-filter-date" type="date" value-format="YYYY-MM-DD" placeholder="开始日期" :teleported="false" />
-          <el-date-picker v-model="endDate" class="ai-filter-date" type="date" value-format="YYYY-MM-DD" placeholder="结束日期" :teleported="false" />
+          <div class="ai-time-filter">
+            <el-button-group class="ai-time-preset-group">
+              <el-button
+                v-for="preset in timePresets"
+                :key="preset.key"
+                :class="{ 'is-active': activeTimePreset === preset.key }"
+                native-type="button"
+                @click="applyTimePreset(preset.key)"
+              >
+                {{ preset.label }}
+              </el-button>
+            </el-button-group>
+            <el-popover
+              v-model:visible="customRangeVisible"
+              placement="bottom-start"
+              popper-class="ai-time-popover"
+              trigger="click"
+              width="360"
+              :teleported="false"
+            >
+              <template #reference>
+                <el-button :class="{ 'is-active': activeTimePreset === 'custom' }" native-type="button">自定义</el-button>
+              </template>
+              <div class="ai-time-custom-panel">
+                <el-date-picker
+                  v-model="customDateRange"
+                  end-placeholder="结束时间"
+                  range-separator="至"
+                  start-placeholder="开始时间"
+                  type="daterange"
+                  value-format="YYYY-MM-DD"
+                  :teleported="false"
+                  @change="applyCustomRange"
+                />
+              </div>
+            </el-popover>
+            <span class="ai-time-range-label">{{ dateRangeLabel }}</span>
+          </div>
           <div class="ai-filter-actions">
-            <el-button :icon="Search" type="primary" @click="search">查询</el-button>
-            <el-button @click="showLast7Days">近 7 天</el-button>
-            <el-button :icon="Refresh" @click="reset">重置</el-button>
+            <el-button :icon="Search" native-type="button" type="primary" @click="search">查询</el-button>
+            <el-button :icon="Refresh" native-type="button" @click="reset">重置</el-button>
           </div>
         </div>
 
@@ -412,23 +577,23 @@ onMounted(() => {
         </div>
 
         <el-table v-loading="loading" :data="records.items" border empty-text="暂无今日真实调用，可切换近 7 天或检查 AI Gateway 接入配置。">
-          <el-table-column label="调用时间" width="180">
+          <el-table-column label="调用时间" min-width="180">
             <template #default="{ row }">{{ dateTime(row.called_at) }}</template>
           </el-table-column>
-          <el-table-column label="请求 ID" min-width="150">
+          <el-table-column label="请求 ID" min-width="180">
             <template #default="{ row }"><code>{{ shortId(row.request_id) }}</code></template>
           </el-table-column>
-          <el-table-column label="租户 / 应用" min-width="190">
+          <el-table-column label="租户 / 应用" min-width="180">
             <template #default="{ row }">
               <span class="ai-table-cell-main"><strong>{{ tenantDisplayName(row) }}</strong><small>{{ appDisplayName(row) }}</small></span>
             </template>
           </el-table-column>
-          <el-table-column label="AI 场景" min-width="190">
+          <el-table-column label="AI 场景" min-width="180">
             <template #default="{ row }">
               <span class="ai-table-cell-main"><strong>{{ scenarioDisplayName(row) }}</strong><small>场景编码：{{ text(row.ai_scenario_code) }}</small></span>
             </template>
           </el-table-column>
-          <el-table-column label="调用 / 用量" width="130">
+          <el-table-column label="调用 / 用量" min-width="120">
             <template #default="{ row }">
               <span class="ai-table-cell-main">
                 <strong>调用 {{ numberText(row.calls) }} 次</strong>
@@ -436,16 +601,16 @@ onMounted(() => {
               </span>
             </template>
           </el-table-column>
-          <el-table-column label="销售额 / 成本" width="140">
+          <el-table-column label="销售额 / 成本" min-width="130">
             <template #default="{ row }"><span class="ai-table-cell-main"><strong>{{ moneyText(row.billing_amount) }}</strong><small>成本 {{ moneyText(row.cost_amount) }}</small></span></template>
           </el-table-column>
-          <el-table-column label="延迟" width="90">
+          <el-table-column label="延迟" min-width="100">
             <template #default="{ row }">{{ numberText(row.latency_ms) }}ms</template>
           </el-table-column>
-          <el-table-column label="状态" width="100">
+          <el-table-column label="状态" min-width="100">
             <template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag></template>
           </el-table-column>
-          <el-table-column label="操作" width="90" fixed="right">
+          <el-table-column label="操作" min-width="90">
             <template #default="{ row }"><el-button link type="primary" @click="selected = row">详情</el-button></template>
           </el-table-column>
         </el-table>
@@ -468,6 +633,7 @@ onMounted(() => {
       :model-value="Boolean(selected)"
       :with-header="false"
       class="ai-usage-drawer"
+      lock-scroll
       size="min(720px, calc(100vw - 24px))"
       @close="selected = null"
     >
@@ -486,7 +652,7 @@ onMounted(() => {
         <div class="ai-detail-summary">
           <span>
             <small>状态</small>
-            <el-tag :type="statusType(selected.status)">{{ statusText(selected.status) }}</el-tag>
+            <strong class="ai-status-pill" :class="`is-${statusType(selected.status)}`">{{ statusText(selected.status) }}</strong>
           </span>
           <span>
             <small>调用次数</small>
@@ -516,12 +682,12 @@ onMounted(() => {
         <section class="ai-detail-section">
           <h4>技术链路</h4>
           <div class="ai-id-grid">
-            <span><small>供应商</small><code :title="text(selected.provider_id)">{{ techId(selected.provider_id) }}</code><button type="button" aria-label="复制供应商 ID" @click="copyText(selected.provider_id)"><el-icon><CopyDocument /></el-icon></button></span>
-            <span><small>供应商账号</small><code :title="text(selected.provider_account_id)">{{ techId(selected.provider_account_id) }}</code><button type="button" aria-label="复制供应商账号 ID" @click="copyText(selected.provider_account_id)"><el-icon><CopyDocument /></el-icon></button></span>
-            <span><small>API</small><code :title="text(selected.provider_api_id)">{{ techId(selected.provider_api_id) }}</code><button type="button" aria-label="复制 API ID" @click="copyText(selected.provider_api_id)"><el-icon><CopyDocument /></el-icon></button></span>
-            <span><small>模型</small><code :title="text(selected.model_id)">{{ techId(selected.model_id) }}</code><button type="button" aria-label="复制模型 ID" @click="copyText(selected.model_id)"><el-icon><CopyDocument /></el-icon></button></span>
-            <span><small>基础路由</small><code :title="text(selected.base_route_id)">{{ techId(selected.base_route_id) }}</code><button type="button" aria-label="复制基础路由 ID" @click="copyText(selected.base_route_id)"><el-icon><CopyDocument /></el-icon></button></span>
-            <span><small>租户策略</small><code :title="text(selected.tenant_strategy_id)">{{ techId(selected.tenant_strategy_id) }}</code><button type="button" aria-label="复制租户策略 ID" @click="copyText(selected.tenant_strategy_id)"><el-icon><CopyDocument /></el-icon></button></span>
+            <span><small>供应商</small><strong :title="text(selected.provider_id)">{{ providerName(selected) }}</strong><button type="button" aria-label="复制供应商 ID" @click="copyText(selected.provider_id)"><el-icon><CopyDocument /></el-icon></button></span>
+            <span><small>供应商账号</small><strong :title="text(selected.provider_account_id)">{{ providerAccountName(selected) }}</strong><button type="button" aria-label="复制供应商账号 ID" @click="copyText(selected.provider_account_id)"><el-icon><CopyDocument /></el-icon></button></span>
+            <span><small>API</small><strong :title="text(selected.provider_api_id)">{{ providerAPIName(selected) }}</strong><button type="button" aria-label="复制 API ID" @click="copyText(selected.provider_api_id)"><el-icon><CopyDocument /></el-icon></button></span>
+            <span><small>模型</small><strong :title="text(selected.model_id)">{{ modelName(selected) }}</strong><button type="button" aria-label="复制模型 ID" @click="copyText(selected.model_id)"><el-icon><CopyDocument /></el-icon></button></span>
+            <span><small>基础路由</small><strong :title="text(selected.base_route_id)">{{ baseRouteName(selected) }}</strong><button type="button" aria-label="复制基础路由 ID" @click="copyText(selected.base_route_id)"><el-icon><CopyDocument /></el-icon></button></span>
+            <span><small>租户策略</small><strong :title="text(selected.tenant_strategy_id)">{{ tenantStrategyName(selected) }}</strong><button type="button" aria-label="复制租户策略 ID" @click="copyText(selected.tenant_strategy_id)"><el-icon><CopyDocument /></el-icon></button></span>
           </div>
         </section>
 
@@ -531,7 +697,8 @@ onMounted(() => {
             <div><dt>成本</dt><dd>{{ moneyText(selected.cost_amount) }}</dd></div>
             <div><dt>销售额</dt><dd>{{ moneyText(selected.billing_amount) }}</dd></div>
             <div><dt>平台用量</dt><dd>{{ usageAmountText(selected.platform_amount, selected.platform_unit || selected.usage_unit) }}</dd></div>
-            <div><dt>延迟</dt><dd>{{ numberText(selected.latency_ms) }}ms</dd></div>
+            <div><dt>供应商响应耗时</dt><dd>{{ durationText(selected.latency_ms, '0ms') }}</dd></div>
+            <div v-if="selected.ai_scenario_code === 'video_generation' || selected.usage_unit === 'seconds'"><dt>视频生成耗时</dt><dd>{{ durationText(selected.task_duration_ms) }}</dd></div>
             <div><dt>HTTP 状态</dt><dd>{{ httpStatusText(selected.provider_http_status) }}</dd></div>
             <div><dt>重试次数</dt><dd>{{ numberText(selected.retry_count) }}</dd></div>
             <div><dt>错误</dt><dd>{{ text(selected.error_message || selected.error_code, '无') }}</dd></div>
