@@ -642,6 +642,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, defineComponent, h, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
+import './integrationCenter.css'
 import { usePermissionStore } from '@/stores/permission'
 import NeuroAgentDialog from '@/views/components/NeuroAgentDialog.vue'
 
@@ -1812,6 +1813,7 @@ const DataPager = defineComponent({
     const go = skip => emit('page', skip)
     return () => {
       const total = Number(props.pagination?.total || 0)
+      if (total <= 0) return null
       const limit = Math.max(1, Number(props.pagination?.limit || 20))
       const skip = Math.max(0, Number(props.pagination?.skip || 0))
       const current = Math.floor(skip / limit) + 1
@@ -1878,5 +1880,3 @@ const ConnectionTable = defineComponent({
   }
 })
 </script>
-
-<style scoped src="./integrationCenter.css"></style>
