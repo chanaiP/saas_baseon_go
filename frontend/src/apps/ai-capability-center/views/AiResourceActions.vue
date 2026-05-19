@@ -7,7 +7,7 @@ import type { AiResource } from '../types'
 import { rowId, type AiRow } from './viewHelpers'
 import AiJsonDialog from './AiJsonDialog.vue'
 
-type FieldOption = { label: string; value: string | number }
+type FieldOption = { label: string; value: string | number; fill?: Record<string, unknown> }
 
 const props = defineProps<{
   resource: AiResource

@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 
 import NeuroAgentPageShell from '@/views/components/NeuroAgentPageShell.vue'
+import { fetchTenants } from '@/api/tenant'
 
 import { createAiResource, fetchAiResource } from '../api'
 import { emptyPage, includesKeyword, numberText, rowId, statusText, statusType, text, type AiRow } from './viewHelpers'
@@ -19,6 +20,8 @@ const policies = ref(emptyPage())
 const quotaRules = ref(emptyPage())
 const rateRules = ref(emptyPage())
 const routes = ref(emptyPage())
+const tenants = ref(emptyPage())
+const scenarios = ref(emptyPage())
 const createVisible = ref(false)
 
 const filtered = computed(() => policies.value.items.filter((row) => includesKeyword(row, keyword.value, ['policy_name', 'tenant_ids', 'app_code', 'ai_scenario_code', 'description'])))
@@ -28,10 +31,64 @@ const routeOptions = computed(() => routes.value.items.map((route) => ({
   label: `${text(route.route_name)} / ${text(route.route_code)}`,
   value: rowId(route),
 })))
+const tenantOptions = computed(() => tenants.value.items.map((tenant) => ({
+  label: `${text(tenant.name || tenant.code || tenant.id)} / ${text(tenant.code || tenant.id)}`,
+  value: String(tenant.id || tenant.code || ''),
+})).filter((option) => option.value))
+const appOptions = computed(() => {
+  const rows = new Map<string, { label: string, value: string, fill: Record<string, unknown> }>()
+  for (const scenario of scenarios.value.items) {
+    const appCode = text(scenario.app_code, '')
+    if (!appCode || rows.has(appCode)) continue
+    rows.set(appCode, {
+      label: `${text(scenario.app_name || appCode)} / ${appCode}`,
+      value: appCode,
+      fill: { app_name: text(scenario.app_name, '') },
+    })
+  }
+  return Array.from(rows.values())
+})
+const scenarioOptions = computed(() => scenarios.value.items.map((scenario) => ({
+  label: `${text(scenario.ai_scenario_name || scenario.ai_scenario_code)} / ${text(scenario.ai_scenario_code)} / ${text(scenario.app_name || scenario.app_code)}`,
+  value: text(scenario.ai_scenario_code, ''),
+  fill: {
+    app_code: text(scenario.app_code, ''),
+    app_name: text(scenario.app_name, ''),
+    ai_scenario_name: text(scenario.ai_scenario_name, ''),
+    default_base_route_id: text(scenario.default_base_route_id, ''),
+  },
+})).filter((option) => option.value))
+const strategyDialogOptions = computed(() => ({
+  tenant_ids: tenantOptions.value,
+  app_code: appOptions.value,
+  ai_scenario_code: scenarioOptions.value,
+  default_base_route_id: routeOptions.value,
+  override_base_route_id: routeOptions.value,
+}))
 
 function routeName(routeId: unknown) {
   const route = routes.value.items.find((row) => rowId(row) === String(routeId || ''))
   return route ? text(route.route_name) : '-'
+}
+
+function tenantScopeText(value: unknown) {
+  const labels: Record<string, string> = { include: '指定租户', exclude: '排除租户', all: '全部租户' }
+  return labels[text(value, '')] || text(value)
+}
+
+function tenantNames(value: unknown) {
+  if (!Array.isArray(value) || !value.length) return '未选择'
+  const names = value.map((id) => {
+    const tenant = tenants.value.items.find((row) => String(row.id || row.code || '') === String(id))
+    return tenant ? text(tenant.name || tenant.code || id) : String(id)
+  })
+  return names.join('、')
+}
+
+function appScenarioText(row: AiRow) {
+  const app = text(row.app_name || row.app_code)
+  const scenario = text(row.ai_scenario_name || row.ai_scenario_code)
+  return `${app} / ${scenario}`
 }
 
 function quotaFor(policyId: unknown) {
@@ -45,16 +102,20 @@ function rateFor(policyId: unknown) {
 async function loadData() {
   loading.value = true
   try {
-    const [policyPage, quotaPage, ratePage, routePage] = await Promise.all([
+    const [policyPage, quotaPage, ratePage, routePage, tenantPage, scenarioPage] = await Promise.all([
       fetchAiResource('tenant-strategies', { skip: 0, limit: 200, keyword: keyword.value.trim() }),
       fetchAiResource('quota-rules', { skip: 0, limit: 200 }),
       fetchAiResource('rate-limit-rules', { skip: 0, limit: 200 }),
       fetchAiResource('base-routes', { skip: 0, limit: 200 }),
+      fetchTenants(0, 500),
+      fetchAiResource('scenarios', { skip: 0, limit: 500 }),
     ])
     policies.value = policyPage
     quotaRules.value = quotaPage
     rateRules.value = ratePage
     routes.value = routePage
+    tenants.value = { ...tenantPage, items: tenantPage.items as unknown as AiRow[] }
+    scenarios.value = scenarioPage
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '策略中心加载失败')
   } finally {
@@ -103,8 +164,8 @@ onMounted(loadData)
         </div>
         <el-table :data="filtered" border v-loading="loading">
           <el-table-column label="策略" min-width="220"><template #default="{ row }"><span class="ai-table-cell-main"><strong>{{ text(row.policy_name) }}</strong><small>{{ text(row.id) }}</small></span></template></el-table-column>
-          <el-table-column label="租户范围" min-width="170"><template #default="{ row }"><span class="ai-table-cell-main"><strong>{{ text(row.tenant_scope) }}</strong><small>{{ text(row.tenant_ids) }}</small></span></template></el-table-column>
-          <el-table-column label="应用 / AI 场景" min-width="210"><template #default="{ row }">{{ text(row.app_code) }} / {{ text(row.ai_scenario_code) }}</template></el-table-column>
+          <el-table-column label="租户范围" min-width="190"><template #default="{ row }"><span class="ai-table-cell-main"><strong>{{ tenantScopeText(row.tenant_scope) }}</strong><small>{{ tenantNames(row.tenant_ids) }}</small></span></template></el-table-column>
+          <el-table-column label="应用 / AI 场景" min-width="230"><template #default="{ row }"><span class="ai-table-cell-main"><strong>{{ appScenarioText(row) }}</strong><small>{{ text(row.app_code) }} / {{ text(row.ai_scenario_code) }}</small></span></template></el-table-column>
           <el-table-column label="路由策略" min-width="180"><template #default="{ row }">{{ routeName(row.override_base_route_id || row.default_base_route_id) }}</template></el-table-column>
           <el-table-column label="配额规则" min-width="220">
             <template #default="{ row }">
@@ -117,7 +178,7 @@ onMounted(loadData)
             </template>
           </el-table-column>
           <el-table-column label="状态" width="100"><template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag></template></el-table-column>
-          <el-table-column label="操作" width="140"><template #default="{ row }"><AiResourceActions resource="tenant-strategies" :row="row" :options="{ default_base_route_id: routeOptions, override_base_route_id: routeOptions }" @saved="loadData" /></template></el-table-column>
+          <el-table-column label="操作" width="140"><template #default="{ row }"><AiResourceActions resource="tenant-strategies" :row="row" :options="strategyDialogOptions" @saved="loadData" /></template></el-table-column>
         </el-table>
       </div>
     </section>
@@ -141,8 +202,8 @@ onMounted(loadData)
     <AiJsonDialog
       v-model="createVisible"
       title="新增租户策略"
-      :sample="{ policy_name: '重点租户商品文案策略', tenant_scope: 'include', tenant_ids: ['tenant-a'], app_code: 'product_center', app_name: '商品中心', ai_scenario_code: 'product_copy_generate', ai_scenario_name: '商品文案生成', default_base_route_id: rowId(routes.items[0]), override_base_route_id: '', status: 'active' }"
-      :options="{ default_base_route_id: routeOptions, override_base_route_id: routeOptions }"
+      :sample="{ policy_name: '重点租户商品文案策略', tenant_scope: 'include', tenant_ids: [], ai_scenario_code: text(scenarios.items[0]?.ai_scenario_code, ''), app_code: text(scenarios.items[0]?.app_code, ''), app_name: text(scenarios.items[0]?.app_name, ''), ai_scenario_name: text(scenarios.items[0]?.ai_scenario_name, ''), default_base_route_id: rowId(routes.items[0]), override_base_route_id: '', status: 'active' }"
+      :options="strategyDialogOptions"
       @submit="createPolicy"
     />
   </NeuroAgentPageShell>
