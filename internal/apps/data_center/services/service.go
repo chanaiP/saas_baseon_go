@@ -274,8 +274,25 @@ func (s *Service) Rule(ctx context.Context, viewer dto.Viewer, id uint64) (model
 	return tenantRow[models.DataCenterAnomalyRule](ctx, s.repo.DB(), viewer.TenantID, id)
 }
 
-func (s *Service) Anomaly(ctx context.Context, viewer dto.Viewer, id uint64) (models.DataCenterAnomalyRecord, error) {
-	return tenantRow[models.DataCenterAnomalyRecord](ctx, s.repo.DB(), viewer.TenantID, id)
+func (s *Service) Anomaly(ctx context.Context, viewer dto.Viewer, id uint64) (dto.AnomalyDetail, error) {
+	anomaly, err := tenantRow[models.DataCenterAnomalyRecord](ctx, s.repo.DB(), viewer.TenantID, id)
+	if err != nil {
+		return dto.AnomalyDetail{}, err
+	}
+	var diagnosis models.DataCenterAIDiagnosisRecord
+	result := dto.AnomalyDetail{Anomaly: anomaly}
+	err = s.repo.DB().WithContext(ctx).
+		Where("tenant_id = ? AND anomaly_id = ? AND status = ?", viewer.TenantID, anomaly.ID, domain.AnomalyAIStatusSuccess).
+		Order("generated_at desc, id desc").
+		First(&diagnosis).Error
+	if err == nil {
+		result.LatestDiagnosis = &diagnosis
+		return result, nil
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return result, nil
+	}
+	return dto.AnomalyDetail{}, err
 }
 
 func (s *Service) Task(ctx context.Context, viewer dto.Viewer, id uint64) (models.DataCenterRectificationTask, error) {

@@ -229,3 +229,32 @@ API 前缀：`/api/data-center`
 - [x] 修复点击一级目录 Ai经营决策中心时左侧仍停留在上一个目录菜单的问题，并过滤已合并的总览入口。
 - [x] 修复在第三方集成中心页面点击 Ai经营决策中心时，左侧二级菜单被当前路由强制覆盖成第三方集成中心菜单的问题。
 - [x] 将经营看板 GMV 趋势和 ROI 趋势从柱状图改为折线图，并在每个节点显示对应数值。
+
+## 15. 真实 AI 模型分析链路跑通
+
+执行日期：2026-05-19
+目标：基于 AI 能力中心已有真实 API 配置，跑通 `Ai经营决策中心` 异常分析链路，并输出验收报告。
+
+方案：
+
+```text
+服装行业经营异常
+  -> data-center 异常分析接口
+  -> anomaly_analysis AI 场景
+  -> AI 能力中心租户策略 / 基础路由
+  -> 真实供应商账号与 API
+  -> ai_usage_records 调用审计
+  -> data_center_ai_diagnosis_records 结构化诊断
+  -> 异常记录 ai_status 回写
+```
+
+- [x] 核对 AI 能力中心 `anomaly_analysis` 场景、基础路由、模型池、供应商账号、供应商 API 均为启用状态。
+- [x] 核对基础路由模型已绑定真实 `provider_account_id` 和 `provider_api_id`，避免走空端点或占位端点。
+- [x] 核对租户 1 对 `data-center/anomaly_analysis` 有启用策略、配额和限流规则。
+- [x] 选取一条服装行业异常记录作为链路样本，记录异常编号、品牌、业务域和当前 AI 状态。
+- [x] 调用 `/api/data-center/anomalies/:id/analyze` 触发真实模型分析。
+- [x] 验证 `ai_usage_records` 生成真实网关调用记录，状态、供应商、模型、路由、耗时、成本字段完整。
+- [x] 验证 `data_center_ai_diagnosis_records` 生成结构化诊断，包含问题摘要、影响、原因、建议、任务建议。
+- [x] 验证异常记录 `ai_status` 回写为成功，且不泄露密钥、token、SQL 或内部错误。
+- [x] 通过 API 读取异常详情，确认前端可展示 AI 诊断内容。
+- [x] 形成验收报告，记录链路、样本、数据库证据、剩余风险和上线建议。

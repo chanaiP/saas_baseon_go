@@ -138,6 +138,31 @@ func TestGatewayAIAnalyzerInvokesAICapabilityCenterScenario(t *testing.T) {
 	require.Len(t, result.Suggestions, 1)
 }
 
+func TestGatewayAIAnalyzerParsesProviderTextJSON(t *testing.T) {
+	now := time.Now()
+	anomaly := models.DataCenterAnomalyRecord{
+		ID: 8, TenantID: 1, AnomalyCode: "ANM-1", RuleCode: "gmv_drop", Title: "GMV 下滑",
+		BusinessDomain: "销售异常", ObjectType: "brand", ObjectCode: "brand-a", StatDate: now,
+		AnomalyLevel: "high", ConfidenceScore: 88, EvidenceJSON: `[{"metric_code":"gmv","label":"GMV","value":500,"desc":"下滑"}]`,
+	}
+	rule := models.DataCenterAnomalyRule{RuleCode: "gmv_drop", RuleName: "GMV 下滑", TargetObjectType: "brand", MetricConditionsJSON: "{}"}
+	gateway := &fakeAIGatewayInvoker{response: aiccservices.InvokeResponse{
+		Status: "success",
+		Data: map[string]interface{}{
+			"text": "```json\n{\"problem_summary\":\"模型判断 Lee 直营 GMV 低于目标\",\"impact_summary\":\"影响华东直营门店\",\"reasons\":[{\"type\":\"root_cause\",\"label\":\"折扣承接不足\",\"content\":\"新品折扣未覆盖目标店型\"}],\"suggestions\":[{\"type\":\"action\",\"content\":\"调整直营门店 Denim 系列折扣\"}],\"task_suggestion\":{\"title\":\"调整 Lee 直营折扣\",\"owner_role\":\"商品运营\",\"deadline_days\":2,\"priority\":\"high\",\"target_desc\":\"恢复目标店型 GMV\"},\"confidence_explanation\":\"规则命中且证据完整\"}\n```",
+		},
+	}}
+
+	result, err := NewGatewayAIAnalyzer(gateway).AnalyzeAnomaly(context.Background(), anomaly, rule)
+
+	require.NoError(t, err)
+	require.Equal(t, "模型判断 Lee 直营 GMV 低于目标", result.ProblemSummary)
+	require.Equal(t, "影响华东直营门店", result.ImpactSummary)
+	require.Len(t, result.Reasons, 1)
+	require.Len(t, result.Suggestions, 1)
+	require.Equal(t, "调整 Lee 直营折扣", result.TaskSuggestion["title"])
+}
+
 func TestScanAnomaliesCalculatesMetricsAndDedupes(t *testing.T) {
 	db := newDataCenterTestDB(t)
 	service := NewService(repositories.NewRepository(db))

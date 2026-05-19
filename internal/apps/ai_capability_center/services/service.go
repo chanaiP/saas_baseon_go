@@ -2570,7 +2570,7 @@ func (s *Service) Invoke(ctx context.Context, req InvokeRequest) (InvokeResponse
 		CreatedAt:          now,
 	}
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(&record).Error; err != nil {
+		if err := tx.Omit(emptyAIUsageRecordUUIDFields(record)...).Create(&record).Error; err != nil {
 			return err
 		}
 		if status == "success" && strategyFound {
@@ -2749,6 +2749,29 @@ func usageDetailForInvokeStatus(status string) string {
 	default:
 		return "Gateway 调用记录"
 	}
+}
+
+func emptyAIUsageRecordUUIDFields(record models.AIUsageRecord) []string {
+	fields := []struct {
+		name  string
+		value string
+	}{
+		{"ProviderID", record.ProviderID},
+		{"ProviderAccountID", record.ProviderAccountID},
+		{"ProviderAPIID", record.ProviderAPIID},
+		{"ModelID", record.ModelID},
+		{"BaseRouteID", record.BaseRouteID},
+		{"TenantStrategyID", record.TenantStrategyID},
+		{"PricePolicyID", record.PricePolicyID},
+		{"PriceTierID", record.PriceTierID},
+	}
+	omit := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if strings.TrimSpace(field.value) == "" {
+			omit = append(omit, field.name)
+		}
+	}
+	return omit
 }
 
 func gatewayContentRecordJSON(level int, params, input map[string]interface{}, paramsHash, inputHash [32]byte) string {

@@ -1,6 +1,10 @@
 package dto
 
-import "time"
+import (
+	"time"
+
+	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
+)
 
 type PageRequest struct {
 	Skip         int
@@ -31,6 +35,11 @@ type Viewer struct {
 	UserID          uint64
 	TenantID        uint64
 	IsPlatformAdmin bool
+}
+
+type AnomalyDetail struct {
+	Anomaly         models.DataCenterAnomalyRecord      `json:"anomaly"`
+	LatestDiagnosis *models.DataCenterAIDiagnosisRecord `json:"latest_diagnosis,omitempty"`
 }
 
 type RequestMeta struct {
