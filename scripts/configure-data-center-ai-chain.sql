@@ -109,3 +109,27 @@ SET quota_value = EXCLUDED.quota_value,
     source = EXCLUDED.source,
     source_ref = EXCLUDED.source_ref,
     updated_at = now();
+
+INSERT INTO tenant_quota_override (
+  tenant_id, quota_id, quota_value, reason,
+  start_time, end_time, source, source_ref, created_at, updated_at
+)
+SELECT
+  1, q.id, 50,
+  'Ai经营决策中心真实链路验收：允许租户1执行每日异常扫描。',
+  now() - interval '1 day',
+  now() + interval '30 days',
+  'MANUAL',
+  'data-center-ai-chain-scans-20260519',
+  now(),
+  now()
+FROM saas_quota q
+WHERE q.quota_code = 'data_center_daily_scans'
+ON CONFLICT (tenant_id, quota_id) DO UPDATE
+SET quota_value = EXCLUDED.quota_value,
+    reason = EXCLUDED.reason,
+    start_time = EXCLUDED.start_time,
+    end_time = EXCLUDED.end_time,
+    source = EXCLUDED.source,
+    source_ref = EXCLUDED.source_ref,
+    updated_at = now();
