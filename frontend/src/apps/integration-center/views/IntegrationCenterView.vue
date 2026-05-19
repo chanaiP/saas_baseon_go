@@ -1,6 +1,6 @@
 <template>
-  <div class="app-shell no-page-shell" style="background: #0f172a;">
-    <main class="main" style="background: #0f172a;">
+  <div class="app-shell no-page-shell">
+    <main class="main">
       <header v-if="page === 'overview'" class="topbar">
         <div>
           <span class="overview-tag">Integration Admin Console</span>

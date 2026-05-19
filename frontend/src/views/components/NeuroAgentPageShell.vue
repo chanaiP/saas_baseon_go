@@ -70,6 +70,18 @@ withDefaults(defineProps<{
     radial-gradient(90% 70% at 100% 0%, color-mix(in srgb, var(--neuro-accent) 12%, transparent), transparent 50%);
 }
 
+:global(.neuro-command-layout[data-theme="light"]) .neuro-page-shell__hero {
+  border: 1px solid #dbe4ef;
+  background-color: #ffffff;
+  background-image:
+    radial-gradient(80% 90% at 0% 0%, rgba(37, 99, 235, 0.08), transparent 54%),
+    linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+  box-shadow:
+    0 1px 1px rgba(15, 23, 42, 0.03),
+    0 14px 32px rgba(15, 23, 42, 0.06);
+  backdrop-filter: none;
+}
+
 .neuro-page-shell__hero-main {
   min-width: 0;
 }
@@ -82,12 +94,21 @@ withDefaults(defineProps<{
   letter-spacing: 0.02em;
 }
 
+:global(.neuro-command-layout[data-theme="light"]) .neuro-page-shell__title {
+  color: #0f172a;
+}
+
 .neuro-page-shell__subtitle {
   margin: 0 0 10px;
   font-size: 13px;
   color: var(--neuro-text-secondary);
   line-height: 1.5;
   max-width: 640px;
+}
+
+:global(.neuro-command-layout[data-theme="light"]) .neuro-page-shell__subtitle,
+:global(.neuro-command-layout[data-theme="light"]) .neuro-page-shell__meta {
+  color: #5f7087;
 }
 
 .neuro-page-shell__meta {
@@ -123,6 +144,16 @@ withDefaults(defineProps<{
     color-mix(in srgb, var(--neuro-primary) 6%, transparent) 0%,
     transparent 42%
   );
+}
+
+:global(.neuro-command-layout[data-theme="light"]) .neuro-page-shell__panel {
+  border: 1px solid #dbe4ef;
+  background-color: #ffffff;
+  background-image: none;
+  box-shadow:
+    0 1px 1px rgba(15, 23, 42, 0.03),
+    0 12px 28px rgba(15, 23, 42, 0.05);
+  backdrop-filter: none;
 }
 
 .neuro-page-shell__panel-body {

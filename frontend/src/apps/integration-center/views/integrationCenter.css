@@ -490,6 +490,287 @@ tr:hover td { background: rgba(47, 212, 203, .06); }
 .app-shell .ranking-row p { color: var(--muted); margin: 3px 0 0; font-size: var(--font-sm); }
 .app-shell .ranking-row b { font-size: 16px; line-height: 1.2; font-weight: 900; }
 .app-shell .rank-index { width: 26px; height: 26px; border-radius: 9px; background: var(--soft); color: var(--primary); display: grid; place-items: center; font-weight: 900; }
+
+.neuro-command-layout[data-theme="light"] .app-shell {
+  --bg: #f3f6fb;
+  --panel: #ffffff;
+  --surface: #ffffff;
+  --surface-strong: #f7faff;
+  --control: #ffffff;
+  --text: #0f172a;
+  --muted: #64748b;
+  --line: #dbe4ef;
+  --primary: #2563eb;
+  --primary-dark: #1d4ed8;
+  --soft: #eef6ff;
+  --success: #059669;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --shadow: 0 16px 36px rgba(15, 23, 42, .08);
+  color: var(--text);
+  background: #f3f6fb !important;
+  background-image: none !important;
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell::before {
+  background: #f3f6fb;
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell .main,
+.neuro-command-layout[data-theme="light"] .app-shell .page-section {
+  background: #f3f6fb !important;
+  background-image: none !important;
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell .topbar,
+.neuro-command-layout[data-theme="light"] .app-shell .panel,
+.neuro-command-layout[data-theme="light"] .app-shell .metric-card,
+.neuro-command-layout[data-theme="light"] .app-shell .platform-card,
+.neuro-command-layout[data-theme="light"] .app-shell .mini-card,
+.neuro-command-layout[data-theme="light"] .app-shell .policy-card,
+.neuro-command-layout[data-theme="light"] .app-shell .toolbar,
+.neuro-command-layout[data-theme="light"] .app-shell .tab-bar {
+  background: #ffffff;
+  border-color: #dbe4ef;
+  box-shadow: 0 16px 36px rgba(15, 23, 42, .08);
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell .topbar {
+  background:
+    linear-gradient(105deg, rgba(232, 241, 255, .9) 0%, rgba(255, 255, 255, .96) 48%, #ffffff 100%);
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell .topbar h2,
+.neuro-command-layout[data-theme="light"] .app-shell .panel-head h3,
+.neuro-command-layout[data-theme="light"] .app-shell .panel-head h4,
+.neuro-command-layout[data-theme="light"] .app-shell .workspace-head h3,
+.neuro-command-layout[data-theme="light"] .app-shell .platform-card h3,
+.neuro-command-layout[data-theme="light"] .app-shell .mini-card strong,
+.neuro-command-layout[data-theme="light"] .app-shell .app-row-card strong,
+.neuro-command-layout[data-theme="light"] .app-shell .policy-card strong,
+.neuro-command-layout[data-theme="light"] .app-shell .health-main .row-between strong,
+.neuro-command-layout[data-theme="light"] .app-shell .relation-flow b,
+.neuro-command-layout[data-theme="light"] .app-shell .ranking-row strong,
+.neuro-command-layout[data-theme="light"] .app-shell .quota-mini-row strong,
+.neuro-command-layout[data-theme="light"] .app-shell .alert-item strong {
+  color: #0f172a;
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell .mini-label,
+.neuro-command-layout[data-theme="light"] .app-shell .eyebrow {
+  color: #2563eb;
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell .topbar p,
+.neuro-command-layout[data-theme="light"] .app-shell .panel-head p,
+.neuro-command-layout[data-theme="light"] .app-shell .muted,
+.neuro-command-layout[data-theme="light"] .app-shell .health-row p,
+.neuro-command-layout[data-theme="light"] .app-shell .ranking-row p,
+.neuro-command-layout[data-theme="light"] .app-shell .quota-mini-row p,
+.neuro-command-layout[data-theme="light"] .app-shell .alert-body p,
+.neuro-command-layout[data-theme="light"] .app-shell .alert-item p,
+.neuro-command-layout[data-theme="light"] .app-shell .alert-item small,
+.neuro-command-layout[data-theme="light"] .app-shell .relation-flow span,
+.neuro-command-layout[data-theme="light"] .app-shell .mini-card p,
+.neuro-command-layout[data-theme="light"] .app-shell .app-row-card p,
+.neuro-command-layout[data-theme="light"] .app-shell .policy-card p,
+.neuro-command-layout[data-theme="light"] .app-shell .rail-head p,
+.neuro-command-layout[data-theme="light"] .app-shell .rail-item small {
+  color: #64748b;
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell .health-row,
+.neuro-command-layout[data-theme="light"] .app-shell .relation-flow div,
+.neuro-command-layout[data-theme="light"] .app-shell .quota-mini-row,
+.neuro-command-layout[data-theme="light"] .app-shell .alert-item,
+.neuro-command-layout[data-theme="light"] .app-shell .card-stats div,
+.neuro-command-layout[data-theme="light"] .app-shell .header-metrics div,
+.neuro-command-layout[data-theme="light"] .app-shell .policy-limits span,
+.neuro-command-layout[data-theme="light"] .app-shell .detail-grid > div,
+.neuro-command-layout[data-theme="light"] .app-shell .drawer-card,
+.neuro-command-layout[data-theme="light"] .app-shell .detail-list > div,
+.neuro-command-layout[data-theme="light"] .app-shell .chain-path,
+.neuro-command-layout[data-theme="light"] .app-shell .final-cap-card,
+.neuro-command-layout[data-theme="light"] .app-shell .empty-state,
+.neuro-command-layout[data-theme="light"] .app-shell .modal-empty {
+  background: #f8fafc;
+  border-color: #dbe4ef;
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell .health-row:hover,
+.neuro-command-layout[data-theme="light"] .app-shell .selectable:hover,
+.neuro-command-layout[data-theme="light"] .app-shell .app-row-card:hover,
+.neuro-command-layout[data-theme="light"] .app-shell .global-results article:hover {
+  background: #f1f7ff;
+  border-color: #93c5fd;
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell button,
+.neuro-command-layout[data-theme="light"] .app-shell input,
+.neuro-command-layout[data-theme="light"] .app-shell select,
+.neuro-command-layout[data-theme="light"] .app-shell textarea,
+.neuro-command-layout[data-theme="light"] .app-shell .search-box,
+.neuro-command-layout[data-theme="light"] .app-shell .pager-actions button,
+.neuro-command-layout[data-theme="light"] .app-shell .rail-item {
+  background: #ffffff;
+  border-color: #cfd9e6;
+  color: #0f172a;
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell input::placeholder,
+.neuro-command-layout[data-theme="light"] .app-shell textarea::placeholder {
+  color: #94a3b8;
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell button:hover,
+.neuro-command-layout[data-theme="light"] .app-shell .pager-actions button:hover {
+  border-color: #2563eb;
+  color: #2563eb;
+  background: #eef6ff;
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell .primary-btn,
+.neuro-command-layout[data-theme="light"] .app-shell .small-btn.active,
+.neuro-command-layout[data-theme="light"] .app-shell .tab-bar button.active {
+  border-color: transparent;
+  background: linear-gradient(135deg, #2563eb 0%, #22c7ba 100%);
+  color: #ffffff;
+  box-shadow: 0 10px 22px rgba(37, 99, 235, .18);
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell .ghost-btn {
+  background: #ffffff;
+  border-color: #cfd9e6;
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell .text-btn {
+  background: transparent;
+  color: #2563eb;
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell .overview-tag,
+.neuro-command-layout[data-theme="light"] .app-shell .meta-chip,
+.neuro-command-layout[data-theme="light"] .app-shell .tag,
+.neuro-command-layout[data-theme="light"] .app-shell .pill,
+.neuro-command-layout[data-theme="light"] .app-shell .mini-tags span {
+  background: #eef6ff;
+  border-color: #bfdbfe;
+  color: #2563eb;
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell .status-badge {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell .status-badge.enabled,
+.neuro-command-layout[data-theme="light"] .app-shell .status-badge.connected,
+.neuro-command-layout[data-theme="light"] .app-shell .status-badge.normal,
+.neuro-command-layout[data-theme="light"] .app-shell .status-badge.success,
+.neuro-command-layout[data-theme="light"] .app-shell .status-badge.valid,
+.neuro-command-layout[data-theme="light"] .app-shell .status-badge.approved,
+.neuro-command-layout[data-theme="light"] .app-shell .status-badge.resolved {
+  background: #ecfdf5;
+  color: #059669;
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell .status-badge.warning,
+.neuro-command-layout[data-theme="light"] .app-shell .status-badge.processing,
+.neuro-command-layout[data-theme="light"] .app-shell .status-badge.maintenance,
+.neuro-command-layout[data-theme="light"] .app-shell .status-badge.testing,
+.neuro-command-layout[data-theme="light"] .app-shell .status-badge.expiring,
+.neuro-command-layout[data-theme="light"] .app-shell .status-badge.running {
+  background: #fff7ed;
+  color: #d97706;
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell .status-badge.error,
+.neuro-command-layout[data-theme="light"] .app-shell .status-badge.failed,
+.neuro-command-layout[data-theme="light"] .app-shell .status-badge.invalid,
+.neuro-command-layout[data-theme="light"] .app-shell .status-badge.open,
+.neuro-command-layout[data-theme="light"] .app-shell .status-badge.expired,
+.neuro-command-layout[data-theme="light"] .app-shell .status-badge.rejected,
+.neuro-command-layout[data-theme="light"] .app-shell .status-badge.exceeded {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell .data-table-wrap {
+  border-color: #dbe4ef;
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell th {
+  background: #eef6f7;
+  color: #334155;
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell td {
+  background: #ffffff;
+  border-bottom-color: #e2e8f0;
+  color: #0f172a;
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell tr:hover td {
+  background: #f8fbff;
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell .progress-line,
+.neuro-command-layout[data-theme="light"] .app-shell .quota {
+  background: #eef2f7;
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell .progress-line span,
+.neuro-command-layout[data-theme="light"] .app-shell .quota span {
+  background: linear-gradient(90deg, #2563eb 0%, #22c7ba 100%);
+}
+
+.neuro-command-layout[data-theme="light"] .app-shell .drawer,
+.neuro-command-layout[data-theme="light"] .app-shell .integration-drawer,
+.neuro-command-layout[data-theme="light"] .integration-portal.integration-drawer {
+  background: #ffffff;
+  color: #0f172a;
+  border-left-color: #dbe4ef;
+  box-shadow: -24px 0 70px rgba(15, 23, 42, .18);
+}
+
+.neuro-command-layout[data-theme="light"] .integration-portal {
+  --surface-strong: #f8fafc;
+  --control: #ffffff;
+  --text: #0f172a;
+  --muted: #64748b;
+  --line: #dbe4ef;
+  --primary: #2563eb;
+  --primary-dark: #1d4ed8;
+  --soft: #eef6ff;
+  --success: #059669;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --shadow: 0 16px 36px rgba(15, 23, 42, .08);
+}
+
+.neuro-command-layout[data-theme="light"] .integration-portal .primary-btn,
+.neuro-command-layout[data-theme="light"] .integration-portal .standard-dialog-btn--primary {
+  border-color: transparent;
+  background: linear-gradient(135deg, #2563eb 0%, #22c7ba 100%);
+  color: #ffffff;
+  box-shadow: 0 10px 22px rgba(37, 99, 235, .18);
+}
+
+.neuro-command-layout[data-theme="light"] .integration-standard-dialog-body {
+  --text: #0f172a;
+  --muted: #64748b;
+  --line: #dbe4ef;
+  --control: #ffffff;
+  --surface-strong: #f8fafc;
+  --primary: #2563eb;
+}
+
+.neuro-command-layout[data-theme="light"] .standard-dialog-btn--ghost {
+  background: #ffffff;
+  color: #334155;
+  border-color: #cfd9e6;
+}
+
 @media (max-width: 1280px) {
   .metric-grid { grid-template-columns: repeat(3, 1fr); }
   .content-grid.two, .content-grid.three { grid-template-columns: 1fr; }

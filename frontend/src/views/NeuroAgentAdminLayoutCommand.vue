@@ -1360,17 +1360,17 @@ const updateThemeStyles = () => {
   const root = document.documentElement
 
   if (theme.value === 'light') {
-    // 浅色模式 - 清晰、明亮、高对比度
-    root.style.setProperty('--nm-bg-deep', '#f8fafc')
-    root.style.setProperty('--nm-bg-surface', '#ffffff')
-    root.style.setProperty('--nm-bg-card', '#f1f5f9')
-    root.style.setProperty('--nm-bg-elevated', '#e2e8f0')
+    // 浅色模式 - 灰色画布、白色块面、清晰边界
+    root.style.setProperty('--nm-bg-deep', '#f3f6fb')
+    root.style.setProperty('--nm-bg-surface', '#f6f8fc')
+    root.style.setProperty('--nm-bg-card', '#ffffff')
+    root.style.setProperty('--nm-bg-elevated', '#eef3f9')
 
     // 鲜明但不刺眼的主题色
-    root.style.setProperty('--nm-primary', '#0ea5e9')
-    root.style.setProperty('--nm-primary-glow', 'rgba(14, 165, 233, 0.2)')
-    root.style.setProperty('--nm-secondary', '#8b5cf6')
-    root.style.setProperty('--nm-secondary-glow', 'rgba(139, 92, 246, 0.2)')
+    root.style.setProperty('--nm-primary', '#2563eb')
+    root.style.setProperty('--nm-primary-glow', 'rgba(37, 99, 235, 0.16)')
+    root.style.setProperty('--nm-secondary', '#22c7ba')
+    root.style.setProperty('--nm-secondary-glow', 'rgba(34, 199, 186, 0.14)')
     root.style.setProperty('--nm-accent', '#ef4444')
     root.style.setProperty('--nm-accent-glow', 'rgba(239, 68, 68, 0.2)')
 
@@ -1381,8 +1381,8 @@ const updateThemeStyles = () => {
     root.style.setProperty('--nm-text-on-dark', '#ffffff')
 
     // 清晰的边框
-    root.style.setProperty('--nm-border', '#cbd5e1')
-    root.style.setProperty('--nm-border-glow', 'rgba(14, 165, 233, 0.2)')
+    root.style.setProperty('--nm-border', '#d7e0ec')
+    root.style.setProperty('--nm-border-glow', 'rgba(100, 116, 139, 0.20)')
 
     // 鲜明的状态颜色
     root.style.setProperty('--nm-success', '#10b981')
@@ -1509,6 +1509,15 @@ const toggleFullscreen = () => {
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 
+.neuro-command-layout[data-theme="light"] {
+  background: #f3f6fb;
+  color: #0f172a;
+}
+
+.neuro-command-layout[data-theme="light"] .neuro-bg-layer {
+  display: none;
+}
+
 /* 神经背景层：固定铺满视口，不参与 neuro-command-layout 的文档高度；裁剪粒子动画避免 transform 把可滚区域撑大 */
 .neuro-bg-layer {
   position: fixed;
@@ -1579,6 +1588,10 @@ const toggleFullscreen = () => {
   background: var(--nm-bg-deep);
 }
 
+.neuro-command-layout[data-theme="light"] .neuro-interface {
+  background: #f3f6fb;
+}
+
 
 /* 顶部神经主干菜单：横跨整个视口，固定在顶部 */
 .neuro-stem-menu {
@@ -1598,12 +1611,50 @@ const toggleFullscreen = () => {
   transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
+.neuro-command-layout[data-theme="light"] .neuro-stem-menu {
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom-color: #d7e0ec;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+}
+
+.neuro-command-layout[data-theme="light"] .neuro-stem-menu::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 280px;
+  background:
+    radial-gradient(circle at 24% 22%, rgba(0, 245, 212, 0.12), transparent 34%),
+    linear-gradient(180deg, #111827 0%, #0f172a 100%);
+  border-right: 1px solid rgba(0, 245, 212, 0.16);
+  pointer-events: none;
+}
+
+.neuro-command-layout[data-theme="light"] .neuro-stem-menu::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 280px;
+  height: 2px;
+  background: linear-gradient(180deg, #111827 0%, #151b2a 100%);
+  pointer-events: none;
+  z-index: 3;
+}
+
 
 .stem-brand {
   display: flex;
   align-items: center;
   gap: 12px;
   margin-right: 32px;
+  position: relative;
+  z-index: 1;
+}
+
+.stem-nav,
+.stem-utils {
+  position: relative;
+  z-index: 1;
 }
 
 
@@ -1820,7 +1871,7 @@ const toggleFullscreen = () => {
   flex: 1;
   display: flex;
   align-items: center;
-  margin: 0 24px;
+  margin: 0 24px 0 48px;
 }
 
 .stem-item-wrapper {
@@ -2132,6 +2183,38 @@ const toggleFullscreen = () => {
   z-index: 50;
 }
 
+.neuro-command-layout[data-theme="light"] .neuro-synapse-panel {
+  --nm-bg-deep: #0a0c14;
+  --nm-bg-surface: #111827;
+  --nm-bg-card: #151b2a;
+  --nm-bg-elevated: #1f2937;
+  --nm-primary: #00f5d4;
+  --nm-primary-glow: rgba(0, 245, 212, 0.3);
+  --nm-secondary: #9d4edd;
+  --nm-secondary-glow: rgba(157, 78, 221, 0.3);
+  --nm-accent: #ff6b6b;
+  --nm-accent-glow: rgba(255, 107, 107, 0.3);
+  --nm-text-primary: #f8fafc;
+  --nm-text-secondary: #94a3b8;
+  --nm-text-muted: #64748b;
+  --nm-text-on-dark: #0a0c14;
+  --nm-border: #2d3748;
+  --nm-border-glow: rgba(0, 245, 212, 0.14);
+  background:
+    radial-gradient(circle at 16% 12%, rgba(0, 245, 212, 0.10), transparent 30%),
+    linear-gradient(180deg, #151b2a 0%, #111827 100%);
+  color: #f8fafc;
+  border-right-color: rgba(0, 245, 212, 0.16);
+}
+
+.neuro-command-layout[data-theme="light"] .neuro-synapse-panel .neuro-btn {
+  color: var(--nm-text-secondary);
+}
+
+.neuro-command-layout[data-theme="light"] .neuro-synapse-panel .neuro-btn:hover {
+  color: var(--nm-primary);
+}
+
 .panel-expanded {
   background: var(--nm-bg-card);
 }
@@ -2143,6 +2226,12 @@ const toggleFullscreen = () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.neuro-command-layout[data-theme="light"] .synapse-header {
+  border-top: 0;
+  border-bottom-color: transparent;
+  box-shadow: none;
 }
 
 .synapse-header-right {
@@ -2886,18 +2975,40 @@ const toggleFullscreen = () => {
   flex-direction: column;
 }
 
-.neuro-command-layout.is-integration-center-route .neuro-bg-layer {
+.neuro-command-layout[data-theme="light"] .neuro-content-field,
+.neuro-command-layout[data-theme="light"] .content-main {
+  background: #f3f6fb;
+  backdrop-filter: none;
+}
+
+.neuro-command-layout[data-theme="light"] .content-header {
+  background: rgba(255, 255, 255, 0.86);
+  border-bottom-color: #d7e0ec;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
+}
+
+.neuro-command-layout[data-theme="light"] .breadcrumb-divider {
+  background: #d7e0ec;
+}
+
+.neuro-command-layout.is-integration-center-route:not([data-theme="light"]) .neuro-bg-layer {
   display: none;
 }
 
-.neuro-command-layout.is-integration-center-route .neuro-content-field {
+.neuro-command-layout.is-integration-center-route:not([data-theme="light"]) .neuro-content-field {
   background: #0f172a;
   backdrop-filter: none;
 }
 
-.neuro-command-layout.is-integration-center-route .content-main {
+.neuro-command-layout.is-integration-center-route:not([data-theme="light"]) .content-main {
   background: #0f172a;
   background-image: none;
+}
+
+.neuro-command-layout.is-integration-center-route[data-theme="light"] .neuro-content-field,
+.neuro-command-layout.is-integration-center-route[data-theme="light"] .content-main {
+  background: #f3f6fb !important;
+  background-image: none !important;
 }
 
 .neuro-content-field > .content-header {
@@ -3474,12 +3585,20 @@ const toggleFullscreen = () => {
     padding-left: 240px;
   }
 
+  .neuro-command-layout[data-theme="light"] .neuro-stem-menu::before {
+    width: 240px;
+  }
+
+  .neuro-command-layout[data-theme="light"] .neuro-stem-menu::after {
+    width: 240px;
+  }
+
   .neuro-synapse-panel {
     width: 240px;
   }
 
   .stem-nav {
-    margin: 0 16px;
+    margin: 0 16px 0 36px;
   }
 
   .stem-item {
@@ -3493,6 +3612,14 @@ const toggleFullscreen = () => {
     padding-left: 200px;
   }
 
+  .neuro-command-layout[data-theme="light"] .neuro-stem-menu::before {
+    width: 200px;
+  }
+
+  .neuro-command-layout[data-theme="light"] .neuro-stem-menu::after {
+    width: 200px;
+  }
+
   .neuro-synapse-panel {
     width: 200px;
   }
@@ -3502,7 +3629,7 @@ const toggleFullscreen = () => {
   }
 
   .stem-nav {
-    margin: 0 12px;
+    margin: 0 12px 0 24px;
     gap: 2px;
   }
 

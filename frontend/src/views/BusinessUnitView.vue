@@ -1925,6 +1925,183 @@ onMounted(async () => {
   background: #111827;
 }
 
+:global(.neuro-command-layout[data-theme="light"]) .bu-page {
+  color: #0f172a;
+  background: #f3f6fb;
+}
+
+:global(.neuro-command-layout[data-theme="light"]) .bu-type-panel,
+:global(.neuro-command-layout[data-theme="light"]) .bu-unit-panel,
+:global(.neuro-command-layout[data-theme="light"]) .bu-list-panel {
+  border-color: #d8e3f0;
+  background: #ffffff;
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.08);
+}
+
+:global(.neuro-command-layout[data-theme="light"]) .bu-panel-header,
+:global(.neuro-command-layout[data-theme="light"]) .bu-list-header {
+  border-bottom-color: #dbe5f1;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+:global(.neuro-command-layout[data-theme="light"]) .bu-panel-header p,
+:global(.neuro-command-layout[data-theme="light"]) .bu-list-header p {
+  color: #2563eb;
+}
+
+:global(.neuro-command-layout[data-theme="light"]) .bu-panel-header h1,
+:global(.neuro-command-layout[data-theme="light"]) .bu-list-header h2,
+:global(.neuro-command-layout[data-theme="light"]) .bu-drawer-toolbar strong,
+:global(.neuro-command-layout[data-theme="light"]) .bu-detail-list-item strong,
+:global(.neuro-command-layout[data-theme="light"]) .bu-info-item strong {
+  color: #0f172a;
+}
+
+:global(.neuro-command-layout[data-theme="light"]) .bu-header-code,
+:global(.neuro-command-layout[data-theme="light"]) .bu-type-card em,
+:global(.neuro-command-layout[data-theme="light"]) .bu-unit-card span,
+:global(.neuro-command-layout[data-theme="light"]) .bu-unit-card em,
+:global(.neuro-command-layout[data-theme="light"]) .bu-drawer-toolbar,
+:global(.neuro-command-layout[data-theme="light"]) .bu-detail-remark,
+:global(.neuro-command-layout[data-theme="light"]) .bu-detail-list-item span,
+:global(.neuro-command-layout[data-theme="light"]) .bu-detail-list-item em,
+:global(.neuro-command-layout[data-theme="light"]) .bu-info-item span {
+  color: #64748b;
+}
+
+:global(.neuro-command-layout[data-theme="light"]) .bu-count-pill {
+  color: #2563eb;
+  background: #eaf2ff;
+}
+
+:global(.neuro-command-layout[data-theme="light"]) .bu-type-card,
+:global(.neuro-command-layout[data-theme="light"]) .bu-unit-card,
+:global(.neuro-command-layout[data-theme="light"]) .bu-form-section,
+:global(.neuro-command-layout[data-theme="light"]) .bu-drawer-toolbar,
+:global(.neuro-command-layout[data-theme="light"]) .bu-drawer-section,
+:global(.neuro-command-layout[data-theme="light"]) .bu-template-field-row,
+:global(.neuro-command-layout[data-theme="light"]) .bu-detail-list-item,
+:global(.neuro-command-layout[data-theme="light"]) .bu-info-item {
+  border-color: #dbe5f1;
+  background: #f8fafc;
+}
+
+:global(.neuro-command-layout[data-theme="light"]) .bu-type-card,
+:global(.neuro-command-layout[data-theme="light"]) .bu-unit-card {
+  color: #0f172a;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.7);
+}
+
+:global(.neuro-command-layout[data-theme="light"]) .bu-type-card:hover,
+:global(.neuro-command-layout[data-theme="light"]) .bu-unit-card:hover {
+  border-color: #93c5fd;
+  background: #f1f7ff;
+}
+
+:global(.neuro-command-layout[data-theme="light"]) .bu-type-card.active,
+:global(.neuro-command-layout[data-theme="light"]) .bu-unit-card.active {
+  border-color: #2563eb;
+  background: #eef6ff;
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.45), 0 14px 32px rgba(37, 99, 235, 0.12);
+}
+
+:global(.neuro-command-layout[data-theme="light"]) .bu-type-card strong,
+:global(.neuro-command-layout[data-theme="light"]) .bu-unit-card strong {
+  color: #0f172a;
+}
+
+:global(.neuro-command-layout[data-theme="light"]) .bu-type-card b,
+:global(.neuro-command-layout[data-theme="light"]) .bu-unit-card em,
+:global(.neuro-command-layout[data-theme="light"]) .bu-form-section h3,
+:global(.neuro-command-layout[data-theme="light"]) .bu-drawer-section h3,
+:global(.neuro-command-layout[data-theme="light"]) .bu-chip {
+  color: #2563eb;
+}
+
+:global(.neuro-command-layout[data-theme="light"]) .bu-primary-btn {
+  color: #ffffff;
+  background: linear-gradient(135deg, #2563eb 0%, #22c7ba 100%);
+  box-shadow: 0 14px 30px rgba(37, 99, 235, 0.18);
+}
+
+:global(.neuro-command-layout[data-theme="light"]) .bu-ghost-btn {
+  border-color: #bfdbfe;
+  color: #2563eb;
+  background: #ffffff;
+}
+
+:global(.neuro-command-layout[data-theme="light"]) .bu-search :deep(.el-input__wrapper),
+:global(.neuro-command-layout[data-theme="light"]) .bu-search :deep(.el-select__wrapper) {
+  background: #ffffff;
+  box-shadow: 0 0 0 1px #cfd9e6 inset;
+}
+
+:global(.neuro-command-layout[data-theme="light"]) .bu-search :deep(.el-input__inner),
+:global(.neuro-command-layout[data-theme="light"]) .bu-search :deep(.el-select__placeholder),
+:global(.neuro-command-layout[data-theme="light"]) .bu-search :deep(.el-select__selected-item) {
+  color: #334155;
+}
+
+:global(.neuro-command-layout[data-theme="light"]) .bu-table {
+  --el-table-bg-color: #ffffff;
+  --el-table-tr-bg-color: #ffffff;
+  --el-table-header-bg-color: #eef7f7;
+  --el-table-header-text-color: #334155;
+  --el-table-text-color: #0f172a;
+  --el-table-row-hover-bg-color: #f6fbff;
+  --el-table-border-color: #dbe5f1;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+:global(.neuro-command-layout[data-theme="light"]) .bu-table :deep(.el-table__inner-wrapper),
+:global(.neuro-command-layout[data-theme="light"]) .bu-table :deep(.el-table__body-wrapper),
+:global(.neuro-command-layout[data-theme="light"]) .bu-table :deep(.el-table__header-wrapper) {
+  background: #ffffff;
+}
+
+:global(.neuro-command-layout[data-theme="light"]) .bu-empty {
+  color: #64748b;
+}
+
+:global(.neuro-command-layout[data-theme="light"]) .bu-drawer-body {
+  color: #0f172a;
+}
+
+:global(.neuro-command-layout[data-theme="light"]) .bu-chip {
+  border-color: #bfdbfe;
+  background: #eaf2ff;
+}
+
+:global(.neuro-command-layout[data-theme="light"]) .field-required {
+  color: #64748b;
+}
+
+:global(.neuro-command-layout[data-theme="light"]) .bu-drawer-footer {
+  border-top-color: #dbe5f1;
+  background: #ffffff;
+}
+
+:global(.neuro-command-layout[data-theme="light"]) .bu-save-error {
+  border-color: #fecaca;
+  color: #b91c1c;
+  background: #fff1f2;
+}
+
+:global(.neuro-command-layout[data-theme="light"]) :deep(.bu-side-drawer) {
+  background: #ffffff;
+}
+
+:global(.neuro-command-layout[data-theme="light"]) :deep(.bu-side-drawer .el-drawer__header) {
+  border-bottom-color: #dbe5f1;
+  color: #0f172a;
+  background: #ffffff;
+}
+
+:global(.neuro-command-layout[data-theme="light"]) :deep(.bu-side-drawer .el-drawer__body) {
+  background: #f3f6fb;
+}
+
 @media (max-width: 1180px) {
   .bu-workspace {
     grid-template-columns: 1fr;

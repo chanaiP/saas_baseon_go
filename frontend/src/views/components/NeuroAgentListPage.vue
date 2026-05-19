@@ -905,6 +905,10 @@ onMounted(() => {
   opacity: 0.15;
 }
 
+.neuro-agent-list-page[data-theme="light"] .neural-data-stream {
+  display: none;
+}
+
 .data-stream-line {
   position: absolute;
   top: 0; bottom: 0;
@@ -950,6 +954,18 @@ onMounted(() => {
     radial-gradient(90% 70% at 100% 0%, color-mix(in srgb, var(--neuro-accent) 12%, transparent), transparent 50%);
 }
 
+.neuro-agent-list-page[data-theme="light"] .list-el-hero {
+  border: 1px solid #dbe4ef;
+  background-color: #ffffff;
+  background-image:
+    radial-gradient(80% 90% at 0% 0%, rgba(37, 99, 235, 0.08), transparent 54%),
+    linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+  box-shadow:
+    0 1px 1px rgba(15, 23, 42, 0.03),
+    0 14px 32px rgba(15, 23, 42, 0.06);
+  backdrop-filter: none;
+}
+
 .list-el-hero .card-topbar {
   border-bottom: none;
 }
@@ -971,6 +987,16 @@ onMounted(() => {
     color-mix(in srgb, var(--neuro-primary) 6%, transparent) 0%,
     transparent 42%
   );
+}
+
+.neuro-agent-list-page[data-theme="light"] .list-el-panel {
+  border: 1px solid #dbe4ef;
+  background-color: #ffffff;
+  background-image: none;
+  box-shadow:
+    0 1px 1px rgba(15, 23, 42, 0.03),
+    0 12px 28px rgba(15, 23, 42, 0.05);
+  backdrop-filter: none;
 }
 
 /* 仅在 list-el-panel 已 flex + min-height:0 的链路上让表区吃剩余高度并自行滚动 */
@@ -1049,10 +1075,18 @@ onMounted(() => {
   gap: 10px;
 }
 
+.neuro-agent-list-page[data-theme="light"] .card-title {
+  color: #0f172a;
+}
+
 .card-subtitle {
   margin: 2px 0 0;
   font-size: 12px;
   color: var(--nm-text-secondary, #94a3b8);
+}
+
+.neuro-agent-list-page[data-theme="light"] .card-subtitle {
+  color: #5f7087;
 }
 
 .title-badge {
@@ -1112,6 +1146,12 @@ onMounted(() => {
     color-mix(in srgb, var(--neuro-background) 22%, transparent) 0%,
     transparent 72%
   );
+}
+
+.neuro-agent-list-page[data-theme="light"] .card-search {
+  margin: 0;
+  background: #f8fafc;
+  border-bottom: 1px solid #dbe4ef;
 }
 
 .search-row {
@@ -1234,14 +1274,20 @@ onMounted(() => {
   max-width: 360px;
 }
 
+.neuro-agent-list-page[data-theme="light"] .search-input-group {
+  background: #ffffff;
+  border-color: #cfd9e6;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
+}
+
 .dark .search-input-group {
   background: rgba(255, 255, 255, 0.04);
   border-color: rgba(45, 55, 72, 0.6);
 }
 
 .search-input-group:focus-within {
-  border-color: rgba(0, 245, 212, 0.4);
-  box-shadow: 0 0 0 3px rgba(0, 245, 212, 0.08);
+  border-color: rgba(37, 99, 235, 0.55);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.10);
 }
 
 .search-icon { color: #94a3b8; flex-shrink: 0; display: flex; align-items: center; }
@@ -1255,6 +1301,10 @@ onMounted(() => {
   color: #1e293b;
   outline: none;
   min-width: 0;
+}
+
+.neuro-agent-list-page[data-theme="light"] .search-input {
+  color: #0f172a;
 }
 
 .dark .search-input { color: #e2e8f0; }
@@ -1297,6 +1347,12 @@ onMounted(() => {
   white-space: nowrap;
 }
 
+.neuro-agent-list-page[data-theme="light"] .btn-search,
+.neuro-agent-list-page[data-theme="light"] .card-btn-create {
+  background: linear-gradient(135deg, #2563eb 0%, #22c7ba 100%);
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.18);
+}
+
 .btn-search:hover {
   transform: translateY(-1px);
   box-shadow: 0 4px 16px rgba(0, 212, 170, 0.3);
@@ -1312,6 +1368,13 @@ onMounted(() => {
   cursor: pointer;
   transition: all 0.2s;
   white-space: nowrap;
+}
+
+.neuro-agent-list-page[data-theme="light"] .btn-reset,
+.neuro-agent-list-page[data-theme="light"] .search-filters-toggle {
+  background: #ffffff;
+  border-color: #cfd9e6;
+  color: #334155;
 }
 
 .dark .btn-reset { border-color: rgba(45, 55, 72, 0.5); color: #94a3b8; }
@@ -1356,6 +1419,12 @@ onMounted(() => {
   padding: 0 10px !important;
 }
 
+.neuro-agent-list-page[data-theme="light"] .card-search .filter-item :deep(.el-input__wrapper) {
+  background: #ffffff !important;
+  border-color: #cfd9e6 !important;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03) !important;
+}
+
 .dark .card-search .filter-item :deep(.el-input__wrapper) {
   background: rgba(255, 255, 255, 0.04) !important;
   border-color: rgba(45, 55, 72, 0.6) !important;
@@ -1373,6 +1442,12 @@ onMounted(() => {
   min-height: 34px;
 }
 
+.neuro-agent-list-page[data-theme="light"] .card-search .filter-item :deep(.el-select__wrapper) {
+  background: #ffffff !important;
+  border-color: #cfd9e6 !important;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03) !important;
+}
+
 .dark .card-search .filter-item :deep(.el-select__wrapper) {
   background: rgba(255, 255, 255, 0.04) !important;
   border-color: rgba(45, 55, 72, 0.6) !important;
@@ -1383,6 +1458,11 @@ onMounted(() => {
   padding: 12px 20px;
   border-bottom: none;
   background: color-mix(in srgb, var(--neuro-surface) 94%, var(--neuro-primary-10));
+}
+
+.neuro-agent-list-page[data-theme="light"] .card-toolbar {
+  background: #f8fafc;
+  border-bottom: 1px solid #dbe4ef;
 }
 
 .card-table {
@@ -1419,6 +1499,12 @@ onMounted(() => {
   background: rgba(0, 0, 0, 0.04) !important;
 }
 
+.neuro-agent-list-page[data-theme="light"] .neuro-el-table :deep(.el-table__header-wrapper),
+.neuro-agent-list-page[data-theme="light"] .neuro-el-table :deep(.el-table__header),
+.neuro-agent-list-page[data-theme="light"] .neuro-el-table :deep(.el-table__header th) {
+  background: #f3f6fb !important;
+}
+
 .dark .neuro-el-table :deep(.el-table__header-wrapper),
 .dark .neuro-el-table :deep(.el-table__header),
 .dark .neuro-el-table :deep(.el-table__header th) {
@@ -1433,6 +1519,11 @@ onMounted(() => {
   border-bottom: 1px solid color-mix(in srgb, var(--neuro-text) 8%, transparent) !important;
 }
 
+.neuro-agent-list-page[data-theme="light"] .neuro-el-table :deep(.el-table__header th) {
+  color: #475569 !important;
+  border-bottom-color: #dbe4ef !important;
+}
+
 .dark .neuro-el-table :deep(.el-table__header th) {
   color: #94a3b8 !important;
   border-bottom-color: color-mix(in srgb, var(--neuro-text) 6%, transparent) !important;
@@ -1442,6 +1533,16 @@ onMounted(() => {
   font-size: 13px;
   padding: 12px 0;
   color: #1e293b !important;
+}
+
+.neuro-agent-list-page[data-theme="light"] .neuro-el-table :deep(.el-table__body td) {
+  color: #0f172a !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+  background: #ffffff !important;
+}
+
+.neuro-agent-list-page[data-theme="light"] .neuro-el-table :deep(.el-table__body tr:hover > td) {
+  background: #f8fbff !important;
 }
 
 .dark .neuro-el-table :deep(.el-table__body td) {
