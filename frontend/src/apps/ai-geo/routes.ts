@@ -4,13 +4,18 @@ export const aiGeoRoutes: RouteRecordRaw[] = [
   {
     path: 'ai-geo',
     name: 'AiGeoRoot',
-    meta: { title: 'AI GEO' },
-    component: () => import('./views/AiGeoView.vue'),
+    redirect: '/ai-geo/dashboard',
   },
   {
     path: 'ai-geo/:section',
     name: 'AiGeoSection',
-    meta: { title: 'AI GEO' },
+    meta: { title: 'GEO 内容增长应用' },
+    component: () => import('./views/AiGeoView.vue'),
+  },
+  {
+    path: 'ai-geo/:section/:subsection',
+    name: 'AiGeoSubSection',
+    meta: { title: 'GEO 内容增长应用' },
     component: () => import('./views/AiGeoView.vue'),
   },
 ]

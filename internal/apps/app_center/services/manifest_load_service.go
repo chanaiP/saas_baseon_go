@@ -700,11 +700,7 @@ func (s *AppService) upsertManifestApp(tx *gorm.DB, env manifestEnvelope, now ti
 	}).Create(&row).Error; err != nil {
 		return err
 	}
-	platformOnlyValue := 0
-	if desiredPlatformOnly {
-		platformOnlyValue = 1
-	}
-	return tx.Exec("UPDATE sys_app SET is_platform_only = ? WHERE app_code = ? AND deleted_at IS NULL", platformOnlyValue, row.AppCode).Error
+	return tx.Exec("UPDATE sys_app SET is_platform_only = ? WHERE app_code = ? AND deleted_at IS NULL", desiredPlatformOnly, row.AppCode).Error
 }
 
 func (s *AppService) repoAppByCode(tx *gorm.DB, appCode string) (models.SysApp, error) {
