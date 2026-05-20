@@ -517,25 +517,33 @@
               <div class="brand-stats"><span>{{ brand.products.length }} 商品</span><span>{{ countSkus(brand) }} SKU</span><span>{{ brand.completeness }}%</span></div>
               <div class="progress"><span :style="{ width: brand.completeness + '%' }"></span></div>
             </div>
+            <div v-if="!brands.length" class="timeline-empty data-empty-state">
+              <strong>暂无品牌资料</strong>
+              <p>请先新增品牌，或通过动态导入创建品牌、商品、SKU 和竞品资料。</p>
+            </div>
           </div>
         </div>
 
         <div class="panel brand-detail">
           <div class="panel-header compact">
             <div>
-              <h3>{{ currentBrand.name }} 品牌资料卡</h3>
-              <p>{{ currentBrand.position }} · {{ currentBrand.audience }} · {{ currentBrand.priceBand }}</p>
+              <h3>{{ brandDetailTitle }}</h3>
+              <p>{{ brandMetaText }}</p>
             </div>
             <div class="row-actions">
-              <button v-if="canImportData" class="btn small ghost" @click="openBrandModal(currentBrand)">编辑品牌</button>
-              <button v-if="canImportData" class="btn small dark" @click="generateBrandKeywords">生成关键词</button>
+              <button v-if="canImportData && hasBrandData" class="btn small ghost" @click="openBrandModal(currentBrand)">编辑品牌</button>
+              <button v-if="canImportData && hasBrandData" class="btn small dark" @click="generateBrandKeywords">生成关键词</button>
+              <button v-if="canImportData && !hasBrandData" class="btn small primary" @click="openBrandModal">新增品牌</button>
             </div>
           </div>
           <div class="tabs">
             <button v-for="tab in dataTabs" :key="tab" :class="{ active: dataTab === tab }" @click="dataTab = tab">{{ tab }}</button>
           </div>
           <div v-if="dataTab === '商品资料'" class="products-table">
-            <table class="table">
+            <div v-if="!currentBrand.products.length" class="timeline-empty">
+              当前品牌暂无商品资料。新增商品后，可继续维护 SKU、竞品和内容关键词。
+            </div>
+            <table v-else class="table">
               <thead><tr><th>商品</th><th>类目/系列</th><th>SKU</th><th>资料完整度</th><th>竞品</th><th>缺失项</th><th>操作</th></tr></thead>
               <tbody>
                 <tr v-for="product in currentBrand.products" :key="product.id">
@@ -557,6 +565,9 @@
             <InfoBlock title="内容口径" :value="currentBrand.tone" />
           </div>
           <div v-else-if="dataTab === '关键词'" class="keyword-group-list">
+            <div v-if="!currentBrand.keywordGroups.length" class="timeline-empty">
+              暂无关键词组。可先维护品牌资料，或用“生成关键词”从品牌定位中提取。
+            </div>
             <div v-for="group in currentBrand.keywordGroups" :key="group.id" class="keyword-group-card">
               <div class="keyword-group-head">
                 <h4>{{ group.name }}</h4>
@@ -568,6 +579,9 @@
             </div>
           </div>
           <div v-else class="material-list">
+            <div v-if="!currentBrand.materials.length" class="timeline-empty">
+              暂无素材。后续可上传品牌图、商品主图、详情页、买家评价等内容资产。
+            </div>
             <div v-for="m in currentBrand.materials" :key="m" class="material-card">{{ m }}</div>
           </div>
         </div>
@@ -756,7 +770,7 @@ const MetricCard = defineComponent({
 const InfoBlock = defineComponent({
   props: ['title', 'value'],
   setup(props) {
-    return () => h('div', { class: 'info-block' }, [h('span', props.title), h('strong', props.value)])
+    return () => h('div', { class: 'info-block' }, [h('span', props.title), h('strong', props.value || '待维护')])
   }
 })
 
@@ -946,6 +960,13 @@ const brands = reactive([
 
 const emptyBrand = { id: 0, name: '暂无品牌', position: '', audience: '', priceBand: '', tone: '', completeness: 0, keywordGroups: [], materials: [], products: [] }
 const currentBrand = computed(() => brands.find(b => b.id === Number(selectedBrandId.value)) || brands[0] || emptyBrand)
+const hasBrandData = computed(() => Boolean(currentBrand.value.id))
+const brandDetailTitle = computed(() => hasBrandData.value ? `${currentBrand.value.name} 品牌资料卡` : '暂无品牌资料')
+const brandMetaText = computed(() => {
+  if (!hasBrandData.value) return '新增品牌后，可继续维护品牌信息、商品资料、关键词和素材。'
+  const parts = [currentBrand.value.position, currentBrand.value.audience, currentBrand.value.priceBand].filter(Boolean)
+  return parts.length ? parts.join(' · ') : '品牌定位、目标人群、价格带待维护'
+})
 const productCount = computed(() => overview.product_count || brands.reduce((sum, b) => sum + b.products.length, 0))
 const skuCount = computed(() => overview.sku_count || brands.reduce((sum, b) => sum + countSkus(b), 0))
 function countSkus(brand) { return brand.products.reduce((sum, p) => sum + p.skus.length, 0) }

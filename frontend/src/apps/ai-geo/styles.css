@@ -284,6 +284,9 @@
 .geo-growth-page .draft-timeline-items { display: grid; gap: 14px; padding-bottom: 22px; }
 .geo-growth-page .draft-timeline-group.last .draft-timeline-items { padding-bottom: 0; }
 .geo-growth-page .timeline-empty { padding: 40px 16px; text-align: center; border: 1px dashed var(--line); border-radius: 18px; background: #fcfdff; }
+.geo-growth-page .timeline-empty strong { display: block; margin-bottom: 6px; color: var(--text); }
+.geo-growth-page .timeline-empty p { margin: 0; color: var(--muted); }
+.geo-growth-page .data-empty-state { grid-column: 1 / -1; }
 .geo-growth-page .date-filter { min-width: 148px; }
 .geo-growth-page .draft-node { border: 1px solid var(--line); border-radius: 20px; overflow: hidden; background: #fff; }
 .geo-growth-page .draft-main { display: flex; justify-content: space-between; gap: 18px; padding: 16px; }
