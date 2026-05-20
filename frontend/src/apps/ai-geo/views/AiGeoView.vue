@@ -114,7 +114,7 @@
                 <strong>{{ selectedWorkbenchBrand.name }}</strong>
                 <p>{{ selectedWorkbenchBrand.position || '未选择品牌定位' }}</p>
                 <select v-model="workbench.brandId">
-                  <option value="">自动使用当前品牌</option>
+                  <option value="">请选择</option>
                   <option v-for="b in brands" :value="b.id" :key="b.id">{{ b.name }}</option>
                 </select>
               </div>
@@ -123,7 +123,7 @@
                 <strong>{{ selectedWorkbenchProduct?.name || '未指定商品' }}</strong>
                 <p>{{ selectedWorkbenchProduct?.sellingPoints || '可先用品牌资料自由生成' }}</p>
                 <select v-model="workbench.productId">
-                  <option value="">不指定商品</option>
+                  <option value="">请选择</option>
                   <option v-for="p in selectedWorkbenchBrand.products" :value="p.id" :key="p.id">{{ p.name }}</option>
                 </select>
               </div>
@@ -132,7 +132,7 @@
                 <strong>{{ selectedSkillProfile.name }}</strong>
                 <p>{{ selectedSkillProfile.goal }} · {{ selectedSkillProfile.output }}</p>
                 <select v-model="workbench.skill">
-                  <option value="">选择文章 Skill</option>
+                  <option value="">请选择</option>
                   <option v-for="s in skills" :key="s">{{ s }}</option>
                 </select>
               </div>
@@ -141,7 +141,7 @@
                 <strong>{{ workbench.hotspot?.title || '不引用热点' }}</strong>
                 <p>{{ workbench.hotspot?.summary || '可在对话中再决定是否借势' }}</p>
                 <select v-model="selectedHotspotId">
-                  <option value="">不引用热点</option>
+                  <option value="">请选择</option>
                   <option v-for="h in hotspots" :key="h.id" :value="h.id">{{ h.title }} · {{ h.platform }}</option>
                   <option value="__more__">热点库 / 手动添加…</option>
                 </select>
