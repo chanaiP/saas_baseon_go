@@ -1,0 +1,383 @@
+manifest_version: "1.0"
+fragment_role: main
+app:
+  app_code: ai-geo
+  app_name: AI GEO
+  app_type: AI_APP
+  source: MANIFEST
+  status: INITIATED
+  icon: Radar
+  deployment_mode: MERGED
+  communication_modes:
+    - PLATFORM_API
+  visibility_scope: TENANT
+  charge_policy: PAID
+  billing_mode: SUBSCRIPTION
+  package_policy: IN_PACKAGE
+  version: 0.1.0
+  description: 面向品牌在生成式搜索与 AI 问答场景中的可见度、引用、竞品和内容优化的运营应用
+  backend_dir: internal/apps/ai_geo
+  frontend_dir: frontend/src/apps/ai-geo
+clients:
+  - PC_WEB
+  - API_ONLY
+menus:
+  - code: ai_geo_root
+    name: AI GEO
+    path: /ai-geo
+    sort_order: 110
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_geo_access
+    data_perm_mode: TENANT
+  - code: ai_geo_dashboard
+    name: GEO 总览
+    path: /ai-geo/dashboard
+    parent_code: ai_geo_root
+    sort_order: 111
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_geo_dashboard
+    data_perm_mode: TENANT
+  - code: ai_geo_projects
+    name: 项目管理
+    path: /ai-geo/projects
+    parent_code: ai_geo_root
+    sort_order: 112
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_geo_projects
+    data_perm_mode: TENANT
+  - code: ai_geo_queries
+    name: 提示词库
+    path: /ai-geo/queries
+    parent_code: ai_geo_root
+    sort_order: 113
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_geo_queries
+    data_perm_mode: TENANT
+  - code: ai_geo_monitoring
+    name: 可见度监测
+    path: /ai-geo/monitoring
+    parent_code: ai_geo_root
+    sort_order: 114
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_geo_monitoring
+    data_perm_mode: TENANT
+  - code: ai_geo_citations
+    name: 引用分析
+    path: /ai-geo/citations
+    parent_code: ai_geo_root
+    sort_order: 115
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_geo_citations
+    data_perm_mode: TENANT
+  - code: ai_geo_competitors
+    name: 竞品洞察
+    path: /ai-geo/competitors
+    parent_code: ai_geo_root
+    sort_order: 116
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_geo_competitors
+    data_perm_mode: TENANT
+  - code: ai_geo_content
+    name: 内容优化
+    path: /ai-geo/content
+    parent_code: ai_geo_root
+    sort_order: 117
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_geo_content
+    data_perm_mode: TENANT
+  - code: ai_geo_reports
+    name: 报告中心
+    path: /ai-geo/reports
+    parent_code: ai_geo_root
+    sort_order: 118
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_geo_reports
+    data_perm_mode: TENANT
+operations:
+  - code: ai_geo_project_manage
+    name: GEO 项目维护
+    menu_code: ai_geo_projects
+    permission_code: ai_geo:project:manage
+    include_in_package: true
+    feature_code: ai_geo_projects
+  - code: ai_geo_query_manage
+    name: 提示词维护
+    menu_code: ai_geo_queries
+    permission_code: ai_geo:query:manage
+    include_in_package: true
+    feature_code: ai_geo_queries
+  - code: ai_geo_monitoring_run
+    name: 执行可见度监测
+    menu_code: ai_geo_monitoring
+    permission_code: ai_geo:monitoring:run
+    include_in_package: true
+    feature_code: ai_geo_monitoring
+  - code: ai_geo_content_optimize
+    name: 内容优化建议
+    menu_code: ai_geo_content
+    permission_code: ai_geo:content:optimize
+    include_in_package: true
+    feature_code: ai_geo_content
+  - code: ai_geo_report_export
+    name: 报告导出
+    menu_code: ai_geo_reports
+    permission_code: ai_geo:report:export
+    include_in_package: true
+    feature_code: ai_geo_reports
+permissions:
+  - code: /ai-geo
+    name: AI GEO
+    type: MENU
+    menu_code: ai_geo_root
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /ai-geo/dashboard
+    name: GEO 总览
+    type: MENU
+    menu_code: ai_geo_dashboard
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /ai-geo/projects
+    name: 项目管理
+    type: MENU
+    menu_code: ai_geo_projects
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /ai-geo/queries
+    name: 提示词库
+    type: MENU
+    menu_code: ai_geo_queries
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /ai-geo/monitoring
+    name: 可见度监测
+    type: MENU
+    menu_code: ai_geo_monitoring
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /ai-geo/citations
+    name: 引用分析
+    type: MENU
+    menu_code: ai_geo_citations
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /ai-geo/competitors
+    name: 竞品洞察
+    type: MENU
+    menu_code: ai_geo_competitors
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /ai-geo/content
+    name: 内容优化
+    type: MENU
+    menu_code: ai_geo_content
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /ai-geo/reports
+    name: 报告中心
+    type: MENU
+    menu_code: ai_geo_reports
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: ai_geo:project:manage
+    name: GEO 项目维护
+    type: OPERATION
+    menu_code: ai_geo_projects
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: ai_geo:query:manage
+    name: 提示词维护
+    type: OPERATION
+    menu_code: ai_geo_queries
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: ai_geo:monitoring:run
+    name: 执行可见度监测
+    type: OPERATION
+    menu_code: ai_geo_monitoring
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: ai_geo:content:optimize
+    name: 内容优化建议
+    type: OPERATION
+    menu_code: ai_geo_content
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: ai_geo:report:export
+    name: 报告导出
+    type: OPERATION
+    menu_code: ai_geo_reports
+    include_in_package: true
+    data_perm_mode: TENANT
+apis:
+  - method: GET
+    path: /api/ai-geo/overview
+    permission_code: /ai-geo/dashboard
+  - method: GET
+    path: /api/ai-geo/projects
+    permission_code: /ai-geo/projects
+  - method: POST
+    path: /api/ai-geo/projects
+    permission_code: ai_geo:project:manage
+    audit: true
+  - method: PUT
+    path: /api/ai-geo/projects/:id
+    permission_code: ai_geo:project:manage
+    audit: true
+  - method: GET
+    path: /api/ai-geo/queries
+    permission_code: /ai-geo/queries
+  - method: POST
+    path: /api/ai-geo/queries
+    permission_code: ai_geo:query:manage
+    audit: true
+  - method: POST
+    path: /api/ai-geo/monitoring/runs
+    permission_code: ai_geo:monitoring:run
+    audit: true
+  - method: GET
+    path: /api/ai-geo/monitoring/runs
+    permission_code: /ai-geo/monitoring
+  - method: GET
+    path: /api/ai-geo/citations
+    permission_code: /ai-geo/citations
+  - method: GET
+    path: /api/ai-geo/competitors
+    permission_code: /ai-geo/competitors
+  - method: POST
+    path: /api/ai-geo/content/optimize
+    permission_code: ai_geo:content:optimize
+    audit: true
+  - method: GET
+    path: /api/ai-geo/reports
+    permission_code: /ai-geo/reports
+  - method: POST
+    path: /api/ai-geo/reports/export
+    permission_code: ai_geo:report:export
+    audit: true
+package_features:
+  - feature_code: ai_geo_access
+    feature_name: AI GEO
+    feature_type: MENU
+    source_code: ai_geo_root
+    package_policy: IN_PACKAGE
+    include_in_package: true
+    description: AI GEO 应用入口和基础访问能力
+  - feature_code: ai_geo_dashboard
+    feature_name: GEO 总览
+    feature_type: MENU
+    parent_code: ai_geo_access
+    source_code: ai_geo_dashboard
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: ai_geo_projects
+    feature_name: 项目管理
+    feature_type: MENU
+    parent_code: ai_geo_access
+    source_code: ai_geo_projects
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: ai_geo_queries
+    feature_name: 提示词库
+    feature_type: MENU
+    parent_code: ai_geo_access
+    source_code: ai_geo_queries
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: ai_geo_monitoring
+    feature_name: 可见度监测
+    feature_type: MENU
+    parent_code: ai_geo_access
+    source_code: ai_geo_monitoring
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: ai_geo_citations
+    feature_name: 引用分析
+    feature_type: MENU
+    parent_code: ai_geo_access
+    source_code: ai_geo_citations
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: ai_geo_competitors
+    feature_name: 竞品洞察
+    feature_type: MENU
+    parent_code: ai_geo_access
+    source_code: ai_geo_competitors
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: ai_geo_content
+    feature_name: 内容优化
+    feature_type: MENU
+    parent_code: ai_geo_access
+    source_code: ai_geo_content
+    package_policy: IN_PACKAGE
+    include_in_package: true
+  - feature_code: ai_geo_reports
+    feature_name: 报告中心
+    feature_type: MENU
+    parent_code: ai_geo_access
+    source_code: ai_geo_reports
+    package_policy: IN_PACKAGE
+    include_in_package: true
+quotas:
+  - quota_code: ai_geo_project_count
+    quota_name: GEO 项目数量
+    quota_type: STATIC
+    unit: 个
+    period_type: TOTAL
+    include_in_package: true
+    description: 当前租户可维护的 AI GEO 项目数量上限
+  - quota_code: ai_geo_monthly_monitor_runs
+    quota_name: 月度监测次数
+    quota_type: PERIODIC
+    unit: 次
+    period_type: MONTH
+    include_in_package: true
+    description: 当前租户每月可执行的 AI 可见度监测次数
+  - quota_code: ai_geo_monthly_content_optimizations
+    quota_name: 月度内容优化次数
+    quota_type: PERIODIC
+    unit: 次
+    period_type: MONTH
+    include_in_package: true
+    description: 当前租户每月可生成的内容优化建议次数
+documents:
+  - code: ai-geo-readme
+    name: AI GEO 应用说明
+    url: docs/apps/ai-geo.md
