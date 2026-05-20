@@ -858,7 +858,7 @@ const activeMenu = computed({
   },
 })
 const selectedBrandId = ref(1)
-const dataTab = ref('商品资料')
+const dataTab = ref('品牌信息')
 const dataTabs = ['品牌信息', '商品资料', '关键词', '素材']
 const productTab = ref('公共资料')
 const productTabs = ['公共资料', 'SKU明细', 'SKU覆盖资料', '竞品信息', '关键词/内容']
