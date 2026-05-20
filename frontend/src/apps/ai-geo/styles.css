@@ -206,8 +206,10 @@
 .geo-growth-page .bubble.user { background: var(--primary); color: white; align-self: flex-end; }
 .geo-growth-page .bubble p { margin: 0; color: inherit; }
 .geo-growth-page .chat-actions { display: flex; gap: 10px; margin: 12px 0; }
-.geo-growth-page .chat-input { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
+.geo-growth-page .chat-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; }
 .geo-growth-page .chat-input textarea { min-height: 72px; }
+.geo-growth-page .chat-input-actions { display: flex; gap: 8px; align-items: center; }
+.geo-growth-page .send-btn { min-width: 72px; border-color: rgba(37, 99, 235, .22); color: var(--primary); background: var(--surface-blue); }
 .geo-growth-page .btn:disabled { opacity: .48; cursor: not-allowed; box-shadow: none; }
 .geo-growth-page .editor-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; gap: 14px; }
 .geo-growth-page .segmented { display: inline-flex; gap: 4px; padding: 4px; background: #f1f5f9; border-radius: 14px; }
@@ -354,6 +356,8 @@
   .geo-growth-page .draft-timeline-group { grid-template-columns: 72px minmax(0, 1fr); gap: 12px; }
   .geo-growth-page .timeline-date strong { font-size: 16px; }
   .geo-growth-page .chat-input { grid-template-columns: 1fr; }
+  .geo-growth-page .chat-input-actions { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+  .geo-growth-page .chat-input-actions .btn { width: 100%; }
   .geo-growth-page .draft-hero { grid-template-columns: 1fr; }
   .geo-growth-page .draft-cover-col { width: 100%; max-width: 160px; }
   .geo-growth-page .loaders { grid-template-columns: 1fr; }

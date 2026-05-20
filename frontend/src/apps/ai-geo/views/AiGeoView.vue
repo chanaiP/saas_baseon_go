@@ -161,10 +161,17 @@
               </div>
             </div>
             <div class="chat-input">
-              <textarea v-model="workbench.prompt" :placeholder="generationPlaceholder"></textarea>
-              <button v-if="canGenerateDraft" class="btn primary" :disabled="loading.action || !canRunWorkbench" @click="generateDraftFromChat">
-                {{ loading.action ? '生成中' : '生成母稿' }}
-              </button>
+              <textarea
+                v-model="workbench.prompt"
+                :placeholder="generationPlaceholder"
+                @keydown.enter.exact.prevent="sendWorkbenchMessage"
+              ></textarea>
+              <div class="chat-input-actions">
+                <button class="btn send-btn" :disabled="!hasWorkbenchInput" @click="sendWorkbenchMessage">发送</button>
+                <button v-if="canGenerateDraft" class="btn primary" :disabled="loading.action || !canRunWorkbench" @click="generateDraftFromChat">
+                  {{ loading.action ? '生成中' : '生成母稿' }}
+                </button>
+              </div>
             </div>
             <p v-if="!canRunWorkbench" class="field-hint">请选择 Skill，或在输入框里说明文章目标。</p>
           </div>
@@ -1058,6 +1065,7 @@ const generationPlaceholder = computed(() => {
   const product = selectedWorkbenchProduct.value?.name || '当前资料'
   return `例如：围绕「${product}」写一篇回答“小个子通勤怎么穿”的 GEO 文章，强调适合人群、选择理由、场景建议。`
 })
+const hasWorkbenchInput = computed(() => Boolean(String(workbench.prompt || '').trim()))
 const canRunWorkbench = computed(() => Boolean(String(workbench.prompt || '').trim() || workbench.skill))
 watch(() => workbench.brandId, () => {
   workbench.productId = ''
@@ -1450,12 +1458,29 @@ function useHotspot(hot, mode) {
   chatMessages.push({ id: Date.now(), role: 'ai', text: mode === 'dialog' ? `已引用热点：${hot.title}` : `借势角度：围绕「${hot.title}」做轻引用，不夸大热点关系。` })
   closeDrawer()
 }
+function sendWorkbenchMessage() {
+  const prompt = String(workbench.prompt || '').trim()
+  if (!prompt) return
+  chatMessages.push({ id: Date.now(), role: 'user', text: prompt })
+  const product = selectedWorkbenchProduct.value?.name ? `，当前商品是「${selectedWorkbenchProduct.value.name}」` : ''
+  const keywords = workbenchKeywords.value.slice(0, 4).join('、') || '待补关键词'
+  chatMessages.push({
+    id: Date.now() + 1,
+    role: 'ai',
+    text: `收到。我会按「${selectedSkillProfile.value.name}」处理这条需求，当前品牌是「${selectedWorkbenchBrand.value.name}」${product}，可用关键词为：${keywords}。继续补充人群、场景或口吻，或直接点击“生成母稿”。`,
+  })
+  workbench.prompt = ''
+}
 async function generateDraftFromChat() {
   loading.action = true
   const product = selectedWorkbenchProduct.value
   const skill = workbench.skill || '通用 GEO 母稿 Skill'
-  const prompt = String(workbench.prompt || '').trim() || `请基于 ${selectedWorkbenchBrand.value.name}${product ? ` 的 ${product.name}` : ''}，生成一篇面向「${selectedSkillProfile.value.goal}」的 GEO 文章。`
-  chatMessages.push({ id: Date.now(), role: 'user', text: prompt })
+  const typedPrompt = String(workbench.prompt || '').trim()
+  const latestUserPrompt = [...chatMessages].reverse().find(msg => msg.role === 'user')?.text || ''
+  const prompt = typedPrompt || latestUserPrompt || `请基于 ${selectedWorkbenchBrand.value.name}${product ? ` 的 ${product.name}` : ''}，生成一篇面向「${selectedSkillProfile.value.goal}」的 GEO 文章。`
+  if (typedPrompt || !latestUserPrompt) {
+    chatMessages.push({ id: Date.now(), role: 'user', text: prompt })
+  }
   try {
     const draft = await generateAiGeoDraft({
       brand_id: workbench.brandId ? Number(workbench.brandId) : undefined,
@@ -1481,6 +1506,7 @@ async function generateDraftFromChat() {
     })
     await loadAiGeoData()
     chatMessages.push({ id: Date.now() + 1, role: 'ai', text: `已按「${selectedSkillProfile.value.name}」生成母稿，并写入右侧编辑器。你可以继续要求我强化人群、卖点、FAQ 或渠道语气。` })
+    workbench.prompt = ''
   } catch (error) {
     showToast(error?.message || '母稿生成失败')
   } finally {
