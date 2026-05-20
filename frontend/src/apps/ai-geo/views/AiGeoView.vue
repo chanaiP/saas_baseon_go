@@ -101,43 +101,61 @@
 
       <section v-if="activeMenu === 'workbench'" class="page workbench-page">
         <div class="workspace-layout">
-          <div class="chat-panel panel geo-command-panel">
-            <div class="workbench-brief">
+          <div class="chat-panel panel geo-command-panel" :class="{ 'is-chatting': hasStartedWorkbenchChat }">
+            <div v-if="!hasStartedWorkbenchChat" class="workbench-brief">
               <span class="badge muted-badge">GEO Article Console</span>
               <h3>按资料和 Skill 生成有指向性的 GEO 文章</h3>
-              <p>先确定品牌、商品、目标人群和内容任务，再让 AI 生成母稿；后续每次追问都会带上当前资料上下文。</p>
+              <p>直接说想法也可以；我会帮你识别品牌、商品、Skill 和热点，再把模糊想法收敛成可生成的 GEO 母稿。</p>
             </div>
 
-            <div class="context-strip">
+            <div v-if="!hasStartedWorkbenchChat" class="context-strip setup-strip">
               <div class="context-card strong">
                 <span>品牌</span>
                 <strong>{{ selectedWorkbenchBrand.name }}</strong>
                 <p>{{ selectedWorkbenchBrand.position || '未选择品牌定位' }}</p>
+                <select v-model="workbench.brandId">
+                  <option value="">自动使用当前品牌</option>
+                  <option v-for="b in brands" :value="b.id" :key="b.id">{{ b.name }}</option>
+                </select>
               </div>
               <div class="context-card">
                 <span>商品</span>
                 <strong>{{ selectedWorkbenchProduct?.name || '未指定商品' }}</strong>
                 <p>{{ selectedWorkbenchProduct?.sellingPoints || '可先用品牌资料自由生成' }}</p>
+                <select v-model="workbench.productId">
+                  <option value="">不指定商品</option>
+                  <option v-for="p in selectedWorkbenchBrand.products" :value="p.id" :key="p.id">{{ p.name }}</option>
+                </select>
               </div>
               <div class="context-card">
-                <span>目标</span>
-                <strong>{{ selectedSkillProfile.goal }}</strong>
-                <p>{{ selectedSkillProfile.output }}</p>
+                <span>Skill</span>
+                <strong>{{ selectedSkillProfile.name }}</strong>
+                <p>{{ selectedSkillProfile.goal }} · {{ selectedSkillProfile.output }}</p>
+                <select v-model="workbench.skill">
+                  <option value="">选择文章 Skill</option>
+                  <option v-for="s in skills" :key="s">{{ s }}</option>
+                </select>
+              </div>
+              <div class="context-card">
+                <span>热点</span>
+                <strong>{{ workbench.hotspot?.title || '不引用热点' }}</strong>
+                <p>{{ workbench.hotspot?.summary || '可在对话中再决定是否借势' }}</p>
+                <select v-model="selectedHotspotId">
+                  <option value="">不引用热点</option>
+                  <option v-for="h in hotspots" :key="h.id" :value="h.id">{{ h.title }} · {{ h.platform }}</option>
+                  <option value="__more__">热点库 / 手动添加…</option>
+                </select>
               </div>
             </div>
 
-            <div class="loaders workbench-controls">
-              <label>品牌<select v-model="workbench.brandId"><option value="">自动使用当前品牌</option><option v-for="b in brands" :value="b.id" :key="b.id">{{ b.name }}</option></select></label>
-              <label>商品<select v-model="workbench.productId"><option value="">不指定商品</option><option v-for="p in selectedWorkbenchBrand.products" :value="p.id" :key="p.id">{{ p.name }}</option></select></label>
-              <label>Skill<select v-model="workbench.skill"><option value="">选择文章 Skill</option><option v-for="s in skills" :key="s">{{ s }}</option></select></label>
-              <label>热点<select v-model="selectedHotspotId">
-                <option value="">不引用热点</option>
-                <option v-for="h in hotspots" :key="h.id" :value="h.id">{{ h.title }} · {{ h.platform }}</option>
-                <option value="__more__">热点库 / 手动添加…</option>
-              </select></label>
+            <div v-else class="conversation-context-bar">
+              <span>品牌 <strong>{{ selectedWorkbenchBrand.name }}</strong></span>
+              <span>商品 <strong>{{ selectedWorkbenchProduct?.name || '未指定' }}</strong></span>
+              <span>Skill <strong>{{ selectedSkillProfile.name }}</strong></span>
+              <span>热点 <strong>{{ workbench.hotspot?.title || '未引用' }}</strong></span>
             </div>
 
-            <div class="skill-panel">
+            <div v-if="!hasStartedWorkbenchChat" class="skill-panel">
               <div>
                 <span>当前 Skill</span>
                 <strong>{{ selectedSkillProfile.name }}</strong>
@@ -148,7 +166,7 @@
               </div>
             </div>
 
-            <div class="evidence-list">
+            <div v-if="!hasStartedWorkbenchChat" class="evidence-list">
               <div v-for="item in workbenchEvidence" :key="item.label" class="evidence-item">
                 <span>{{ item.label }}</span>
                 <strong>{{ item.value }}</strong>
@@ -191,7 +209,7 @@
               ></textarea>
               <div class="chat-input-actions">
                 <button class="btn send-btn" :disabled="!hasWorkbenchInput" @click="sendWorkbenchMessage">发送</button>
-                <button v-if="canGenerateDraft" class="btn primary" :disabled="loading.action || !workbenchReadiness.ready" @click="generateDraftFromChat">
+                <button v-if="canGenerateDraft && hasStartedWorkbenchChat" class="btn primary" :disabled="loading.action || !workbenchReadiness.ready" @click="generateDraftFromChat">
                   {{ loading.action ? '生成中' : (workbenchReadiness.ready ? '生成母稿' : '继续沟通') }}
                 </button>
               </div>
@@ -1104,6 +1122,7 @@ const generationPlaceholder = computed(() => {
 })
 const hasWorkbenchInput = computed(() => Boolean(String(workbench.prompt || '').trim()))
 const workbenchUserMessages = computed(() => chatMessages.filter(msg => msg.role === 'user'))
+const hasStartedWorkbenchChat = computed(() => workbenchUserMessages.value.length > 0)
 const latestWorkbenchUserPrompt = computed(() => [...chatMessages].reverse().find(msg => msg.role === 'user')?.text || '')
 const workbenchReadiness = computed(() => evaluateWorkbenchReadiness(String(workbench.prompt || '').trim()))
 watch(() => workbench.brandId, () => {

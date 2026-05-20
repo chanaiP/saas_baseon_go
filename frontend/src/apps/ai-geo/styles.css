@@ -164,15 +164,20 @@
 .geo-growth-page .workbench-page .workspace-layout { flex: 1; min-height: 0; }
 .geo-growth-page .chat-panel, .geo-growth-page .editor-panel { display: flex; flex-direction: column; min-height: 0; }
 .geo-growth-page .geo-command-panel { gap: 12px; background: linear-gradient(180deg, var(--surface), var(--surface-tint)); }
+.geo-growth-page .geo-command-panel.is-chatting { gap: 10px; padding-top: 14px; }
 .geo-growth-page .workbench-brief { display: grid; gap: 8px; padding-bottom: 2px; }
 .geo-growth-page .workbench-brief h3 { margin: 0; font-size: 22px; line-height: 1.25; }
 .geo-growth-page .workbench-brief p { margin: 0; color: var(--muted); line-height: 1.6; }
-.geo-growth-page .context-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.geo-growth-page .context-card { min-height: 116px; display: grid; align-content: start; gap: 6px; padding: 13px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,.76); }
+.geo-growth-page .context-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.geo-growth-page .context-card { min-height: 156px; display: grid; align-content: start; gap: 6px; padding: 13px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,.76); }
 .geo-growth-page .context-card.strong { border-color: rgba(37, 99, 235, .22); background: linear-gradient(135deg, rgba(232,240,255,.92), rgba(255,255,255,.78)); }
 .geo-growth-page .context-card span, .geo-growth-page .skill-panel span, .geo-growth-page .generation-recipe span, .geo-growth-page .evidence-item span { color: var(--muted); font-size: 12px; }
 .geo-growth-page .context-card strong { font-size: 15px; line-height: 1.35; }
 .geo-growth-page .context-card p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.geo-growth-page .context-card select { width: 100%; margin-top: auto; padding: 8px 10px; border-radius: 12px; font-size: 13px; background: rgba(255,255,255,.84); }
+.geo-growth-page .conversation-context-bar { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px; border: 1px solid var(--line); border-radius: 16px; background: rgba(248,250,252,.88); }
+.geo-growth-page .conversation-context-bar span { display: inline-flex; gap: 6px; align-items: center; min-width: 0; padding: 6px 9px; border-radius: 999px; background: white; border: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+.geo-growth-page .conversation-context-bar strong { max-width: 118px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 .geo-growth-page .workbench-controls { margin: 0; }
 .geo-growth-page .skill-panel { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 14px; border: 1px solid rgba(37, 99, 235, .18); border-radius: 18px; background: var(--surface-blue); }
 .geo-growth-page .skill-panel strong { display: block; margin: 4px 0; }
@@ -184,6 +189,7 @@
 .geo-growth-page .evidence-item strong { font-size: 13px; line-height: 1.45; color: var(--text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .geo-growth-page .chat-panel .panel-header, .geo-growth-page .chat-panel .loaders { flex-shrink: 0; }
 .geo-growth-page .chat-panel .chat-log { flex: 1; min-height: 280px; height: auto; }
+.geo-growth-page .chat-panel.is-chatting .chat-log { min-height: 520px; }
 .geo-growth-page .chat-panel .chat-input { flex-shrink: 0; margin-top: auto; }
 .geo-growth-page .editor-panel .editor-toolbar { flex-shrink: 0; }
 .geo-growth-page .editor-panel .draft-editor { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -201,6 +207,7 @@
 .geo-growth-page .hotspot-chip button { border: 0; background: transparent; color: #1d4ed8; font-size: 18px; }
 .geo-growth-page .chat-log { height: 330px; overflow: auto; display: flex; flex-direction: column; gap: 10px; padding: 12px; background: #f8fafc; border-radius: 18px; border: 1px solid var(--line); }
 .geo-growth-page .geo-dialogue { min-height: 210px; background: linear-gradient(180deg, #fbfdff, #f8fafc); }
+.geo-growth-page .is-chatting .geo-dialogue { background: linear-gradient(180deg, rgba(251,253,255,.96), rgba(248,250,252,.82)); }
 .geo-growth-page .bubble { max-width: 86%; padding: 11px 12px; border-radius: 16px; }
 .geo-growth-page .bubble.ai { background: white; border: 1px solid var(--line); align-self: flex-start; }
 .geo-growth-page .bubble.user { background: var(--primary); color: white; align-self: flex-end; }
@@ -359,7 +366,8 @@
 @media (max-width: 1180px) {
   .geo-growth-page .grid.four { grid-template-columns: repeat(2, 1fr); }
   .geo-growth-page .workspace-layout { grid-template-columns: 1fr; }
-  .geo-growth-page .context-strip, .geo-growth-page .generation-recipe { grid-template-columns: 1fr; }
+  .geo-growth-page .context-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .geo-growth-page .generation-recipe { grid-template-columns: 1fr; }
 }
 @media (max-width: 780px) {
   .geo-growth-page .topbar, .geo-growth-page .panel-header, .geo-growth-page .draft-main, .geo-growth-page .plan-title { flex-direction: column; align-items: flex-start; }
@@ -375,6 +383,7 @@
   .geo-growth-page .chat-input-actions .btn { width: 100%; }
   .geo-growth-page .draft-hero { grid-template-columns: 1fr; }
   .geo-growth-page .draft-cover-col { width: 100%; max-width: 160px; }
+  .geo-growth-page .context-strip { grid-template-columns: 1fr; }
   .geo-growth-page .loaders { grid-template-columns: 1fr; }
   .geo-growth-page .skill-panel, .geo-growth-page .evidence-list { grid-template-columns: 1fr; }
   .geo-growth-page .skill-tags { justify-content: flex-start; max-width: none; }
@@ -453,6 +462,8 @@ html.dark .geo-growth-page .context-card,
 html.dark .geo-growth-page .skill-panel,
 html.dark .geo-growth-page .evidence-item,
 html.dark .geo-growth-page .idea-section,
+html.dark .geo-growth-page .conversation-context-bar,
+html.dark .geo-growth-page .conversation-context-bar span,
 html.dark .geo-growth-page .generation-recipe > div,
 .admin-shell.dark .geo-growth-page .panel,
 .admin-shell.dark .geo-growth-page .metric-card,
@@ -484,6 +495,8 @@ html.dark .geo-growth-page .generation-recipe > div,
 .admin-shell.dark .geo-growth-page .skill-panel,
 .admin-shell.dark .geo-growth-page .evidence-item,
 .admin-shell.dark .geo-growth-page .idea-section,
+.admin-shell.dark .geo-growth-page .conversation-context-bar,
+.admin-shell.dark .geo-growth-page .conversation-context-bar span,
 .admin-shell.dark .geo-growth-page .generation-recipe > div {
   background: var(--surface);
   border-color: var(--line);
