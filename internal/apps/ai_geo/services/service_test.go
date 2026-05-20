@@ -198,6 +198,38 @@ func TestImportMaterialsRecordsRowErrorsAndPartialSuccess(t *testing.T) {
 	require.Equal(t, "empty_row", errorsPage.Items[1].ErrorCode)
 }
 
+func TestPublishPlanSyncsChannelContentStatusAndStateMachine(t *testing.T) {
+	db := newAiGeoTestDB(t)
+	service := NewService(repositories.NewRepository(db))
+	viewer := dto.Viewer{TenantID: 1, UserID: 10}
+	channel, err := service.CreateChannel(context.Background(), viewer, dto.ChannelPayload{ChannelCode: "xiaohongshu", ChannelName: "小红书"})
+	require.NoError(t, err)
+	draft, err := service.CreateDraft(context.Background(), viewer, dto.DraftPayload{Title: "母稿", Body: "正文"})
+	require.NoError(t, err)
+	content, err := service.GenerateChannelContent(context.Background(), viewer, draft.ID, dto.ChannelContentPayload{ChannelID: channel.ID})
+	require.NoError(t, err)
+
+	plan, err := service.CreatePublishPlan(context.Background(), viewer, dto.PublishPlanPayload{
+		ChannelContentID: content.ID,
+		ChannelID:        channel.ID,
+		ScheduledAt:      time.Now().Add(time.Hour).Format(time.RFC3339),
+	})
+	require.NoError(t, err)
+	var plannedContent models.AiGeoChannelContent
+	require.NoError(t, db.First(&plannedContent, content.ID).Error)
+	require.Equal(t, "planned", plannedContent.PublishStatus)
+
+	_, err = service.UpdatePublishStatus(context.Background(), viewer, plan.ID, dto.PublishStatusPayload{Status: "publishing"})
+	require.NoError(t, err)
+	_, err = service.UpdatePublishStatus(context.Background(), viewer, plan.ID, dto.PublishStatusPayload{Status: "published", PublishedURL: "https://example.com/post/1"})
+	require.NoError(t, err)
+	require.NoError(t, db.First(&plannedContent, content.ID).Error)
+	require.Equal(t, "published", plannedContent.PublishStatus)
+
+	_, err = service.UpdatePublishStatus(context.Background(), viewer, plan.ID, dto.PublishStatusPayload{Status: "cancelled"})
+	require.ErrorIs(t, err, ErrInvalidStatus)
+}
+
 func newAiGeoTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})

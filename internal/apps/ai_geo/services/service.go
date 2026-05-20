@@ -562,7 +562,14 @@ func (s *Service) CreatePublishPlan(ctx context.Context, viewer dto.Viewer, payl
 		CreatedAt:        now,
 		UpdatedAt:        now,
 	}
-	err = s.repo.SavePublishPlan(ctx, &row)
+	err = s.repo.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(&row).Error; err != nil {
+			return err
+		}
+		return tx.Model(&models.AiGeoChannelContent{}).
+			Where("tenant_id = ? AND id = ? AND deleted_at IS NULL", viewer.TenantID, row.ChannelContentID).
+			Updates(map[string]interface{}{"publish_status": "planned", "updated_at": now, "updated_by": &userID}).Error
+	})
 	return row, err
 }
 
@@ -578,13 +585,25 @@ func (s *Service) UpdatePublishStatus(ctx context.Context, viewer dto.Viewer, id
 	if !validPublishStatus(next) {
 		return row, ErrInvalidStatus
 	}
+	if !validPublishTransition(row.Status, next) {
+		return row, ErrInvalidStatus
+	}
 	row.Status = next
 	row.PublishedURL = stringPtr(payload.PublishedURL)
 	row.FailReason = stringPtr(payload.FailReason)
-	row.UpdatedAt = time.Now()
+	now := time.Now()
+	row.UpdatedAt = now
 	userID := viewer.UserID
 	row.UpdatedBy = &userID
-	err = s.repo.SavePublishPlan(ctx, &row)
+	contentStatus := channelContentPublishStatus(next)
+	err = s.repo.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(&row).Error; err != nil {
+			return err
+		}
+		return tx.Model(&models.AiGeoChannelContent{}).
+			Where("tenant_id = ? AND id = ? AND deleted_at IS NULL", viewer.TenantID, row.ChannelContentID).
+			Updates(map[string]interface{}{"publish_status": contentStatus, "updated_at": now, "updated_by": &userID}).Error
+	})
 	return row, err
 }
 
@@ -774,5 +793,39 @@ func validPublishStatus(status string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func validPublishTransition(current, next string) bool {
+	if current == next {
+		return true
+	}
+	allowed := map[string][]string{
+		"scheduled":  {"publishing", "published", "failed", "cancelled"},
+		"publishing": {"published", "failed", "cancelled"},
+		"failed":     {"scheduled", "publishing"},
+	}
+	for _, item := range allowed[current] {
+		if item == next {
+			return true
+		}
+	}
+	return false
+}
+
+func channelContentPublishStatus(planStatus string) string {
+	switch planStatus {
+	case "scheduled":
+		return "planned"
+	case "publishing":
+		return "publishing"
+	case "published":
+		return "published"
+	case "failed":
+		return "failed"
+	case "cancelled":
+		return "not_planned"
+	default:
+		return "not_planned"
 	}
 }
