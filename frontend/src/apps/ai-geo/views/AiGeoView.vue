@@ -29,7 +29,7 @@
           <MetricCard title="品牌数" :value="brands.length" desc="当前租户已维护品牌" />
           <MetricCard title="商品数" :value="productCount" desc="SPU 商品资料卡" />
           <MetricCard title="SKU 数" :value="skuCount" desc="可售卖规格明细" />
-          <MetricCard title="资料完整度" :value="currentBrand.completeness + '%'" desc="品牌 / 商品 / SKU 汇总" />
+          <MetricCard title="资料完整度" :value="brandOverallCompleteness(currentBrand) + '%'" desc="品牌 / 商品 / SKU 汇总" />
         </div>
 
         <div class="grid overview-row">
@@ -239,7 +239,7 @@
               </div>
               <div>
                 <span>资料完整度</span>
-                <strong>{{ selectedWorkbenchBrand.completeness || 0 }}%</strong>
+                <strong>{{ brandOverallCompleteness(selectedWorkbenchBrand) }}%</strong>
               </div>
               <div>
                 <span>可用关键词</span>
@@ -514,8 +514,8 @@
             <div v-for="brand in brands" :key="brand.id" :class="['brand-card', { active: selectedBrandId === brand.id }]" @click="selectedBrandId = brand.id">
               <h3>{{ brand.name }}</h3>
               <p>{{ brand.position }}</p>
-              <div class="brand-stats"><span>{{ brand.products.length }} 商品</span><span>{{ countSkus(brand) }} SKU</span><span>{{ brand.completeness }}%</span></div>
-              <div class="progress"><span :style="{ width: brand.completeness + '%' }"></span></div>
+              <div class="brand-stats"><span>{{ brand.products.length }} 商品</span><span>{{ countSkus(brand) }} SKU</span><span>综合 {{ brandOverallCompleteness(brand) }}%</span></div>
+              <div class="progress" :title="brandCompletenessBreakdownText(brand)"><span :style="{ width: brandOverallCompleteness(brand) + '%' }"></span></div>
             </div>
             <div v-if="!brands.length" class="timeline-empty data-empty-state">
               <strong>暂无品牌资料</strong>
@@ -1004,6 +1004,52 @@ const brandMetaText = computed(() => {
 const productCount = computed(() => overview.product_count || brands.reduce((sum, b) => sum + b.products.length, 0))
 const skuCount = computed(() => overview.sku_count || brands.reduce((sum, b) => sum + countSkus(b), 0))
 function countSkus(brand) { return brand.products.reduce((sum, p) => sum + p.skus.length, 0) }
+function clampPercent(value) {
+  const number = Number(value || 0)
+  if (Number.isNaN(number)) return 0
+  return Math.max(0, Math.min(100, Math.round(number)))
+}
+function averagePercent(values) {
+  const valid = values.map(value => Number(value || 0)).filter(value => !Number.isNaN(value))
+  if (!valid.length) return 0
+  return clampPercent(valid.reduce((sum, value) => sum + value, 0) / valid.length)
+}
+function skuCompletenessScore(brand) {
+  const products = brand.products || []
+  if (!products.length) return 0
+  const skus = products.flatMap(product => product.skus || [])
+  if (!skus.length) return 0
+  const productCoverage = products.filter(product => (product.skus || []).length > 0).length / products.length
+  const skuDetailScore = averagePercent(skus.map(sku => {
+    const fields = [sku.code, sku.name, sku.color || sku.size, sku.price > 0 ? sku.price : '', sku.overridePoint || sku.overrideTitle]
+    return fields.filter(value => String(value || '').trim()).length * 100 / fields.length
+  }))
+  return clampPercent(productCoverage * 60 + skuDetailScore * 0.4)
+}
+function contentAssetScore(brand) {
+  const products = brand.products || []
+  const hasKeyword = Boolean((brand.keywordGroups || []).length || products.some(product => (product.keywords || []).length))
+  const hasMaterial = Boolean((brand.materials || []).length)
+  const hasCompetitor = products.some(product => (product.competitors || []).length)
+  return [hasKeyword, hasMaterial, hasCompetitor].filter(Boolean).length * 100 / 3
+}
+function brandCompletenessParts(brand) {
+  const products = brand.products || []
+  return {
+    brand: clampPercent(brand.completeness),
+    product: products.length ? averagePercent(products.map(product => product.completeness)) : 0,
+    sku: skuCompletenessScore(brand),
+    asset: clampPercent(contentAssetScore(brand)),
+  }
+}
+function brandOverallCompleteness(brand) {
+  const parts = brandCompletenessParts(brand || emptyBrand)
+  return clampPercent(parts.brand * 0.4 + parts.product * 0.3 + parts.sku * 0.2 + parts.asset * 0.1)
+}
+function brandCompletenessBreakdownText(brand) {
+  const parts = brandCompletenessParts(brand || emptyBrand)
+  return `品牌资料 ${parts.brand}% · 商品资料 ${parts.product}% · SKU 覆盖 ${parts.sku}% · 关键词/素材/竞品 ${parts.asset}%`
+}
 
 const auditModeCatalog = [
   { value: '无需审核', hint: '跳过本环节，直接进入下一步' },
