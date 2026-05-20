@@ -413,7 +413,37 @@ func TestMaterialUpdateAndArchiveKeepTenantScope(t *testing.T) {
 	_, err = service.UpdateSKU(context.Background(), viewer, sku.ID, dto.SKUPayload{SKUName: "不应更新"})
 	require.ErrorIs(t, err, ErrNotFound)
 
+	_, err = service.Brand(context.Background(), dto.Viewer{TenantID: 2, UserID: 20}, brand.ID)
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = service.Product(context.Background(), dto.Viewer{TenantID: 2, UserID: 20}, product.ID)
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = service.SKU(context.Background(), dto.Viewer{TenantID: 2, UserID: 20}, sku.ID)
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = service.Competitor(context.Background(), dto.Viewer{TenantID: 2, UserID: 20}, competitor.ID)
+	require.ErrorIs(t, err, ErrNotFound)
+
 	_, err = service.ArchiveCompetitor(context.Background(), dto.Viewer{TenantID: 2, UserID: 20}, competitor.ID)
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestDraftDetailAndArchiveKeepTenantScope(t *testing.T) {
+	db := newAiGeoTestDB(t)
+	service := NewService(repositories.NewRepository(db))
+	viewer := dto.Viewer{TenantID: 1, UserID: 10}
+
+	draft, err := service.CreateDraft(context.Background(), viewer, dto.DraftPayload{Title: "母稿", Body: "正文"})
+	require.NoError(t, err)
+	detail, err := service.Draft(context.Background(), viewer, draft.ID)
+	require.NoError(t, err)
+	require.Equal(t, draft.DraftCode, detail.DraftCode)
+
+	_, err = service.Draft(context.Background(), dto.Viewer{TenantID: 2, UserID: 20}, draft.ID)
+	require.ErrorIs(t, err, ErrNotFound)
+	archived, err := service.ArchiveDraft(context.Background(), viewer, draft.ID)
+	require.NoError(t, err)
+	require.Equal(t, "archived", archived.Status)
+	require.NotNil(t, archived.DeletedAt)
+	_, err = service.Draft(context.Background(), viewer, draft.ID)
 	require.ErrorIs(t, err, ErrNotFound)
 }
 

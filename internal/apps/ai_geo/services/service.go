@@ -227,6 +227,14 @@ func (s *Service) Brands(ctx context.Context, viewer dto.Viewer, req dto.PageReq
 	return page(rows, total, req), err
 }
 
+func (s *Service) Brand(ctx context.Context, viewer dto.Viewer, id uint64) (models.AiGeoBrandCard, error) {
+	row, err := s.repo.Brand(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	return row, err
+}
+
 func (s *Service) CreateBrand(ctx context.Context, viewer dto.Viewer, payload dto.BrandPayload) (models.AiGeoBrandCard, error) {
 	payload.BrandCode = strings.TrimSpace(payload.BrandCode)
 	payload.BrandName = strings.TrimSpace(payload.BrandName)
@@ -306,6 +314,14 @@ func (s *Service) ArchiveBrand(ctx context.Context, viewer dto.Viewer, id uint64
 func (s *Service) Products(ctx context.Context, viewer dto.Viewer, req dto.PageRequest) (dto.PageResponse[models.AiGeoProductCard], error) {
 	rows, total, err := s.repo.ListProducts(ctx, viewer.TenantID, req)
 	return page(rows, total, req), err
+}
+
+func (s *Service) Product(ctx context.Context, viewer dto.Viewer, id uint64) (models.AiGeoProductCard, error) {
+	row, err := s.repo.Product(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	return row, err
 }
 
 func (s *Service) CreateProduct(ctx context.Context, viewer dto.Viewer, payload dto.ProductPayload) (models.AiGeoProductCard, error) {
@@ -401,6 +417,14 @@ func (s *Service) SKUs(ctx context.Context, viewer dto.Viewer, req dto.PageReque
 	return page(rows, total, req), err
 }
 
+func (s *Service) SKU(ctx context.Context, viewer dto.Viewer, id uint64) (models.AiGeoSKU, error) {
+	row, err := s.repo.SKU(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	return row, err
+}
+
 func (s *Service) CreateSKU(ctx context.Context, viewer dto.Viewer, payload dto.SKUPayload) (models.AiGeoSKU, error) {
 	payload.SKUCode = strings.TrimSpace(payload.SKUCode)
 	payload.SKUName = strings.TrimSpace(payload.SKUName)
@@ -482,6 +506,14 @@ func (s *Service) ArchiveSKU(ctx context.Context, viewer dto.Viewer, id uint64) 
 func (s *Service) Competitors(ctx context.Context, viewer dto.Viewer, req dto.PageRequest) (dto.PageResponse[models.AiGeoCompetitor], error) {
 	rows, total, err := s.repo.ListCompetitors(ctx, viewer.TenantID, req)
 	return page(rows, total, req), err
+}
+
+func (s *Service) Competitor(ctx context.Context, viewer dto.Viewer, id uint64) (models.AiGeoCompetitor, error) {
+	row, err := s.repo.Competitor(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	return row, err
 }
 
 func (s *Service) CreateCompetitor(ctx context.Context, viewer dto.Viewer, payload dto.CompetitorPayload) (models.AiGeoCompetitor, error) {
@@ -644,6 +676,14 @@ func (s *Service) Drafts(ctx context.Context, viewer dto.Viewer, req dto.PageReq
 	return page(rows, total, req), err
 }
 
+func (s *Service) Draft(ctx context.Context, viewer dto.Viewer, id uint64) (models.AiGeoDraft, error) {
+	row, err := s.repo.Draft(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	return row, err
+}
+
 func (s *Service) CreateDraft(ctx context.Context, viewer dto.Viewer, payload dto.DraftPayload) (models.AiGeoDraft, error) {
 	if viewer.TenantID == 0 || strings.TrimSpace(payload.Title) == "" || strings.TrimSpace(payload.Body) == "" {
 		return models.AiGeoDraft{}, ErrInvalidInput
@@ -669,6 +709,24 @@ func (s *Service) CreateDraft(ctx context.Context, viewer dto.Viewer, payload dt
 		UpdatedAt:     now,
 	}
 	err := s.repo.SaveDraft(ctx, &row)
+	return row, err
+}
+
+func (s *Service) ArchiveDraft(ctx context.Context, viewer dto.Viewer, id uint64) (models.AiGeoDraft, error) {
+	row, err := s.repo.Draft(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	if err != nil {
+		return row, err
+	}
+	now := time.Now()
+	userID := viewer.UserID
+	row.Status = "archived"
+	row.DeletedAt = &now
+	row.UpdatedAt = now
+	row.UpdatedBy = &userID
+	err = s.repo.SaveDraft(ctx, &row)
 	return row, err
 }
 

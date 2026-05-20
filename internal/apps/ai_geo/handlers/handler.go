@@ -33,6 +33,15 @@ func (h *Handler) Brands(c *gin.Context) {
 	h.ok(c, data, err)
 }
 
+func (h *Handler) Brand(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	data, err := h.service.Brand(c.Request.Context(), viewer(c), id)
+	h.ok(c, data, err)
+}
+
 func (h *Handler) CreateBrand(c *gin.Context) {
 	var payload dto.BrandPayload
 	if bind(c, &payload) {
@@ -73,6 +82,15 @@ func (h *Handler) ArchiveBrand(c *gin.Context) {
 
 func (h *Handler) Products(c *gin.Context) {
 	data, err := h.service.Products(c.Request.Context(), viewer(c), pageRequest(c))
+	h.ok(c, data, err)
+}
+
+func (h *Handler) Product(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	data, err := h.service.Product(c.Request.Context(), viewer(c), id)
 	h.ok(c, data, err)
 }
 
@@ -119,6 +137,15 @@ func (h *Handler) SKUs(c *gin.Context) {
 	h.ok(c, data, err)
 }
 
+func (h *Handler) SKU(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	data, err := h.service.SKU(c.Request.Context(), viewer(c), id)
+	h.ok(c, data, err)
+}
+
 func (h *Handler) CreateSKU(c *gin.Context) {
 	var payload dto.SKUPayload
 	if bind(c, &payload) {
@@ -159,6 +186,15 @@ func (h *Handler) ArchiveSKU(c *gin.Context) {
 
 func (h *Handler) Competitors(c *gin.Context) {
 	data, err := h.service.Competitors(c.Request.Context(), viewer(c), pageRequest(c))
+	h.ok(c, data, err)
+}
+
+func (h *Handler) Competitor(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	data, err := h.service.Competitor(c.Request.Context(), viewer(c), id)
 	h.ok(c, data, err)
 }
 
@@ -237,6 +273,15 @@ func (h *Handler) Drafts(c *gin.Context) {
 	h.ok(c, data, err)
 }
 
+func (h *Handler) Draft(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	data, err := h.service.Draft(c.Request.Context(), viewer(c), id)
+	h.ok(c, data, err)
+}
+
 func (h *Handler) CreateDraft(c *gin.Context) {
 	var payload dto.DraftPayload
 	if bind(c, &payload) {
@@ -246,6 +291,18 @@ func (h *Handler) CreateDraft(c *gin.Context) {
 		}
 		h.ok(c, data, err)
 	}
+}
+
+func (h *Handler) ArchiveDraft(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	data, err := h.service.ArchiveDraft(c.Request.Context(), viewer(c), id)
+	if err == nil {
+		err = h.auditWrite(c, "draft_archive", data.DraftCode, "归档母稿", gin.H{"draft_id": data.ID})
+	}
+	h.ok(c, data, err)
 }
 
 func (h *Handler) GenerateDraft(c *gin.Context) {

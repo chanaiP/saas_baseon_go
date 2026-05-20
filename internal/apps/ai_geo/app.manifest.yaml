@@ -348,6 +348,9 @@ apis:
   - method: GET
     path: /api/ai-geo/materials/brands
     permission_code: /ai-geo/data/brands
+  - method: GET
+    path: /api/ai-geo/materials/brands/:id
+    permission_code: /ai-geo/data/brands
   - method: POST
     path: /api/ai-geo/materials/brands
     permission_code: ai_geo:data:import
@@ -363,6 +366,9 @@ apis:
   - method: GET
     path: /api/ai-geo/materials/products
     permission_code: /ai-geo/data/products
+  - method: GET
+    path: /api/ai-geo/materials/products/:id
+    permission_code: /ai-geo/data/products
   - method: POST
     path: /api/ai-geo/materials/products
     permission_code: ai_geo:data:import
@@ -378,6 +384,9 @@ apis:
   - method: GET
     path: /api/ai-geo/materials/skus
     permission_code: /ai-geo/data/products
+  - method: GET
+    path: /api/ai-geo/materials/skus/:id
+    permission_code: /ai-geo/data/products
   - method: POST
     path: /api/ai-geo/materials/skus
     permission_code: ai_geo:data:import
@@ -392,6 +401,9 @@ apis:
     audit: true
   - method: GET
     path: /api/ai-geo/materials/competitors
+    permission_code: /ai-geo/data/products
+  - method: GET
+    path: /api/ai-geo/materials/competitors/:id
     permission_code: /ai-geo/data/products
   - method: POST
     path: /api/ai-geo/materials/competitors
@@ -419,8 +431,15 @@ apis:
   - method: GET
     path: /api/ai-geo/drafts
     permission_code: /ai-geo/drafts
+  - method: GET
+    path: /api/ai-geo/drafts/:id
+    permission_code: /ai-geo/drafts
   - method: POST
     path: /api/ai-geo/drafts
+    permission_code: ai_geo:draft:manage
+    audit: true
+  - method: DELETE
+    path: /api/ai-geo/drafts/:id
     permission_code: ai_geo:draft:manage
     audit: true
   - method: POST
