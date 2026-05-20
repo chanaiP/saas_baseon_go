@@ -601,14 +601,17 @@ import { useRoute, useRouter } from 'vue-router'
 import ChannelManagementPanel from '../components/ChannelManagementPanel.vue'
 import {
   approveAiGeoDraft,
+  createAiGeoCompetitor,
   createAiGeoDraft,
   createAiGeoPublishPlan,
   fetchAiGeoBrands,
   fetchAiGeoChannels,
+  fetchAiGeoCompetitors,
   fetchAiGeoDrafts,
   fetchAiGeoOverview,
   fetchAiGeoProducts,
   fetchAiGeoPublishPlans,
+  fetchAiGeoSKUs,
   generateAiGeoChannelContent,
   generateAiGeoDraft,
   importAiGeoMaterials,
@@ -1114,16 +1117,18 @@ onMounted(() => {
 async function loadAiGeoData() {
   loading.page = true
   try {
-    const [overviewData, brandPage, productPage, channelPage, draftPage, planPage] = await Promise.all([
+    const [overviewData, brandPage, productPage, skuPage, competitorPage, channelPage, draftPage, planPage] = await Promise.all([
       fetchAiGeoOverview(),
       fetchAiGeoBrands({ limit: 200 }),
       fetchAiGeoProducts({ limit: 200 }),
+      fetchAiGeoSKUs({ limit: 500 }),
+      fetchAiGeoCompetitors({ limit: 500 }),
       fetchAiGeoChannels({ limit: 200 }),
       fetchAiGeoDrafts({ limit: 200 }),
       fetchAiGeoPublishPlans({ limit: 200 }),
     ])
     Object.assign(overview, overviewData)
-    hydrateBrands(brandPage.items || [], productPage.items || [])
+    hydrateBrands(brandPage.items || [], productPage.items || [], skuPage.items || [], competitorPage.items || [])
     hydrateChannels(channelPage.items || [])
     hydrateDrafts(draftPage.items || [])
     hydratePlans(planPage.items || [])
@@ -1134,7 +1139,7 @@ async function loadAiGeoData() {
   }
 }
 
-function hydrateBrands(apiBrands, apiProducts) {
+function hydrateBrands(apiBrands, apiProducts, apiSkus = [], apiCompetitors = []) {
   brands.splice(0, brands.length, ...apiBrands.map(brand => ({
     id: brand.id,
     name: brand.brand_name,
@@ -1145,25 +1150,29 @@ function hydrateBrands(apiBrands, apiProducts) {
     completeness: brand.completeness || 0,
     keywordGroups: [{ id: brand.id, name: '品牌关键词', keywords: parseJsonArray(brand.keywords) }],
     materials: [],
-    products: apiProducts.filter(product => product.brand_id === brand.id).map(product => ({
-      id: product.id,
-      code: product.product_code,
-      name: product.product_name,
-      category: product.category_name || '',
-      series: '',
-      priceRange: '',
-      fabric: '',
-      fit: '',
-      styleTags: parseJsonArray(product.content_angles),
-      sceneTags: [],
-      audience: '',
-      sellingPoints: parseJsonArray(product.selling_points).join('、'),
-      completeness: product.completeness || 0,
-      missing: [],
-      keywords: [],
-      competitors: [],
-      skus: [],
-    })),
+    products: apiProducts.filter(product => product.brand_id === brand.id).map(product => {
+      const productSkus = apiSkus.filter(sku => sku.product_id === product.id).map(sku => skuFromApi(sku))
+      const productCompetitors = apiCompetitors.filter(comp => comp.product_id === product.id).map(comp => competitorFromApi(comp))
+      return {
+        id: product.id,
+        code: product.product_code,
+        name: product.product_name,
+        category: product.category_name || '',
+        series: '',
+        priceRange: productSkus.length ? priceRangeFromSkus(productSkus) : '',
+        fabric: '',
+        fit: '',
+        styleTags: parseJsonArray(product.content_angles),
+        sceneTags: [],
+        audience: '',
+        sellingPoints: parseJsonArray(product.selling_points).join('、'),
+        completeness: product.completeness || 0,
+        missing: [],
+        keywords: [],
+        competitors: productCompetitors,
+        skus: productSkus,
+      }
+    }),
   })))
   if (!brands.find(b => b.id === Number(selectedBrandId.value))) {
     selectedBrandId.value = brands[0]?.id || 0
@@ -1190,6 +1199,42 @@ function hydrateChannels(apiChannels) {
     risk: '发布前校验 + 异常人工接管',
     enabled: channel.status === 'active',
   })))
+}
+
+function skuFromApi(sku) {
+  const attributes = parseJsonObject(sku.attributes)
+  return {
+    id: sku.id,
+    code: sku.sku_code,
+    name: sku.sku_name,
+    color: attributes.color || attributes.颜色 || '',
+    size: attributes.size || attributes.尺码 || '',
+    price: Number(sku.price || 0),
+    status: skuStatusLabel(sku.stock_status || sku.status),
+    overrideTitle: attributes.override_title || attributes.title || '',
+    overridePoint: attributes.override_point || attributes.selling_point || '',
+  }
+}
+
+function competitorFromApi(comp) {
+  return {
+    id: comp.id,
+    brand: comp.brand_name,
+    name: comp.product_name,
+    price: comp.price_text || '待录入',
+    point: comp.point || '待录入',
+    diff: comp.difference || '待分析',
+    angle: comp.angle || '待生成',
+    link: comp.link_url || '',
+  }
+}
+
+function priceRangeFromSkus(skus) {
+  const prices = skus.map(sku => Number(sku.price || 0)).filter(price => price > 0)
+  if (!prices.length) return ''
+  const min = Math.min(...prices)
+  const max = Math.max(...prices)
+  return min === max ? `${min} 元` : `${min}-${max} 元`
 }
 
 function hydrateDrafts(apiDrafts) {
@@ -1478,7 +1523,32 @@ async function markFailed(plan) {
   await updatePlanStatus(plan, { status: 'failed', fail_reason: '人工标记失败' }, '已标记失败，等待重试或人工接管')
 }
 function openProductDrawer(product) { Object.keys(selectedProduct).forEach(k => delete selectedProduct[k]); Object.assign(selectedProduct, product); drawer.type = 'product'; drawer.title = '商品资料卡'; productTab.value = '公共资料' }
-function addCompetitor() { selectedProduct.competitors.push({ brand: '新增竞品', name: '竞品商品', price: '待录入', point: '待录入', diff: '待分析', angle: '待生成', link: 'https://example.com' }); showToast('已新增竞品信息') }
+async function addCompetitor() {
+  if (!selectedProduct.id) {
+    showToast('请先选择商品')
+    return
+  }
+  loading.action = true
+  try {
+    const created = await createAiGeoCompetitor({
+      product_id: selectedProduct.id,
+      brand_name: '新增竞品',
+      product_name: '竞品商品',
+      price_text: '待录入',
+      point: '待录入',
+      difference: '待分析',
+      angle: '待生成',
+      link_url: 'https://example.com',
+    })
+    selectedProduct.competitors.push(competitorFromApi(created))
+    await loadAiGeoData()
+    showToast('已新增竞品信息')
+  } catch (error) {
+    showToast(error?.message || '新增竞品失败')
+  } finally {
+    loading.action = false
+  }
+}
 
 async function updatePlanStatus(plan, payload, successText) {
   loading.action = true
@@ -1504,6 +1574,28 @@ function parseJsonArray(value) {
   } catch {
     return []
   }
+}
+
+function parseJsonObject(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value
+  if (!value) return {}
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function skuStatusLabel(status) {
+  const map = {
+    active: '在售',
+    inactive: '停用',
+    unknown: '未知',
+    in_stock: '在售',
+    out_of_stock: '缺货',
+  }
+  return map[status] || status || '未知'
 }
 
 function channelIcon(name) {

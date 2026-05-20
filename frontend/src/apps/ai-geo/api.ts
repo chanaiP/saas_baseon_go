@@ -51,6 +51,33 @@ export interface AiGeoProduct {
   status: string
 }
 
+export interface AiGeoSKU {
+  id: number
+  tenant_id: number
+  product_id: number
+  sku_code: string
+  sku_name: string
+  attributes: string
+  price: number
+  image_url?: string | null
+  stock_status: string
+  status: string
+}
+
+export interface AiGeoCompetitor {
+  id: number
+  tenant_id: number
+  product_id: number
+  brand_name: string
+  product_name: string
+  price_text?: string | null
+  point?: string | null
+  difference?: string | null
+  angle?: string | null
+  link_url?: string | null
+  status: string
+}
+
 export interface AiGeoChannel {
   id: number
   tenant_id: number
@@ -133,6 +160,22 @@ export async function fetchAiGeoProducts(params: AiGeoListParams = {}) {
 
 export async function createAiGeoProduct(payload: Record<string, unknown>) {
   return unwrap(http.post<ApiResponse<AiGeoProduct>>('/api/ai-geo/materials/products', payload))
+}
+
+export async function fetchAiGeoSKUs(params: AiGeoListParams = {}) {
+  return unwrap(http.get<ApiResponse<AiGeoPage<AiGeoSKU>>>('/api/ai-geo/materials/skus', { params }))
+}
+
+export async function createAiGeoSKU(payload: Record<string, unknown>) {
+  return unwrap(http.post<ApiResponse<AiGeoSKU>>('/api/ai-geo/materials/skus', payload))
+}
+
+export async function fetchAiGeoCompetitors(params: AiGeoListParams = {}) {
+  return unwrap(http.get<ApiResponse<AiGeoPage<AiGeoCompetitor>>>('/api/ai-geo/materials/competitors', { params }))
+}
+
+export async function createAiGeoCompetitor(payload: Record<string, unknown>) {
+  return unwrap(http.post<ApiResponse<AiGeoCompetitor>>('/api/ai-geo/materials/competitors', payload))
 }
 
 export async function importAiGeoMaterials(payload: Record<string, unknown>) {
