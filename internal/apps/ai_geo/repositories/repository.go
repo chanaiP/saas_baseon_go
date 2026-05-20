@@ -331,6 +331,22 @@ func (r *Repository) ListChannelContents(ctx context.Context, tenantID uint64, r
 	return rows, total, err
 }
 
+func (r *Repository) SaveAuditSuggestion(ctx context.Context, row *models.AiGeoAuditSuggestion) error {
+	return r.db.WithContext(ctx).Save(row).Error
+}
+
+func (r *Repository) ListAuditSuggestions(ctx context.Context, tenantID uint64, objectType string, objectID uint64, req dto.PageRequest) ([]models.AiGeoAuditSuggestion, int64, error) {
+	db := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoAuditSuggestion{}), tenantID)).
+		Where("object_type = ? AND object_id = ?", objectType, objectID)
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []models.AiGeoAuditSuggestion
+	err := paginate(db.Order("generated_at desc, id desc"), req).Find(&rows).Error
+	return rows, total, err
+}
+
 func (r *Repository) ListPublishPlans(ctx context.Context, tenantID uint64, req dto.PageRequest) ([]models.AiGeoPublishPlan, int64, error) {
 	db := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoPublishPlan{}), tenantID))
 	if req.ChannelID > 0 {

@@ -231,6 +231,28 @@ type AiGeoImportError struct {
 
 func (AiGeoImportError) TableName() string { return "ai_geo_import_errors" }
 
+type AiGeoAuditSuggestion struct {
+	ID             uint64     `gorm:"primaryKey;autoIncrement;column:id"`
+	TenantID       uint64     `gorm:"column:tenant_id;not null;index"`
+	ObjectType     string     `gorm:"column:object_type;type:varchar(40);not null;index"`
+	ObjectID       uint64     `gorm:"column:object_id;not null;index"`
+	ObjectCode     *string    `gorm:"column:object_code;type:varchar(120)"`
+	ScenarioCode   string     `gorm:"column:scenario_code;type:varchar(120);not null"`
+	RiskLevel      string     `gorm:"column:risk_level;type:varchar(32);not null;default:'low'"`
+	Passed         bool       `gorm:"column:passed;not null;default:false"`
+	Summary        *string    `gorm:"column:summary;type:text"`
+	SuggestionJSON string     `gorm:"column:suggestion_json;type:jsonb;not null;default:'[]'"`
+	ModelCode      *string    `gorm:"column:model_code;type:varchar(120)"`
+	Status         string     `gorm:"column:status;type:varchar(32);not null;default:'success';index"`
+	ErrorMessage   *string    `gorm:"column:error_message;type:text"`
+	GeneratedAt    time.Time  `gorm:"column:generated_at;not null"`
+	CreatedBy      *uint64    `gorm:"column:created_by"`
+	CreatedAt      time.Time  `gorm:"column:created_at;not null"`
+	DeletedAt      *time.Time `gorm:"column:deleted_at;index"`
+}
+
+func (AiGeoAuditSuggestion) TableName() string { return "ai_geo_audit_suggestions" }
+
 type AiGeoMaterialAsset struct {
 	ID        uint64     `gorm:"primaryKey;autoIncrement;column:id"`
 	TenantID  uint64     `gorm:"column:tenant_id;not null;index"`

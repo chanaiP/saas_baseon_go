@@ -87,12 +87,13 @@ AI GEO 是合并部署的租户应用，`app_code=ai-geo`。它面向多租户�
 
 ## AI 能力中心接入
 
-AI GEO 通过 `internal/apps/ai_geo/services.NewGatewayDraftGenerator` 接入 AI 能力中心，启动装配在 `internal/bootstrap/router.go`。
+AI GEO 通过 `internal/apps/ai_geo/services` 下的 Gateway adapter 接入 AI 能力中心，启动装配在 `internal/bootstrap/router.go`。
 
 当前已接入场景：
 
 - `ai_geo_draft_generation`：工作台母稿生成。输入包含用户提示、Skill、品牌资料和商品资料；输出解析为 `title`、`summary`、`body`、`keywords` 并落库为母稿。
 - `ai_geo_channel_rewrite`：渠道内容改写。输入包含母稿、渠道资料和人工覆盖字段；输出解析为 `title`、`body` 并落库为渠道内容。
+- `ai_geo_audit_suggestion`：母稿和渠道内容审核建议。输入包含待审内容、渠道上下文；输出解析为风险等级、通过建议、摘要和结构化建议，并写入 `ai_geo_audit_suggestions` 保留历史。
 
 上线前需在 AI 能力中心配置启用的 `AIScenario`、基础路由、供应商账号/API、模型和租户策略。Gateway 成功调用会写入 `ai_usage_records`。
 
@@ -111,6 +112,7 @@ AI GEO 通过 `internal/apps/ai_geo/services.NewGatewayDraftGenerator` 接入 AI
 - `ai_geo_publish_plans`
 - `ai_geo_import_batches`
 - `ai_geo_import_errors`
+- `ai_geo_audit_suggestions`
 - `ai_geo_material_assets`
 - `ai_geo_hotspots`
 
@@ -149,6 +151,5 @@ AI GEO 通过 `internal/apps/ai_geo/services.NewGatewayDraftGenerator` 接入 AI
 
 ## 生产级剩余项
 
-- 审核建议需接入 AI 能力中心真实场景、usage 记录和失败降级。
 - 资料导入需继续补文件解析、字段映射真实落库和幂等导入。
 - 渠道发布需接第三方集成中心或 Agent 执行，补 OAuth、Webhook、失败重试和发布链接回填。

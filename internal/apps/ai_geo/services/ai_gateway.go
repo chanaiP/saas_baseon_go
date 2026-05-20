@@ -15,6 +15,7 @@ import (
 const (
 	draftGenerationScenarioCode = "ai_geo_draft_generation"
 	channelRewriteScenarioCode  = "ai_geo_channel_rewrite"
+	auditSuggestionScenarioCode = "ai_geo_audit_suggestion"
 )
 
 type aiGatewayInvoker interface {
@@ -29,8 +30,13 @@ type gatewayChannelContentGenerator struct {
 	gateway aiGatewayInvoker
 }
 
+type gatewayAuditAdvisor struct {
+	gateway aiGatewayInvoker
+}
+
 type localDraftGenerator struct{}
 type localChannelContentGenerator struct{}
+type localAuditAdvisor struct{}
 
 func NewGatewayDraftGenerator(gateway aiGatewayInvoker) DraftGenerator {
 	if gateway == nil {
@@ -44,6 +50,13 @@ func NewGatewayChannelContentGenerator(gateway aiGatewayInvoker) ChannelContentG
 		return localChannelContentGenerator{}
 	}
 	return gatewayChannelContentGenerator{gateway: gateway}
+}
+
+func NewGatewayAuditAdvisor(gateway aiGatewayInvoker) AuditAdvisor {
+	if gateway == nil {
+		return localAuditAdvisor{}
+	}
+	return gatewayAuditAdvisor{gateway: gateway}
 }
 
 func (localDraftGenerator) GenerateDraft(_ context.Context, req DraftGenerationRequest) (DraftGenerationResult, error) {
@@ -66,6 +79,35 @@ func (localChannelContentGenerator) GenerateChannelContent(_ context.Context, re
 	return ChannelContentGenerationResult{
 		Title: defaultString(req.Payload.Title, req.Draft.Title),
 		Body:  defaultString(req.Payload.Body, req.Draft.Body),
+	}, nil
+}
+
+func (localAuditAdvisor) Advise(_ context.Context, req AuditAdviceRequest) (AuditAdviceResult, error) {
+	title := ""
+	body := ""
+	if req.Draft != nil {
+		title = req.Draft.Title
+		body = req.Draft.Body
+	}
+	if req.Content != nil {
+		title = req.Content.Title
+		body = req.Content.Body
+	}
+	passed := strings.TrimSpace(title) != "" && strings.TrimSpace(body) != ""
+	risk := "low"
+	summary := "内容基础字段完整，建议人工复核渠道口径和禁用词。"
+	if !passed {
+		risk = "high"
+		summary = "标题或正文缺失，建议补齐后再提交审核。"
+	}
+	return AuditAdviceResult{
+		RiskLevel: risk,
+		Passed:    passed,
+		Summary:   summary,
+		Suggestions: []map[string]interface{}{
+			{"type": "content_quality", "content": summary},
+		},
+		ModelCode: "local-ai-geo-audit",
 	}, nil
 }
 
@@ -123,6 +165,34 @@ func (g gatewayChannelContentGenerator) GenerateChannelContent(ctx context.Conte
 		return ChannelContentGenerationResult{}, fmt.Errorf("AI Gateway 调用失败: %s", resp.Status)
 	}
 	return channelContentFromGatewayData(resp.Data, localChannelContentGeneratorResult(req)), nil
+}
+
+func (g gatewayAuditAdvisor) Advise(ctx context.Context, req AuditAdviceRequest) (AuditAdviceResult, error) {
+	if g.gateway == nil {
+		return AuditAdviceResult{}, errors.New("AI Gateway 未配置")
+	}
+	resp, err := g.gateway.Invoke(ctx, aiccservices.InvokeRequest{
+		TenantID:       fmt.Sprintf("%d", req.Viewer.TenantID),
+		AppCode:        "ai-geo",
+		AppName:        "AI GEO",
+		AIScenarioCode: auditSuggestionScenarioCode,
+		UserID:         fmt.Sprintf("%d", req.Viewer.UserID),
+		RequestID:      fmt.Sprintf("ai_geo_audit_%d_%d", req.Viewer.TenantID, time.Now().UnixNano()),
+		Params: map[string]interface{}{
+			"usage_amount": 1,
+			"usage_unit":   "calls",
+			"temperature":  0.2,
+			"max_tokens":   1000,
+		},
+		Input: auditSuggestionMessages(req),
+	})
+	if err != nil {
+		return AuditAdviceResult{}, err
+	}
+	if resp.Status != "success" {
+		return AuditAdviceResult{}, fmt.Errorf("AI Gateway 调用失败: %s", resp.Status)
+	}
+	return auditAdviceFromGatewayData(resp.Data, localAuditAdvisorResult(req)), nil
 }
 
 func draftGenerationMessages(req DraftGenerationRequest) map[string]interface{} {
@@ -208,6 +278,66 @@ func channelRewriteMessages(req ChannelContentGenerationRequest) map[string]inte
 	}
 }
 
+func auditSuggestionMessages(req AuditAdviceRequest) map[string]interface{} {
+	context := map[string]interface{}{
+		"object_type": req.ObjectType,
+		"draft":       map[string]interface{}{},
+		"content":     map[string]interface{}{},
+		"channel":     map[string]interface{}{},
+	}
+	if req.Draft != nil {
+		context["draft"] = map[string]interface{}{
+			"draft_code": req.Draft.DraftCode,
+			"title":      req.Draft.Title,
+			"summary":    stringValueFromPtr(req.Draft.Summary),
+			"body":       req.Draft.Body,
+			"keywords":   req.Draft.Keywords,
+		}
+	}
+	if req.Content != nil {
+		context["content"] = map[string]interface{}{
+			"id":    req.Content.ID,
+			"title": req.Content.Title,
+			"body":  req.Content.Body,
+		}
+	}
+	if req.Channel != nil {
+		context["channel"] = map[string]interface{}{
+			"channel_code":  req.Channel.ChannelCode,
+			"channel_name":  req.Channel.ChannelName,
+			"content_forms": req.Channel.ContentForms,
+		}
+	}
+	raw, _ := json.Marshal(context)
+	return map[string]interface{}{
+		"messages": []map[string]string{
+			{
+				"role": "system",
+				"content": strings.Join([]string{
+					"你是品牌内容审核专家，负责检查 GEO 内容的事实一致性、平台合规、口径风险和内容质量。",
+					"只返回合法 JSON，不要 Markdown，不要解释性前后缀。",
+				}, "\n"),
+			},
+			{
+				"role": "user",
+				"content": fmt.Sprintf(`请审核以下内容，并严格返回 JSON：
+{
+  "risk_level": "low|medium|high|critical",
+  "passed": true,
+  "summary": "审核结论摘要",
+  "suggestions": [
+    {"type": "risk|quality|compliance", "content": "具体建议"}
+  ],
+  "model_code": "模型或规则名称"
+}
+
+输入上下文：
+%s`, string(raw)),
+			},
+		},
+	}
+}
+
 func localDraftGeneratorResult(req DraftGenerationRequest) DraftGenerationResult {
 	result, _ := localDraftGenerator{}.GenerateDraft(context.Background(), req)
 	return result
@@ -215,6 +345,11 @@ func localDraftGeneratorResult(req DraftGenerationRequest) DraftGenerationResult
 
 func localChannelContentGeneratorResult(req ChannelContentGenerationRequest) ChannelContentGenerationResult {
 	result, _ := localChannelContentGenerator{}.GenerateChannelContent(context.Background(), req)
+	return result
+}
+
+func localAuditAdvisorResult(req AuditAdviceRequest) AuditAdviceResult {
+	result, _ := localAuditAdvisor{}.Advise(context.Background(), req)
 	return result
 }
 
@@ -251,6 +386,24 @@ func channelContentFromGatewayData(data map[string]interface{}, fallback Channel
 		}
 	}
 	fallback.Body = content
+	return fallback
+}
+
+func auditAdviceFromGatewayData(data map[string]interface{}, fallback AuditAdviceResult) AuditAdviceResult {
+	if parsed, ok := auditAdviceFromMap(data, fallback); ok {
+		return parsed
+	}
+	content := gatewayTextContent(data)
+	if content == "" {
+		return fallback
+	}
+	var decoded map[string]interface{}
+	if err := json.Unmarshal([]byte(normalizeGatewayJSONContent(content)), &decoded); err == nil {
+		if parsed, ok := auditAdviceFromMap(decoded, fallback); ok {
+			return parsed
+		}
+	}
+	fallback.Summary = content
 	return fallback
 }
 
@@ -292,6 +445,35 @@ func channelContentFromMap(data map[string]interface{}, fallback ChannelContentG
 	}
 	if body := stringValue(data, "body", ""); body != "" {
 		result.Body = body
+		matched = true
+	}
+	return result, matched
+}
+
+func auditAdviceFromMap(data map[string]interface{}, fallback AuditAdviceResult) (AuditAdviceResult, bool) {
+	if nested, ok := mapValue(data, "audit"); ok {
+		data = nested
+	}
+	result := fallback
+	matched := false
+	if risk := stringValue(data, "risk_level", ""); risk != "" {
+		result.RiskLevel = risk
+		matched = true
+	}
+	if passed, ok := data["passed"].(bool); ok {
+		result.Passed = passed
+		matched = true
+	}
+	if summary := stringValue(data, "summary", ""); summary != "" {
+		result.Summary = summary
+		matched = true
+	}
+	if modelCode := stringValue(data, "model_code", ""); modelCode != "" {
+		result.ModelCode = modelCode
+		matched = true
+	}
+	if suggestions, ok := mapSliceValue(data, "suggestions"); ok {
+		result.Suggestions = suggestions
 		matched = true
 	}
 	return result, matched
@@ -356,6 +538,23 @@ func stringSliceValue(data map[string]interface{}, key string) ([]string, bool) 
 		value := strings.TrimSpace(fmt.Sprint(item))
 		if value != "" && value != "<nil>" {
 			items = append(items, value)
+		}
+	}
+	return items, true
+}
+
+func mapSliceValue(data map[string]interface{}, key string) ([]map[string]interface{}, bool) {
+	raw, ok := data[key].([]interface{})
+	if !ok {
+		if typed, ok := data[key].([]map[string]interface{}); ok {
+			return typed, true
+		}
+		return nil, false
+	}
+	items := make([]map[string]interface{}, 0, len(raw))
+	for _, item := range raw {
+		if typed, ok := item.(map[string]interface{}); ok {
+			items = append(items, typed)
 		}
 	}
 	return items, true

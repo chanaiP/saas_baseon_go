@@ -407,8 +407,22 @@ apis:
     path: /api/ai-geo/drafts/:id/reject
     permission_code: ai_geo:draft:manage
     audit: true
+  - method: GET
+    path: /api/ai-geo/drafts/:id/audit-suggestions
+    permission_code: /ai-geo/drafts
+  - method: POST
+    path: /api/ai-geo/drafts/:id/audit-suggestions
+    permission_code: ai_geo:draft:manage
+    audit: true
   - method: POST
     path: /api/ai-geo/drafts/:id/channel-contents
+    permission_code: ai_geo:channel_content:manage
+    audit: true
+  - method: GET
+    path: /api/ai-geo/channel-contents/:id/audit-suggestions
+    permission_code: /ai-geo/drafts
+  - method: POST
+    path: /api/ai-geo/channel-contents/:id/audit-suggestions
     permission_code: ai_geo:channel_content:manage
     audit: true
   - method: GET

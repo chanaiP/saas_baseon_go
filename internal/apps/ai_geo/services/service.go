@@ -35,10 +35,11 @@ type Service struct {
 	quota                   *quotaapp.Service
 	draftGenerator          DraftGenerator
 	channelContentGenerator ChannelContentGenerator
+	auditAdvisor            AuditAdvisor
 }
 
 func NewService(repo *repositories.Repository) *Service {
-	return &Service{repo: repo, quota: quotaapp.NewService(repo.DB()), draftGenerator: localDraftGenerator{}, channelContentGenerator: localChannelContentGenerator{}}
+	return &Service{repo: repo, quota: quotaapp.NewService(repo.DB()), draftGenerator: localDraftGenerator{}, channelContentGenerator: localChannelContentGenerator{}, auditAdvisor: localAuditAdvisor{}}
 }
 
 type DraftGenerationRequest struct {
@@ -76,6 +77,27 @@ type ChannelContentGenerator interface {
 	GenerateChannelContent(ctx context.Context, req ChannelContentGenerationRequest) (ChannelContentGenerationResult, error)
 }
 
+type AuditAdviceRequest struct {
+	Viewer      dto.Viewer
+	ObjectType  string
+	Draft       *models.AiGeoDraft
+	Content     *models.AiGeoChannelContent
+	Channel     *models.AiGeoChannelProfile
+	ExtraPrompt string
+}
+
+type AuditAdviceResult struct {
+	RiskLevel   string
+	Passed      bool
+	Summary     string
+	Suggestions []map[string]interface{}
+	ModelCode   string
+}
+
+type AuditAdvisor interface {
+	Advise(ctx context.Context, req AuditAdviceRequest) (AuditAdviceResult, error)
+}
+
 func (s *Service) SetDraftGenerator(generator DraftGenerator) {
 	if generator == nil {
 		s.draftGenerator = localDraftGenerator{}
@@ -90,6 +112,14 @@ func (s *Service) SetChannelContentGenerator(generator ChannelContentGenerator) 
 		return
 	}
 	s.channelContentGenerator = generator
+}
+
+func (s *Service) SetAuditAdvisor(advisor AuditAdvisor) {
+	if advisor == nil {
+		s.auditAdvisor = localAuditAdvisor{}
+		return
+	}
+	s.auditAdvisor = advisor
 }
 
 func (s *Service) RecordAudit(ctx context.Context, viewer dto.Viewer, meta dto.RequestMeta, action string, objectCode string, summary string, detail interface{}) error {
@@ -569,6 +599,38 @@ func (s *Service) ReviewDraft(ctx context.Context, viewer dto.Viewer, id uint64,
 	return row, err
 }
 
+func (s *Service) GenerateDraftAuditSuggestion(ctx context.Context, viewer dto.Viewer, id uint64) (models.AiGeoAuditSuggestion, error) {
+	draft, err := s.repo.Draft(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return models.AiGeoAuditSuggestion{}, ErrNotFound
+	}
+	if err != nil {
+		return models.AiGeoAuditSuggestion{}, err
+	}
+	advisor := s.auditAdvisor
+	if advisor == nil {
+		advisor = localAuditAdvisor{}
+	}
+	result, adviceErr := advisor.Advise(ctx, AuditAdviceRequest{Viewer: viewer, ObjectType: "draft", Draft: &draft})
+	row := auditSuggestionRow(viewer, "draft", draft.ID, draft.DraftCode, auditSuggestionScenarioCode, result, adviceErr)
+	err = s.repo.SaveAuditSuggestion(ctx, &row)
+	if err != nil {
+		return row, err
+	}
+	return row, adviceErr
+}
+
+func (s *Service) DraftAuditSuggestions(ctx context.Context, viewer dto.Viewer, id uint64, req dto.PageRequest) (dto.PageResponse[models.AiGeoAuditSuggestion], error) {
+	if _, err := s.repo.Draft(ctx, viewer.TenantID, id); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return dto.PageResponse[models.AiGeoAuditSuggestion]{}, ErrNotFound
+		}
+		return dto.PageResponse[models.AiGeoAuditSuggestion]{}, err
+	}
+	rows, total, err := s.repo.ListAuditSuggestions(ctx, viewer.TenantID, "draft", id, req)
+	return page(rows, total, req), err
+}
+
 func (s *Service) GenerateChannelContent(ctx context.Context, viewer dto.Viewer, draftID uint64, payload dto.ChannelContentPayload) (models.AiGeoChannelContent, error) {
 	if payload.ChannelID == 0 {
 		return models.AiGeoChannelContent{}, ErrInvalidInput
@@ -619,6 +681,44 @@ func (s *Service) GenerateChannelContent(ctx context.Context, viewer dto.Viewer,
 	draft.UpdatedBy = &userID
 	_ = s.repo.SaveDraft(ctx, &draft)
 	return content, nil
+}
+
+func (s *Service) GenerateChannelContentAuditSuggestion(ctx context.Context, viewer dto.Viewer, id uint64) (models.AiGeoAuditSuggestion, error) {
+	content, err := s.repo.ChannelContent(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return models.AiGeoAuditSuggestion{}, ErrNotFound
+	}
+	if err != nil {
+		return models.AiGeoAuditSuggestion{}, err
+	}
+	var channel *models.AiGeoChannelProfile
+	if row, err := s.repo.Channel(ctx, viewer.TenantID, content.ChannelID); err == nil {
+		channel = &row
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return models.AiGeoAuditSuggestion{}, err
+	}
+	advisor := s.auditAdvisor
+	if advisor == nil {
+		advisor = localAuditAdvisor{}
+	}
+	result, adviceErr := advisor.Advise(ctx, AuditAdviceRequest{Viewer: viewer, ObjectType: "channel_content", Content: &content, Channel: channel})
+	row := auditSuggestionRow(viewer, "channel_content", content.ID, fmt.Sprintf("%d", content.ID), auditSuggestionScenarioCode, result, adviceErr)
+	err = s.repo.SaveAuditSuggestion(ctx, &row)
+	if err != nil {
+		return row, err
+	}
+	return row, adviceErr
+}
+
+func (s *Service) ChannelContentAuditSuggestions(ctx context.Context, viewer dto.Viewer, id uint64, req dto.PageRequest) (dto.PageResponse[models.AiGeoAuditSuggestion], error) {
+	if _, err := s.repo.ChannelContent(ctx, viewer.TenantID, id); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return dto.PageResponse[models.AiGeoAuditSuggestion]{}, ErrNotFound
+		}
+		return dto.PageResponse[models.AiGeoAuditSuggestion]{}, err
+	}
+	rows, total, err := s.repo.ListAuditSuggestions(ctx, viewer.TenantID, "channel_content", id, req)
+	return page(rows, total, req), err
 }
 
 func (s *Service) PublishPlans(ctx context.Context, viewer dto.Viewer, req dto.PageRequest) (dto.PageResponse[models.AiGeoPublishPlan], error) {
@@ -835,6 +935,50 @@ func importErrorRow(tenantID uint64, rowNumber int, fieldName string, errorCode 
 		Status:       "active",
 		CreatedAt:    now,
 	}
+}
+
+func auditSuggestionRow(viewer dto.Viewer, objectType string, objectID uint64, objectCode string, scenarioCode string, result AuditAdviceResult, err error) models.AiGeoAuditSuggestion {
+	now := time.Now()
+	status := "success"
+	var errorMessage *string
+	if err != nil {
+		status = "failed"
+		errorMessage = stringPtr(safeAIError(err))
+	}
+	return models.AiGeoAuditSuggestion{
+		TenantID:       viewer.TenantID,
+		ObjectType:     objectType,
+		ObjectID:       objectID,
+		ObjectCode:     stringPtr(objectCode),
+		ScenarioCode:   scenarioCode,
+		RiskLevel:      defaultString(result.RiskLevel, "low"),
+		Passed:         result.Passed,
+		Summary:        stringPtr(result.Summary),
+		SuggestionJSON: jsonString(result.Suggestions, []map[string]interface{}{}),
+		ModelCode:      stringPtr(result.ModelCode),
+		Status:         status,
+		ErrorMessage:   errorMessage,
+		GeneratedAt:    now,
+		CreatedBy:      &viewer.UserID,
+		CreatedAt:      now,
+	}
+}
+
+func safeAIError(err error) string {
+	msg := strings.TrimSpace(err.Error())
+	lower := strings.ToLower(msg)
+	for _, token := range []string{"secret", "token", "authorization", "password", "select ", "insert ", "update ", "delete ", "panic", "stack"} {
+		if strings.Contains(lower, token) {
+			return "AI 审核建议生成失败，请稍后重试"
+		}
+	}
+	if msg == "" {
+		return "AI 审核建议生成失败"
+	}
+	if len([]rune(msg)) > 160 {
+		msg = string([]rune(msg)[:160])
+	}
+	return msg
 }
 
 func page[T any](rows []T, total int64, req dto.PageRequest) dto.PageResponse[T] {

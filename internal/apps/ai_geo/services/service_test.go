@@ -197,6 +197,58 @@ func TestGenerateChannelContentInvokesAICapabilityCenterScenario(t *testing.T) {
 	require.Equal(t, "小红书渠道正文", content.Body)
 }
 
+func TestDraftAuditSuggestionInvokesAIGatewayAndStoresHistory(t *testing.T) {
+	db := newAiGeoTestDB(t)
+	service := NewService(repositories.NewRepository(db))
+	viewer := dto.Viewer{TenantID: 1, UserID: 10}
+	draft, err := service.CreateDraft(context.Background(), viewer, dto.DraftPayload{Title: "母稿标题", Body: "母稿正文"})
+	require.NoError(t, err)
+	gateway := &fakeAIGatewayInvoker{response: aiccservices.InvokeResponse{
+		Status: "success",
+		Data: map[string]interface{}{
+			"audit": map[string]interface{}{
+				"risk_level": "medium",
+				"passed":     true,
+				"summary":    "整体可通过，建议弱化绝对化表达。",
+				"suggestions": []interface{}{
+					map[string]interface{}{"type": "risk", "content": "避免绝对化措辞"},
+				},
+				"model_code": "audit-test-model",
+			},
+		},
+	}}
+	service.SetAuditAdvisor(NewGatewayAuditAdvisor(gateway))
+
+	record, err := service.GenerateDraftAuditSuggestion(context.Background(), viewer, draft.ID)
+
+	require.NoError(t, err)
+	require.Equal(t, auditSuggestionScenarioCode, gateway.lastRequest.AIScenarioCode)
+	require.Equal(t, "medium", record.RiskLevel)
+	require.True(t, record.Passed)
+	require.NotNil(t, record.Summary)
+	require.Contains(t, *record.Summary, "整体可通过")
+	require.Contains(t, record.SuggestionJSON, "避免绝对化措辞")
+	history, err := service.DraftAuditSuggestions(context.Background(), viewer, draft.ID, dto.PageRequest{Limit: 20})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), history.Total)
+}
+
+func TestChannelContentAuditSuggestionCannotCrossTenant(t *testing.T) {
+	db := newAiGeoTestDB(t)
+	service := NewService(repositories.NewRepository(db))
+	viewer := dto.Viewer{TenantID: 1, UserID: 10}
+	channel, err := service.CreateChannel(context.Background(), viewer, dto.ChannelPayload{ChannelCode: "xhs", ChannelName: "小红书"})
+	require.NoError(t, err)
+	draft, err := service.CreateDraft(context.Background(), viewer, dto.DraftPayload{Title: "母稿", Body: "正文"})
+	require.NoError(t, err)
+	content, err := service.GenerateChannelContent(context.Background(), viewer, draft.ID, dto.ChannelContentPayload{ChannelID: channel.ID})
+	require.NoError(t, err)
+
+	_, err = service.GenerateChannelContentAuditSuggestion(context.Background(), dto.Viewer{TenantID: 2, UserID: 20}, content.ID)
+
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
 func TestImportMaterialsRecordsRowErrorsAndPartialSuccess(t *testing.T) {
 	db := newAiGeoTestDB(t)
 	service := NewService(repositories.NewRepository(db))
@@ -312,6 +364,7 @@ func newAiGeoTestDB(t *testing.T) *gorm.DB {
 		&models.AiGeoPublishPlan{},
 		&models.AiGeoImportBatch{},
 		&models.AiGeoImportError{},
+		&models.AiGeoAuditSuggestion{},
 		&models.AiGeoMaterialAsset{},
 		&models.AiGeoHotspot{},
 		&models.SaasPlan{},

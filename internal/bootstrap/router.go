@@ -65,6 +65,7 @@ func NewRouter(cfg Config, db *gorm.DB, redisClient *redis.Client) *gin.Engine {
 	aiGeoService := aigeoservices.NewService(aigeorepos.NewRepository(db))
 	aiGeoService.SetDraftGenerator(aigeoservices.NewGatewayDraftGenerator(aiCapabilityCenterService))
 	aiGeoService.SetChannelContentGenerator(aigeoservices.NewGatewayChannelContentGenerator(aiCapabilityCenterService))
+	aiGeoService.SetAuditAdvisor(aigeoservices.NewGatewayAuditAdvisor(aiCapabilityCenterService))
 	aiGeoHandler := aigeohandlers.NewHandler(aiGeoService)
 
 	router.GET("/health", healthHandler.Check)
@@ -295,7 +296,9 @@ func openAPISpec() gin.H {
 			"/api/ai-geo/drafts/{id}/submit":                             gin.H{"post": api("ai-geo", "提交母稿审核")},
 			"/api/ai-geo/drafts/{id}/approve":                            gin.H{"post": api("ai-geo", "审核通过母稿")},
 			"/api/ai-geo/drafts/{id}/reject":                             gin.H{"post": api("ai-geo", "驳回母稿")},
+			"/api/ai-geo/drafts/{id}/audit-suggestions":                  gin.H{"get": api("ai-geo", "母稿审核建议列表"), "post": api("ai-geo", "生成母稿审核建议")},
 			"/api/ai-geo/drafts/{id}/channel-contents":                   gin.H{"post": api("ai-geo", "生成渠道内容")},
+			"/api/ai-geo/channel-contents/{id}/audit-suggestions":        gin.H{"get": api("ai-geo", "渠道内容审核建议列表"), "post": api("ai-geo", "生成渠道内容审核建议")},
 			"/api/ai-geo/publish-plans":                                  gin.H{"get": api("ai-geo", "发布计划列表"), "post": api("ai-geo", "创建发布计划")},
 			"/api/ai-geo/publish-plans/{id}/status":                      gin.H{"patch": api("ai-geo", "更新发布计划状态")},
 			"/api/ai-geo/channels":                                       gin.H{"get": api("ai-geo", "渠道资料列表"), "post": api("ai-geo", "创建渠道资料")},

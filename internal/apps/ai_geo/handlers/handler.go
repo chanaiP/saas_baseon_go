@@ -199,6 +199,27 @@ func (h *Handler) reviewDraft(c *gin.Context, approved bool) {
 	h.ok(c, data, err)
 }
 
+func (h *Handler) GenerateDraftAuditSuggestion(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	data, err := h.service.GenerateDraftAuditSuggestion(c.Request.Context(), viewer(c), id)
+	if err == nil {
+		err = h.auditWrite(c, "draft_audit_suggestion", fmt.Sprintf("%d", data.ID), "生成母稿审核建议", gin.H{"draft_id": id, "risk_level": data.RiskLevel, "passed": data.Passed})
+	}
+	h.ok(c, data, err)
+}
+
+func (h *Handler) DraftAuditSuggestions(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	data, err := h.service.DraftAuditSuggestions(c.Request.Context(), viewer(c), id, pageRequest(c))
+	h.ok(c, data, err)
+}
+
 func (h *Handler) GenerateChannelContent(c *gin.Context) {
 	id, ok := parseID(c)
 	if !ok {
@@ -212,6 +233,27 @@ func (h *Handler) GenerateChannelContent(c *gin.Context) {
 		}
 		h.ok(c, data, err)
 	}
+}
+
+func (h *Handler) GenerateChannelContentAuditSuggestion(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	data, err := h.service.GenerateChannelContentAuditSuggestion(c.Request.Context(), viewer(c), id)
+	if err == nil {
+		err = h.auditWrite(c, "channel_content_audit_suggestion", fmt.Sprintf("%d", data.ID), "生成渠道内容审核建议", gin.H{"channel_content_id": id, "risk_level": data.RiskLevel, "passed": data.Passed})
+	}
+	h.ok(c, data, err)
+}
+
+func (h *Handler) ChannelContentAuditSuggestions(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	data, err := h.service.ChannelContentAuditSuggestions(c.Request.Context(), viewer(c), id, pageRequest(c))
+	h.ok(c, data, err)
 }
 
 func (h *Handler) PublishPlans(c *gin.Context) {
