@@ -1549,14 +1549,21 @@ function inferWorkbenchProduct(text) {
   }) || null
 }
 function extractIdeaSlots(text) {
-  const audience = text.match(/(小个子|梨形|职场新人|通勤党|18-35岁[^，。,.]*)/)?.[0] || selectedWorkbenchProduct.value?.audience || selectedWorkbenchBrand.value.audience || ''
-  const scene = text.match(/(通勤|上班|职场|约会|轻正式|旅行|面试|日常|春夏|秋冬)/g)?.join('、') || ''
+  const audienceByLabel = text.match(/(?:目标用户|目标人群|写给|面向)[:：是为给]*([\s\S]*?)(?=使用场景|场景|口吻|语气|$|[，。,.；;\n])/)?.[1]?.trim() || ''
+  const sceneByLabel = text.match(/(?:使用场景|场景|用于|适合)[:：是为]*([\s\S]*?)(?=目标用户|目标人群|口吻|语气|$|[，。,.；;\n])/)?.[1]?.trim() || ''
+  const audience = audienceByLabel || text.match(/(\d{2}岁[^，。,.；;\n]*|小个子|梨形|职场新人|通勤党|18-35岁[^，。,.；;\n]*)/)?.[0] || selectedWorkbenchProduct.value?.audience || selectedWorkbenchBrand.value.audience || ''
+  const scene = sceneByLabel || text.match(/(通勤|上班|职场|办公室|办公场所|高级办公场所|约会|轻正式|旅行|面试|日常|春夏|秋冬)/g)?.join('、') || ''
   const tone = text.match(/(专业问答|种草|轻松|理性|高级|口语|真实|避坑)/g)?.join('、') || ''
-  const searchProblem = text.match(/(怎么[^，。,.]*|如何[^，。,.]*|适合[^，。,.]*|为什么[^，。,.]*|选[^，。,.]*)/)?.[0] || ''
+  const searchProblem = text.match(/(怎么[\s\S]*?|如何[\s\S]*?|适合[\s\S]*?|为什么[\s\S]*?|选[\s\S]*?)(?=目标用户|目标人群|使用场景|场景|口吻|语气|$|[，。,.；;\n])/)?.[1]?.trim() || ''
   return { audience, scene, tone, searchProblem }
 }
+function isWorkbenchCorrection(text) {
+  return /不是.*补充|已经补充|刚才.*说了|不是给了|你没看到|同样的话|重复问/.test(text)
+}
 function buildIdeaAnalysis(prompt) {
-  const allText = [...workbenchUserMessages.value.map(msg => msg.text), prompt].filter(Boolean).join('\n')
+  const messages = workbenchUserMessages.value.map(msg => msg.text)
+  if (messages[messages.length - 1] !== prompt) messages.push(prompt)
+  const allText = messages.filter(text => text && !isWorkbenchCorrection(text)).join('\n')
   const recommendedSkill = inferWorkbenchSkill(allText)
   const matchedProduct = inferWorkbenchProduct(allText)
   if (!workbench.skill && recommendedSkill) workbench.skill = recommendedSkill
@@ -1578,12 +1585,14 @@ function buildIdeaAnalysis(prompt) {
   if (!ideaSession.searchProblem) missing.push('这篇文章要回答的具体搜索问题')
   if (!ideaSession.audience) missing.push('目标人群')
   if (!ideaSession.scene) missing.push('使用场景')
-  if (!ideaSession.tone) missing.push('内容口吻')
-  ideaSession.stage = missing.length <= 1 ? 'ready' : 'shaping'
+  ideaSession.stage = missing.length === 0 || (isWorkbenchCorrection(prompt) && ideaSession.audience && ideaSession.scene) ? 'ready' : 'shaping'
   ideaSession.brief = `围绕「${brand}」和「${product}」，用「${recommendedSkill}」写一篇${ideaSession.tone || '清晰可信'}的 GEO 文章，解决「${ideaSession.searchProblem || '用户选购/穿搭问题'}」，面向「${ideaSession.audience || '潜在目标用户'}」，场景聚焦「${ideaSession.scene || '待补充'}」。`
+  const correctionReading = isWorkbenchCorrection(prompt) && ideaSession.stage === 'ready'
+    ? `你说得对，目标用户和使用场景已经补充了。我已把目标用户识别为「${ideaSession.audience}」，使用场景识别为「${ideaSession.scene}」，现在可以进入生成或继续细化口吻。`
+    : ''
   return {
     intent: recommendedSkill,
-    reading: `我理解你不是要泛泛写品牌介绍，而是要把「${prompt}」转成一个能被搜索/AI 问答引用的选题。当前品牌是「${brand}」，${matchedProduct ? `已匹配商品「${matchedProduct.name}」` : `先使用「${product}」作为资料底座`}。`,
+    reading: correctionReading || `我理解你不是要泛泛写品牌介绍，而是要把「${prompt}」转成一个能被搜索/AI 问答引用的选题。当前品牌是「${brand}」，${matchedProduct ? `已匹配商品「${matchedProduct.name}」` : `先使用「${product}」作为资料底座`}。`,
     expand: [
       `品牌锚点：用「${selectedWorkbenchBrand.value.position || brand}」建立可信背景，不硬广。`,
       `用户问题：把想法放大成“${ideaSession.searchProblem || '用户到底在搜索什么'}”的回答入口。`,
@@ -1596,7 +1605,7 @@ function buildIdeaAnalysis(prompt) {
 function buildWorkbenchReply(idea) {
   const readiness = evaluateWorkbenchReadiness()
   if (readiness.ready) {
-    return `我已经把想法收敛成可生成 brief：${ideaSession.brief} 可以生成母稿，也可以继续告诉我你想更偏种草、专业问答还是 SEO 长文。`
+    return `${isWorkbenchCorrection(latestWorkbenchUserPrompt.value) ? '对，是我刚才没有正确识别字段。' : '我已经把想法收敛成可生成 brief：'}${ideaSession.brief} 可以生成母稿，也可以继续告诉我你想更偏种草、专业问答还是 SEO 长文。`
   }
   const question = idea?.questions?.[0] || '请补充文章目标'
   return `我先帮你把想法拆开，不急着生成。下一步建议先回答：「${question}」，这样母稿会更像一个可发布选题，而不是泛文案。`
