@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	quotaapp "saas_baseon_go/internal/application/quota"
 	"saas_baseon_go/internal/apps/ai_geo/dto"
 	"saas_baseon_go/internal/apps/ai_geo/services"
 	"saas_baseon_go/internal/interfaces/http/response"
@@ -250,11 +251,14 @@ func requestMeta(c *gin.Context) dto.RequestMeta {
 }
 
 func writeError(c *gin.Context, err error) {
+	var quotaErr *quotaapp.ExceededError
 	switch {
 	case errors.Is(err, services.ErrNotFound):
 		response.Error(c, http.StatusNotFound, response.CodeNotFound, "数据不存在")
 	case errors.Is(err, services.ErrInvalidStatus):
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequest, "状态流转不合法")
+	case errors.As(err, &quotaErr):
+		response.Error(c, http.StatusForbidden, response.CodeForbidden, quotaErr.Error())
 	default:
 		response.Error(c, http.StatusBadRequest, response.CodeBadRequest, err.Error())
 	}

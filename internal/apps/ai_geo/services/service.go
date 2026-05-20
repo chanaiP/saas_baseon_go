@@ -10,9 +10,18 @@ import (
 
 	"gorm.io/gorm"
 
+	quotaapp "saas_baseon_go/internal/application/quota"
 	"saas_baseon_go/internal/apps/ai_geo/dto"
 	"saas_baseon_go/internal/apps/ai_geo/repositories"
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
+)
+
+const (
+	quotaBrandCount              = "ai_geo_brand_count"
+	quotaProductCount            = "ai_geo_product_count"
+	quotaChannelAccountCount     = "ai_geo_channel_account_count"
+	quotaMonthlyDraftGenerations = "ai_geo_monthly_draft_generations"
+	quotaMonthlyPublishTasks     = "ai_geo_monthly_publish_tasks"
 )
 
 var (
@@ -22,11 +31,12 @@ var (
 )
 
 type Service struct {
-	repo *repositories.Repository
+	repo  *repositories.Repository
+	quota *quotaapp.Service
 }
 
 func NewService(repo *repositories.Repository) *Service {
-	return &Service{repo: repo}
+	return &Service{repo: repo, quota: quotaapp.NewService(repo.DB())}
 }
 
 func (s *Service) RecordAudit(ctx context.Context, viewer dto.Viewer, meta dto.RequestMeta, action string, objectCode string, summary string, detail interface{}) error {
@@ -139,6 +149,9 @@ func (s *Service) CreateBrand(ctx context.Context, viewer dto.Viewer, payload dt
 	if viewer.TenantID == 0 || payload.BrandCode == "" || payload.BrandName == "" {
 		return models.AiGeoBrandCard{}, ErrInvalidInput
 	}
+	if err := s.ensureStaticQuota(ctx, viewer.TenantID, quotaBrandCount, s.repo.CountBrands); err != nil {
+		return models.AiGeoBrandCard{}, err
+	}
 	now := time.Now()
 	userID := viewer.UserID
 	row := models.AiGeoBrandCard{
@@ -201,6 +214,9 @@ func (s *Service) CreateProduct(ctx context.Context, viewer dto.Viewer, payload 
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return models.AiGeoProductCard{}, ErrNotFound
 		}
+		return models.AiGeoProductCard{}, err
+	}
+	if err := s.ensureStaticQuota(ctx, viewer.TenantID, quotaProductCount, s.repo.CountProducts); err != nil {
 		return models.AiGeoProductCard{}, err
 	}
 	now := time.Now()
@@ -270,6 +286,9 @@ func (s *Service) CreateChannelAccount(ctx context.Context, viewer dto.Viewer, p
 		}
 		return models.AiGeoChannelAccount{}, err
 	}
+	if err := s.ensureStaticQuota(ctx, viewer.TenantID, quotaChannelAccountCount, s.repo.CountChannelAccounts); err != nil {
+		return models.AiGeoChannelAccount{}, err
+	}
 	var expiresAt *time.Time
 	if payload.ExpiresAt != "" {
 		parsed, err := time.Parse(time.RFC3339, payload.ExpiresAt)
@@ -335,6 +354,9 @@ func (s *Service) GenerateDraft(ctx context.Context, viewer dto.Viewer, payload 
 	prompt := strings.TrimSpace(payload.Prompt)
 	if prompt == "" {
 		return models.AiGeoDraft{}, ErrInvalidInput
+	}
+	if err := s.consumeQuota(ctx, viewer.TenantID, quotaMonthlyDraftGenerations); err != nil {
+		return models.AiGeoDraft{}, err
 	}
 	title := prompt
 	if len([]rune(title)) > 42 {
@@ -448,9 +470,28 @@ func (s *Service) CreatePublishPlan(ctx context.Context, viewer dto.Viewer, payl
 	if viewer.TenantID == 0 || payload.ChannelContentID == 0 || payload.ChannelID == 0 || payload.ScheduledAt == "" {
 		return models.AiGeoPublishPlan{}, ErrInvalidInput
 	}
+	content, err := s.repo.ChannelContent(ctx, viewer.TenantID, payload.ChannelContentID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return models.AiGeoPublishPlan{}, ErrNotFound
+	}
+	if err != nil {
+		return models.AiGeoPublishPlan{}, err
+	}
+	if content.ChannelID != payload.ChannelID {
+		return models.AiGeoPublishPlan{}, ErrInvalidInput
+	}
+	if _, err := s.repo.Channel(ctx, viewer.TenantID, payload.ChannelID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return models.AiGeoPublishPlan{}, ErrNotFound
+		}
+		return models.AiGeoPublishPlan{}, err
+	}
 	scheduledAt, err := time.Parse(time.RFC3339, payload.ScheduledAt)
 	if err != nil {
 		return models.AiGeoPublishPlan{}, ErrInvalidInput
+	}
+	if err := s.consumeQuota(ctx, viewer.TenantID, quotaMonthlyPublishTasks); err != nil {
+		return models.AiGeoPublishPlan{}, err
 	}
 	now := time.Now()
 	userID := viewer.UserID
@@ -516,6 +557,31 @@ func (s *Service) ImportMaterials(ctx context.Context, viewer dto.Viewer, payloa
 	}
 	err := s.repo.SaveImportBatch(ctx, &batch)
 	return batch, err
+}
+
+func (s *Service) ensureStaticQuota(ctx context.Context, tenantID uint64, quotaCode string, currentCount func(context.Context, uint64) (int64, error)) error {
+	if s.quota == nil {
+		return nil
+	}
+	limit, quota, ok, err := s.quota.CurrentLimitByCode(ctx, tenantID, quotaCode)
+	if err != nil || !ok || limit < 0 {
+		return err
+	}
+	count, err := currentCount(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+	if int(count)+1 > limit {
+		return &quotaapp.ExceededError{QuotaName: quota.QuotaName, Limit: limit, Used: int(count)}
+	}
+	return nil
+}
+
+func (s *Service) consumeQuota(ctx context.Context, tenantID uint64, quotaCode string) error {
+	if s.quota == nil {
+		return nil
+	}
+	return s.quota.Consume(ctx, tenantID, quotaCode, 1)
 }
 
 func page[T any](rows []T, total int64, req dto.PageRequest) dto.PageResponse[T] {

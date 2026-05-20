@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
+	quotaapp "saas_baseon_go/internal/application/quota"
 	"saas_baseon_go/internal/apps/ai_geo/dto"
 	"saas_baseon_go/internal/apps/ai_geo/repositories"
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
@@ -77,6 +79,39 @@ func TestRecordAuditStoresAiGeoContext(t *testing.T) {
 	require.Contains(t, *log.Detail, `"title":"新品"`)
 }
 
+func TestCreateBrandRespectsPackageQuota(t *testing.T) {
+	db := newAiGeoTestDB(t)
+	seedAiGeoQuotaPlan(t, db, 1, quotaBrandCount, "品牌资料卡数量", ptr("NONE"), 1)
+	service := NewService(repositories.NewRepository(db))
+	viewer := dto.Viewer{TenantID: 1, UserID: 10}
+
+	_, err := service.CreateBrand(context.Background(), viewer, dto.BrandPayload{BrandCode: "B1", BrandName: "品牌一"})
+	require.NoError(t, err)
+	_, err = service.CreateBrand(context.Background(), viewer, dto.BrandPayload{BrandCode: "B2", BrandName: "品牌二"})
+
+	var quotaErr *quotaapp.ExceededError
+	require.True(t, errors.As(err, &quotaErr), "unexpected error: %v", err)
+	require.Equal(t, "品牌资料卡数量", quotaErr.QuotaName)
+}
+
+func TestGenerateDraftConsumesMonthlyQuota(t *testing.T) {
+	db := newAiGeoTestDB(t)
+	seedAiGeoQuotaPlan(t, db, 1, quotaMonthlyDraftGenerations, "月度母稿生成次数", ptr("MONTH"), 1)
+	service := NewService(repositories.NewRepository(db))
+	viewer := dto.Viewer{TenantID: 1, UserID: 10}
+
+	_, err := service.GenerateDraft(context.Background(), viewer, dto.GenerateDraftPayload{Prompt: "新品上市"})
+	require.NoError(t, err)
+	_, err = service.GenerateDraft(context.Background(), viewer, dto.GenerateDraftPayload{Prompt: "第二篇"})
+
+	var quotaErr *quotaapp.ExceededError
+	require.True(t, errors.As(err, &quotaErr), "unexpected error: %v", err)
+	var usage models.TenantQuotaUsage
+	require.NoError(t, db.Where("tenant_id = ? AND quota_code = ?", 1, quotaMonthlyDraftGenerations).First(&usage).Error)
+	require.Equal(t, time.Now().Format("200601"), usage.PeriodKey)
+	require.Equal(t, 1, usage.UsedValue)
+}
+
 func newAiGeoTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
@@ -98,7 +133,28 @@ func newAiGeoTestDB(t *testing.T) *gorm.DB {
 		&models.AiGeoImportBatch{},
 		&models.AiGeoMaterialAsset{},
 		&models.AiGeoHotspot{},
+		&models.SaasPlan{},
+		&models.SaasQuota{},
+		&models.SaasPlanQuota{},
+		&models.TenantSubscription{},
+		&models.TenantQuotaOverride{},
+		&models.TenantQuotaUsage{},
 		&models.AuditLog{},
 	))
 	return db
+}
+
+func seedAiGeoQuotaPlan(t *testing.T, db *gorm.DB, tenantID uint64, quotaCode string, quotaName string, periodType *string, limit int) {
+	t.Helper()
+	now := time.Now()
+	plan := models.SaasPlan{PlanCode: fmt.Sprintf("ai-geo-plan-%d-%s", tenantID, quotaCode), PlanName: "AI GEO 测试套餐", PlanType: "STANDARD", BillingCycle: "MONTH", Status: 1, CreatedAt: now, UpdatedAt: now}
+	require.NoError(t, db.Create(&plan).Error)
+	quota := models.SaasQuota{QuotaCode: quotaCode, QuotaName: quotaName, QuotaType: "COUNT", PeriodType: periodType, Status: 1, CreatedAt: now, UpdatedAt: now}
+	require.NoError(t, db.Create(&quota).Error)
+	require.NoError(t, db.Create(&models.SaasPlanQuota{PlanID: plan.ID, QuotaID: quota.ID, QuotaValue: limit, CreatedAt: now, UpdatedAt: now}).Error)
+	require.NoError(t, db.Create(&models.TenantSubscription{TenantID: tenantID, PlanID: plan.ID, SubscriptionStatus: "ACTIVE", StartTime: now.Add(-time.Hour), CreatedAt: now, UpdatedAt: now}).Error)
+}
+
+func ptr(value string) *string {
+	return &value
 }

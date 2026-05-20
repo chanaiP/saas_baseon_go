@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -71,15 +72,12 @@ func (s *Service) Consume(ctx context.Context, tenantID uint64, quotaCode string
 		if err := tx.Where("quota_code = ? AND status = ?", quotaCode, 1).First(&quota).Error; err != nil {
 			return nil
 		}
-		periodKey := "TOTAL"
-		if quota.PeriodType != nil && *quota.PeriodType == "DAY" {
-			periodKey = time.Now().Format("20060102")
-		}
+		now := time.Now()
+		periodKey := quotaPeriodKey(quota.PeriodType, now)
 		limit := currentQuotaLimit(tx, tenantID, quota.ID)
 		if limit >= 0 && increment > limit {
 			return &ExceededError{QuotaName: quota.QuotaName, Limit: limit, Used: 0}
 		}
-		now := time.Now()
 		usage := models.TenantQuotaUsage{
 			TenantID:        tenantID,
 			QuotaCode:       quotaCode,
@@ -111,6 +109,17 @@ func (s *Service) Consume(ctx context.Context, tenantID uint64, quotaCode string
 		}
 		return recordAudit(tx, tenantID, quotaCode, increment, limit, periodKey, now)
 	})
+}
+
+func (s *Service) CurrentLimitByCode(ctx context.Context, tenantID uint64, quotaCode string) (int, models.SaasQuota, bool, error) {
+	var quota models.SaasQuota
+	if err := s.db.WithContext(ctx).Where("quota_code = ? AND status = ?", quotaCode, 1).First(&quota).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return 0, quota, false, nil
+		}
+		return 0, quota, false, err
+	}
+	return currentQuotaLimit(s.db.WithContext(ctx), tenantID, quota.ID), quota, true, nil
 }
 
 type ExceededError struct {
@@ -214,6 +223,22 @@ func currentQuotaUsage(db *gorm.DB, tenantID uint64, quotaCode string, periodKey
 		return usage.UsedValue
 	}
 	return 0
+}
+
+func quotaPeriodKey(periodType *string, now time.Time) string {
+	if periodType == nil {
+		return "TOTAL"
+	}
+	switch strings.ToUpper(strings.TrimSpace(*periodType)) {
+	case "DAY", "DAILY":
+		return now.Format("20060102")
+	case "MONTH", "MONTHLY":
+		return now.Format("200601")
+	case "YEAR", "YEARLY":
+		return now.Format("2006")
+	default:
+		return "TOTAL"
+	}
 }
 
 func recordAudit(db *gorm.DB, tenantID uint64, quotaCode string, increment int, limit int, periodKey string, now time.Time) error {

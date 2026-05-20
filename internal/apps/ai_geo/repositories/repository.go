@@ -261,6 +261,12 @@ func (r *Repository) SaveChannelContent(ctx context.Context, content *models.AiG
 	return r.db.WithContext(ctx).Save(content).Error
 }
 
+func (r *Repository) ChannelContent(ctx context.Context, tenantID, id uint64) (models.AiGeoChannelContent, error) {
+	var row models.AiGeoChannelContent
+	err := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoChannelContent{}), tenantID)).Where("id = ?", id).First(&row).Error
+	return row, err
+}
+
 func (r *Repository) ListChannelContents(ctx context.Context, tenantID uint64, req dto.PageRequest) ([]models.AiGeoChannelContent, int64, error) {
 	db := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoChannelContent{}), tenantID))
 	if req.ChannelID > 0 {
