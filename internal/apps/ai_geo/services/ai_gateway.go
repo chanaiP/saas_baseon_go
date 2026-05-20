@@ -12,7 +12,10 @@ import (
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 )
 
-const draftGenerationScenarioCode = "ai_geo_draft_generation"
+const (
+	draftGenerationScenarioCode = "ai_geo_draft_generation"
+	channelRewriteScenarioCode  = "ai_geo_channel_rewrite"
+)
 
 type aiGatewayInvoker interface {
 	Invoke(ctx context.Context, req aiccservices.InvokeRequest) (aiccservices.InvokeResponse, error)
@@ -22,13 +25,25 @@ type gatewayDraftGenerator struct {
 	gateway aiGatewayInvoker
 }
 
+type gatewayChannelContentGenerator struct {
+	gateway aiGatewayInvoker
+}
+
 type localDraftGenerator struct{}
+type localChannelContentGenerator struct{}
 
 func NewGatewayDraftGenerator(gateway aiGatewayInvoker) DraftGenerator {
 	if gateway == nil {
 		return localDraftGenerator{}
 	}
 	return gatewayDraftGenerator{gateway: gateway}
+}
+
+func NewGatewayChannelContentGenerator(gateway aiGatewayInvoker) ChannelContentGenerator {
+	if gateway == nil {
+		return localChannelContentGenerator{}
+	}
+	return gatewayChannelContentGenerator{gateway: gateway}
 }
 
 func (localDraftGenerator) GenerateDraft(_ context.Context, req DraftGenerationRequest) (DraftGenerationResult, error) {
@@ -44,6 +59,13 @@ func (localDraftGenerator) GenerateDraft(_ context.Context, req DraftGenerationR
 		Body:     body,
 		Keywords: []string{"AI生成", "母稿"},
 		Source:   "ai_workbench",
+	}, nil
+}
+
+func (localChannelContentGenerator) GenerateChannelContent(_ context.Context, req ChannelContentGenerationRequest) (ChannelContentGenerationResult, error) {
+	return ChannelContentGenerationResult{
+		Title: defaultString(req.Payload.Title, req.Draft.Title),
+		Body:  defaultString(req.Payload.Body, req.Draft.Body),
 	}, nil
 }
 
@@ -73,6 +95,34 @@ func (g gatewayDraftGenerator) GenerateDraft(ctx context.Context, req DraftGener
 		return DraftGenerationResult{}, fmt.Errorf("AI Gateway 调用失败: %s", resp.Status)
 	}
 	return draftGenerationFromGatewayData(resp.Data, localDraftGeneratorResult(req)), nil
+}
+
+func (g gatewayChannelContentGenerator) GenerateChannelContent(ctx context.Context, req ChannelContentGenerationRequest) (ChannelContentGenerationResult, error) {
+	if g.gateway == nil {
+		return ChannelContentGenerationResult{}, errors.New("AI Gateway 未配置")
+	}
+	resp, err := g.gateway.Invoke(ctx, aiccservices.InvokeRequest{
+		TenantID:       fmt.Sprintf("%d", req.Viewer.TenantID),
+		AppCode:        "ai-geo",
+		AppName:        "AI GEO",
+		AIScenarioCode: channelRewriteScenarioCode,
+		UserID:         fmt.Sprintf("%d", req.Viewer.UserID),
+		RequestID:      fmt.Sprintf("ai_geo_channel_%d_%d", req.Viewer.TenantID, time.Now().UnixNano()),
+		Params: map[string]interface{}{
+			"usage_amount": 1,
+			"usage_unit":   "calls",
+			"temperature":  0.6,
+			"max_tokens":   1600,
+		},
+		Input: channelRewriteMessages(req),
+	})
+	if err != nil {
+		return ChannelContentGenerationResult{}, err
+	}
+	if resp.Status != "success" {
+		return ChannelContentGenerationResult{}, fmt.Errorf("AI Gateway 调用失败: %s", resp.Status)
+	}
+	return channelContentFromGatewayData(resp.Data, localChannelContentGeneratorResult(req)), nil
 }
 
 func draftGenerationMessages(req DraftGenerationRequest) map[string]interface{} {
@@ -110,8 +160,61 @@ func draftGenerationMessages(req DraftGenerationRequest) map[string]interface{} 
 	}
 }
 
+func channelRewriteMessages(req ChannelContentGenerationRequest) map[string]interface{} {
+	context := map[string]interface{}{
+		"draft": map[string]interface{}{
+			"draft_code": req.Draft.DraftCode,
+			"title":      req.Draft.Title,
+			"summary":    stringValueFromPtr(req.Draft.Summary),
+			"body":       req.Draft.Body,
+			"keywords":   req.Draft.Keywords,
+		},
+		"channel": map[string]interface{}{
+			"channel_code":         req.Channel.ChannelCode,
+			"channel_name":         req.Channel.ChannelName,
+			"channel_type":         req.Channel.ChannelType,
+			"content_forms":        req.Channel.ContentForms,
+			"support_modes":        req.Channel.SupportModes,
+			"default_publish_mode": req.Channel.DefaultPublishMode,
+		},
+		"override": map[string]interface{}{
+			"title": req.Payload.Title,
+			"body":  req.Payload.Body,
+		},
+	}
+	raw, _ := json.Marshal(context)
+	return map[string]interface{}{
+		"messages": []map[string]string{
+			{
+				"role": "system",
+				"content": strings.Join([]string{
+					"你是 GEO 多渠道内容改写专家。",
+					"你必须基于母稿和渠道资料输出适合该渠道的内容版本。",
+					"只返回合法 JSON，不要 Markdown，不要解释性前后缀。",
+				}, "\n"),
+			},
+			{
+				"role": "user",
+				"content": fmt.Sprintf(`请将母稿改写成渠道内容，并严格返回 JSON：
+{
+  "title": "渠道标题",
+  "body": "渠道正文"
+}
+
+输入上下文：
+%s`, string(raw)),
+			},
+		},
+	}
+}
+
 func localDraftGeneratorResult(req DraftGenerationRequest) DraftGenerationResult {
 	result, _ := localDraftGenerator{}.GenerateDraft(context.Background(), req)
+	return result
+}
+
+func localChannelContentGeneratorResult(req ChannelContentGenerationRequest) ChannelContentGenerationResult {
+	result, _ := localChannelContentGenerator{}.GenerateChannelContent(context.Background(), req)
 	return result
 }
 
@@ -126,6 +229,24 @@ func draftGenerationFromGatewayData(data map[string]interface{}, fallback DraftG
 	var decoded map[string]interface{}
 	if err := json.Unmarshal([]byte(normalizeGatewayJSONContent(content)), &decoded); err == nil {
 		if parsed, ok := draftGenerationFromMap(decoded, fallback); ok {
+			return parsed
+		}
+	}
+	fallback.Body = content
+	return fallback
+}
+
+func channelContentFromGatewayData(data map[string]interface{}, fallback ChannelContentGenerationResult) ChannelContentGenerationResult {
+	if parsed, ok := channelContentFromMap(data, fallback); ok {
+		return parsed
+	}
+	content := gatewayTextContent(data)
+	if content == "" {
+		return fallback
+	}
+	var decoded map[string]interface{}
+	if err := json.Unmarshal([]byte(normalizeGatewayJSONContent(content)), &decoded); err == nil {
+		if parsed, ok := channelContentFromMap(decoded, fallback); ok {
 			return parsed
 		}
 	}
@@ -156,6 +277,23 @@ func draftGenerationFromMap(data map[string]interface{}, fallback DraftGeneratio
 		matched = true
 	}
 	result.Source = "ai_workbench"
+	return result, matched
+}
+
+func channelContentFromMap(data map[string]interface{}, fallback ChannelContentGenerationResult) (ChannelContentGenerationResult, bool) {
+	if nested, ok := mapValue(data, "channel_content"); ok {
+		data = nested
+	}
+	result := fallback
+	matched := false
+	if title := stringValue(data, "title", ""); title != "" {
+		result.Title = trimRunes(title, 80)
+		matched = true
+	}
+	if body := stringValue(data, "body", ""); body != "" {
+		result.Body = body
+		matched = true
+	}
 	return result, matched
 }
 

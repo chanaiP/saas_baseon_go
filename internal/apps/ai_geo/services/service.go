@@ -31,13 +31,14 @@ var (
 )
 
 type Service struct {
-	repo           *repositories.Repository
-	quota          *quotaapp.Service
-	draftGenerator DraftGenerator
+	repo                    *repositories.Repository
+	quota                   *quotaapp.Service
+	draftGenerator          DraftGenerator
+	channelContentGenerator ChannelContentGenerator
 }
 
 func NewService(repo *repositories.Repository) *Service {
-	return &Service{repo: repo, quota: quotaapp.NewService(repo.DB()), draftGenerator: localDraftGenerator{}}
+	return &Service{repo: repo, quota: quotaapp.NewService(repo.DB()), draftGenerator: localDraftGenerator{}, channelContentGenerator: localChannelContentGenerator{}}
 }
 
 type DraftGenerationRequest struct {
@@ -59,12 +60,36 @@ type DraftGenerator interface {
 	GenerateDraft(ctx context.Context, req DraftGenerationRequest) (DraftGenerationResult, error)
 }
 
+type ChannelContentGenerationRequest struct {
+	Viewer  dto.Viewer
+	Draft   models.AiGeoDraft
+	Channel models.AiGeoChannelProfile
+	Payload dto.ChannelContentPayload
+}
+
+type ChannelContentGenerationResult struct {
+	Title string
+	Body  string
+}
+
+type ChannelContentGenerator interface {
+	GenerateChannelContent(ctx context.Context, req ChannelContentGenerationRequest) (ChannelContentGenerationResult, error)
+}
+
 func (s *Service) SetDraftGenerator(generator DraftGenerator) {
 	if generator == nil {
 		s.draftGenerator = localDraftGenerator{}
 		return
 	}
 	s.draftGenerator = generator
+}
+
+func (s *Service) SetChannelContentGenerator(generator ChannelContentGenerator) {
+	if generator == nil {
+		s.channelContentGenerator = localChannelContentGenerator{}
+		return
+	}
+	s.channelContentGenerator = generator
 }
 
 func (s *Service) RecordAudit(ctx context.Context, viewer dto.Viewer, meta dto.RequestMeta, action string, objectCode string, summary string, detail interface{}) error {
@@ -555,7 +580,8 @@ func (s *Service) GenerateChannelContent(ctx context.Context, viewer dto.Viewer,
 	if err != nil {
 		return models.AiGeoChannelContent{}, err
 	}
-	if _, err := s.repo.Channel(ctx, viewer.TenantID, payload.ChannelID); err != nil {
+	channel, err := s.repo.Channel(ctx, viewer.TenantID, payload.ChannelID)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return models.AiGeoChannelContent{}, ErrNotFound
 		}
@@ -563,14 +589,20 @@ func (s *Service) GenerateChannelContent(ctx context.Context, viewer dto.Viewer,
 	}
 	now := time.Now()
 	userID := viewer.UserID
-	title := defaultString(payload.Title, draft.Title)
-	body := defaultString(payload.Body, draft.Body)
+	generator := s.channelContentGenerator
+	if generator == nil {
+		generator = localChannelContentGenerator{}
+	}
+	generated, err := generator.GenerateChannelContent(ctx, ChannelContentGenerationRequest{Viewer: viewer, Draft: draft, Channel: channel, Payload: payload})
+	if err != nil {
+		return models.AiGeoChannelContent{}, err
+	}
 	content := models.AiGeoChannelContent{
 		TenantID:      viewer.TenantID,
 		DraftID:       draft.ID,
 		ChannelID:     payload.ChannelID,
-		Title:         title,
-		Body:          body,
+		Title:         generated.Title,
+		Body:          generated.Body,
 		AuditStatus:   "pending",
 		PublishStatus: "not_planned",
 		Status:        "active",

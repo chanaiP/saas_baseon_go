@@ -167,6 +167,36 @@ func TestGatewayDraftGeneratorParsesProviderTextJSON(t *testing.T) {
 	require.Equal(t, []string{"文本", "解析"}, result.Keywords)
 }
 
+func TestGenerateChannelContentInvokesAICapabilityCenterScenario(t *testing.T) {
+	db := newAiGeoTestDB(t)
+	service := NewService(repositories.NewRepository(db))
+	viewer := dto.Viewer{TenantID: 1, UserID: 10}
+	channel, err := service.CreateChannel(context.Background(), viewer, dto.ChannelPayload{ChannelCode: "xiaohongshu", ChannelName: "小红书"})
+	require.NoError(t, err)
+	draft, err := service.CreateDraft(context.Background(), viewer, dto.DraftPayload{Title: "母稿标题", Body: "母稿正文"})
+	require.NoError(t, err)
+	gateway := &fakeAIGatewayInvoker{response: aiccservices.InvokeResponse{
+		Status: "success",
+		Data: map[string]interface{}{
+			"channel_content": map[string]interface{}{
+				"title": "小红书渠道标题",
+				"body":  "小红书渠道正文",
+			},
+		},
+	}}
+	service.SetChannelContentGenerator(NewGatewayChannelContentGenerator(gateway))
+
+	content, err := service.GenerateChannelContent(context.Background(), viewer, draft.ID, dto.ChannelContentPayload{ChannelID: channel.ID})
+
+	require.NoError(t, err)
+	require.Equal(t, channelRewriteScenarioCode, gateway.lastRequest.AIScenarioCode)
+	require.Equal(t, "ai-geo", gateway.lastRequest.AppCode)
+	require.Equal(t, "1", gateway.lastRequest.TenantID)
+	require.Equal(t, "10", gateway.lastRequest.UserID)
+	require.Equal(t, "小红书渠道标题", content.Title)
+	require.Equal(t, "小红书渠道正文", content.Body)
+}
+
 func TestImportMaterialsRecordsRowErrorsAndPartialSuccess(t *testing.T) {
 	db := newAiGeoTestDB(t)
 	service := NewService(repositories.NewRepository(db))
