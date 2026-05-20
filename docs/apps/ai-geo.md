@@ -10,7 +10,7 @@ AI GEO 是合并部署的租户应用，`app_code=ai-geo`。它面向多租户�
 - 后端目录：`internal/apps/ai_geo`
 - 前端目录：`frontend/src/apps/ai-geo`
 - 前端路由：`/ai-geo`、`/ai-geo/:section` 与 `/ai-geo/:section/:subsection`
-- 生产迁移：`internal/infrastructure/persistence/postgres/migrations/000086_ai_geo_core.up.sql`
+- 生产迁移：`internal/infrastructure/persistence/postgres/migrations/000086_ai_geo_core.up.sql`、`000087_ai_geo_import_errors.up.sql`、`000088_ai_geo_audit_suggestions.up.sql`
 - GORM 模型：`internal/infrastructure/persistence/postgres/models/ai_geo.go`
 - 后端分层：`internal/apps/ai_geo/{dto,repositories,services,handlers}`
 
@@ -124,6 +124,31 @@ AI GEO 通过 `internal/apps/ai_geo/services` 下的 Gateway adapter 接入 AI �
 - 涉及组织上下文的主表带 `company_id`、`department_id`。
 - 主数据和流程数据默认保留 `deleted_at`，业务删除走归档/逻辑删除。
 - 租户内编码字段使用唯一约束，例如品牌编码、商品编码、渠道编码、母稿编码、发布计划编码。
+
+## 迁移验证与回滚
+
+上线执行：
+
+```bash
+go run ./cmd/migrate
+```
+
+执行后至少核对以下 SQL：
+
+```sql
+select to_regclass('public.ai_geo_brand_cards') is not null as has_brand_cards;
+select to_regclass('public.ai_geo_import_errors') is not null as has_import_errors;
+select to_regclass('public.ai_geo_audit_suggestions') is not null as has_audit_suggestions;
+select count(*) from app_api_permissions where path like '/api/ai-geo/%';
+select count(*) from package_features where feature_code like 'ai_geo_%';
+select count(*) from saas_quota where quota_code like 'ai_geo_%';
+```
+
+回滚说明：
+
+- 结构回滚按版本倒序执行 `.down.sql`：`000088`、`000087`、`000086`。
+- 回滚前必须确认没有生产租户继续写入 AI GEO 资料、母稿、渠道内容和发布计划。
+- Manifest 重装载与回滚必须成对执行，避免菜单、API 权限和套餐功能点仍指向已删除业务表。
 
 ## 状态机
 
