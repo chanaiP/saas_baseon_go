@@ -1,6 +1,11 @@
 .geo-growth-page {
   --bg: #f5f7fb;
   --panel: #ffffff;
+  --surface: #ffffff;
+  --surface-soft: #fcfdff;
+  --surface-muted: #f8fafc;
+  --surface-tint: #f8fbff;
+  --surface-blue: #eff6ff;
   --text: #162033;
   --muted: #6b7280;
   --line: #e6e8ef;
@@ -327,3 +332,248 @@
 
 .geo-growth-page .main { width: 100%; padding: 24px; }
 .geo-growth-page .topbar { display: none; }
+
+html.dark .geo-growth-page,
+.admin-shell.dark .geo-growth-page {
+  --bg: transparent;
+  --panel: rgba(18, 27, 44, .92);
+  --surface: rgba(21, 32, 51, .88);
+  --surface-soft: rgba(15, 24, 40, .78);
+  --surface-muted: rgba(10, 18, 32, .72);
+  --surface-tint: rgba(17, 61, 69, .24);
+  --surface-blue: rgba(34, 211, 238, .12);
+  --text: #eaf7ff;
+  --muted: #93a9bd;
+  --line: rgba(91, 208, 220, .24);
+  --primary: #26f4df;
+  --primary-soft: rgba(38, 244, 223, .14);
+  --dark: #06101d;
+  --success: #5df5a8;
+  --warning: #ffd166;
+  --danger: #ff7b96;
+  --shadow: 0 18px 44px rgba(0, 0, 0, .34);
+  color-scheme: dark;
+}
+
+html.dark .geo-growth-page,
+.admin-shell.dark .geo-growth-page {
+  color: var(--text);
+  background:
+    radial-gradient(circle at 78% 8%, rgba(38, 244, 223, .16), transparent 34%),
+    linear-gradient(135deg, rgba(11, 18, 34, .94), rgba(8, 15, 29, .98));
+}
+
+html.dark .geo-growth-page .main,
+.admin-shell.dark .geo-growth-page .main {
+  background:
+    linear-gradient(rgba(45, 212, 191, .055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(45, 212, 191, .055) 1px, transparent 1px),
+    radial-gradient(circle at 74% 2%, rgba(20, 184, 166, .2), transparent 38%);
+  background-size: 42px 42px, 42px 42px, auto;
+}
+
+html.dark .geo-growth-page .panel,
+html.dark .geo-growth-page .metric-card,
+html.dark .geo-growth-page .status-card,
+html.dark .geo-growth-page .mode-card,
+html.dark .geo-growth-page .channel-strategy-item,
+html.dark .geo-growth-page .pending-task-item,
+html.dark .geo-growth-page .issue-row,
+html.dark .geo-growth-page .calendar-day,
+html.dark .geo-growth-page .calendar-event,
+html.dark .geo-growth-page .timeline-card,
+html.dark .geo-growth-page .draft-node,
+html.dark .geo-growth-page .brand-card,
+html.dark .geo-growth-page .info-block,
+html.dark .geo-growth-page .keyword-group-card,
+html.dark .geo-growth-page .rule-item,
+html.dark .geo-growth-page .material-card,
+html.dark .geo-growth-page .override-card,
+html.dark .geo-growth-page .competitor-card,
+html.dark .geo-growth-page .modal,
+html.dark .geo-growth-page .drawer,
+html.dark .geo-growth-page .preview-pane,
+html.dark .geo-growth-page .channel-preview,
+html.dark .geo-growth-page .cover-frame,
+html.dark .geo-growth-page .chat-log,
+html.dark .geo-growth-page .bubble.ai,
+html.dark .geo-growth-page .timeline-empty,
+.admin-shell.dark .geo-growth-page .panel,
+.admin-shell.dark .geo-growth-page .metric-card,
+.admin-shell.dark .geo-growth-page .status-card,
+.admin-shell.dark .geo-growth-page .mode-card,
+.admin-shell.dark .geo-growth-page .channel-strategy-item,
+.admin-shell.dark .geo-growth-page .pending-task-item,
+.admin-shell.dark .geo-growth-page .issue-row,
+.admin-shell.dark .geo-growth-page .calendar-day,
+.admin-shell.dark .geo-growth-page .calendar-event,
+.admin-shell.dark .geo-growth-page .timeline-card,
+.admin-shell.dark .geo-growth-page .draft-node,
+.admin-shell.dark .geo-growth-page .brand-card,
+.admin-shell.dark .geo-growth-page .info-block,
+.admin-shell.dark .geo-growth-page .keyword-group-card,
+.admin-shell.dark .geo-growth-page .rule-item,
+.admin-shell.dark .geo-growth-page .material-card,
+.admin-shell.dark .geo-growth-page .override-card,
+.admin-shell.dark .geo-growth-page .competitor-card,
+.admin-shell.dark .geo-growth-page .modal,
+.admin-shell.dark .geo-growth-page .drawer,
+.admin-shell.dark .geo-growth-page .preview-pane,
+.admin-shell.dark .geo-growth-page .channel-preview,
+.admin-shell.dark .geo-growth-page .cover-frame,
+.admin-shell.dark .geo-growth-page .chat-log,
+.admin-shell.dark .geo-growth-page .bubble.ai,
+.admin-shell.dark .geo-growth-page .timeline-empty {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+html.dark .geo-growth-page .channel-list,
+html.dark .geo-growth-page .table th,
+html.dark .geo-growth-page .mode-intro,
+html.dark .geo-growth-page .segmented,
+html.dark .geo-growth-page pre,
+.admin-shell.dark .geo-growth-page .channel-list,
+.admin-shell.dark .geo-growth-page .table th,
+.admin-shell.dark .geo-growth-page .mode-intro,
+.admin-shell.dark .geo-growth-page .segmented,
+.admin-shell.dark .geo-growth-page pre {
+  background: var(--surface-muted);
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+html.dark .geo-growth-page input,
+html.dark .geo-growth-page textarea,
+html.dark .geo-growth-page select,
+html.dark .geo-growth-page .select,
+.admin-shell.dark .geo-growth-page input,
+.admin-shell.dark .geo-growth-page textarea,
+.admin-shell.dark .geo-growth-page select,
+.admin-shell.dark .geo-growth-page .select {
+  background: rgba(6, 16, 29, .72);
+  border-color: var(--line);
+  color: var(--text);
+}
+
+html.dark .geo-growth-page input::placeholder,
+html.dark .geo-growth-page textarea::placeholder,
+.admin-shell.dark .geo-growth-page input::placeholder,
+.admin-shell.dark .geo-growth-page textarea::placeholder {
+  color: rgba(147, 169, 189, .72);
+}
+
+html.dark .geo-growth-page .btn,
+.admin-shell.dark .geo-growth-page .btn {
+  background: rgba(16, 28, 46, .86);
+  border-color: var(--line);
+  color: var(--text);
+  box-shadow: 0 0 0 1px rgba(38, 244, 223, .05), 0 10px 26px rgba(0, 0, 0, .18);
+}
+
+html.dark .geo-growth-page .btn.primary,
+.admin-shell.dark .geo-growth-page .btn.primary {
+  background: linear-gradient(135deg, #18f3d1, #62d8ff);
+  color: #06101d;
+}
+
+html.dark .geo-growth-page .btn.dark,
+.admin-shell.dark .geo-growth-page .btn.dark {
+  background: #07111f;
+  color: var(--primary);
+}
+
+html.dark .geo-growth-page .btn.text,
+.admin-shell.dark .geo-growth-page .btn.text {
+  background: transparent;
+  border-color: transparent;
+  color: var(--primary);
+  box-shadow: none;
+}
+
+html.dark .geo-growth-page .segmented button.active,
+html.dark .geo-growth-page .cover-icon-btn,
+.admin-shell.dark .geo-growth-page .segmented button.active,
+.admin-shell.dark .geo-growth-page .cover-icon-btn {
+  background: rgba(38, 244, 223, .16);
+  color: var(--primary);
+  box-shadow: 0 0 0 1px rgba(38, 244, 223, .18);
+}
+
+html.dark .geo-growth-page .badge,
+.admin-shell.dark .geo-growth-page .badge {
+  background: rgba(96, 165, 250, .14);
+  color: #bfdbfe;
+}
+
+html.dark .geo-growth-page .badge.success,
+.admin-shell.dark .geo-growth-page .badge.success {
+  background: rgba(93, 245, 168, .14);
+  color: #b7ffd8;
+}
+
+html.dark .geo-growth-page .badge.warning,
+.admin-shell.dark .geo-growth-page .badge.warning {
+  background: rgba(255, 209, 102, .16);
+  color: #ffe3a3;
+}
+
+html.dark .geo-growth-page .badge.danger,
+.admin-shell.dark .geo-growth-page .badge.danger {
+  background: rgba(255, 123, 150, .16);
+  color: #ffc1ce;
+}
+
+html.dark .geo-growth-page .tag,
+html.dark .geo-growth-page .keyword,
+html.dark .geo-growth-page .timeline-date,
+html.dark .geo-growth-page .time,
+html.dark .geo-growth-page .hotspot-chip,
+html.dark .geo-growth-page .upload-box,
+html.dark .geo-growth-page .cover-frame.empty,
+html.dark .geo-growth-page .cover-icon-btn.solo,
+.admin-shell.dark .geo-growth-page .tag,
+.admin-shell.dark .geo-growth-page .keyword,
+.admin-shell.dark .geo-growth-page .timeline-date,
+.admin-shell.dark .geo-growth-page .time,
+.admin-shell.dark .geo-growth-page .hotspot-chip,
+.admin-shell.dark .geo-growth-page .upload-box,
+.admin-shell.dark .geo-growth-page .cover-frame.empty,
+.admin-shell.dark .geo-growth-page .cover-icon-btn.solo {
+  background: var(--primary-soft);
+  border-color: var(--line);
+  color: var(--primary);
+}
+
+html.dark .geo-growth-page .timeline-dot,
+.admin-shell.dark .geo-growth-page .timeline-dot {
+  background: var(--primary);
+  box-shadow: 0 0 0 4px rgba(38, 244, 223, .14), 0 0 18px rgba(38, 244, 223, .38);
+}
+
+html.dark .geo-growth-page .timeline-line,
+.admin-shell.dark .geo-growth-page .timeline-line {
+  background: linear-gradient(rgba(38, 244, 223, .34), rgba(91, 208, 220, .1));
+}
+
+html.dark .geo-growth-page .channel-小红书,
+html.dark .geo-growth-page .channel-微博,
+html.dark .geo-growth-page .channel-抖音,
+.admin-shell.dark .geo-growth-page .channel-小红书,
+.admin-shell.dark .geo-growth-page .channel-微博,
+.admin-shell.dark .geo-growth-page .channel-抖音 {
+  background: rgba(255, 123, 150, .08);
+}
+
+html.dark .geo-growth-page .channel-独立站,
+html.dark .geo-growth-page .channel-微信公众号,
+html.dark .geo-growth-page .channel-百家号,
+html.dark .geo-growth-page .channel-知乎,
+.admin-shell.dark .geo-growth-page .channel-独立站,
+.admin-shell.dark .geo-growth-page .channel-微信公众号,
+.admin-shell.dark .geo-growth-page .channel-百家号,
+.admin-shell.dark .geo-growth-page .channel-知乎 {
+  background: rgba(96, 165, 250, .08);
+}
