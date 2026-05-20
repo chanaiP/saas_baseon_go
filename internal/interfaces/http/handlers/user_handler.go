@@ -106,7 +106,8 @@ func (h *IdentityHandler) CreateUser(c *gin.Context) {
 	if initialPassword == "" {
 		initialPassword = generateRandomPassword(14)
 	}
-	user := models.AppUser{TenantID: tenantID, EmployeeNo: body.EmployeeNo, Account: body.EmployeeNo, PasswordHash: devPasswordHash(initialPassword), Name: body.Name, Phone: phone, Email: body.Email, CompanyID: companyID, DepartmentID: departmentID, Status: body.Status}
+	accountID, identityID := h.accountIdentityForEnterpriseMember(phone, body.Email)
+	user := models.AppUser{TenantID: tenantID, EmployeeNo: body.EmployeeNo, Account: body.EmployeeNo, PasswordHash: devPasswordHash(initialPassword), Name: body.Name, Phone: phone, Email: body.Email, CompanyID: companyID, DepartmentID: departmentID, Status: body.Status, AccountID: accountID, IdentityUserID: identityID, MemberType: "enterprise_member"}
 	var err error
 	user, err = h.userService().CreateWithRelations(c.Request.Context(), user, appuser.Relations{RoleIDs: uniqueUint64s(body.RoleIDs), PositionIDs: uniqueUint64s(body.PositionIDs), DepartmentIDs: departmentIDs})
 	if err != nil {

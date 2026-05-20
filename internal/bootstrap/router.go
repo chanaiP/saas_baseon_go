@@ -164,6 +164,7 @@ func openAPISpec() gin.H {
 			"/api/auth/login":                                            gin.H{"post": api("auth", "登录")},
 			"/api/auth/logout":                                           gin.H{"post": api("auth", "退出登录")},
 			"/api/auth/phone-login-tenants":                              gin.H{"get": api("auth", "手机号登录主体探测")},
+			"/api/auth/register":                                         gin.H{"post": api("auth", "C端注册")},
 			"/api/auth/switch-tenant":                                    gin.H{"post": api("auth", "切换主体")},
 			"/api/auth/switchable-tenants":                               gin.H{"get": api("auth", "可切换主体")},
 			"/api/apps":                                                  gin.H{"get": api("apps", "应用列表"), "post": api("apps", "创建应用")},
@@ -448,6 +449,7 @@ func withOpenAPISchemas(spec gin.H) gin.H {
 		}
 	}
 	setOpenAPIOperation(paths, "/api/auth/login", "post", "#/components/schemas/LoginRequest", "#/components/schemas/LoginResponse")
+	setOpenAPIOperation(paths, "/api/auth/register", "post", "#/components/schemas/ObjectData", "#/components/schemas/LoginResponse")
 	setOpenAPIOperation(paths, "/api/apps", "get", "", "#/components/schemas/AppPage")
 	setOpenAPIOperation(paths, "/api/apps", "post", "#/components/schemas/ObjectData", "#/components/schemas/App")
 	setOpenAPIOperation(paths, "/api/apps/stats", "get", "", "#/components/schemas/AppStats")

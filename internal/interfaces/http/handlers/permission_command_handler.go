@@ -38,6 +38,7 @@ func (h *IdentityHandler) CreatePermission(c *gin.Context) {
 		Visible:          body.TenantVisible == nil || *body.TenantVisible,
 		ShowInAdmin:      permissionShowInAdmin(body.ShowInAdmin, intValueOrZero(body.PermType)),
 		IsPlatformOnly:   body.IsPlatformOnly != nil && *body.IsPlatformOnly,
+		TenantScope:      normalizePermissionTenantScope(body.TenantScope, body.IsPlatformOnly != nil && *body.IsPlatformOnly),
 		IsPackageFeature: body.IsPackageFeature != nil && *body.IsPackageFeature,
 		TenantEditable:   body.TenantEditable != nil && *body.TenantEditable,
 		TenantEditScope:  nullableTrimmed(body.TenantEditScope),
@@ -225,6 +226,7 @@ type permissionPayload struct {
 	TenantVisible       *bool    `json:"tenant_visible"`
 	ShowInAdmin         *bool    `json:"show_in_admin"`
 	IsPlatformOnly      *bool    `json:"is_platform_only"`
+	TenantScope         *string  `json:"tenant_scope"`
 	IsPackageFeature    *bool    `json:"is_package_feature"`
 	FeatureCode         *string  `json:"feature_code"`
 	FeatureType         *string  `json:"feature_type"`
@@ -257,6 +259,12 @@ func validatePermissionPayload(body permissionPayload) string {
 	}
 	if dataPermMode != "" && body.PermType != nil && *body.PermType != 3 {
 		return "仅菜单权限支持配置数据权限类型"
+	}
+	if body.IsPlatformOnly != nil && *body.IsPlatformOnly && body.TenantScope != nil {
+		scope := normalizeTenantScope(*body.TenantScope, false)
+		if scope != TenantScopePlatformOnly && scope != TenantScopePlatformEnterprise && scope != TenantScopePlatformPersonal {
+			return "平台权限仅允许 platform_only / platform_enterprise / platform_personal"
+		}
 	}
 	return ""
 }
@@ -315,6 +323,9 @@ func applyPermissionPayload(row *models.Permission, body permissionPayload) {
 	if body.IsPlatformOnly != nil {
 		row.IsPlatformOnly = *body.IsPlatformOnly
 	}
+	if body.TenantScope != nil || body.IsPlatformOnly != nil {
+		row.TenantScope = normalizePermissionTenantScope(body.TenantScope, row.IsPlatformOnly)
+	}
 	if body.IsPackageFeature != nil {
 		row.IsPackageFeature = *body.IsPackageFeature
 	}
@@ -342,6 +353,13 @@ func applyPermissionPayload(row *models.Permission, body permissionPayload) {
 	if row.AppCode == "" {
 		row.AppCode = "system-management"
 	}
+}
+
+func normalizePermissionTenantScope(value *string, isPlatformOnly bool) string {
+	if value == nil {
+		return normalizeTenantScope("", isPlatformOnly)
+	}
+	return normalizeTenantScope(*value, isPlatformOnly)
 }
 
 func permissionShowInAdmin(value *bool, permType int) bool {

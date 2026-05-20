@@ -615,6 +615,7 @@ function menuNodeFromBundle(bundle: MenuBundle): MenuNode {
     path: bundle.path,
     icon: 'Document',
     isPlatformOnly: bundle.is_platform_only,
+    tenantScope: bundle.tenant_scope,
     showInAdmin: bundle.show_in_admin !== false,
     dataPermMode: bundle.data_perm_mode,
     enabled: true,
@@ -625,6 +626,7 @@ function menuNodeFromBundle(bundle: MenuBundle): MenuNode {
       permissionCode: op.path,
       enabled: true,
       isPlatformOnly: op.is_platform_only,
+      tenantScope: op.tenant_scope,
       children: [],
     })),
   }
@@ -665,6 +667,7 @@ function buildManifestAppMenus(nodes: MenuNode[], bundles: MenuBundle[]): MenuNo
           ? 'Connection'
           : 'Document',
       isPlatformOnly: rootBundle.is_platform_only,
+      tenantScope: rootBundle.tenant_scope,
       showInAdmin: rootBundle.show_in_admin !== false,
       enabled: true,
       children: [rootMenu, ...children].filter((node) => node.showInAdmin !== false),
@@ -728,6 +731,8 @@ function applyMenuBundleMeta(nodes: MenuNode[], bundles: MenuBundle[]): MenuNode
         const bundle = bundleByPath.get(cloned.path)
         if (bundle) {
           cloned.showInAdmin = bundle.show_in_admin !== false
+          cloned.isPlatformOnly = bundle.is_platform_only
+          cloned.tenantScope = bundle.tenant_scope
         }
       }
       return cloned
@@ -786,8 +791,8 @@ export const useSidebarMenuStore = defineStore('sidebarMenu', () => {
     return true
   }
 
-  async function loadTenantMenuRuntime(options: { force?: boolean; isPlatformAdmin?: boolean } = {}) {
-    if (options.isPlatformAdmin) {
+  async function loadTenantMenuRuntime(options: { force?: boolean; isPlatformAdmin?: boolean; tenantType?: string | null } = {}) {
+    if (options.isPlatformAdmin || options.tenantType === 'platform' || options.tenantType === 'personal') {
       if (options.force || !menuBundles.value.length) {
         menuBundles.value = await fetchMenuBundles()
       }
@@ -953,7 +958,7 @@ export const useSidebarMenuStore = defineStore('sidebarMenu', () => {
   /** 更新节点展示字段（平台菜单树，持久化到 localStorage） */
   function updateMenuNode(
     nodeId: string,
-    patch: Partial<Pick<MenuNode, 'title' | 'path' | 'icon' | 'permissionCode' | 'isPlatformOnly' | 'showInAdmin' | 'enabled' | 'dataPermMode'>>,
+    patch: Partial<Pick<MenuNode, 'title' | 'path' | 'icon' | 'permissionCode' | 'isPlatformOnly' | 'tenantScope' | 'showInAdmin' | 'enabled' | 'dataPermMode'>>,
   ): boolean {
     const next = JSON.parse(JSON.stringify(tree.value)) as MenuNode[]
     function walk(nodes: MenuNode[]): boolean {
@@ -964,6 +969,7 @@ export const useSidebarMenuStore = defineStore('sidebarMenu', () => {
           if (patch.icon !== undefined) n.icon = patch.icon
           if (patch.permissionCode !== undefined) n.permissionCode = patch.permissionCode
           if (patch.isPlatformOnly !== undefined) n.isPlatformOnly = patch.isPlatformOnly
+          if (patch.tenantScope !== undefined) n.tenantScope = patch.tenantScope
           if (patch.showInAdmin !== undefined) n.showInAdmin = patch.showInAdmin
           if (patch.enabled !== undefined) n.enabled = patch.enabled
           if (patch.dataPermMode !== undefined) n.dataPermMode = patch.dataPermMode

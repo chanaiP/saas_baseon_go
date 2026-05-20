@@ -85,7 +85,7 @@ async function saveEdit() {
 }
 
 async function remove(row: SysParamRow) {
-  await confirmArchiveAction({ name: row.param_key, title: '归档系统参数' })
+  await confirmArchiveAction({ name: row.param_key, title: '归档参数' })
   await deleteSysParam(row.id)
   await load()
 }
@@ -142,7 +142,7 @@ onMounted(load)
   <div class="page">
     <NeuroAgentListPage
       mode="el-table"
-      title="系统参数"
+      title="参数管理"
       :columns="columns"
       :data="items"
       :loading="loading"

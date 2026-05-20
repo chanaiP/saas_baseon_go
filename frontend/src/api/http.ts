@@ -90,6 +90,7 @@ function shouldOmitAuthorization(config: InternalAxiosRequestConfig): boolean {
   const method = (config.method || 'get').toLowerCase()
   if (path.startsWith('/api/public/')) return true
   if (method === 'post' && path === '/api/auth/login') return true
+  if (method === 'post' && path === '/api/auth/register') return true
   if (method === 'get' && path === '/api/auth/captcha') return true
   if (method === 'get' && path === '/api/auth/phone-login-tenants') return true
   return false

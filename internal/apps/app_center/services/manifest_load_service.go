@@ -751,6 +751,7 @@ func (s *AppService) syncManifestAssets(tx *gorm.DB, env manifestEnvelope, now t
 			ParentCode:        cleanOptionalString(&menu.ParentCode),
 			SortOrder:         menu.SortOrder,
 			PlatformOnly:      manifestAssetPlatformOnly(env, menu.PlatformOnly),
+			TenantScope:       manifestAssetTenantScope(env, menu.TenantScope, menu.PlatformOnly),
 			TenantVisible:     menu.TenantVisible,
 			ShowInAdmin:       defaultBoolPtr(menu.ShowInAdmin, true),
 			TenantEditable:    menu.TenantEditable,
@@ -795,6 +796,7 @@ func (s *AppService) syncManifestAssets(tx *gorm.DB, env manifestEnvelope, now t
 			PermissionType:    "OPERATION",
 			MenuCode:          cleanOptionalString(&op.MenuCode),
 			PlatformOnly:      manifestAssetPlatformOnly(env, op.PlatformOnly),
+			TenantScope:       manifestAssetTenantScope(env, op.TenantScope, op.PlatformOnly),
 			IncludeInPackage:  op.IncludeInPackage,
 			DataPermMode:      "NONE",
 			ManifestHash:      env.parse.ManifestHash,
@@ -816,6 +818,7 @@ func (s *AppService) syncManifestAssets(tx *gorm.DB, env manifestEnvelope, now t
 			PermissionType:    defaultString(perm.Type, "PERMISSION"),
 			MenuCode:          cleanOptionalString(&perm.MenuCode),
 			PlatformOnly:      manifestAssetPlatformOnly(env, perm.PlatformOnly),
+			TenantScope:       manifestAssetTenantScope(env, perm.TenantScope, perm.PlatformOnly),
 			IncludeInPackage:  perm.IncludeInPackage,
 			DataPermMode:      defaultString(perm.DataPermMode, "ORG"),
 			ManifestHash:      env.parse.ManifestHash,
@@ -1021,6 +1024,7 @@ func upsertManifestAsset[T any](tx *gorm.DB, row T, _ []clause.Column) error {
 		err := tx.Where("app_code = ? AND resource_code = ? AND deleted_at IS NULL", value.AppCode, value.ResourceCode).First(&existing).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			platformOnly := value.PlatformOnly
+			tenantScope := value.TenantScope
 			tenantVisible := value.TenantVisible
 			showInAdmin := value.ShowInAdmin
 			tenantEditable := value.TenantEditable
@@ -1033,6 +1037,7 @@ func upsertManifestAsset[T any](tx *gorm.DB, row T, _ []clause.Column) error {
 			}
 			return tx.Model(&models.SysAppEntry{}).Where("app_code = ? AND resource_code = ? AND deleted_at IS NULL", value.AppCode, value.ResourceCode).Updates(map[string]interface{}{
 				"platform_only":      platformOnly,
+				"tenant_scope":       tenantScope,
 				"tenant_visible":     tenantVisible,
 				"show_in_admin":      showInAdmin,
 				"tenant_editable":    tenantEditable,
@@ -1071,6 +1076,7 @@ func upsertManifestAsset[T any](tx *gorm.DB, row T, _ []clause.Column) error {
 		err := tx.Where("app_code = ? AND permission_code = ? AND deleted_at IS NULL", value.AppCode, value.PermissionCode).First(&existing).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			platformOnly := value.PlatformOnly
+			tenantScope := value.TenantScope
 			includeInPackage := value.IncludeInPackage
 			dataPermMode := value.DataPermMode
 			status := value.Status
@@ -1079,6 +1085,7 @@ func upsertManifestAsset[T any](tx *gorm.DB, row T, _ []clause.Column) error {
 			}
 			return tx.Model(&models.SysAppPermission{}).Where("app_code = ? AND permission_code = ? AND deleted_at IS NULL", value.AppCode, value.PermissionCode).Updates(map[string]interface{}{
 				"platform_only":      platformOnly,
+				"tenant_scope":       tenantScope,
 				"include_in_package": includeInPackage,
 				"data_perm_mode":     dataPermMode,
 				"status":             status,
@@ -1171,6 +1178,7 @@ func (s *AppService) syncManifestPermissions(tx *gorm.DB, env manifestEnvelope, 
 			Visible:          menu.TenantVisible,
 			ShowInAdmin:      showInAdmin,
 			IsPlatformOnly:   manifestAssetPlatformOnly(env, menu.PlatformOnly),
+			TenantScope:      manifestAssetTenantScope(env, menu.TenantScope, menu.PlatformOnly),
 			IsPackageFeature: menu.IncludeInPackage,
 			TenantEditable:   menu.TenantEditable,
 			AppCode:          env.parse.AppCode,
@@ -1213,6 +1221,7 @@ func (s *AppService) syncManifestPermissions(tx *gorm.DB, env manifestEnvelope, 
 			Enabled:          true,
 			Visible:          false,
 			IsPlatformOnly:   manifestAssetPlatformOnly(env, op.PlatformOnly),
+			TenantScope:      manifestAssetTenantScope(env, op.TenantScope, op.PlatformOnly),
 			IsPackageFeature: op.IncludeInPackage,
 			AppCode:          env.parse.AppCode,
 			FeatureCode:      cleanOptionalString(&op.FeatureCode),
@@ -1261,6 +1270,7 @@ func (s *AppService) syncManifestPermissions(tx *gorm.DB, env manifestEnvelope, 
 			Visible:          visible,
 			ShowInAdmin:      showInAdmin,
 			IsPlatformOnly:   manifestAssetPlatformOnly(env, perm.PlatformOnly),
+			TenantScope:      manifestAssetTenantScope(env, perm.TenantScope, perm.PlatformOnly),
 			IsPackageFeature: includeInPackage,
 			AppCode:          env.parse.AppCode,
 			FeatureCode:      featureCode,
@@ -1333,6 +1343,7 @@ func upsertPermissionByPath(tx *gorm.DB, row *models.Permission) error {
 			"visible":            visible,
 			"show_in_admin":      showInAdmin,
 			"is_platform_only":   isPlatformOnly,
+			"tenant_scope":       row.TenantScope,
 			"is_package_feature": isPackageFeature,
 			"tenant_editable":    tenantEditable,
 			"feature_code":       featureCode,
@@ -1353,6 +1364,7 @@ func upsertPermissionByPath(tx *gorm.DB, row *models.Permission) error {
 		"visible":            row.Visible,
 		"show_in_admin":      row.ShowInAdmin,
 		"is_platform_only":   row.IsPlatformOnly,
+		"tenant_scope":       row.TenantScope,
 		"is_package_feature": row.IsPackageFeature,
 		"tenant_editable":    row.TenantEditable,
 		"app_code":           row.AppCode,
@@ -1485,6 +1497,32 @@ func manifestChargeMode(chargePolicy string, billingMode string) string {
 
 func manifestAssetPlatformOnly(env manifestEnvelope, declared bool) bool {
 	return declared || strings.EqualFold(defaultString(env.parse.VisibilityScope, env.manifest.App.VisibilityScope), "PLATFORM_ONLY")
+}
+
+func manifestAssetTenantScope(env manifestEnvelope, declared string, platformOnly bool) string {
+	scope := normalizeManifestTenantScope(declared, manifestAssetPlatformOnly(env, platformOnly))
+	if strings.EqualFold(defaultString(env.parse.VisibilityScope, env.manifest.App.VisibilityScope), "PLATFORM_ONLY") {
+		return "platform_only"
+	}
+	if strings.TrimSpace(declared) == "" && !manifestAssetPlatformOnly(env, platformOnly) {
+		switch strings.TrimSpace(env.parse.AppCode) {
+		case "data-center", "integration-center":
+			return "enterprise_personal"
+		}
+	}
+	return scope
+}
+
+func normalizeManifestTenantScope(value string, platformOnly bool) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "platform_only", "enterprise_only", "personal_only", "all", "platform_enterprise", "enterprise_personal", "platform_personal":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		if platformOnly {
+			return "platform_only"
+		}
+		return "enterprise_only"
+	}
 }
 
 func manifestClientName(code string) string {

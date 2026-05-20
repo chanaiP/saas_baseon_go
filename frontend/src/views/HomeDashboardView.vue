@@ -1,6 +1,6 @@
 <script setup lang="ts">
 defineOptions({ name: 'HomeDashboardView' })
-import { ArrowRight, House, Key, Monitor, Setting, Share, User } from '@element-plus/icons-vue'
+import { ArrowRight, Connection, DataLine, House, Key, Monitor, Setting, Share, User } from '@element-plus/icons-vue'
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -17,10 +17,17 @@ const greeting = computed(() => {
 })
 
 const name = computed(() => perm.profile?.name || perm.profile?.employee_no || '用户')
+const isPersonalSpace = computed(() => perm.profile?.tenant_type === 'personal')
 
 type QuickItem = { title: string; path: string; desc: string; icon: typeof House }
 const quickLinks = computed<QuickItem[]>(() => {
   const items: QuickItem[] = []
+  if (isPersonalSpace.value && perm.canUseMenuPath('/data-center/dashboard')) {
+    items.push({ title: '经营看板', path: '/data-center/dashboard', desc: '查看个人数据概览', icon: DataLine })
+  }
+  if (isPersonalSpace.value && perm.canUseMenuPath('/integration-center/my-connections')) {
+    items.push({ title: '第三方连接', path: '/integration-center/my-connections', desc: '管理个人授权连接', icon: Connection })
+  }
   if (perm.canUseMenuPath('/organization')) {
     items.push({ title: '组织架构', path: '/organization', desc: '公司与部门', icon: Share })
   }
@@ -51,7 +58,7 @@ function go(path: string) {
       <div>
         <h1 class="pro-page-header__title">{{ greeting }}，{{ name }}</h1>
         <p class="pro-page-header__desc">
-          常用入口在下方卡片；更多能力在侧栏。顶栏页签便于在已打开页面间切换。
+          {{ isPersonalSpace ? '这里是你的个人工作台；常用的数据和连接能力在下方。' : '常用入口在下方卡片；更多能力在侧栏。顶栏页签便于在已打开页面间切换。' }}
         </p>
       </div>
     </header>
@@ -72,7 +79,7 @@ function go(path: string) {
           </div>
         </el-col>
       </el-row>
-      <el-empty v-if="!quickLinks.length" description="暂无可用快捷入口（可能受菜单权限限制）" />
+      <el-empty v-if="!quickLinks.length" :description="isPersonalSpace ? '暂无可用个人空间入口' : '暂无可用快捷入口（可能受菜单权限限制）'" />
     </section>
 
     <section class="pro-card-block tips">
@@ -81,7 +88,8 @@ function go(path: string) {
         <li>登录后进入首页；常用入口会按当前账号的菜单权限自动展示。</li>
         <li>顶栏支持主题切换、内容区全屏和界面设置，已打开页面可通过页签快速切换。</li>
         <li>侧栏支持收起为图标；在界面设置中切换混合导航后，顶级模块在顶栏展示，子菜单保留在侧栏。</li>
-        <li>主体管理、套餐中心、系统监控等平台能力仅对具备对应权限的账号开放。</li>
+        <li v-if="!isPersonalSpace">主体管理、套餐中心、系统监控等平台能力仅对具备对应权限的账号开放。</li>
+        <li v-else>个人空间会隐藏企业组织、用户、角色、系统监控等后台治理入口。</li>
       </ul>
     </section>
   </div>

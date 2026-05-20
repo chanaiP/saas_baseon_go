@@ -69,6 +69,7 @@ type ManifestMenu struct {
 	ParentCode       string `json:"parent_code" yaml:"parent_code"`
 	SortOrder        int    `json:"sort_order" yaml:"sort_order"`
 	PlatformOnly     bool   `json:"platform_only" yaml:"platform_only"`
+	TenantScope      string `json:"tenant_scope" yaml:"tenant_scope"`
 	TenantVisible    bool   `json:"tenant_visible" yaml:"tenant_visible"`
 	ShowInAdmin      *bool  `json:"show_in_admin" yaml:"show_in_admin"`
 	TenantEditable   bool   `json:"tenant_editable" yaml:"tenant_editable"`
@@ -83,6 +84,7 @@ type ManifestOperation struct {
 	MenuCode         string `json:"menu_code" yaml:"menu_code"`
 	PermissionCode   string `json:"permission_code" yaml:"permission_code"`
 	PlatformOnly     bool   `json:"platform_only" yaml:"platform_only"`
+	TenantScope      string `json:"tenant_scope" yaml:"tenant_scope"`
 	IncludeInPackage bool   `json:"include_in_package" yaml:"include_in_package"`
 	FeatureCode      string `json:"feature_code" yaml:"feature_code"`
 }
@@ -93,6 +95,7 @@ type ManifestPermission struct {
 	Type             string `json:"type" yaml:"type"`
 	MenuCode         string `json:"menu_code" yaml:"menu_code"`
 	PlatformOnly     bool   `json:"platform_only" yaml:"platform_only"`
+	TenantScope      string `json:"tenant_scope" yaml:"tenant_scope"`
 	IncludeInPackage bool   `json:"include_in_package" yaml:"include_in_package"`
 	DataPermMode     string `json:"data_perm_mode" yaml:"data_perm_mode"`
 }

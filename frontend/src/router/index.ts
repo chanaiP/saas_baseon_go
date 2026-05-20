@@ -202,7 +202,7 @@ const router = createRouter({
         {
           path: 'params',
           name: 'ParamView',
-          meta: { title: '系统参数' },
+          meta: { title: '参数管理' },
           component: () => import('@/views/ParamView.vue'),
         },
         {
@@ -298,6 +298,7 @@ router.beforeEach(async (to) => {
               const p = await profileTask
               await sidebarMenu.loadTenantMenuRuntime({
                 isPlatformAdmin: !!p?.is_platform_admin,
+                tenantType: p?.tenant_type,
                 force: profileStale || !sidebarMenu.overridesLoaded,
               })
             })()

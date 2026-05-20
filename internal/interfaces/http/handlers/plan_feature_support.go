@@ -624,13 +624,20 @@ func (h *IdentityHandler) menuBundleOperations(tenantID uint64, menuPermissionID
 		if isPureViewPermissionPath(row.Path) {
 			continue
 		}
+		tenantType := h.tenantTypeForID(tenantID)
+		if forPlatform {
+			tenantType = TenantTypePlatform
+		}
+		if !tenantScopeAllows(normalizeTenantScope(row.TenantScope, row.IsPlatformOnly), tenantType) {
+			continue
+		}
 		if !forPlatform && row.IsPlatformOnly {
 			continue
 		}
 		if !forPlatform && !h.permissionAllowedForTenantSubscription(tenantID, row) {
 			continue
 		}
-		items = append(items, gin.H{"id": row.ID, "path": row.Path, "name": row.Name, "is_platform_only": row.IsPlatformOnly, "is_package_feature": row.IsPackageFeature, "feature_code": row.FeatureCode, "feature_type": row.FeatureType, "app_code": row.AppCode, "tenant_visible": row.Visible, "tenant_editable": row.TenantEditable, "tenant_edit_scope": row.TenantEditScope, "data_perm_mode": row.DataPermMode})
+		items = append(items, gin.H{"id": row.ID, "path": row.Path, "name": row.Name, "is_platform_only": row.IsPlatformOnly, "tenant_scope": normalizeTenantScope(row.TenantScope, row.IsPlatformOnly), "is_package_feature": row.IsPackageFeature, "feature_code": row.FeatureCode, "feature_type": row.FeatureType, "app_code": row.AppCode, "tenant_visible": row.Visible, "tenant_editable": row.TenantEditable, "tenant_edit_scope": row.TenantEditScope, "data_perm_mode": row.DataPermMode})
 	}
 	return items
 }

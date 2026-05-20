@@ -27,6 +27,9 @@ func (h *IdentityHandler) MenuBundles(c *gin.Context) {
 		if !forPlatform && permission.IsPlatformOnly {
 			continue
 		}
+		if !forPlatform && !h.permissionAllowedForTenantType(user, permission) {
+			continue
+		}
 		if !forPlatform && !h.permissionAllowedForTenantSubscription(user.TenantID, permission) {
 			continue
 		}
@@ -46,6 +49,7 @@ func (h *IdentityHandler) MenuBundles(c *gin.Context) {
 			"tenant_visible":     permission.Visible,
 			"tenant_editable":    permission.TenantEditable,
 			"tenant_edit_scope":  permission.TenantEditScope,
+			"tenant_scope":       normalizeTenantScope(permission.TenantScope, permission.IsPlatformOnly),
 			"data_perm_mode":     permission.DataPermMode,
 		})
 	}
@@ -72,6 +76,9 @@ func (h *IdentityHandler) standaloneCapabilityBundles(tenantID uint64, forPlatfo
 		if !forPlatform && permission.IsPlatformOnly {
 			continue
 		}
+		if !tenantScopeAllows(normalizeTenantScope(permission.TenantScope, permission.IsPlatformOnly), h.tenantTypeForID(tenantID)) {
+			continue
+		}
 		if !forPlatform && !h.permissionAllowedForTenantSubscription(tenantID, permission) {
 			continue
 		}
@@ -94,6 +101,7 @@ func (h *IdentityHandler) standaloneCapabilityBundles(tenantID uint64, forPlatfo
 			"tenant_visible":     permission.Visible,
 			"tenant_editable":    permission.TenantEditable,
 			"tenant_edit_scope":  permission.TenantEditScope,
+			"tenant_scope":       normalizeTenantScope(permission.TenantScope, permission.IsPlatformOnly),
 			"data_perm_mode":     "NONE",
 		})
 	}

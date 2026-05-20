@@ -15,6 +15,7 @@ func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHan
 	{
 		api.GET("/auth/captcha", identityHandler.Captcha)
 		api.GET("/auth/phone-login-tenants", identityHandler.PhoneLoginTenants)
+		api.POST("/auth/register", identityHandler.ConsumerRegister)
 		api.POST("/auth/login", identityHandler.Login)
 		api.POST("/integration-center/webhooks/:provider_app_code", integrationCenterHandler.ReceiveWebhook)
 		api.GET("/integration-center/oauth/callback/:provider_app_code", integrationCenterHandler.OAuthCallback)

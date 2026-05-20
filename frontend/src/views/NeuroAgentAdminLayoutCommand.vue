@@ -1451,6 +1451,7 @@ onMounted(async () => {
   await shortcut.init(perm.profile?.shortcut_ids)
   await sidebarMenu.loadTenantMenuRuntime({
     isPlatformAdmin: !!perm.profile?.is_platform_admin,
+    tenantType: perm.profile?.tenant_type,
     force: true,
   })
 
