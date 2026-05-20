@@ -292,6 +292,8 @@ func openAPISpec() gin.H {
 			"/api/ai-geo/materials/skus/{id}":                            gin.H{"get": api("ai-geo", "SKU 资料详情"), "put": api("ai-geo", "更新 SKU 资料"), "delete": api("ai-geo", "归档 SKU 资料")},
 			"/api/ai-geo/materials/competitors":                          gin.H{"get": api("ai-geo", "竞品资料列表"), "post": api("ai-geo", "创建竞品资料")},
 			"/api/ai-geo/materials/competitors/{id}":                     gin.H{"get": api("ai-geo", "竞品资料详情"), "put": api("ai-geo", "更新竞品资料"), "delete": api("ai-geo", "归档竞品资料")},
+			"/api/ai-geo/materials/keywords":                             gin.H{"get": api("ai-geo", "关键词列表"), "post": api("ai-geo", "创建关键词")},
+			"/api/ai-geo/materials/keywords/{id}":                        gin.H{"get": api("ai-geo", "关键词详情"), "put": api("ai-geo", "更新关键词"), "delete": api("ai-geo", "归档关键词")},
 			"/api/ai-geo/materials/assets":                               gin.H{"get": api("ai-geo", "素材资料列表"), "post": api("ai-geo", "创建素材资料")},
 			"/api/ai-geo/materials/assets/{id}":                          gin.H{"get": api("ai-geo", "素材资料详情"), "put": api("ai-geo", "更新素材资料"), "delete": api("ai-geo", "归档素材资料")},
 			"/api/ai-geo/materials/hotspots":                             gin.H{"get": api("ai-geo", "热点资料列表"), "post": api("ai-geo", "创建热点资料")},

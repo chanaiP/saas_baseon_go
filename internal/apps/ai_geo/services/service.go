@@ -597,6 +597,126 @@ func (s *Service) ArchiveCompetitor(ctx context.Context, viewer dto.Viewer, id u
 	return row, err
 }
 
+func (s *Service) Keywords(ctx context.Context, viewer dto.Viewer, req dto.PageRequest) (dto.PageResponse[models.AiGeoKeyword], error) {
+	rows, total, err := s.repo.ListKeywords(ctx, viewer.TenantID, req)
+	return page(rows, total, req), err
+}
+
+func (s *Service) Keyword(ctx context.Context, viewer dto.Viewer, id uint64) (models.AiGeoKeyword, error) {
+	row, err := s.repo.Keyword(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	return row, err
+}
+
+func (s *Service) CreateKeyword(ctx context.Context, viewer dto.Viewer, payload dto.KeywordPayload) (models.AiGeoKeyword, error) {
+	if viewer.TenantID == 0 || strings.TrimSpace(payload.Keyword) == "" {
+		return models.AiGeoKeyword{}, ErrInvalidInput
+	}
+	if err := s.validateKeywordScope(ctx, viewer, payload.BrandID, payload.ProductID); err != nil {
+		return models.AiGeoKeyword{}, err
+	}
+	now := time.Now()
+	userID := viewer.UserID
+	row := models.AiGeoKeyword{
+		TenantID:     viewer.TenantID,
+		BrandID:      positiveUint64Ptr(payload.BrandID),
+		ProductID:    positiveUint64Ptr(payload.ProductID),
+		KeywordGroup: defaultString(strings.TrimSpace(payload.KeywordGroup), "通用关键词"),
+		Keyword:      strings.TrimSpace(payload.Keyword),
+		Intent:       stringPtr(payload.Intent),
+		Source:       defaultString(strings.TrimSpace(payload.Source), "manual"),
+		Weight:       payload.Weight,
+		Status:       defaultString(strings.TrimSpace(payload.Status), "active"),
+		CreatedBy:    &userID,
+		UpdatedBy:    &userID,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	err := s.repo.SaveKeyword(ctx, &row)
+	return row, err
+}
+
+func (s *Service) UpdateKeyword(ctx context.Context, viewer dto.Viewer, id uint64, payload dto.KeywordPayload) (models.AiGeoKeyword, error) {
+	row, err := s.repo.Keyword(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	if err != nil {
+		return row, err
+	}
+	if payload.BrandID != nil || payload.ProductID != nil {
+		if err := s.validateKeywordScope(ctx, viewer, payload.BrandID, payload.ProductID); err != nil {
+			return row, err
+		}
+		row.BrandID = positiveUint64Ptr(payload.BrandID)
+		row.ProductID = positiveUint64Ptr(payload.ProductID)
+	}
+	if strings.TrimSpace(payload.KeywordGroup) != "" {
+		row.KeywordGroup = strings.TrimSpace(payload.KeywordGroup)
+	}
+	if strings.TrimSpace(payload.Keyword) != "" {
+		row.Keyword = strings.TrimSpace(payload.Keyword)
+	}
+	row.Intent = stringPtr(payload.Intent)
+	if strings.TrimSpace(payload.Source) != "" {
+		row.Source = strings.TrimSpace(payload.Source)
+	}
+	row.Weight = payload.Weight
+	if strings.TrimSpace(payload.Status) != "" {
+		row.Status = strings.TrimSpace(payload.Status)
+	}
+	now := time.Now()
+	userID := viewer.UserID
+	row.UpdatedAt = now
+	row.UpdatedBy = &userID
+	err = s.repo.SaveKeyword(ctx, &row)
+	return row, err
+}
+
+func (s *Service) ArchiveKeyword(ctx context.Context, viewer dto.Viewer, id uint64) (models.AiGeoKeyword, error) {
+	row, err := s.repo.Keyword(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	if err != nil {
+		return row, err
+	}
+	now := time.Now()
+	userID := viewer.UserID
+	row.Status = "archived"
+	row.DeletedAt = &now
+	row.UpdatedAt = now
+	row.UpdatedBy = &userID
+	err = s.repo.SaveKeyword(ctx, &row)
+	return row, err
+}
+
+func (s *Service) validateKeywordScope(ctx context.Context, viewer dto.Viewer, brandID *uint64, productID *uint64) error {
+	if brandID != nil && *brandID > 0 {
+		if _, err := s.repo.Brand(ctx, viewer.TenantID, *brandID); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrNotFound
+			}
+			return err
+		}
+	}
+	if productID != nil && *productID > 0 {
+		product, err := s.repo.Product(ctx, viewer.TenantID, *productID)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if brandID != nil && *brandID > 0 && product.BrandID != *brandID {
+			return ErrInvalidInput
+		}
+	}
+	return nil
+}
+
 func (s *Service) MaterialAssets(ctx context.Context, viewer dto.Viewer, req dto.PageRequest) (dto.PageResponse[models.AiGeoMaterialAsset], error) {
 	rows, total, err := s.repo.ListMaterialAssets(ctx, viewer.TenantID, req)
 	return page(rows, total, req), err

@@ -236,6 +236,58 @@ func (h *Handler) ArchiveCompetitor(c *gin.Context) {
 	h.ok(c, data, err)
 }
 
+func (h *Handler) Keywords(c *gin.Context) {
+	data, err := h.service.Keywords(c.Request.Context(), viewer(c), pageRequest(c))
+	h.ok(c, data, err)
+}
+
+func (h *Handler) Keyword(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	data, err := h.service.Keyword(c.Request.Context(), viewer(c), id)
+	h.ok(c, data, err)
+}
+
+func (h *Handler) CreateKeyword(c *gin.Context) {
+	var payload dto.KeywordPayload
+	if bind(c, &payload) {
+		data, err := h.service.CreateKeyword(c.Request.Context(), viewer(c), payload)
+		if err == nil {
+			err = h.auditWrite(c, "keyword_create", fmt.Sprintf("%d", data.ID), "创建关键词", gin.H{"keyword": data.Keyword, "keyword_group": data.KeywordGroup})
+		}
+		h.ok(c, data, err)
+	}
+}
+
+func (h *Handler) UpdateKeyword(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	var payload dto.KeywordPayload
+	if bind(c, &payload) {
+		data, err := h.service.UpdateKeyword(c.Request.Context(), viewer(c), id, payload)
+		if err == nil {
+			err = h.auditWrite(c, "keyword_update", fmt.Sprintf("%d", data.ID), "更新关键词", gin.H{"keyword": data.Keyword, "keyword_group": data.KeywordGroup})
+		}
+		h.ok(c, data, err)
+	}
+}
+
+func (h *Handler) ArchiveKeyword(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	data, err := h.service.ArchiveKeyword(c.Request.Context(), viewer(c), id)
+	if err == nil {
+		err = h.auditWrite(c, "keyword_archive", fmt.Sprintf("%d", data.ID), "归档关键词", gin.H{"keyword_id": data.ID})
+	}
+	h.ok(c, data, err)
+}
+
 func (h *Handler) MaterialAssets(c *gin.Context) {
 	data, err := h.service.MaterialAssets(c.Request.Context(), viewer(c), pageRequest(c))
 	h.ok(c, data, err)

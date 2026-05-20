@@ -89,6 +89,26 @@ type AiGeoCompetitor struct {
 
 func (AiGeoCompetitor) TableName() string { return "ai_geo_competitors" }
 
+type AiGeoKeyword struct {
+	ID           uint64     `gorm:"primaryKey;autoIncrement;column:id"`
+	TenantID     uint64     `gorm:"column:tenant_id;not null;index"`
+	BrandID      *uint64    `gorm:"column:brand_id;index"`
+	ProductID    *uint64    `gorm:"column:product_id;index"`
+	KeywordGroup string     `gorm:"column:keyword_group;type:varchar(120);not null;default:'通用关键词'"`
+	Keyword      string     `gorm:"column:keyword;type:varchar(160);not null"`
+	Intent       *string    `gorm:"column:intent;type:varchar(80)"`
+	Source       string     `gorm:"column:source;type:varchar(80);not null;default:'manual'"`
+	Weight       int        `gorm:"column:weight;not null;default:0"`
+	Status       string     `gorm:"column:status;type:varchar(32);not null;default:'active';index"`
+	CreatedBy    *uint64    `gorm:"column:created_by"`
+	UpdatedBy    *uint64    `gorm:"column:updated_by"`
+	CreatedAt    time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt    time.Time  `gorm:"column:updated_at;not null"`
+	DeletedAt    *time.Time `gorm:"column:deleted_at;index"`
+}
+
+func (AiGeoKeyword) TableName() string { return "ai_geo_keywords" }
+
 type AiGeoChannelProfile struct {
 	ID                 uint64     `gorm:"primaryKey;autoIncrement;column:id"`
 	TenantID           uint64     `gorm:"column:tenant_id;not null;index;index:idx_ai_geo_channel_tenant_code,unique"`

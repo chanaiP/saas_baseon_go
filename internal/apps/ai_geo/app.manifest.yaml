@@ -418,6 +418,24 @@ apis:
     permission_code: ai_geo:data:import
     audit: true
   - method: GET
+    path: /api/ai-geo/materials/keywords
+    permission_code: /ai-geo/data/products
+  - method: GET
+    path: /api/ai-geo/materials/keywords/:id
+    permission_code: /ai-geo/data/products
+  - method: POST
+    path: /api/ai-geo/materials/keywords
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: PUT
+    path: /api/ai-geo/materials/keywords/:id
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: DELETE
+    path: /api/ai-geo/materials/keywords/:id
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: GET
     path: /api/ai-geo/materials/assets
     permission_code: /ai-geo/data/products
   - method: GET

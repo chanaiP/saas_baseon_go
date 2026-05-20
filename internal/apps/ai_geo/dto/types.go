@@ -80,6 +80,17 @@ type CompetitorPayload struct {
 	Status      string `json:"status"`
 }
 
+type KeywordPayload struct {
+	BrandID      *uint64 `json:"brand_id"`
+	ProductID    *uint64 `json:"product_id"`
+	KeywordGroup string  `json:"keyword_group"`
+	Keyword      string  `json:"keyword"`
+	Intent       string  `json:"intent"`
+	Source       string  `json:"source"`
+	Weight       int     `json:"weight"`
+	Status       string  `json:"status"`
+}
+
 type MaterialAssetPayload struct {
 	BrandID   *uint64                `json:"brand_id"`
 	ProductID *uint64                `json:"product_id"`

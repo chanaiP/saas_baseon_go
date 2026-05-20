@@ -543,6 +543,49 @@ func TestMaterialUpdateAndArchiveKeepTenantScope(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
+func TestKeywordsKeepTenantScopeAndValidateMaterialScope(t *testing.T) {
+	db := newAiGeoTestDB(t)
+	service := NewService(repositories.NewRepository(db))
+	viewer := dto.Viewer{TenantID: 1, UserID: 10}
+	otherViewer := dto.Viewer{TenantID: 2, UserID: 20}
+	brand, err := service.CreateBrand(context.Background(), viewer, dto.BrandPayload{BrandCode: "B1", BrandName: "品牌一"})
+	require.NoError(t, err)
+	product, err := service.CreateProduct(context.Background(), viewer, dto.ProductPayload{BrandID: brand.ID, ProductCode: "P1", ProductName: "商品一"})
+	require.NoError(t, err)
+
+	keyword, err := service.CreateKeyword(context.Background(), viewer, dto.KeywordPayload{BrandID: &brand.ID, ProductID: &product.ID, KeywordGroup: "通勤场景", Keyword: "小个子通勤穿搭", Intent: "search", Weight: 80})
+	require.NoError(t, err)
+	require.Equal(t, viewer.TenantID, keyword.TenantID)
+	require.NotNil(t, keyword.BrandID)
+	require.Equal(t, brand.ID, *keyword.BrandID)
+
+	page, err := service.Keywords(context.Background(), viewer, dto.PageRequest{BrandID: brand.ID, Keyword: "通勤", Limit: 20})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), page.Total)
+	detail, err := service.Keyword(context.Background(), viewer, keyword.ID)
+	require.NoError(t, err)
+	require.Equal(t, "小个子通勤穿搭", detail.Keyword)
+
+	updated, err := service.UpdateKeyword(context.Background(), viewer, keyword.ID, dto.KeywordPayload{BrandID: &brand.ID, ProductID: &product.ID, KeywordGroup: "选购问题", Keyword: "通勤连衣裙怎么选", Weight: 90})
+	require.NoError(t, err)
+	require.Equal(t, "选购问题", updated.KeywordGroup)
+	require.Equal(t, 90, updated.Weight)
+
+	_, err = service.Keyword(context.Background(), otherViewer, keyword.ID)
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = service.UpdateKeyword(context.Background(), otherViewer, keyword.ID, dto.KeywordPayload{Keyword: "跨租户"})
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = service.CreateKeyword(context.Background(), otherViewer, dto.KeywordPayload{BrandID: &brand.ID, Keyword: "跨租户"})
+	require.ErrorIs(t, err, ErrNotFound)
+
+	archived, err := service.ArchiveKeyword(context.Background(), viewer, keyword.ID)
+	require.NoError(t, err)
+	require.Equal(t, "archived", archived.Status)
+	require.NotNil(t, archived.DeletedAt)
+	_, err = service.Keyword(context.Background(), viewer, keyword.ID)
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
 func TestDraftDetailAndArchiveKeepTenantScope(t *testing.T) {
 	db := newAiGeoTestDB(t)
 	service := NewService(repositories.NewRepository(db))
@@ -627,6 +670,7 @@ func newAiGeoTestDB(t *testing.T) *gorm.DB {
 		&models.AiGeoProductCard{},
 		&models.AiGeoSKU{},
 		&models.AiGeoCompetitor{},
+		&models.AiGeoKeyword{},
 		&models.AiGeoChannelProfile{},
 		&models.AiGeoChannelAccount{},
 		&models.AiGeoDraft{},

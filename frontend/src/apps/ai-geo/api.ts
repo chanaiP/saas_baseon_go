@@ -78,6 +78,19 @@ export interface AiGeoCompetitor {
   status: string
 }
 
+export interface AiGeoKeyword {
+  id: number
+  tenant_id: number
+  brand_id?: number | null
+  product_id?: number | null
+  keyword_group: string
+  keyword: string
+  intent?: string | null
+  source: string
+  weight: number
+  status: string
+}
+
 export interface AiGeoMaterialAsset {
   id: number
   tenant_id: number
@@ -229,6 +242,22 @@ export async function fetchAiGeoCompetitors(params: AiGeoListParams = {}) {
 
 export async function createAiGeoCompetitor(payload: Record<string, unknown>) {
   return unwrap(http.post<ApiResponse<AiGeoCompetitor>>('/api/ai-geo/materials/competitors', payload))
+}
+
+export async function fetchAiGeoKeywords(params: AiGeoListParams = {}) {
+  return unwrap(http.get<ApiResponse<AiGeoPage<AiGeoKeyword>>>('/api/ai-geo/materials/keywords', { params }))
+}
+
+export async function fetchAiGeoKeyword(id: number) {
+  return unwrap(http.get<ApiResponse<AiGeoKeyword>>(`/api/ai-geo/materials/keywords/${id}`))
+}
+
+export async function createAiGeoKeyword(payload: Record<string, unknown>) {
+  return unwrap(http.post<ApiResponse<AiGeoKeyword>>('/api/ai-geo/materials/keywords', payload))
+}
+
+export async function updateAiGeoKeyword(id: number, payload: Record<string, unknown>) {
+  return unwrap(http.put<ApiResponse<AiGeoKeyword>>(`/api/ai-geo/materials/keywords/${id}`, payload))
 }
 
 export async function fetchAiGeoMaterialAssets(params: AiGeoListParams = {}) {

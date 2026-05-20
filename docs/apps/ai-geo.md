@@ -62,6 +62,8 @@ AI GEO 是合并部署的租户应用，`app_code=ai-geo`。它面向多租户�
 - `/api/ai-geo/materials/products`
 - `/api/ai-geo/materials/skus`
 - `/api/ai-geo/materials/competitors`
+- `/api/ai-geo/materials/keywords`
+- `/api/ai-geo/materials/keywords/:id`
 - `/api/ai-geo/materials/assets`
 - `/api/ai-geo/materials/assets/:id`
 - `/api/ai-geo/materials/hotspots`
@@ -83,7 +85,7 @@ AI GEO 是合并部署的租户应用，`app_code=ai-geo`。它面向多租户�
 第一批已落地能力：
 
 - 总览统计：品牌、商品、SKU、渠道、账号、今日母稿、待审母稿、渠道内容、发布计划、资料完整度和配额用量。
-- 资料中心：品牌、商品、SKU、竞品、素材和热点资料列表/详情/新增/更新/归档。
+- 资料中心：品牌、商品、SKU、竞品、关键词、素材和热点资料列表/详情/新增/更新/归档。
 - 资料导入：导入批次记录、字段预校验、字段映射落库、品牌/商品/SKU/竞品幂等导入、部分成功状态和错误行明细查询。
 - 工作台：可持久化生成母稿，生产启动时通过 AI 能力中心场景 `ai_geo_draft_generation` 调用 Gateway；测试和未注入场景时保留本地 generator 降级实现。生成上下文已包含品牌、商品、SKU、Skill、热点和用户提示。
 - 母稿：列表、详情、新增、提交审核、审核通过、驳回、归档。
@@ -188,7 +190,7 @@ select ai_scenario_code, status from ai_scenarios where app_code = 'ai-geo' and 
 
 ## 生产级剩余项
 
-- 资料中心仍需补独立关键词 API、素材文件上传解析和素材权限边界。
+- 资料中心仍需补素材文件上传解析和素材权限边界。
 - 资料导入需继续补文件上传解析、模板下载和大批量异步处理。
 - 渠道发布需接第三方集成中心或 Agent 执行，补 OAuth、Webhook、失败重试和发布链接回填。
 - 发布计划还需补日历聚合接口和真实发布执行器闭环。

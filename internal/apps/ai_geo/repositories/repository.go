@@ -260,6 +260,40 @@ func (r *Repository) SaveCompetitor(ctx context.Context, competitor *models.AiGe
 	return r.db.WithContext(ctx).Save(competitor).Error
 }
 
+func (r *Repository) Keyword(ctx context.Context, tenantID, id uint64) (models.AiGeoKeyword, error) {
+	var row models.AiGeoKeyword
+	err := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoKeyword{}), tenantID)).Where("id = ?", id).First(&row).Error
+	return row, err
+}
+
+func (r *Repository) ListKeywords(ctx context.Context, tenantID uint64, req dto.PageRequest) ([]models.AiGeoKeyword, int64, error) {
+	db := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoKeyword{}), tenantID))
+	if req.BrandID > 0 {
+		db = db.Where("brand_id = ?", req.BrandID)
+	}
+	if req.ProductID > 0 {
+		db = db.Where("product_id = ?", req.ProductID)
+	}
+	if req.Status != "" {
+		db = db.Where("status = ?", req.Status)
+	}
+	if req.Keyword != "" {
+		k := likeKeyword(req.Keyword)
+		db = db.Where("lower(keyword_group) LIKE ? OR lower(keyword) LIKE ? OR lower(intent) LIKE ?", k, k, k)
+	}
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []models.AiGeoKeyword
+	err := paginate(db.Order("weight desc, id desc"), req).Find(&rows).Error
+	return rows, total, err
+}
+
+func (r *Repository) SaveKeyword(ctx context.Context, keyword *models.AiGeoKeyword) error {
+	return r.db.WithContext(ctx).Save(keyword).Error
+}
+
 func (r *Repository) MaterialAsset(ctx context.Context, tenantID, id uint64) (models.AiGeoMaterialAsset, error) {
 	var row models.AiGeoMaterialAsset
 	err := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoMaterialAsset{}), tenantID)).Where("id = ?", id).First(&row).Error

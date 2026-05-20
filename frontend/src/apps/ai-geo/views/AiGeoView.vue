@@ -773,6 +773,7 @@ import {
   fetchAiGeoDraftAuditSuggestions,
   fetchAiGeoDrafts,
   fetchAiGeoHotspots,
+  fetchAiGeoKeywords,
   fetchAiGeoMaterialAssets,
   fetchAiGeoOverview,
   fetchAiGeoProducts,
@@ -1359,12 +1360,13 @@ onMounted(async () => {
 async function loadAiGeoData() {
   loading.page = true
   try {
-    const [overviewData, brandPage, productPage, skuPage, competitorPage, assetPage, hotspotPage, channelPage, draftPage, channelContentPage, planPage] = await Promise.all([
+    const [overviewData, brandPage, productPage, skuPage, competitorPage, keywordPage, assetPage, hotspotPage, channelPage, draftPage, channelContentPage, planPage] = await Promise.all([
       fetchAiGeoOverview(),
       fetchAiGeoBrands({ limit: 200 }),
       fetchAiGeoProducts({ limit: 200 }),
       fetchAiGeoSKUs({ limit: 500 }),
       fetchAiGeoCompetitors({ limit: 500 }),
+      fetchAiGeoKeywords({ limit: 500, status: 'active' }),
       fetchAiGeoMaterialAssets({ limit: 500 }),
       fetchAiGeoHotspots({ limit: 200, status: 'active' }),
       fetchAiGeoChannels({ limit: 200 }),
@@ -1373,7 +1375,7 @@ async function loadAiGeoData() {
       fetchAiGeoPublishPlans({ limit: 200 }),
     ])
     Object.assign(overview, overviewData)
-    hydrateBrands(brandPage.items || [], productPage.items || [], skuPage.items || [], competitorPage.items || [], assetPage.items || [])
+    hydrateBrands(brandPage.items || [], productPage.items || [], skuPage.items || [], competitorPage.items || [], assetPage.items || [], keywordPage.items || [])
     hydrateHotspots(hotspotPage.items || [])
     hydrateChannels(channelPage.items || [])
     hydrateDrafts(draftPage.items || [], channelContentPage.items || [])
@@ -1392,7 +1394,7 @@ function apiField(obj, ...keys) {
   return undefined
 }
 
-function hydrateBrands(apiBrands, apiProducts, apiSkus = [], apiCompetitors = [], apiAssets = []) {
+function hydrateBrands(apiBrands, apiProducts, apiSkus = [], apiCompetitors = [], apiAssets = [], apiKeywords = []) {
   brands.splice(0, brands.length, ...apiBrands.map(brand => ({
     id: apiField(brand, 'id', 'ID'),
     code: apiField(brand, 'brand_code', 'BrandCode') || '',
@@ -1402,7 +1404,7 @@ function hydrateBrands(apiBrands, apiProducts, apiSkus = [], apiCompetitors = []
     priceBand: apiField(brand, 'price_band', 'PriceBand') || '',
     tone: apiField(brand, 'tone', 'Tone') || '',
     completeness: apiField(brand, 'completeness', 'Completeness') || 0,
-    keywordGroups: [{ id: apiField(brand, 'id', 'ID'), name: '品牌关键词', keywords: parseJsonArray(apiField(brand, 'keywords', 'Keywords')) }],
+    keywordGroups: keywordGroupsForBrand(brand, apiKeywords),
     materials: apiAssets
       .filter(asset => Number(apiField(asset, 'brand_id', 'BrandID')) === Number(apiField(brand, 'id', 'ID')))
       .map(asset => apiField(asset, 'asset_name', 'AssetName') || apiField(asset, 'asset_type', 'AssetType'))
@@ -1411,6 +1413,10 @@ function hydrateBrands(apiBrands, apiProducts, apiSkus = [], apiCompetitors = []
       const productId = apiField(product, 'id', 'ID')
       const productSkus = apiSkus.filter(sku => Number(apiField(sku, 'product_id', 'ProductID')) === Number(productId)).map(sku => skuFromApi(sku))
       const productCompetitors = apiCompetitors.filter(comp => Number(apiField(comp, 'product_id', 'ProductID')) === Number(productId)).map(comp => competitorFromApi(comp))
+      const productKeywords = apiKeywords
+        .filter(keyword => Number(apiField(keyword, 'product_id', 'ProductID')) === Number(productId))
+        .map(keyword => apiField(keyword, 'keyword', 'Keyword'))
+        .filter(Boolean)
       return {
         id: productId,
         code: apiField(product, 'product_code', 'ProductCode') || '',
@@ -1426,7 +1432,7 @@ function hydrateBrands(apiBrands, apiProducts, apiSkus = [], apiCompetitors = []
         sellingPoints: parseJsonArray(apiField(product, 'selling_points', 'SellingPoints')).join('、'),
         completeness: apiField(product, 'completeness', 'Completeness') || 0,
         missing: [],
-        keywords: [],
+        keywords: productKeywords,
         competitors: productCompetitors,
         skus: productSkus,
       }
@@ -1435,6 +1441,23 @@ function hydrateBrands(apiBrands, apiProducts, apiSkus = [], apiCompetitors = []
   if (!brands.find(b => b.id === Number(selectedBrandId.value))) {
     selectedBrandId.value = brands[0]?.id || 0
   }
+}
+
+function keywordGroupsForBrand(brand, apiKeywords = []) {
+  const brandId = Number(apiField(brand, 'id', 'ID'))
+  const scoped = apiKeywords.filter(keyword => Number(apiField(keyword, 'brand_id', 'BrandID')) === brandId && !apiField(keyword, 'product_id', 'ProductID'))
+  if (!scoped.length) {
+    const fallback = parseJsonArray(apiField(brand, 'keywords', 'Keywords'))
+    return fallback.length ? [{ id: `brand-${brandId}`, name: '品牌关键词', keywords: fallback }] : []
+  }
+  const groups = new Map()
+  scoped.forEach(keyword => {
+    const name = apiField(keyword, 'keyword_group', 'KeywordGroup') || '通用关键词'
+    if (!groups.has(name)) groups.set(name, [])
+    const value = apiField(keyword, 'keyword', 'Keyword')
+    if (value) groups.get(name).push(value)
+  })
+  return Array.from(groups.entries()).map(([name, keywords], index) => ({ id: `${brandId}-${name}-${index}`, name, keywords }))
 }
 
 function hydrateChannels(apiChannels) {
