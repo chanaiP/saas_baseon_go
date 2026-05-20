@@ -348,9 +348,21 @@ apis:
   - method: GET
     path: /api/ai-geo/materials/brands
     permission_code: /ai-geo/data/brands
+  - method: POST
+    path: /api/ai-geo/materials/brands
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: PUT
+    path: /api/ai-geo/materials/brands/:id
+    permission_code: ai_geo:data:import
+    audit: true
   - method: GET
     path: /api/ai-geo/materials/products
     permission_code: /ai-geo/data/products
+  - method: POST
+    path: /api/ai-geo/materials/products
+    permission_code: ai_geo:data:import
+    audit: true
   - method: POST
     path: /api/ai-geo/materials/imports
     permission_code: ai_geo:data:import
@@ -366,8 +378,16 @@ apis:
     path: /api/ai-geo/drafts
     permission_code: ai_geo:draft:manage
     audit: true
-  - method: PUT
-    path: /api/ai-geo/drafts/:id
+  - method: POST
+    path: /api/ai-geo/drafts/:id/submit
+    permission_code: ai_geo:draft:manage
+    audit: true
+  - method: POST
+    path: /api/ai-geo/drafts/:id/approve
+    permission_code: ai_geo:draft:manage
+    audit: true
+  - method: POST
+    path: /api/ai-geo/drafts/:id/reject
     permission_code: ai_geo:draft:manage
     audit: true
   - method: POST
@@ -379,6 +399,10 @@ apis:
     permission_code: /ai-geo/plans/queue
   - method: POST
     path: /api/ai-geo/publish-plans
+    permission_code: ai_geo:publish_plan:manage
+    audit: true
+  - method: PATCH
+    path: /api/ai-geo/publish-plans/:id/status
     permission_code: ai_geo:publish_plan:manage
     audit: true
   - method: GET

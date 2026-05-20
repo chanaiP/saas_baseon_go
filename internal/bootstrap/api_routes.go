@@ -4,13 +4,14 @@ import (
 	"github.com/gin-gonic/gin"
 
 	aicchandlers "saas_baseon_go/internal/apps/ai_capability_center/handlers"
+	aigeohandlers "saas_baseon_go/internal/apps/ai_geo/handlers"
 	apphandlers "saas_baseon_go/internal/apps/app_center/handlers"
 	dchandlers "saas_baseon_go/internal/apps/data_center/handlers"
 	ichandlers "saas_baseon_go/internal/apps/integration_center/handlers"
 	"saas_baseon_go/internal/interfaces/http/handlers"
 )
 
-func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHandler, paramHandler *handlers.ParamHandler, appHandler *apphandlers.AppHandler, aiCapabilityCenterHandler *aicchandlers.Handler, integrationCenterHandler *ichandlers.Handler, dataCenterHandler *dchandlers.Handler) {
+func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHandler, paramHandler *handlers.ParamHandler, appHandler *apphandlers.AppHandler, aiCapabilityCenterHandler *aicchandlers.Handler, integrationCenterHandler *ichandlers.Handler, dataCenterHandler *dchandlers.Handler, aiGeoHandler *aigeohandlers.Handler) {
 	api := router.Group("/api")
 	{
 		api.GET("/auth/captcha", identityHandler.Captcha)
@@ -336,6 +337,30 @@ func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHan
 			dataCenter.POST("/reviews/generate", dataCenterHandler.GenerateReview)
 			dataCenter.POST("/reviews/:id/confirm", dataCenterHandler.ConfirmReview)
 			dataCenter.PUT("/reviews/:id", dataCenterHandler.UpdateReview)
+		}
+		aiGeo := api.Group("/ai-geo")
+		{
+			aiGeo.GET("/overview", aiGeoHandler.Overview)
+			aiGeo.GET("/materials/brands", aiGeoHandler.Brands)
+			aiGeo.POST("/materials/brands", aiGeoHandler.CreateBrand)
+			aiGeo.PUT("/materials/brands/:id", aiGeoHandler.UpdateBrand)
+			aiGeo.GET("/materials/products", aiGeoHandler.Products)
+			aiGeo.POST("/materials/products", aiGeoHandler.CreateProduct)
+			aiGeo.POST("/materials/imports", aiGeoHandler.ImportMaterials)
+			aiGeo.POST("/workbench/drafts/generate", aiGeoHandler.GenerateDraft)
+			aiGeo.GET("/drafts", aiGeoHandler.Drafts)
+			aiGeo.POST("/drafts", aiGeoHandler.CreateDraft)
+			aiGeo.POST("/drafts/:id/submit", aiGeoHandler.SubmitDraft)
+			aiGeo.POST("/drafts/:id/approve", aiGeoHandler.ApproveDraft)
+			aiGeo.POST("/drafts/:id/reject", aiGeoHandler.RejectDraft)
+			aiGeo.POST("/drafts/:id/channel-contents", aiGeoHandler.GenerateChannelContent)
+			aiGeo.GET("/publish-plans", aiGeoHandler.PublishPlans)
+			aiGeo.POST("/publish-plans", aiGeoHandler.CreatePublishPlan)
+			aiGeo.PATCH("/publish-plans/:id/status", aiGeoHandler.UpdatePublishStatus)
+			aiGeo.GET("/channels", aiGeoHandler.Channels)
+			aiGeo.POST("/channels", aiGeoHandler.CreateChannel)
+			aiGeo.GET("/channel-accounts", aiGeoHandler.ChannelAccounts)
+			aiGeo.POST("/channel-accounts", aiGeoHandler.CreateChannelAccount)
 		}
 	}
 }

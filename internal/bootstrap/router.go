@@ -13,6 +13,9 @@ import (
 	"saas_baseon_go/internal/application/system"
 	aicchandlers "saas_baseon_go/internal/apps/ai_capability_center/handlers"
 	aiccservices "saas_baseon_go/internal/apps/ai_capability_center/services"
+	aigeohandlers "saas_baseon_go/internal/apps/ai_geo/handlers"
+	aigeorepos "saas_baseon_go/internal/apps/ai_geo/repositories"
+	aigeoservices "saas_baseon_go/internal/apps/ai_geo/services"
 	apphandlers "saas_baseon_go/internal/apps/app_center/handlers"
 	apprepos "saas_baseon_go/internal/apps/app_center/repositories"
 	appservices "saas_baseon_go/internal/apps/app_center/services"
@@ -59,6 +62,8 @@ func NewRouter(cfg Config, db *gorm.DB, redisClient *redis.Client) *gin.Engine {
 	dataCenterService := dcservices.NewService(dcrepos.NewRepository(db))
 	dataCenterService.SetAIAnalyzer(dcservices.NewGatewayAIAnalyzer(aiCapabilityCenterService))
 	dataCenterHandler := dchandlers.NewHandler(dataCenterService)
+	aiGeoService := aigeoservices.NewService(aigeorepos.NewRepository(db))
+	aiGeoHandler := aigeohandlers.NewHandler(aiGeoService)
 
 	router.GET("/health", healthHandler.Check)
 	router.GET("/health/live", healthHandler.Live)
@@ -72,7 +77,7 @@ func NewRouter(cfg Config, db *gorm.DB, redisClient *redis.Client) *gin.Engine {
 		c.String(200, swaggerUIHTML())
 	})
 
-	registerAPIRoutes(router, identityHandler, paramHandler, appHandler, aiCapabilityCenterHandler, integrationCenterHandler, dataCenterHandler)
+	registerAPIRoutes(router, identityHandler, paramHandler, appHandler, aiCapabilityCenterHandler, integrationCenterHandler, dataCenterHandler, aiGeoHandler)
 
 	if missing := handlers.UnclassifiedAPIRoutes(router.Routes()); len(missing) > 0 {
 		panic("unclassified API routes: " + strings.Join(missing, ", "))
@@ -275,6 +280,21 @@ func openAPISpec() gin.H {
 			"/api/data-center/reviews/{id}":                              gin.H{"get": api("data-center", "整改复盘详情"), "put": api("data-center", "更新整改复盘")},
 			"/api/data-center/reviews/generate":                          gin.H{"post": api("data-center", "生成整改复盘")},
 			"/api/data-center/reviews/{id}/confirm":                      gin.H{"post": api("data-center", "确认整改复盘")},
+			"/api/ai-geo/overview":                                       gin.H{"get": api("ai-geo", "AI GEO 总览")},
+			"/api/ai-geo/materials/brands":                               gin.H{"get": api("ai-geo", "品牌资料卡列表"), "post": api("ai-geo", "创建品牌资料卡")},
+			"/api/ai-geo/materials/brands/{id}":                          gin.H{"put": api("ai-geo", "更新品牌资料卡")},
+			"/api/ai-geo/materials/products":                             gin.H{"get": api("ai-geo", "商品资料卡列表"), "post": api("ai-geo", "创建商品资料卡")},
+			"/api/ai-geo/materials/imports":                              gin.H{"post": api("ai-geo", "导入资料")},
+			"/api/ai-geo/workbench/drafts/generate":                      gin.H{"post": api("ai-geo", "生成母稿")},
+			"/api/ai-geo/drafts":                                         gin.H{"get": api("ai-geo", "母稿列表"), "post": api("ai-geo", "创建母稿")},
+			"/api/ai-geo/drafts/{id}/submit":                             gin.H{"post": api("ai-geo", "提交母稿审核")},
+			"/api/ai-geo/drafts/{id}/approve":                            gin.H{"post": api("ai-geo", "审核通过母稿")},
+			"/api/ai-geo/drafts/{id}/reject":                             gin.H{"post": api("ai-geo", "驳回母稿")},
+			"/api/ai-geo/drafts/{id}/channel-contents":                   gin.H{"post": api("ai-geo", "生成渠道内容")},
+			"/api/ai-geo/publish-plans":                                  gin.H{"get": api("ai-geo", "发布计划列表"), "post": api("ai-geo", "创建发布计划")},
+			"/api/ai-geo/publish-plans/{id}/status":                      gin.H{"patch": api("ai-geo", "更新发布计划状态")},
+			"/api/ai-geo/channels":                                       gin.H{"get": api("ai-geo", "渠道资料列表"), "post": api("ai-geo", "创建渠道资料")},
+			"/api/ai-geo/channel-accounts":                               gin.H{"get": api("ai-geo", "渠道账号列表"), "post": api("ai-geo", "创建渠道账号")},
 			"/api/batch/companies/export":                                gin.H{"get": api("batch", "公司导出")},
 			"/api/batch/departments/export":                              gin.H{"get": api("batch", "部门导出")},
 			"/api/batch/users/export":                                    gin.H{"get": api("batch", "用户导出")},

@@ -1,13 +1,6 @@
 import http, { unwrap } from '@/api/http'
 import type { ApiResponse } from '@/api/types'
 
-export interface AiGeoOverview {
-  project_count: number
-  monitored_query_count: number
-  average_visibility_score: number
-  citation_count: number
-}
-
 export interface AiGeoPage<T> {
   items: T[]
   total: number
@@ -15,6 +8,185 @@ export interface AiGeoPage<T> {
   limit: number
 }
 
+export interface AiGeoOverview {
+  brand_count: number
+  product_count: number
+  sku_count: number
+  channel_count: number
+  channel_account_count: number
+  draft_count_today: number
+  pending_draft_count: number
+  channel_content_count: number
+  publish_plan_today: number
+  average_completeness: number
+  pending_tasks: Array<{ tag: string; title: string }>
+  quota_usage: Record<string, unknown>
+}
+
+export interface AiGeoBrand {
+  id: number
+  tenant_id: number
+  brand_code: string
+  brand_name: string
+  positioning?: string | null
+  target_audience?: string | null
+  price_band?: string | null
+  tone?: string | null
+  keywords: string
+  completeness: number
+  status: string
+}
+
+export interface AiGeoProduct {
+  id: number
+  tenant_id: number
+  brand_id: number
+  product_code: string
+  product_name: string
+  category_name?: string | null
+  selling_points: string
+  faq: string
+  content_angles: string
+  completeness: number
+  status: string
+}
+
+export interface AiGeoChannel {
+  id: number
+  tenant_id: number
+  channel_code: string
+  channel_name: string
+  channel_type: string
+  entry_url?: string | null
+  content_forms: string
+  support_modes: string
+  default_publish_mode: string
+  status: string
+}
+
+export interface AiGeoDraft {
+  id: number
+  tenant_id: number
+  draft_code: string
+  brand_id?: number | null
+  product_id?: number | null
+  title: string
+  summary?: string | null
+  body: string
+  keywords: string
+  source: string
+  audit_status: string
+  channel_status: string
+  status: string
+}
+
+export interface AiGeoPublishPlan {
+  id: number
+  tenant_id: number
+  plan_code: string
+  channel_content_id: number
+  channel_id: number
+  scheduled_at: string
+  publish_method: string
+  automation_level: string
+  status: string
+  published_url?: string | null
+  fail_reason?: string | null
+}
+
+export interface AiGeoListParams {
+  skip?: number
+  limit?: number
+  keyword?: string
+  status?: string
+  brand_id?: number
+  product_id?: number
+  channel_id?: number
+  audit_status?: string
+  start_date?: string
+  end_date?: string
+}
+
 export async function fetchAiGeoOverview() {
   return unwrap(http.get<ApiResponse<AiGeoOverview>>('/api/ai-geo/overview'))
+}
+
+export async function fetchAiGeoBrands(params: AiGeoListParams = {}) {
+  return unwrap(http.get<ApiResponse<AiGeoPage<AiGeoBrand>>>('/api/ai-geo/materials/brands', { params }))
+}
+
+export async function createAiGeoBrand(payload: Partial<AiGeoBrand> & { keywords?: string[] }) {
+  return unwrap(http.post<ApiResponse<AiGeoBrand>>('/api/ai-geo/materials/brands', payload))
+}
+
+export async function updateAiGeoBrand(id: number, payload: Partial<AiGeoBrand> & { keywords?: string[] }) {
+  return unwrap(http.put<ApiResponse<AiGeoBrand>>(`/api/ai-geo/materials/brands/${id}`, payload))
+}
+
+export async function fetchAiGeoProducts(params: AiGeoListParams = {}) {
+  return unwrap(http.get<ApiResponse<AiGeoPage<AiGeoProduct>>>('/api/ai-geo/materials/products', { params }))
+}
+
+export async function createAiGeoProduct(payload: Record<string, unknown>) {
+  return unwrap(http.post<ApiResponse<AiGeoProduct>>('/api/ai-geo/materials/products', payload))
+}
+
+export async function importAiGeoMaterials(payload: Record<string, unknown>) {
+  return unwrap(http.post<ApiResponse<Record<string, unknown>>>('/api/ai-geo/materials/imports', payload))
+}
+
+export async function generateAiGeoDraft(payload: Record<string, unknown>) {
+  return unwrap(http.post<ApiResponse<AiGeoDraft>>('/api/ai-geo/workbench/drafts/generate', payload))
+}
+
+export async function fetchAiGeoDrafts(params: AiGeoListParams = {}) {
+  return unwrap(http.get<ApiResponse<AiGeoPage<AiGeoDraft>>>('/api/ai-geo/drafts', { params }))
+}
+
+export async function createAiGeoDraft(payload: Record<string, unknown>) {
+  return unwrap(http.post<ApiResponse<AiGeoDraft>>('/api/ai-geo/drafts', payload))
+}
+
+export async function submitAiGeoDraft(id: number) {
+  return unwrap(http.post<ApiResponse<AiGeoDraft>>(`/api/ai-geo/drafts/${id}/submit`))
+}
+
+export async function approveAiGeoDraft(id: number) {
+  return unwrap(http.post<ApiResponse<AiGeoDraft>>(`/api/ai-geo/drafts/${id}/approve`))
+}
+
+export async function rejectAiGeoDraft(id: number) {
+  return unwrap(http.post<ApiResponse<AiGeoDraft>>(`/api/ai-geo/drafts/${id}/reject`))
+}
+
+export async function generateAiGeoChannelContent(id: number, payload: Record<string, unknown>) {
+  return unwrap(http.post<ApiResponse<Record<string, unknown>>>(`/api/ai-geo/drafts/${id}/channel-contents`, payload))
+}
+
+export async function fetchAiGeoPublishPlans(params: AiGeoListParams = {}) {
+  return unwrap(http.get<ApiResponse<AiGeoPage<AiGeoPublishPlan>>>('/api/ai-geo/publish-plans', { params }))
+}
+
+export async function createAiGeoPublishPlan(payload: Record<string, unknown>) {
+  return unwrap(http.post<ApiResponse<AiGeoPublishPlan>>('/api/ai-geo/publish-plans', payload))
+}
+
+export async function updateAiGeoPublishPlanStatus(id: number, payload: Record<string, unknown>) {
+  return unwrap(http.patch<ApiResponse<AiGeoPublishPlan>>(`/api/ai-geo/publish-plans/${id}/status`, payload))
+}
+
+export async function fetchAiGeoChannels(params: AiGeoListParams = {}) {
+  return unwrap(http.get<ApiResponse<AiGeoPage<AiGeoChannel>>>('/api/ai-geo/channels', { params }))
+}
+
+export async function createAiGeoChannel(payload: Record<string, unknown>) {
+  return unwrap(http.post<ApiResponse<AiGeoChannel>>('/api/ai-geo/channels', payload))
+}
+
+export async function fetchAiGeoChannelAccounts(params: AiGeoListParams = {}) {
+  return unwrap(http.get<ApiResponse<AiGeoPage<Record<string, unknown>>>>('/api/ai-geo/channel-accounts', { params }))
+}
+
+export async function createAiGeoChannelAccount(payload: Record<string, unknown>) {
+  return unwrap(http.post<ApiResponse<Record<string, unknown>>>('/api/ai-geo/channel-accounts', payload))
 }

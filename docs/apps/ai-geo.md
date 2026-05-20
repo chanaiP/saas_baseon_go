@@ -4,12 +4,15 @@
 
 AI GEO 是合并部署的租户应用，`app_code=ai-geo`。它面向多租户、多品牌的 GEO 内容增长场景，负责沉淀品牌、商品、SKU、竞品等资料，并串起工作台生成母稿、渠道内容适配、发布审核与发布计划执行闭环。
 
-当前阶段已按资料原型完成应用中心装载与前端原型实现：
+当前阶段已按资料原型完成应用中心装载与前端原型实现，并开始补齐生产级后端闭环：
 
 - Manifest：`internal/apps/ai_geo/app.manifest.yaml`
 - 后端目录：`internal/apps/ai_geo`
 - 前端目录：`frontend/src/apps/ai-geo`
 - 前端路由：`/ai-geo`、`/ai-geo/:section` 与 `/ai-geo/:section/:subsection`
+- 生产迁移：`internal/infrastructure/persistence/postgres/migrations/000086_ai_geo_core.up.sql`
+- GORM 模型：`internal/infrastructure/persistence/postgres/models/ai_geo.go`
+- 后端分层：`internal/apps/ai_geo/{dto,repositories,services,handlers}`
 
 ## 菜单
 
@@ -52,7 +55,7 @@ AI GEO 是合并部署的租户应用，`app_code=ai-geo`。它面向多租户�
 
 ## API
 
-当前 Manifest 声明以下 API 前缀，具体 handler、service、repository 和数据库表将在业务阶段补齐：
+当前 Manifest 声明并已接入第一批生产 API：
 
 - `/api/ai-geo/overview`
 - `/api/ai-geo/materials/brands`
@@ -65,6 +68,72 @@ AI GEO 是合并部署的租户应用，`app_code=ai-geo`。它面向多租户�
 - `/api/ai-geo/channels`
 - `/api/ai-geo/channel-accounts`
 
+第一批已落地能力：
+
+- 总览统计：品牌、商品、SKU、渠道、账号、今日母稿、待审母稿、渠道内容、发布计划、资料完整度和配额用量。
+- 资料中心：品牌资料卡列表/新增/更新，商品资料卡列表/新增。
+- 工作台：可持久化生成母稿，当前为本地生成策略，下一步接 AI 能力中心真实场景。
+- 母稿：列表、新增、提交审核、审核通过、驳回。
+- 渠道内容：从母稿生成渠道版本。
+- 渠道管理：渠道资料、渠道账号列表/新增。
+- 发布计划：列表、新增、状态更新。
+- 审计：写操作记录 `audit_log`，`app_code=ai-geo`，`module=ai_geo`。
+- 权限：后端路由已纳入 `auth_policy.go`，读接口走菜单权限，写接口走操作权限。
+
+## 数据模型
+
+第一批生产表：
+
+- `ai_geo_brand_cards`
+- `ai_geo_product_cards`
+- `ai_geo_skus`
+- `ai_geo_competitors`
+- `ai_geo_channel_profiles`
+- `ai_geo_channel_accounts`
+- `ai_geo_drafts`
+- `ai_geo_channel_contents`
+- `ai_geo_publish_plans`
+- `ai_geo_import_batches`
+- `ai_geo_material_assets`
+- `ai_geo_hotspots`
+
+表设计要求：
+
+- 租户业务表必须带 `tenant_id`。
+- 涉及组织上下文的主表带 `company_id`、`department_id`。
+- 主数据和流程数据默认保留 `deleted_at`，业务删除走归档/逻辑删除。
+- 租户内编码字段使用唯一约束，例如品牌编码、商品编码、渠道编码、母稿编码、发布计划编码。
+
+## 状态机
+
+母稿：
+
+- `draft`：草稿
+- `pending`：待审核
+- `approved`：已通过
+- `rejected`：已驳回
+
+渠道内容：
+
+- `audit_status=pending/approved/rejected`
+- `publish_status=not_planned/planned/publishing/published/failed`
+
+发布计划：
+
+- `scheduled`：待发布
+- `publishing`：发布中
+- `published`：已发布
+- `failed`：发布失败
+- `cancelled`：已取消
+
 ## 后续业务准入
 
 新增业务对象前，先补齐租户归属、逻辑删除、审计、权限、套餐校验、配额消费和单测。业务表默认包含 `tenant_id`，涉及组织维度时补 `company_id`、`department_id` 或在设计文档中说明例外。
+
+## 生产级剩余项
+
+- 前端 `AiGeoView.vue` 仍需从本地演示数据切换到真实 API 数据源。
+- 工作台生成、渠道改写和审核建议需接入 AI 能力中心真实场景、usage 记录和失败降级。
+- 品牌数、商品数、渠道账号数、月度母稿生成次数、月度发布任务数量需接入套餐/配额运行时校验。
+- 资料导入需补文件解析、错误行记录、幂等导入和部分成功策略。
+- 渠道发布需接第三方集成中心或 Agent 执行，补 OAuth、Webhook、失败重试和发布链接回填。
