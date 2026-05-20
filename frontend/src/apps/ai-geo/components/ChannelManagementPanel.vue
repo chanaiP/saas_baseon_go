@@ -1,12 +1,5 @@
 <template>
   <div class="channel-management" :class="{ compact }">
-    <div v-if="showSummary" class="grid four channel-summary">
-      <div class="metric-card"><span>已启用渠道</span><strong>{{ summary.enabled }}</strong><p>可生成发布任务</p></div>
-      <div class="metric-card"><span>可发布渠道</span><strong>{{ summary.publishable }}</strong><p>至少 1 个可用账号</p></div>
-      <div class="metric-card"><span>待接入</span><strong>{{ summary.pending }}</strong><p>需要补充 URL / 授权</p></div>
-      <div class="metric-card"><span>通用审核 Skill</span><strong>已启用</strong><p>按母稿语境动态检查</p></div>
-    </div>
-
     <div class="panel channel-panel">
       <div class="panel-header">
         <div>
@@ -82,9 +75,7 @@
 
 defineProps({
   channels: { type: Array, required: true },
-  summary: { type: Object, required: true },
-  compact: { type: Boolean, default: false },
-  showSummary: { type: Boolean, default: true }
+  compact: { type: Boolean, default: false }
 })
 
 defineEmits(['add-channel', 'open-plans', 'configure', 'test'])

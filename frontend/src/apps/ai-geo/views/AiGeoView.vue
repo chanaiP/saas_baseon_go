@@ -92,7 +92,6 @@
 
         <ChannelManagementPanel
           :channels="channelProfiles"
-          :summary="channelSummary"
           compact
           @open-plans="goChannelManagement"
           @configure="configureChannel"
@@ -459,7 +458,6 @@
       <section v-if="activeMenu === 'channels'" class="page channels-page">
         <ChannelManagementPanel
           :channels="channelProfiles"
-          :summary="channelSummary"
           @add-channel="addChannel"
           @configure="configureChannel"
           @test="testChannel"
@@ -1041,12 +1039,6 @@ const channelProfiles = reactive([
   { name: '百家号', icon: '📰', desc: '百度内容平台', type: '内容平台', siteUrl: 'https://baijiahao.baidu.com', adminUrl: 'https://baijiahao.baidu.com', contentTypes: '资讯 / 图文', supportMethods: '渠道 API / 人工', defaultMethod: 'API 自动发布', accountCount: 0, status: '未配置', method: '渠道 API', level: '半自动', skill: '', risk: '原创检测 + 接口校验', enabled: true },
   { name: '知乎', icon: '💡', desc: '问答与专栏', type: '问答平台', siteUrl: 'https://www.zhihu.com', adminUrl: 'https://www.zhihu.com/creator', contentTypes: '回答 / 文章', supportMethods: '渠道 API / Agent / 人工', defaultMethod: 'API 自动发布', accountCount: 1, status: '待授权', method: 'Agent 执行', level: '人工', skill: '知乎回答发布 Skill', risk: '人工接管 / 敏感词检查', enabled: true }
 ])
-
-const channelSummary = computed(() => ({
-  enabled: channelProfiles.filter(c => c.enabled).length,
-  publishable: channelProfiles.filter(c => c.status === '可发布').length,
-  pending: channelProfiles.filter(c => ['待授权', '未配置'].includes(c.status)).length
-}))
 
 const planTabs = ['发布日历', '发布队列']
 const planTab = ref('发布队列')
