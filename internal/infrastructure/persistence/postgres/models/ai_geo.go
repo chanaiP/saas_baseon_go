@@ -215,6 +215,22 @@ type AiGeoImportBatch struct {
 
 func (AiGeoImportBatch) TableName() string { return "ai_geo_import_batches" }
 
+type AiGeoImportError struct {
+	ID           uint64     `gorm:"primaryKey;autoIncrement;column:id"`
+	TenantID     uint64     `gorm:"column:tenant_id;not null;index"`
+	BatchID      uint64     `gorm:"column:batch_id;not null;index"`
+	RowNumber    int        `gorm:"column:row_number;not null"`
+	FieldName    *string    `gorm:"column:field_name;type:varchar(120)"`
+	ErrorCode    string     `gorm:"column:error_code;type:varchar(80);not null"`
+	ErrorMessage string     `gorm:"column:error_message;type:text;not null"`
+	RawData      string     `gorm:"column:raw_data;type:jsonb;not null;default:'{}'"`
+	Status       string     `gorm:"column:status;type:varchar(32);not null;default:'active';index"`
+	CreatedAt    time.Time  `gorm:"column:created_at;not null"`
+	DeletedAt    *time.Time `gorm:"column:deleted_at;index"`
+}
+
+func (AiGeoImportError) TableName() string { return "ai_geo_import_errors" }
+
 type AiGeoMaterialAsset struct {
 	ID        uint64     `gorm:"primaryKey;autoIncrement;column:id"`
 	TenantID  uint64     `gorm:"column:tenant_id;not null;index"`

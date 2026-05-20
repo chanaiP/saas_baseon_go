@@ -367,6 +367,9 @@ apis:
     path: /api/ai-geo/materials/imports
     permission_code: ai_geo:data:import
     audit: true
+  - method: GET
+    path: /api/ai-geo/materials/imports/:id/errors
+    permission_code: /ai-geo/data/products
   - method: POST
     path: /api/ai-geo/workbench/drafts/generate
     permission_code: ai_geo:workbench:generate

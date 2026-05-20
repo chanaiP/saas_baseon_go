@@ -594,22 +594,56 @@ func (s *Service) ImportMaterials(ctx context.Context, viewer dto.Viewer, payloa
 	}
 	now := time.Now()
 	userID := viewer.UserID
+	importErrors := validateImportRecords(viewer.TenantID, payload.Records, payload.ImportType, now)
+	successCount := int64(len(payload.Records) - len(importErrors))
+	failedCount := int64(len(importErrors))
+	status := "completed"
+	if failedCount > 0 && successCount > 0 {
+		status = "partial_success"
+	} else if failedCount > 0 {
+		status = "failed"
+	}
 	batch := models.AiGeoImportBatch{
 		TenantID:      viewer.TenantID,
 		BatchCode:     code("IMPORT", now),
 		ImportType:    strings.TrimSpace(payload.ImportType),
 		MappingConfig: jsonString(payload.MappingConfig, map[string]interface{}{}),
 		RecordCount:   int64(len(payload.Records)),
-		SuccessCount:  int64(len(payload.Records)),
-		FailedCount:   0,
-		Status:        "completed",
+		SuccessCount:  successCount,
+		FailedCount:   failedCount,
+		Status:        status,
 		CreatedBy:     &userID,
 		UpdatedBy:     &userID,
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
-	err := s.repo.SaveImportBatch(ctx, &batch)
+	err := s.repo.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(&batch).Error; err != nil {
+			return err
+		}
+		for i := range importErrors {
+			importErrors[i].BatchID = batch.ID
+		}
+		if len(importErrors) > 0 {
+			return tx.Create(&importErrors).Error
+		}
+		return nil
+	})
 	return batch, err
+}
+
+func (s *Service) ImportErrors(ctx context.Context, viewer dto.Viewer, batchID uint64, req dto.PageRequest) (dto.PageResponse[models.AiGeoImportError], error) {
+	if viewer.TenantID == 0 || batchID == 0 {
+		return dto.PageResponse[models.AiGeoImportError]{}, ErrInvalidInput
+	}
+	if _, err := s.repo.ImportBatch(ctx, viewer.TenantID, batchID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return dto.PageResponse[models.AiGeoImportError]{}, ErrNotFound
+		}
+		return dto.PageResponse[models.AiGeoImportError]{}, err
+	}
+	rows, total, err := s.repo.ListImportErrors(ctx, viewer.TenantID, batchID, req)
+	return page(rows, total, req), err
 }
 
 func (s *Service) ensureStaticQuota(ctx context.Context, tenantID uint64, quotaCode string, currentCount func(context.Context, uint64) (int64, error)) error {
@@ -635,6 +669,46 @@ func (s *Service) consumeQuota(ctx context.Context, tenantID uint64, quotaCode s
 		return nil
 	}
 	return s.quota.Consume(ctx, tenantID, quotaCode, 1)
+}
+
+func validateImportRecords(tenantID uint64, records []map[string]interface{}, importType string, now time.Time) []models.AiGeoImportError {
+	importType = strings.ToLower(strings.TrimSpace(importType))
+	required := []string{}
+	switch importType {
+	case "brand", "brands":
+		required = []string{"brand_code", "brand_name"}
+	case "product", "products":
+		required = []string{"product_code", "product_name"}
+	default:
+		required = []string{}
+	}
+	errorsOut := []models.AiGeoImportError{}
+	for index, record := range records {
+		rowNumber := index + 1
+		if len(record) == 0 {
+			errorsOut = append(errorsOut, importErrorRow(tenantID, rowNumber, "", "empty_row", "导入行为空", record, now))
+			continue
+		}
+		for _, field := range required {
+			if strings.TrimSpace(fmt.Sprint(record[field])) == "" || strings.TrimSpace(fmt.Sprint(record[field])) == "<nil>" {
+				errorsOut = append(errorsOut, importErrorRow(tenantID, rowNumber, field, "required", "必填字段缺失", record, now))
+			}
+		}
+	}
+	return errorsOut
+}
+
+func importErrorRow(tenantID uint64, rowNumber int, fieldName string, errorCode string, message string, raw map[string]interface{}, now time.Time) models.AiGeoImportError {
+	return models.AiGeoImportError{
+		TenantID:     tenantID,
+		RowNumber:    rowNumber,
+		FieldName:    stringPtr(fieldName),
+		ErrorCode:    errorCode,
+		ErrorMessage: message,
+		RawData:      jsonString(raw, map[string]interface{}{}),
+		Status:       "active",
+		CreatedAt:    now,
+	}
 }
 
 func page[T any](rows []T, total int64, req dto.PageRequest) dto.PageResponse[T] {

@@ -317,3 +317,27 @@ func (r *Repository) PublishPlan(ctx context.Context, tenantID, id uint64) (mode
 func (r *Repository) SaveImportBatch(ctx context.Context, batch *models.AiGeoImportBatch) error {
 	return r.db.WithContext(ctx).Save(batch).Error
 }
+
+func (r *Repository) ImportBatch(ctx context.Context, tenantID, id uint64) (models.AiGeoImportBatch, error) {
+	var row models.AiGeoImportBatch
+	err := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoImportBatch{}), tenantID)).Where("id = ?", id).First(&row).Error
+	return row, err
+}
+
+func (r *Repository) SaveImportErrors(ctx context.Context, rows []models.AiGeoImportError) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Create(&rows).Error
+}
+
+func (r *Repository) ListImportErrors(ctx context.Context, tenantID, batchID uint64, req dto.PageRequest) ([]models.AiGeoImportError, int64, error) {
+	db := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoImportError{}), tenantID)).Where("batch_id = ?", batchID)
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []models.AiGeoImportError
+	err := paginate(db.Order("row_number asc, id asc"), req).Find(&rows).Error
+	return rows, total, err
+}

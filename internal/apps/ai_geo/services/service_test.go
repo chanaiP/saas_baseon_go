@@ -167,6 +167,37 @@ func TestGatewayDraftGeneratorParsesProviderTextJSON(t *testing.T) {
 	require.Equal(t, []string{"文本", "解析"}, result.Keywords)
 }
 
+func TestImportMaterialsRecordsRowErrorsAndPartialSuccess(t *testing.T) {
+	db := newAiGeoTestDB(t)
+	service := NewService(repositories.NewRepository(db))
+	viewer := dto.Viewer{TenantID: 1, UserID: 10}
+
+	batch, err := service.ImportMaterials(context.Background(), viewer, dto.ImportPayload{
+		ImportType: "brand",
+		Records: []map[string]interface{}{
+			{"brand_code": "B1", "brand_name": "品牌一"},
+			{"brand_code": "B2"},
+			{},
+		},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, int64(3), batch.RecordCount)
+	require.Equal(t, int64(1), batch.SuccessCount)
+	require.Equal(t, int64(2), batch.FailedCount)
+	require.Equal(t, "partial_success", batch.Status)
+
+	errorsPage, err := service.ImportErrors(context.Background(), viewer, batch.ID, dto.PageRequest{Limit: 20})
+	require.NoError(t, err)
+	require.Equal(t, int64(2), errorsPage.Total)
+	require.Equal(t, 2, errorsPage.Items[0].RowNumber)
+	require.Equal(t, "required", errorsPage.Items[0].ErrorCode)
+	require.NotNil(t, errorsPage.Items[0].FieldName)
+	require.Equal(t, "brand_name", *errorsPage.Items[0].FieldName)
+	require.Equal(t, 3, errorsPage.Items[1].RowNumber)
+	require.Equal(t, "empty_row", errorsPage.Items[1].ErrorCode)
+}
+
 func newAiGeoTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
@@ -186,6 +217,7 @@ func newAiGeoTestDB(t *testing.T) *gorm.DB {
 		&models.AiGeoChannelContent{},
 		&models.AiGeoPublishPlan{},
 		&models.AiGeoImportBatch{},
+		&models.AiGeoImportError{},
 		&models.AiGeoMaterialAsset{},
 		&models.AiGeoHotspot{},
 		&models.SaasPlan{},

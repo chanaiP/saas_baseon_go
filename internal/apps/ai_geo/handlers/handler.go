@@ -224,6 +224,15 @@ func (h *Handler) ImportMaterials(c *gin.Context) {
 	}
 }
 
+func (h *Handler) ImportErrors(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	data, err := h.service.ImportErrors(c.Request.Context(), viewer(c), id, pageRequest(c))
+	h.ok(c, data, err)
+}
+
 func (h *Handler) ok(c *gin.Context, values ...interface{}) {
 	var data interface{}
 	var err error

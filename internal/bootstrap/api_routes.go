@@ -347,6 +347,7 @@ func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHan
 			aiGeo.GET("/materials/products", aiGeoHandler.Products)
 			aiGeo.POST("/materials/products", aiGeoHandler.CreateProduct)
 			aiGeo.POST("/materials/imports", aiGeoHandler.ImportMaterials)
+			aiGeo.GET("/materials/imports/:id/errors", aiGeoHandler.ImportErrors)
 			aiGeo.POST("/workbench/drafts/generate", aiGeoHandler.GenerateDraft)
 			aiGeo.GET("/drafts", aiGeoHandler.Drafts)
 			aiGeo.POST("/drafts", aiGeoHandler.CreateDraft)
