@@ -940,7 +940,7 @@ func (s *Service) SubmitDraft(ctx context.Context, viewer dto.Viewer, id uint64)
 	return row, err
 }
 
-func (s *Service) ReviewDraft(ctx context.Context, viewer dto.Viewer, id uint64, approved bool) (models.AiGeoDraft, error) {
+func (s *Service) ReviewDraft(ctx context.Context, viewer dto.Viewer, id uint64, approved bool, opinion string) (models.AiGeoDraft, error) {
 	row, err := s.repo.Draft(ctx, viewer.TenantID, id)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return row, ErrNotFound
@@ -959,7 +959,13 @@ func (s *Service) ReviewDraft(ctx context.Context, viewer dto.Viewer, id uint64,
 	row.UpdatedAt = time.Now()
 	userID := viewer.UserID
 	row.UpdatedBy = &userID
-	err = s.repo.SaveDraft(ctx, &row)
+	err = s.repo.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(&row).Error; err != nil {
+			return err
+		}
+		review := draftReviewSuggestionRow(viewer, row, approved, opinion)
+		return tx.Create(&review).Error
+	})
 	return row, err
 }
 
@@ -1829,6 +1835,40 @@ func auditSuggestionRow(viewer dto.Viewer, objectType string, objectID uint64, o
 		GeneratedAt:    now,
 		CreatedBy:      &viewer.UserID,
 		CreatedAt:      now,
+	}
+}
+
+func draftReviewSuggestionRow(viewer dto.Viewer, draft models.AiGeoDraft, approved bool, opinion string) models.AiGeoAuditSuggestion {
+	now := time.Now()
+	opinion = strings.TrimSpace(opinion)
+	if opinion == "" {
+		if approved {
+			opinion = "人工确认通过，未填写额外意见。"
+		} else {
+			opinion = "人工确认驳回，未填写额外意见。"
+		}
+	}
+	riskLevel := "low"
+	if !approved {
+		riskLevel = "high"
+	}
+	return models.AiGeoAuditSuggestion{
+		TenantID:     viewer.TenantID,
+		ObjectType:   "draft",
+		ObjectID:     draft.ID,
+		ObjectCode:   stringPtr(draft.DraftCode),
+		ScenarioCode: "manual_draft_review",
+		RiskLevel:    riskLevel,
+		Passed:       approved,
+		Summary:      stringPtr(opinion),
+		SuggestionJSON: jsonString([]map[string]interface{}{
+			{"type": "human_review", "content": opinion},
+		}, []map[string]interface{}{}),
+		ModelCode:   stringPtr("human-review"),
+		Status:      "success",
+		GeneratedAt: now,
+		CreatedBy:   &viewer.UserID,
+		CreatedAt:   now,
 	}
 }
 

@@ -274,7 +274,7 @@
             <div class="editor-actions">
               <button v-if="canManageDraft" class="btn ghost" @click="saveDraft">保存草稿</button>
               <button v-if="canManageDraft" class="btn ghost" @click="generateDraftAudit(editingDraft)">AI审核建议</button>
-              <button v-if="canManageDraft" class="btn primary" @click="submitDraftAudit">提交审核</button>
+              <button v-if="canManageDraft" class="btn primary" @click="submitDraftFlow">提交</button>
               <button v-if="canManageChannelContent" class="btn dark" @click="generateChannelsForDraft(editingDraft)">生成渠道版本</button>
             </div>
             <div v-if="draftAuditPanel.summary || draftAuditPanel.items.length" class="audit-result">
@@ -326,6 +326,7 @@
                       <button class="btn small" @click="editDraftInWorkbench(draft)">进入编辑器</button>
                       <button v-if="canManageDraft" class="btn small ghost" @click="generateDraftAudit(draft)">审核建议</button>
                       <button v-if="canManageDraft" class="btn small ghost" @click="approveDraft(draft)">审核通过</button>
+                      <button v-if="canManageDraft" class="btn small ghost danger-text" @click="rejectDraft(draft)">驳回</button>
                       <button v-if="canManageChannelContent" class="btn small dark" @click="generateChannelsForDraft(draft)">生成渠道</button>
                     </div>
                   </div>
@@ -781,6 +782,7 @@ import {
   generateAiGeoDraftAuditSuggestion,
   generateAiGeoDraft,
   importAiGeoMaterials,
+  rejectAiGeoDraft,
   submitAiGeoDraft,
   updateAiGeoBrand,
   updateAiGeoPublishPlanStatus,
@@ -1859,19 +1861,46 @@ async function saveDraft() {
     loading.action = false
   }
 }
-async function submitDraftAudit() {
+async function submitDraftFlow() {
   if (!editingDraft.id) {
     await saveDraft()
   }
   if (!editingDraft.id) return
   loading.action = true
   try {
-    const draft = await submitAiGeoDraft(Number(editingDraft.id))
-    editingDraft.status = draftStatusLabel(draft.audit_status)
+    const mode = modeConfig.draftAuditMode
+    const draftId = Number(editingDraft.id)
+    if (mode === 'AI审核 + 人工确认') {
+      const suggestion = await runDraftAudit(draftId)
+      await submitDraftIfNeeded(draftId, editingDraft)
+      showToast(`AI审核报告已生成，${auditOpinion(suggestion)}，待人工确认`)
+    } else if (mode === 'AI审核') {
+      const suggestion = await runDraftAudit(draftId)
+      await submitDraftIfNeeded(draftId, editingDraft)
+      const opinion = auditOpinion(suggestion)
+      if (Boolean(suggestion.passed ?? suggestion.Passed)) {
+        const approved = await approveAiGeoDraft(draftId, { opinion: `AI审核通过：${opinion}` })
+        editingDraft.status = draftStatusLabel(approved.audit_status)
+        await generateChannelsForDraft({ ...editingDraft, id: draftId, channels: [] }, { silent: true, throwOnError: true })
+        showToast('AI审核通过，已自动生成渠道内容')
+      } else {
+        const rejected = await rejectAiGeoDraft(draftId, { opinion: `AI审核未通过：${opinion}` })
+        editingDraft.status = draftStatusLabel(rejected.audit_status)
+        showToast('AI审核未通过，已留下审核意见')
+      }
+    } else if (mode === '人工审核') {
+      await submitDraftIfNeeded(draftId, editingDraft)
+      showToast('母稿已提交，等待人工审核')
+    } else {
+      await submitDraftIfNeeded(draftId, editingDraft)
+      const approved = await approveAiGeoDraft(draftId, { opinion: '无需审核，提交后自动通过。' })
+      editingDraft.status = draftStatusLabel(approved.audit_status)
+      await generateChannelsForDraft({ ...editingDraft, id: draftId, channels: [] }, { silent: true, throwOnError: true })
+      showToast('已提交并跳过审核，渠道内容已生成')
+    }
     await loadAiGeoData()
-    showToast('母稿已提交审核')
   } catch (error) {
-    showToast(error?.message || '提交审核失败')
+    showToast(error?.message || '提交失败')
   } finally {
     loading.action = false
   }
@@ -1880,12 +1909,29 @@ function editDraftInWorkbench(draft) { Object.assign(editingDraft, { ...draft, k
 async function approveDraft(draft) {
   loading.action = true
   try {
-    const updated = await approveAiGeoDraft(Number(draft.id))
+    await submitDraftIfNeeded(Number(draft.id), draft)
+    const opinion = window.prompt('请输入人工审核意见', '人工确认通过。') || '人工确认通过。'
+    const updated = await approveAiGeoDraft(Number(draft.id), { opinion })
     draft.status = draftStatusLabel(updated.audit_status)
     await loadAiGeoData()
     showToast('母稿审核通过')
   } catch (error) {
     showToast(error?.message || '母稿审核失败')
+  } finally {
+    loading.action = false
+  }
+}
+async function rejectDraft(draft) {
+  loading.action = true
+  try {
+    await submitDraftIfNeeded(Number(draft.id), draft)
+    const opinion = window.prompt('请输入驳回原因', '内容需要调整，请修改后再提交。') || '内容需要调整，请修改后再提交。'
+    const updated = await rejectAiGeoDraft(Number(draft.id), { opinion })
+    draft.status = draftStatusLabel(updated.audit_status)
+    await loadAiGeoData()
+    showToast('母稿已驳回并留下审核意见')
+  } catch (error) {
+    showToast(error?.message || '母稿驳回失败')
   } finally {
     loading.action = false
   }
@@ -1898,9 +1944,7 @@ async function generateDraftAudit(draft) {
   }
   loading.action = true
   try {
-    const suggestion = await generateAiGeoDraftAuditSuggestion(targetId)
-    await fetchAiGeoDraftAuditSuggestions(targetId, { limit: 5 })
-    applyAuditPanel(draftAuditPanel, suggestion)
+    await runDraftAudit(targetId)
     showToast('母稿审核建议已生成')
   } catch (error) {
     showToast(error?.message || '母稿审核建议生成失败')
@@ -1908,7 +1952,26 @@ async function generateDraftAudit(draft) {
     loading.action = false
   }
 }
-async function generateChannelsForDraft(draft) {
+async function runDraftAudit(targetId) {
+  const suggestion = await generateAiGeoDraftAuditSuggestion(targetId)
+  await fetchAiGeoDraftAuditSuggestions(targetId, { limit: 5 })
+  applyAuditPanel(draftAuditPanel, suggestion)
+  return suggestion
+}
+async function submitDraftIfNeeded(targetId, draft) {
+  const status = draft?.rawStatus || draft?.audit_status || draft?.status || editingDraft.status
+  if (['pending', 'approved', '待审核', '已通过'].includes(status)) return draft
+  const submitted = await submitAiGeoDraft(Number(targetId))
+  if (draft) {
+    draft.rawStatus = submitted.audit_status
+    draft.status = draftStatusLabel(submitted.audit_status)
+  }
+  return submitted
+}
+function auditOpinion(suggestion) {
+  return suggestion?.summary || suggestion?.Summary || '审核报告已生成'
+}
+async function generateChannelsForDraft(draft, options = {}) {
   const target = draft.id ? draft : drafts[0]
   const channel = channelProfiles[0]
   if (!target?.id || !channel?.id) {
@@ -1917,6 +1980,7 @@ async function generateChannelsForDraft(draft) {
   }
   loading.action = true
   try {
+    if (!Array.isArray(target.channels)) target.channels = []
     const content = await generateAiGeoChannelContent(Number(target.id), {
       channel_id: Number(channel.id),
       title: target.title,
@@ -1924,8 +1988,9 @@ async function generateChannelsForDraft(draft) {
     })
     target.channels.push({ id: content.id || Date.now(), channel: channel.name, title: content.title || target.title, body: content.body || target.body, tags: '', seoTitle: '', script: '', status: '已生成' })
     target.status = '已生成渠道版本'
-    showToast('已生成渠道版本')
+    if (!options.silent) showToast('已生成渠道版本')
   } catch (error) {
+    if (options.throwOnError) throw error
     showToast(error?.message || '生成渠道内容失败')
   } finally {
     loading.action = false
@@ -2095,7 +2160,7 @@ function applyAuditPanel(panel, suggestion) {
   const items = parseJsonArray(rawSuggestions)
     .map(item => {
       if (typeof item === 'string') return item
-      return item?.text || item?.suggestion || item?.message || item?.title || ''
+      return item?.content || item?.text || item?.suggestion || item?.message || item?.title || ''
     })
     .filter(Boolean)
   panel.summary = suggestion.summary || suggestion.Summary || '审核完成，暂无额外摘要'

@@ -250,15 +250,15 @@ export async function createAiGeoDraft(payload: Record<string, unknown>) {
 }
 
 export async function submitAiGeoDraft(id: number) {
-  return unwrap(http.post<ApiResponse<AiGeoDraft>>(`/api/ai-geo/drafts/${id}/submit`))
+	return unwrap(http.post<ApiResponse<AiGeoDraft>>(`/api/ai-geo/drafts/${id}/submit`))
 }
 
-export async function approveAiGeoDraft(id: number) {
-  return unwrap(http.post<ApiResponse<AiGeoDraft>>(`/api/ai-geo/drafts/${id}/approve`))
+export async function approveAiGeoDraft(id: number, payload: Record<string, unknown> = {}) {
+	return unwrap(http.post<ApiResponse<AiGeoDraft>>(`/api/ai-geo/drafts/${id}/approve`, payload))
 }
 
-export async function rejectAiGeoDraft(id: number) {
-  return unwrap(http.post<ApiResponse<AiGeoDraft>>(`/api/ai-geo/drafts/${id}/reject`))
+export async function rejectAiGeoDraft(id: number, payload: Record<string, unknown> = {}) {
+	return unwrap(http.post<ApiResponse<AiGeoDraft>>(`/api/ai-geo/drafts/${id}/reject`, payload))
 }
 
 export async function fetchAiGeoDraftAuditSuggestions(id: number, params: AiGeoListParams = {}) {

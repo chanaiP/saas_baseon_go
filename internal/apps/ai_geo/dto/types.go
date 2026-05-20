@@ -143,6 +143,10 @@ type ChannelContentPayload struct {
 	Body      string `json:"body"`
 }
 
+type ReviewDraftPayload struct {
+	Opinion string `json:"opinion"`
+}
+
 type PublishPlanPayload struct {
 	ChannelContentID uint64 `json:"channel_content_id"`
 	ChannelID        uint64 `json:"channel_id"`

@@ -45,11 +45,15 @@ func TestDraftReviewStateMachine(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "pending", submitted.AuditStatus)
 
-	approved, err := service.ReviewDraft(context.Background(), viewer, draft.ID, true)
+	approved, err := service.ReviewDraft(context.Background(), viewer, draft.ID, true, "内容已确认，可以进入渠道生成")
 	require.NoError(t, err)
 	require.Equal(t, "approved", approved.AuditStatus)
+	history, err := service.DraftAuditSuggestions(context.Background(), viewer, draft.ID, dto.PageRequest{Limit: 20})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), history.Total)
+	require.Contains(t, *history.Items[0].Summary, "内容已确认")
 
-	_, err = service.ReviewDraft(context.Background(), viewer, draft.ID, false)
+	_, err = service.ReviewDraft(context.Background(), viewer, draft.ID, false, "不应允许二次审核")
 	require.ErrorIs(t, err, ErrInvalidStatus)
 }
 

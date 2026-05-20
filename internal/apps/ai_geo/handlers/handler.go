@@ -379,7 +379,7 @@ func (h *Handler) SubmitDraft(c *gin.Context) {
 	}
 	data, err := h.service.SubmitDraft(c.Request.Context(), viewer(c), id)
 	if err == nil {
-		err = h.auditWrite(c, "draft_submit", data.DraftCode, "提交母稿审核", gin.H{"draft_id": data.ID})
+		err = h.auditWrite(c, "draft_submit", data.DraftCode, "提交母稿", gin.H{"draft_id": data.ID})
 	}
 	h.ok(c, data, err)
 }
@@ -392,7 +392,9 @@ func (h *Handler) reviewDraft(c *gin.Context, approved bool) {
 	if !ok {
 		return
 	}
-	data, err := h.service.ReviewDraft(c.Request.Context(), viewer(c), id, approved)
+	var payload dto.ReviewDraftPayload
+	_ = c.ShouldBindJSON(&payload)
+	data, err := h.service.ReviewDraft(c.Request.Context(), viewer(c), id, approved, payload.Opinion)
 	if err == nil {
 		action := "draft_reject"
 		summary := "驳回母稿"
@@ -400,7 +402,7 @@ func (h *Handler) reviewDraft(c *gin.Context, approved bool) {
 			action = "draft_approve"
 			summary = "审核通过母稿"
 		}
-		err = h.auditWrite(c, action, data.DraftCode, summary, gin.H{"draft_id": data.ID})
+		err = h.auditWrite(c, action, data.DraftCode, summary, gin.H{"draft_id": data.ID, "opinion": payload.Opinion})
 	}
 	h.ok(c, data, err)
 }
