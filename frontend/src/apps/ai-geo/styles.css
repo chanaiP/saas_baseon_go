@@ -159,10 +159,29 @@
 .geo-growth-page .table th, .geo-growth-page .table td { padding: 13px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
 .geo-growth-page .table th { color: var(--muted); font-weight: 600; font-size: 13px; background: #fafafa; }
 .geo-growth-page .table td p { margin-top: 4px; font-size: 12px; }
-.geo-growth-page .workspace-layout { display: grid; grid-template-columns: minmax(480px, 42%) minmax(0, 1fr); gap: 18px; align-items: stretch; }
+.geo-growth-page .workspace-layout { display: grid; grid-template-columns: minmax(520px, 43%) minmax(0, 1fr); gap: 18px; align-items: stretch; }
 .geo-growth-page .workbench-page { display: flex; flex-direction: column; min-height: calc(100vh - 112px); }
 .geo-growth-page .workbench-page .workspace-layout { flex: 1; min-height: 0; }
 .geo-growth-page .chat-panel, .geo-growth-page .editor-panel { display: flex; flex-direction: column; min-height: 0; }
+.geo-growth-page .geo-command-panel { gap: 12px; background: linear-gradient(180deg, var(--surface), var(--surface-tint)); }
+.geo-growth-page .workbench-brief { display: grid; gap: 8px; padding-bottom: 2px; }
+.geo-growth-page .workbench-brief h3 { margin: 0; font-size: 22px; line-height: 1.25; }
+.geo-growth-page .workbench-brief p { margin: 0; color: var(--muted); line-height: 1.6; }
+.geo-growth-page .context-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.geo-growth-page .context-card { min-height: 116px; display: grid; align-content: start; gap: 6px; padding: 13px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,.76); }
+.geo-growth-page .context-card.strong { border-color: rgba(37, 99, 235, .22); background: linear-gradient(135deg, rgba(232,240,255,.92), rgba(255,255,255,.78)); }
+.geo-growth-page .context-card span, .geo-growth-page .skill-panel span, .geo-growth-page .generation-recipe span, .geo-growth-page .evidence-item span { color: var(--muted); font-size: 12px; }
+.geo-growth-page .context-card strong { font-size: 15px; line-height: 1.35; }
+.geo-growth-page .context-card p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.geo-growth-page .workbench-controls { margin: 0; }
+.geo-growth-page .skill-panel { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 14px; border: 1px solid rgba(37, 99, 235, .18); border-radius: 18px; background: var(--surface-blue); }
+.geo-growth-page .skill-panel strong { display: block; margin: 4px 0; }
+.geo-growth-page .skill-panel p { margin: 0; color: var(--muted); line-height: 1.5; }
+.geo-growth-page .skill-tags { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 220px; }
+.geo-growth-page .skill-tags span { padding: 5px 8px; border-radius: 99px; background: white; border: 1px solid var(--line); color: var(--primary); font-size: 12px; }
+.geo-growth-page .evidence-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.geo-growth-page .evidence-item { min-height: 68px; display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,.78); }
+.geo-growth-page .evidence-item strong { font-size: 13px; line-height: 1.45; color: var(--text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .geo-growth-page .chat-panel .panel-header, .geo-growth-page .chat-panel .loaders { flex-shrink: 0; }
 .geo-growth-page .chat-panel .chat-log { flex: 1; min-height: 280px; height: auto; }
 .geo-growth-page .chat-panel .chat-input { flex-shrink: 0; margin-top: auto; }
@@ -181,6 +200,7 @@
 .geo-growth-page .hotspot-chip { display: flex; justify-content: space-between; gap: 8px; align-items: center; background: var(--primary-soft); color: #1d4ed8; border-radius: 14px; padding: 10px 12px; margin-bottom: 12px; }
 .geo-growth-page .hotspot-chip button { border: 0; background: transparent; color: #1d4ed8; font-size: 18px; }
 .geo-growth-page .chat-log { height: 330px; overflow: auto; display: flex; flex-direction: column; gap: 10px; padding: 12px; background: #f8fafc; border-radius: 18px; border: 1px solid var(--line); }
+.geo-growth-page .geo-dialogue { min-height: 210px; background: linear-gradient(180deg, #fbfdff, #f8fafc); }
 .geo-growth-page .bubble { max-width: 86%; padding: 11px 12px; border-radius: 16px; }
 .geo-growth-page .bubble.ai { background: white; border: 1px solid var(--line); align-self: flex-start; }
 .geo-growth-page .bubble.user { background: var(--primary); color: white; align-self: flex-end; }
@@ -188,12 +208,16 @@
 .geo-growth-page .chat-actions { display: flex; gap: 10px; margin: 12px 0; }
 .geo-growth-page .chat-input { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
 .geo-growth-page .chat-input textarea { min-height: 72px; }
+.geo-growth-page .btn:disabled { opacity: .48; cursor: not-allowed; box-shadow: none; }
 .geo-growth-page .editor-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; gap: 14px; }
 .geo-growth-page .segmented { display: inline-flex; gap: 4px; padding: 4px; background: #f1f5f9; border-radius: 14px; }
 .geo-growth-page .segmented button { border: 0; padding: 8px 12px; background: transparent; border-radius: 10px; color: var(--muted); }
 .geo-growth-page .segmented button.active { background: white; color: var(--text); box-shadow: 0 2px 10px rgba(15,23,42,.08); }
 .geo-growth-page .segmented.full-width { width: 100%; display: grid; grid-template-columns: repeat(3,1fr); margin-bottom: 14px; }
 .geo-growth-page .draft-editor { display: grid; gap: 10px; }
+.geo-growth-page .generation-recipe { display: grid; grid-template-columns: 1.1fr .7fr 1.2fr; gap: 10px; margin-bottom: 12px; }
+.geo-growth-page .generation-recipe > div { min-height: 70px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-muted); }
+.geo-growth-page .generation-recipe strong { display: block; margin-top: 5px; font-size: 14px; line-height: 1.45; }
 .geo-growth-page .draft-hero { display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: 14px; align-items: start; }
 .geo-growth-page .draft-cover-col { width: 132px; }
 .geo-growth-page .draft-meta-col { display: grid; gap: 10px; min-width: 0; }
@@ -318,6 +342,7 @@
 @media (max-width: 1180px) {
   .geo-growth-page .grid.four { grid-template-columns: repeat(2, 1fr); }
   .geo-growth-page .workspace-layout { grid-template-columns: 1fr; }
+  .geo-growth-page .context-strip, .geo-growth-page .generation-recipe { grid-template-columns: 1fr; }
 }
 @media (max-width: 780px) {
   .geo-growth-page .topbar, .geo-growth-page .panel-header, .geo-growth-page .draft-main, .geo-growth-page .plan-title { flex-direction: column; align-items: flex-start; }
@@ -332,6 +357,8 @@
   .geo-growth-page .draft-hero { grid-template-columns: 1fr; }
   .geo-growth-page .draft-cover-col { width: 100%; max-width: 160px; }
   .geo-growth-page .loaders { grid-template-columns: 1fr; }
+  .geo-growth-page .skill-panel, .geo-growth-page .evidence-list { grid-template-columns: 1fr; }
+  .geo-growth-page .skill-tags { justify-content: flex-start; max-width: none; }
   .geo-growth-page .mini-row { grid-template-columns: 1fr; }
 }
 
@@ -403,6 +430,10 @@ html.dark .geo-growth-page .cover-frame,
 html.dark .geo-growth-page .chat-log,
 html.dark .geo-growth-page .bubble.ai,
 html.dark .geo-growth-page .timeline-empty,
+html.dark .geo-growth-page .context-card,
+html.dark .geo-growth-page .skill-panel,
+html.dark .geo-growth-page .evidence-item,
+html.dark .geo-growth-page .generation-recipe > div,
 .admin-shell.dark .geo-growth-page .panel,
 .admin-shell.dark .geo-growth-page .metric-card,
 .admin-shell.dark .geo-growth-page .status-card,
@@ -428,11 +459,22 @@ html.dark .geo-growth-page .timeline-empty,
 .admin-shell.dark .geo-growth-page .cover-frame,
 .admin-shell.dark .geo-growth-page .chat-log,
 .admin-shell.dark .geo-growth-page .bubble.ai,
-.admin-shell.dark .geo-growth-page .timeline-empty {
+.admin-shell.dark .geo-growth-page .timeline-empty,
+.admin-shell.dark .geo-growth-page .context-card,
+.admin-shell.dark .geo-growth-page .skill-panel,
+.admin-shell.dark .geo-growth-page .evidence-item,
+.admin-shell.dark .geo-growth-page .generation-recipe > div {
   background: var(--surface);
   border-color: var(--line);
   color: var(--text);
   box-shadow: var(--shadow);
+}
+
+html.dark .geo-growth-page .context-card.strong,
+html.dark .geo-growth-page .geo-command-panel,
+.admin-shell.dark .geo-growth-page .context-card.strong,
+.admin-shell.dark .geo-growth-page .geo-command-panel {
+  background: linear-gradient(135deg, rgba(38, 244, 223, .08), rgba(16, 28, 46, .94));
 }
 
 html.dark .geo-growth-page .channel-list,

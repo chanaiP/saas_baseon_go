@@ -101,32 +101,72 @@
 
       <section v-if="activeMenu === 'workbench'" class="page workbench-page">
         <div class="workspace-layout">
-          <div class="chat-panel panel">
-            <div class="panel-header compact">
-              <div>
-                <h3>AI 创作对话</h3>
-                <p>人工创作为主；品牌、商品、Skill、热点均为可选</p>
+          <div class="chat-panel panel geo-command-panel">
+            <div class="workbench-brief">
+              <span class="badge muted-badge">GEO Article Console</span>
+              <h3>按资料和 Skill 生成有指向性的 GEO 文章</h3>
+              <p>先确定品牌、商品、目标人群和内容任务，再让 AI 生成母稿；后续每次追问都会带上当前资料上下文。</p>
+            </div>
+
+            <div class="context-strip">
+              <div class="context-card strong">
+                <span>品牌</span>
+                <strong>{{ selectedWorkbenchBrand.name }}</strong>
+                <p>{{ selectedWorkbenchBrand.position || '未选择品牌定位' }}</p>
+              </div>
+              <div class="context-card">
+                <span>商品</span>
+                <strong>{{ selectedWorkbenchProduct?.name || '未指定商品' }}</strong>
+                <p>{{ selectedWorkbenchProduct?.sellingPoints || '可先用品牌资料自由生成' }}</p>
+              </div>
+              <div class="context-card">
+                <span>目标</span>
+                <strong>{{ selectedSkillProfile.goal }}</strong>
+                <p>{{ selectedSkillProfile.output }}</p>
               </div>
             </div>
-            <div class="loaders">
-              <label>品牌<select v-model="workbench.brandId"><option value="">不选择</option><option v-for="b in brands" :value="b.id" :key="b.id">{{ b.name }}</option></select></label>
-              <label>商品<select v-model="workbench.productId"><option value="">不选择</option><option v-for="p in currentBrand.products" :value="p.id" :key="p.id">{{ p.name }}</option></select></label>
-              <label>Skill<select v-model="workbench.skill"><option value="">不选择</option><option v-for="s in skills" :key="s">{{ s }}</option></select></label>
+
+            <div class="loaders workbench-controls">
+              <label>品牌<select v-model="workbench.brandId"><option value="">自动使用当前品牌</option><option v-for="b in brands" :value="b.id" :key="b.id">{{ b.name }}</option></select></label>
+              <label>商品<select v-model="workbench.productId"><option value="">不指定商品</option><option v-for="p in selectedWorkbenchBrand.products" :value="p.id" :key="p.id">{{ p.name }}</option></select></label>
+              <label>Skill<select v-model="workbench.skill"><option value="">选择文章 Skill</option><option v-for="s in skills" :key="s">{{ s }}</option></select></label>
               <label>热点<select v-model="selectedHotspotId">
-                <option value="">不选择</option>
+                <option value="">不引用热点</option>
                 <option v-for="h in hotspots" :key="h.id" :value="h.id">{{ h.title }} · {{ h.platform }}</option>
                 <option value="__more__">热点库 / 手动添加…</option>
               </select></label>
             </div>
-            <div class="chat-log">
+
+            <div class="skill-panel">
+              <div>
+                <span>当前 Skill</span>
+                <strong>{{ selectedSkillProfile.name }}</strong>
+                <p>{{ selectedSkillProfile.desc }}</p>
+              </div>
+              <div class="skill-tags">
+                <span v-for="tag in selectedSkillProfile.tags" :key="tag">{{ tag }}</span>
+              </div>
+            </div>
+
+            <div class="evidence-list">
+              <div v-for="item in workbenchEvidence" :key="item.label" class="evidence-item">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+              </div>
+            </div>
+
+            <div class="chat-log geo-dialogue">
               <div v-for="msg in chatMessages" :key="msg.id" :class="['bubble', msg.role]">
                 <p>{{ msg.text }}</p>
               </div>
             </div>
             <div class="chat-input">
-              <textarea v-model="workbench.prompt" placeholder="输入你的创作想法；不选资料和 Skill 时，AI 将自由发挥生成母稿"></textarea>
-              <button v-if="canGenerateDraft" class="btn primary" @click="generateDraftFromChat">生成母稿</button>
+              <textarea v-model="workbench.prompt" :placeholder="generationPlaceholder"></textarea>
+              <button v-if="canGenerateDraft" class="btn primary" :disabled="loading.action || !canRunWorkbench" @click="generateDraftFromChat">
+                {{ loading.action ? '生成中' : '生成母稿' }}
+              </button>
             </div>
+            <p v-if="!canRunWorkbench" class="field-hint">请选择 Skill，或在输入框里说明文章目标。</p>
           </div>
 
           <div class="editor-panel panel">
@@ -139,6 +179,20 @@
                 <button :class="{ active: previewMode === 'edit' }" @click="previewMode = 'edit'">编辑</button>
                 <button :class="{ active: previewMode === 'pc' }" @click="previewMode = 'pc'">PC 预览</button>
                 <button :class="{ active: previewMode === 'mobile' }" @click="previewMode = 'mobile'">手机预览</button>
+              </div>
+            </div>
+            <div class="generation-recipe">
+              <div>
+                <span>生成指向</span>
+                <strong>{{ selectedSkillProfile.goal }}</strong>
+              </div>
+              <div>
+                <span>资料完整度</span>
+                <strong>{{ selectedWorkbenchBrand.completeness || 0 }}%</strong>
+              </div>
+              <div>
+                <span>可用关键词</span>
+                <strong>{{ workbenchKeywords.slice(0, 3).join(' / ') || '待补充' }}</strong>
               </div>
             </div>
             <div v-if="previewMode === 'edit'" class="draft-editor">
@@ -962,8 +1016,17 @@ const skills = ['品牌介绍母稿 Skill', '商品种草母稿 Skill', '场景�
 
 const workbench = reactive({ brandId: '', productId: '', skill: '', hotspot: null, prompt: '' })
 const chatMessages = reactive([
-  { id: 1, role: 'ai', text: '可以直接输入想法生成母稿；品牌、商品、Skill、热点都不是必选。' }
+  { id: 1, role: 'ai', text: '请选择资料和 Skill，告诉我这篇 GEO 文章要解决什么搜索问题。我会基于品牌资料、商品卖点、关键词和热点生成母稿。' }
 ])
+const skillProfiles = {
+  '品牌介绍母稿 Skill': { name: '品牌介绍母稿 Skill', goal: '建立品牌认知', output: '品牌定位长文', desc: '适合生成品牌介绍、品牌故事、品牌优势和 GEO 搜索入口文章。', tags: ['品牌定位', '目标人群', '搜索心智'] },
+  '商品种草母稿 Skill': { name: '商品种草母稿 Skill', goal: '推动商品种草', output: '商品推荐文章', desc: '适合围绕单品卖点、适用人群、选购理由生成有转化指向的内容。', tags: ['卖点提炼', '适用场景', '购买理由'] },
+  '场景攻略母稿 Skill': { name: '场景攻略母稿 Skill', goal: '占领场景搜索', output: '场景解决方案', desc: '适合回答“怎么选、怎么搭、适合谁”这类 GEO 问题。', tags: ['场景问题', '解决方案', '对比建议'] },
+  'FAQ问答母稿 Skill': { name: 'FAQ问答母稿 Skill', goal: '承接长尾问答', output: '问答型文章', desc: '适合生成知乎、搜索问答、独立站 FAQ 可复用内容。', tags: ['FAQ', '长尾词', '可信回答'] },
+  '小红书改写 Skill': { name: '小红书改写 Skill', goal: '生成种草笔记', output: '小红书渠道文', desc: '适合把母稿改成轻口语、强场景、带话题标签的图文笔记。', tags: ['口语化', '话题标签', '种草感'] },
+  '知乎问答改写 Skill': { name: '知乎问答改写 Skill', goal: '生成可信回答', output: '知乎问答文', desc: '适合把母稿改成解释充分、逻辑清晰、可信度更高的回答。', tags: ['问题拆解', '理性表达', '可信证据'] },
+}
+const defaultSkillProfile = { name: '未选择 Skill', goal: '自由创作', output: '通用 GEO 母稿', desc: '选择 Skill 后，AI 会按固定任务框架组织标题、摘要、正文和关键词。', tags: ['自由提示', '资料驱动', '人工确认'] }
 const sampleCoverImage = 'https://images.unsplash.com/photo-1595777457583-95e059d581b8?auto=format&fit=crop&w=800&q=80'
 
 const editingDraft = reactive({
@@ -975,6 +1038,29 @@ const editingDraft = reactive({
   coverImage: sampleCoverImage,
   status: '草稿',
   source: '人工创作'
+})
+
+const selectedWorkbenchBrand = computed(() => brands.find(b => b.id === Number(workbench.brandId)) || currentBrand.value)
+const selectedWorkbenchProduct = computed(() => selectedWorkbenchBrand.value.products.find(p => p.id === Number(workbench.productId)) || null)
+const selectedSkillProfile = computed(() => skillProfiles[workbench.skill] || defaultSkillProfile)
+const workbenchKeywords = computed(() => {
+  const brandKeywords = selectedWorkbenchBrand.value.keywordGroups.flatMap(group => group.keywords || [])
+  const productKeywords = selectedWorkbenchProduct.value?.keywords || []
+  return [...new Set([...productKeywords, ...brandKeywords])]
+})
+const workbenchEvidence = computed(() => [
+  { label: '人群', value: selectedWorkbenchProduct.value?.audience || selectedWorkbenchBrand.value.audience || '未维护' },
+  { label: '卖点', value: selectedWorkbenchProduct.value?.sellingPoints || selectedWorkbenchBrand.value.position || '未维护' },
+  { label: '关键词', value: workbenchKeywords.value.slice(0, 4).join('、') || '未维护' },
+  { label: '热点', value: workbench.hotspot?.title || '不引用热点' },
+])
+const generationPlaceholder = computed(() => {
+  const product = selectedWorkbenchProduct.value?.name || '当前资料'
+  return `例如：围绕「${product}」写一篇回答“小个子通勤怎么穿”的 GEO 文章，强调适合人群、选择理由、场景建议。`
+})
+const canRunWorkbench = computed(() => Boolean(String(workbench.prompt || '').trim() || workbench.skill))
+watch(() => workbench.brandId, () => {
+  workbench.productId = ''
 })
 
 const drafts = reactive([
@@ -1366,15 +1452,23 @@ function useHotspot(hot, mode) {
 }
 async function generateDraftFromChat() {
   loading.action = true
-  const product = currentBrand.value.products.find(p => p.id === Number(workbench.productId))
-  const skill = workbench.skill || '无 Skill，自由发挥'
+  const product = selectedWorkbenchProduct.value
+  const skill = workbench.skill || '通用 GEO 母稿 Skill'
+  const prompt = String(workbench.prompt || '').trim() || `请基于 ${selectedWorkbenchBrand.value.name}${product ? ` 的 ${product.name}` : ''}，生成一篇面向「${selectedSkillProfile.value.goal}」的 GEO 文章。`
+  chatMessages.push({ id: Date.now(), role: 'user', text: prompt })
   try {
     const draft = await generateAiGeoDraft({
       brand_id: workbench.brandId ? Number(workbench.brandId) : undefined,
       product_id: workbench.productId ? Number(workbench.productId) : undefined,
       skill,
       hotspot_id: workbench.hotspot?.id,
-      prompt: workbench.prompt || (product ? `${product.name}怎么写出种草感？` : '根据运营想法生成母稿'),
+      prompt: [
+        prompt,
+        `品牌定位：${selectedWorkbenchBrand.value.position || '未维护'}`,
+        product ? `商品卖点：${product.sellingPoints || product.name}` : '',
+        `关键词：${workbenchKeywords.value.join('、') || '未维护'}`,
+        workbench.hotspot ? `引用热点：${workbench.hotspot.title}` : '',
+      ].filter(Boolean).join('\n'),
     })
     Object.assign(editingDraft, {
       id: draft.id,
@@ -1386,7 +1480,7 @@ async function generateDraftFromChat() {
       source: sourceLabel(draft.source),
     })
     await loadAiGeoData()
-    chatMessages.push({ id: Date.now(), role: 'ai', text: '母稿已生成并保存，可以编辑、预览或提交审核。' })
+    chatMessages.push({ id: Date.now() + 1, role: 'ai', text: `已按「${selectedSkillProfile.value.name}」生成母稿，并写入右侧编辑器。你可以继续要求我强化人群、卖点、FAQ 或渠道语气。` })
   } catch (error) {
     showToast(error?.message || '母稿生成失败')
   } finally {
