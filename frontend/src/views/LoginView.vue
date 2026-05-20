@@ -38,7 +38,7 @@ const tenantPickVisible = ref(false)
 const tenantPickList = ref<LoginTenantOption[]>([])
 const pickedTenantId = ref<number | null>(null)
 
-/** 手机号多主体：接口探测结果与所选主体 */
+/** 手机号多空间：接口探测结果与所选空间 */
 const phoneTenantOptions = ref<LoginTenantOption[]>([])
 const selectedPhoneTenantId = ref<number | null>(null)
 const phoneTenantsLoading = ref(false)
@@ -175,7 +175,7 @@ function resolvePhoneLoginTenantId(): number | undefined {
 async function submit() {
   err.value = ''
   if (showPhoneTenantPicker.value && selectedPhoneTenantId.value == null) {
-    err.value = '请选择主体'
+    err.value = '请选择空间'
     return
   }
 
@@ -199,7 +199,7 @@ async function submit() {
 
 async function confirmTenantPick() {
   if (pickedTenantId.value == null) {
-    err.value = '请选择主体'
+    err.value = '请选择空间'
     return
   }
   err.value = ''
@@ -380,10 +380,10 @@ function brandClickHandler() {
             clearable
           />
         </el-form-item>
-        <el-form-item v-if="showPhoneTenantPicker" label="选择主体">
+        <el-form-item v-if="showPhoneTenantPicker" label="选择空间">
           <el-select
             v-model="selectedPhoneTenantId"
-            placeholder="请选择主体名称"
+            placeholder="请选择空间名称"
             size="large"
             class="input-round tenant-select"
             :loading="phoneTenantsLoading"
@@ -435,12 +435,12 @@ function brandClickHandler() {
     <el-dialog
       v-model="tenantPickVisible"
       class="login-tech-dialog"
-      title="选择登录主体"
+      title="选择登录空间"
       width="420px"
       append-to-body
       :close-on-click-modal="false"
     >
-      <p class="tenant-pick-hint">请选择要进入的主体。</p>
+      <p class="tenant-pick-hint">请选择要进入的空间。</p>
       <el-radio-group v-model="pickedTenantId" class="tenant-pick-group">
         <el-radio v-for="t in tenantPickList" :key="t.tenant_id" :value="t.tenant_id" class="tenant-pick-row">
           {{ t.name }}（{{ t.code }}）

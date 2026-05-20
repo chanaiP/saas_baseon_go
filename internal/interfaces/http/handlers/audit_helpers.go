@@ -25,6 +25,7 @@ func (h *IdentityHandler) recordLogin(c *gin.Context, account string, userID *ui
 
 func (h *IdentityHandler) audit(c *gin.Context, tenantID uint64, userID uint64, module, action, summary string, detail interface{}) {
 	detailJSON := ""
+	detail = h.withAuditIdentityDetail(userID, detail)
 	if detail != nil {
 		if raw, err := json.Marshal(maskAuditDetail(detail)); err == nil {
 			detailJSON = string(raw)
@@ -47,6 +48,34 @@ func (h *IdentityHandler) audit(c *gin.Context, tenantID uint64, userID uint64, 
 		RequestID: nullableFromString(requestID),
 		Result:    "success",
 	}).Error
+}
+
+func (h *IdentityHandler) withAuditIdentityDetail(userID uint64, detail interface{}) interface{} {
+	if h == nil || h.db == nil || userID == 0 {
+		return detail
+	}
+	var user models.AppUser
+	if err := h.db.Select("id", "account_id", "identity_user_id").Where("id = ? AND deleted_at IS NULL", userID).First(&user).Error; err != nil {
+		return detail
+	}
+	base := gin.H{}
+	switch typed := detail.(type) {
+	case nil:
+	case gin.H:
+		for key, value := range typed {
+			base[key] = value
+		}
+	case map[string]interface{}:
+		for key, value := range typed {
+			base[key] = value
+		}
+	default:
+		base["payload"] = typed
+	}
+	base["app_user_id"] = userID
+	base["account_id"] = user.AccountID
+	base["identity_user_id"] = user.IdentityUserID
+	return base
 }
 
 func (h *IdentityHandler) auditCurrentUser(c *gin.Context, module, action, summary string, detail interface{}) {

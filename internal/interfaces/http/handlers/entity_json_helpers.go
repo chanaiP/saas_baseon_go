@@ -60,6 +60,7 @@ func permissionToJSON(row models.Permission) gin.H {
 		"show_in_admin":      row.ShowInAdmin,
 		"tenant_visible":     row.Visible,
 		"is_platform_only":   row.IsPlatformOnly,
+		"tenant_scope":       normalizeTenantScope(row.TenantScope, row.IsPlatformOnly),
 		"is_package_feature": row.IsPackageFeature,
 		"tenant_editable":    row.TenantEditable,
 		"tenant_edit_scope":  row.TenantEditScope,

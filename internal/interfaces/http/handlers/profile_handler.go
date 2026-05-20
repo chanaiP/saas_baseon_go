@@ -14,6 +14,7 @@ import (
 func (h *IdentityHandler) Profile(c *gin.Context) {
 	var user models.AppUser
 	var tenant models.Tenant
+	var identity models.UserIdentity
 	var roles []models.Role
 	if loaded, ok := h.currentUser(c); ok {
 		user = loaded
@@ -22,6 +23,9 @@ func (h *IdentityHandler) Profile(c *gin.Context) {
 	}
 	if user.ID != 0 {
 		_ = h.db.First(&tenant, user.TenantID).Error
+		if user.IdentityUserID != nil {
+			_ = h.db.Where("id = ? AND deleted_at IS NULL", *user.IdentityUserID).First(&identity).Error
+		}
 		_ = h.db.
 			Joins("JOIN user_role ur ON ur.role_id = role.id").
 			Where("ur.user_id = ?", user.ID).
@@ -36,15 +40,29 @@ func (h *IdentityHandler) Profile(c *gin.Context) {
 	capability := h.tenantCapabilityContext(user.TenantID)
 	tenantIsPlatform := tenant.IsPlatform
 	permissionCodes := h.permissionCodesForUser(user, !h.viewerHasPlatformScope(user))
+	displayName := user.Name
+	phone := user.Phone
+	email := user.Email
+	avatarURL := user.AvatarURL
+	if identity.ID != 0 {
+		displayName = coalesceString(identity.DisplayName, displayName)
+		phone = identity.Phone
+		email = identity.Email
+		avatarURL = identity.AvatarURL
+	}
 
 	response.OK(c, gin.H{
 		"id":                 user.ID,
+		"account_id":         user.AccountID,
+		"identity_user_id":   user.IdentityUserID,
 		"tenant_id":          user.TenantID,
+		"tenant_type":        normalizeTenantRecordType(tenant),
+		"member_type":        user.MemberType,
 		"employee_no":        user.EmployeeNo,
-		"phone":              user.Phone,
-		"name":               user.Name,
-		"email":              user.Email,
-		"avatar_url":         user.AvatarURL,
+		"phone":              phone,
+		"name":               displayName,
+		"email":              email,
+		"avatar_url":         avatarURL,
 		"status":             user.Status,
 		"company_id":         nil,
 		"department_id":      nil,
@@ -78,20 +96,42 @@ func (h *IdentityHandler) UpdateProfile(c *gin.Context) {
 		return
 	}
 	updates := map[string]interface{}{}
+	identityUpdates := map[string]interface{}{}
 	if body.Name != nil {
-		updates["name"] = strings.TrimSpace(*body.Name)
+		name := strings.TrimSpace(*body.Name)
+		updates["name"] = name
+		identityUpdates["display_name"] = name
 	}
 	if body.Phone != nil {
-		updates["phone"] = nullableTrimmed(body.Phone)
+		phone := nullableTrimmed(body.Phone)
+		updates["phone"] = phone
+		identityUpdates["phone"] = phone
 	}
 	if body.Email != nil {
-		updates["email"] = nullableTrimmed(body.Email)
+		email := nullableTrimmed(body.Email)
+		updates["email"] = email
+		identityUpdates["email"] = email
 	}
 	if body.AvatarURL != nil {
-		updates["avatar_url"] = nullableTrimmed(body.AvatarURL)
+		avatarURL := nullableTrimmed(body.AvatarURL)
+		updates["avatar_url"] = avatarURL
+		identityUpdates["avatar_url"] = avatarURL
 	}
 	if len(updates) > 0 {
-		if err := h.db.Model(&user).Updates(updates).Error; err != nil {
+		err := h.db.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Model(&user).Updates(updates).Error; err != nil {
+				return err
+			}
+			if user.IdentityUserID != nil && len(identityUpdates) > 0 {
+				if err := tx.Model(&models.UserIdentity{}).
+					Where("id = ? AND deleted_at IS NULL", *user.IdentityUserID).
+					Updates(identityUpdates).Error; err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
 			respondBadRequest(c, err)
 			return
 		}
@@ -129,7 +169,14 @@ func (h *IdentityHandler) UpdatePassword(c *gin.Context) {
 		response.Error(c, 400, response.CodeBadRequest, msg)
 		return
 	}
-	if !verifyPassword(body.OldPassword, user.PasswordHash) {
+	currentPasswordHash := user.PasswordHash
+	var account models.Account
+	if user.AccountID != nil {
+		if err := h.db.Where("id = ? AND deleted_at IS NULL", *user.AccountID).First(&account).Error; err == nil && account.ID != 0 {
+			currentPasswordHash = account.PasswordHash
+		}
+	}
+	if !verifyPassword(body.OldPassword, currentPasswordHash) {
 		h.recordPasswordChangeFailure(user.ID)
 		response.Error(c, 400, response.CodeBadRequest, "旧密码不正确")
 		return
@@ -139,11 +186,27 @@ func (h *IdentityHandler) UpdatePassword(c *gin.Context) {
 		response.Error(c, 500, response.CodeInternal, "密码加密失败")
 		return
 	}
-	if err := h.db.Model(&user).Updates(map[string]interface{}{
-		"password_hash":       hashed,
-		"session_version":     gorm.Expr("session_version + 1"),
-		"password_changed_at": time.Now(),
-	}).Error; err != nil {
+	now := time.Now()
+	err = h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&user).Updates(map[string]interface{}{
+			"password_hash":       hashed,
+			"session_version":     gorm.Expr("session_version + 1"),
+			"password_changed_at": now,
+		}).Error; err != nil {
+			return err
+		}
+		if account.ID != 0 {
+			if err := tx.Model(&models.Account{}).Where("id = ? AND deleted_at IS NULL", account.ID).Updates(map[string]interface{}{
+				"password_hash":       hashed,
+				"session_version":     gorm.Expr("session_version + 1"),
+				"password_changed_at": now,
+			}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
 		respondBadRequest(c, err)
 		return
 	}

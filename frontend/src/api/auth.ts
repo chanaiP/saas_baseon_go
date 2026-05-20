@@ -6,10 +6,18 @@ export interface LoginPayload {
   password: string
   captcha_id?: string
   captcha_code?: string
-  /** 可选：缩小登录主体范围 */
+  /** 可选：缩小登录空间范围 */
   tenant_code?: string
-  /** 多主体歧义时二次提交 */
+  /** 多空间歧义时二次提交 */
   tenant_id?: number
+}
+
+export interface RegisterPayload {
+  account?: string
+  phone?: string
+  password: string
+  name?: string
+  email?: string
 }
 
 export interface LoginTenantOption {
@@ -32,7 +40,11 @@ export interface CaptchaData {
 
 export interface Profile {
   id: number
+  account_id?: number | null
+  identity_user_id?: number | null
   tenant_id: number
+  tenant_type?: 'platform' | 'enterprise' | 'personal'
+  member_type?: string
   employee_no: string
   phone: string | null
   name: string
@@ -64,7 +76,7 @@ export async function fetchCaptcha() {
   return unwrap(http.get<ApiResponse<CaptchaData>>('/api/auth/captcha'))
 }
 
-/** 手机号登录前置：该手机号在哪些主体有账号（非手机号输入时后端返回空数组） */
+/** 手机号登录前置：该手机号在哪些空间有账号（非手机号输入时后端返回空数组） */
 export async function fetchPhoneLoginTenants(account: string) {
   return unwrap(
     http.get<ApiResponse<LoginTenantOption[]>>('/api/auth/phone-login-tenants', {
@@ -89,11 +101,19 @@ export async function login(payload: LoginPayload): Promise<LoginOutcome> {
   if (data.code === 2 && data.data?.tenants?.length) {
     return {
       kind: 'pickTenant',
-      message: data.message || '请选择主体',
+      message: data.message || '请选择空间',
       tenants: data.data.tenants,
     }
   }
   throw new Error(data.message || '登录失败')
+}
+
+export async function register(payload: RegisterPayload): Promise<LoginOutcome> {
+  const { data } = await http.post<ApiResponse<LoginData>>('/api/auth/register', payload)
+  if (data.code === 0 && data.data?.token) {
+    return { kind: 'success', token: data.data.token }
+  }
+  throw new Error(data.message || '注册失败')
 }
 
 export interface SwitchableTenantOption {

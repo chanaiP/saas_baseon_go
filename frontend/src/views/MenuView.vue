@@ -4,7 +4,7 @@ import { ArrowDown, ArrowDownBold, ArrowUp, ArrowUpBold } from '@element-plus/ic
 import { ElMessage } from 'element-plus'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 
-import type { MenuBundle, MenuBundleOp } from '@/api/permission'
+import type { MenuBundle, MenuBundleOp, TenantScope } from '@/api/permission'
 import { fetchPermissionMenuBundles, updatePermission, updatePermissionPackageFeature } from '@/api/permission'
 import { fetchAppCenterApps } from '@/apps/app-center/api'
 import type { AppCenterApp } from '@/apps/app-center/types'
@@ -116,37 +116,77 @@ async function loadMenuBundlesForScope() {
   }
 }
 
+const tenantScopeOptions: Array<{ label: string; value: TenantScope }> = [
+  { label: '仅平台', value: 'platform_only' },
+  { label: '仅租户', value: 'enterprise_only' },
+  { label: '仅个人', value: 'personal_only' },
+  { label: '不限', value: 'all' },
+  { label: '平台和租户', value: 'platform_enterprise' },
+  { label: '租户和个人', value: 'enterprise_personal' },
+  { label: '平台和个人', value: 'platform_personal' },
+]
+
+function tenantScopeLabel(scope?: TenantScope | null): string {
+  return tenantScopeOptions.find((item) => item.value === scope)?.label || '仅租户'
+}
+
+function tenantScopeTagType(scope?: TenantScope | null): 'warning' | 'success' | 'info' | 'primary' {
+  if (scope === 'platform_only') return 'warning'
+  if (scope === 'personal_only' || scope === 'enterprise_personal') return 'primary'
+  if (scope === 'all') return 'info'
+  return 'success'
+}
+
+function scopeIncludesEnterprise(scope?: TenantScope | null): boolean {
+  return !scope || scope === 'enterprise_only' || scope === 'all' || scope === 'platform_enterprise' || scope === 'enterprise_personal'
+}
+
+function normalizeRowTenantScope(row: MenuNode): TenantScope {
+  if (row.tenantScope) return row.tenantScope
+  return row.isPlatformOnly ? 'platform_only' : 'enterprise_only'
+}
+
 /** 目录无归属；菜单按路由 path；按钮按 permissionCode 在 bundles.operations 中匹配 */
-function menuScopeTag(row: MenuNode): { text: string; type: 'warning' | 'success' | 'info' } | null {
+function menuScopeTag(row: MenuNode): { text: string; type: 'warning' | 'success' | 'info' | 'primary' } | null {
   if (row.type === 'directory') return null
   if (row.type === 'menu' && row.path === '/home') return { text: '系统内置', type: 'info' }
   if (row.type === 'menu' && row.path) {
     const b = bundleByMenuPath.value.get(row.path)
-    if (!b) return row.isPlatformOnly ? { text: '仅平台', type: 'warning' } : { text: '仅主体', type: 'success' }
-    if (b.is_platform_only) return { text: '仅平台', type: 'warning' }
-    return { text: '仅主体', type: 'success' }
+    const scope = b?.tenant_scope || normalizeRowTenantScope(row)
+    return { text: tenantScopeLabel(scope), type: tenantScopeTagType(scope) }
   }
   if (row.type === 'button' && row.permissionCode) {
     for (const b of menuBundlesForScope.value) {
       const op = b.operations.find((o) => o.path === row.permissionCode)
       if (op) {
-        if (op.is_platform_only) return { text: '仅平台', type: 'warning' }
-        return { text: '仅主体', type: 'success' }
+        const scope = op.tenant_scope || (op.is_platform_only ? 'platform_only' : 'enterprise_only')
+        return { text: tenantScopeLabel(scope), type: tenantScopeTagType(scope) }
       }
     }
-    return row.isPlatformOnly ? { text: '仅平台', type: 'warning' } : { text: '仅主体', type: 'success' }
+    const scope = normalizeRowTenantScope(row)
+    return { text: tenantScopeLabel(scope), type: tenantScopeTagType(scope) }
   }
   return null
 }
 
 function appCodeForRow(row: MenuNode): string {
   if (row.type === 'menu' && row.path) {
-    return bundleByMenuPath.value.get(row.path)?.app_code || 'system-management'
+    return bundleByMenuPath.value.get(row.path)?.app_code || fallbackAppCodeForPath(row.path)
   }
   if (row.type === 'button' && row.permissionCode) {
     return bundleOpByPermissionCode.value.get(row.permissionCode)?.app_code || 'system-management'
   }
   return ''
+}
+
+function fallbackAppCodeForPath(path: string): string {
+  if (path === '/apps' || path.startsWith('/apps/')) return 'app-center'
+  if (path === '/monitor' || path.startsWith('/monitor/')) return 'system-monitor'
+  if (path === '/ai-capability-center' || path.startsWith('/ai-capability-center/')) return 'ai-capability-center'
+  if (path === '/data-center' || path.startsWith('/data-center/')) return 'data-center'
+  if (path === '/integration-center' || path.startsWith('/integration-center/')) return 'integration-center'
+  if (path === '/model-manager' || path.startsWith('/model-manager/')) return 'model-manager'
+  return 'system-management'
 }
 
 function bundleMenuNode(bundle: MenuBundle): MenuNode {
@@ -159,6 +199,7 @@ function bundleMenuNode(bundle: MenuBundle): MenuNode {
     enabled: true,
     showInAdmin: bundle.show_in_admin !== false,
     isPlatformOnly: bundle.is_platform_only,
+    tenantScope: bundle.tenant_scope,
     dataPermMode: bundle.data_perm_mode,
     children: (bundle.operations || []).map((op) => ({
       id: `manifest-op-${op.path.replace(/[^a-zA-Z0-9]+/g, '-')}`,
@@ -167,6 +208,7 @@ function bundleMenuNode(bundle: MenuBundle): MenuNode {
       permissionCode: op.path,
       enabled: true,
       isPlatformOnly: op.is_platform_only,
+      tenantScope: op.tenant_scope,
       children: [],
     })),
   }
@@ -258,11 +300,11 @@ const addForm = ref<{
   title: string
   path: string
   permissionCode: string
-  scope: 'tenant' | 'platform'
+  scope: TenantScope
   showInAdmin: boolean
   icon: string
   dataPermMode: 'NONE' | 'ORG' | 'BU' | 'ORG_BU'
-}>({ nodeType: 'menu', title: '新菜单', path: '', permissionCode: '', scope: 'tenant', showInAdmin: true, icon: 'Document', dataPermMode: 'ORG' })
+}>({ nodeType: 'menu', title: '新菜单', path: '', permissionCode: '', scope: 'enterprise_only', showInAdmin: true, icon: 'Document', dataPermMode: 'ORG' })
 
 const editDlg = ref(false)
 const editTargetId = ref<string | null>(null)
@@ -270,7 +312,7 @@ const editForm = ref({
   title: '',
   path: '',
   permissionCode: '',
-  scope: 'tenant' as 'tenant' | 'platform',
+  scope: 'enterprise_only' as TenantScope,
   showInAdmin: true,
   icon: 'Document',
   dataPermMode: 'ORG' as 'NONE' | 'ORG' | 'BU' | 'ORG_BU',
@@ -409,19 +451,21 @@ function canEditRow(row: MenuNode) {
 type PackageFeatureTarget = {
   id: number
   is_platform_only?: boolean
+  tenant_scope?: TenantScope
   is_package_feature?: boolean
   show_in_admin?: boolean
 }
 
 function packageFeatureTarget(row: MenuNode): PackageFeatureTarget | null {
   if (!isPlatformAdmin.value) return null
-  if (row.isPlatformOnly) return null
+  if (!scopeIncludesEnterprise(normalizeRowTenantScope(row))) return null
   if (row.type === 'menu' && row.path) {
     const bundle = bundleByMenuPath.value.get(row.path)
     if (!bundle?.menu_permission_id) return null
     return {
       id: bundle.menu_permission_id,
       is_platform_only: bundle.is_platform_only,
+      tenant_scope: bundle.tenant_scope,
       is_package_feature: bundle.is_package_feature,
       show_in_admin: bundle.show_in_admin,
     }
@@ -487,8 +531,8 @@ async function updatePackageFeature(row: MenuNode, enabled: boolean) {
     ElMessage.warning('未找到该菜单/操作的后端权限定义')
     return
   }
-  if (target.is_platform_only) {
-    ElMessage.warning('仅平台功能不能加入套餐中心')
+  if (target.is_platform_only || !scopeIncludesEnterprise(target.tenant_scope)) {
+    ElMessage.warning('不包含租户范围的功能不能加入套餐中心')
     return
   }
   try {
@@ -633,7 +677,7 @@ function resolveDirectParentForNewNode(nodeType: MenuNodeType, parentNode: MenuN
 function openAddDlg() {
   addContextRow.value = null
   globalAddParentId.value = null
-  addForm.value = { nodeType: 'menu', title: '新菜单', path: '', permissionCode: '', scope: 'tenant', showInAdmin: true, icon: 'Document', dataPermMode: 'ORG' }
+  addForm.value = { nodeType: 'menu', title: '新菜单', path: '', permissionCode: '', scope: 'enterprise_only', showInAdmin: true, icon: 'Document', dataPermMode: 'ORG' }
   addDlg.value = true
 }
 
@@ -642,11 +686,11 @@ function openAddDlgUnderRow(row: MenuNode) {
   globalAddParentId.value = null
   addContextRow.value = row
   if (row.type === 'menu') {
-    addForm.value = { nodeType: 'button', title: '新按钮', path: '', permissionCode: '', scope: 'tenant', showInAdmin: false, icon: 'Document', dataPermMode: 'ORG' }
+    addForm.value = { nodeType: 'button', title: '新按钮', path: '', permissionCode: '', scope: 'enterprise_only', showInAdmin: false, icon: 'Document', dataPermMode: 'ORG' }
   } else if (row.type === 'directory') {
-    addForm.value = { nodeType: 'menu', title: '新菜单', path: '', permissionCode: '', scope: 'tenant', showInAdmin: true, icon: 'Document', dataPermMode: 'ORG' }
+    addForm.value = { nodeType: 'menu', title: '新菜单', path: '', permissionCode: '', scope: 'enterprise_only', showInAdmin: true, icon: 'Document', dataPermMode: 'ORG' }
   } else {
-    addForm.value = { nodeType: 'button', title: '新按钮', path: '', permissionCode: '', scope: 'tenant', showInAdmin: false, icon: 'Document', dataPermMode: 'ORG' }
+    addForm.value = { nodeType: 'button', title: '新按钮', path: '', permissionCode: '', scope: 'enterprise_only', showInAdmin: false, icon: 'Document', dataPermMode: 'ORG' }
   }
   addDlg.value = true
 }
@@ -685,7 +729,10 @@ function confirmAdd() {
   }
   if (nt === 'menu') node.path = addForm.value.path.trim()
   if (nt === 'button') node.permissionCode = addForm.value.permissionCode.trim()
-  if (nt === 'menu' || nt === 'button') node.isPlatformOnly = addForm.value.scope === 'platform'
+  if (nt === 'menu' || nt === 'button') {
+    node.tenantScope = addForm.value.scope
+    node.isPlatformOnly = addForm.value.scope === 'platform_only'
+  }
   if (nt === 'directory' || nt === 'menu') node.showInAdmin = addForm.value.showInAdmin
   if (nt === 'menu') node.dataPermMode = addForm.value.dataPermMode
 
@@ -728,16 +775,16 @@ function openEditRow(row: MenuNode) {
       : undefined
   const backendScope =
     row.type === 'menu' && row.path
-      ? bundleByMenuPath.value.get(row.path)?.is_platform_only
+      ? bundleByMenuPath.value.get(row.path)?.tenant_scope
       : row.type === 'button' && row.permissionCode
-        ? bundleOpByPermissionCode.value.get(row.permissionCode)?.is_platform_only
+        ? bundleOpByPermissionCode.value.get(row.permissionCode)?.tenant_scope
         : undefined
   editTargetId.value = row.id
   editForm.value = {
     title: row.title,
     path: row.path || '',
     permissionCode: row.permissionCode || '',
-    scope: (backendScope ?? row.isPlatformOnly) ? 'platform' : 'tenant',
+    scope: backendScope || normalizeRowTenantScope(row),
     showInAdmin: row.type === 'menu' && row.path
       ? bundleByMenuPath.value.get(row.path)?.show_in_admin !== false
       : row.showInAdmin !== false,
@@ -805,7 +852,8 @@ async function confirmEditWithScopeGuard(forcePlatformScope: boolean) {
     ElMessage.warning('按钮须填写权限码')
     return
   }
-  const nextIsPlatformOnly = editForm.value.scope === 'platform'
+  const nextTenantScope = editForm.value.scope
+  const nextIsPlatformOnly = nextTenantScope === 'platform_only'
   const meta = permissionMetaForRow(row)
   if (!forcePlatformScope && nextIsPlatformOnly && meta?.is_package_feature && !meta.is_platform_only) {
     platformScopeConfirmDlg.value = true
@@ -815,7 +863,10 @@ async function confirmEditWithScopeGuard(forcePlatformScope: boolean) {
   const patch: Partial<MenuNode> = { title: t, icon: editForm.value.icon.trim() || 'Document' }
   if (row.type === 'menu') patch.path = editForm.value.path.trim()
   if (row.type === 'button') patch.permissionCode = editForm.value.permissionCode.trim()
-  if (row.type === 'menu' || row.type === 'button') patch.isPlatformOnly = nextIsPlatformOnly
+  if (row.type === 'menu' || row.type === 'button') {
+    patch.isPlatformOnly = nextIsPlatformOnly
+    patch.tenantScope = nextTenantScope
+  }
   if (row.type === 'directory' || row.type === 'menu') patch.showInAdmin = editForm.value.showInAdmin
   if (row.type === 'menu') patch.dataPermMode = editForm.value.dataPermMode
   if (!store.updateMenuNode(id, patch)) return
@@ -825,6 +876,7 @@ async function confirmEditWithScopeGuard(forcePlatformScope: boolean) {
         ...(row.type === 'menu' ? { data_perm_mode: editForm.value.dataPermMode } : {}),
         ...(row.type === 'menu' ? { show_in_admin: editForm.value.showInAdmin } : {}),
         is_platform_only: nextIsPlatformOnly,
+        tenant_scope: nextTenantScope,
       })
       await loadMenuBundlesForScope()
     } catch (e) {
@@ -1293,13 +1345,14 @@ onMounted(() => {
         </div>
         <div v-if="addForm.nodeType === 'menu' || addForm.nodeType === 'button'" class="nm-form-item">
           <label class="nm-form-label">归属</label>
-          <el-segmented
-            v-model="addForm.scope"
-            :options="[
-              { label: '仅主体', value: 'tenant' },
-              { label: '仅平台', value: 'platform' },
-            ]"
-          />
+          <el-select v-model="addForm.scope" class="nm-form-control">
+            <el-option
+              v-for="item in tenantScopeOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
         </div>
         <div class="nm-form-item">
           <label class="nm-form-label">名称</label>
@@ -1352,13 +1405,14 @@ onMounted(() => {
         </div>
         <div v-if="isPlatformAdmin && (editTargetRow.type === 'menu' || editTargetRow.type === 'button')" class="nm-form-item">
           <label class="nm-form-label">归属</label>
-          <el-segmented
-            v-model="editForm.scope"
-            :options="[
-              { label: '仅主体', value: 'tenant' },
-              { label: '仅平台', value: 'platform' },
-            ]"
-          />
+          <el-select v-model="editForm.scope" class="nm-form-control">
+            <el-option
+              v-for="item in tenantScopeOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
         </div>
         <div class="nm-form-item">
           <label class="nm-form-label">名称</label>

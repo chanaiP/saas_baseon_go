@@ -1,11 +1,21 @@
 import http, { unwrap } from './http'
 import type { ApiResponse } from './types'
 
+export type TenantScope =
+  | 'platform_only'
+  | 'enterprise_only'
+  | 'personal_only'
+  | 'all'
+  | 'platform_enterprise'
+  | 'enterprise_personal'
+  | 'platform_personal'
+
 export interface MenuBundleOp {
   id: number
   path: string
   name: string
   is_platform_only?: boolean
+  tenant_scope?: TenantScope
   is_package_feature?: boolean
   feature_code?: string | null
   feature_type?: string | null
@@ -22,6 +32,7 @@ export interface MenuBundle {
   data_permission_id: number
   operations: MenuBundleOp[]
   is_platform_only?: boolean
+  tenant_scope?: TenantScope
   is_package_feature?: boolean
   show_in_admin?: boolean
   feature_code?: string | null
@@ -101,6 +112,7 @@ export async function updatePermission(
   payload: {
     data_perm_mode?: 'NONE' | 'ORG' | 'BU' | 'ORG_BU'
     is_platform_only?: boolean
+    tenant_scope?: TenantScope
     show_in_admin?: boolean
   },
 ) {

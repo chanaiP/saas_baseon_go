@@ -358,6 +358,33 @@ func TestAppCenterLoadPlatformOnlyManifestKeepsAssetsOutOfPackages(t *testing.T)
 	require.Equal(t, permissionCount, rolePermissionCount)
 }
 
+func TestAppCenterLoadTenantManifestDefaultsConsumerScopes(t *testing.T) {
+	db := newAppCenterTestDB(t)
+	require.NoError(t, db.Create(&models.Tenant{ID: 1, Code: "platform", Name: "平台主体", IsPlatform: true, Status: 1}).Error)
+	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)
+	require.NoError(t, db.Create(&models.Role{ID: 1, TenantID: 1, Code: "admin", Name: "超级管理员", Status: 1}).Error)
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "internal", "apps", "data_center", "app.manifest.yaml"))
+	require.NoError(t, err)
+
+	service := NewAppService(repositories.NewAppRepository(db))
+	loaded, err := service.LoadManifest(context.Background(), 1, dto.ManifestLoadRequest{
+		FileName:   "app.manifest.yaml",
+		Content:    string(raw),
+		SourceType: "LOCAL_FILE",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "SUCCESS", loaded.Status)
+
+	var menu models.Permission
+	require.NoError(t, db.Where("app_code = ? AND path = ? AND deleted_at IS NULL", "data-center", "/data-center/dashboard").First(&menu).Error)
+	require.Equal(t, "enterprise_personal", menu.TenantScope)
+
+	var op models.SysAppPermission
+	require.NoError(t, db.Where("app_code = ? AND permission_code = ? AND deleted_at IS NULL", "data-center", "data_center:ai_analyze").First(&op).Error)
+	require.Equal(t, "enterprise_personal", op.TenantScope)
+}
+
 func TestAppCenterParseManifestBlocksExistingAppCodeForNewImport(t *testing.T) {
 	db := newAppCenterTestDB(t)
 	require.NoError(t, db.Create(&models.AppUser{ID: 1, TenantID: 1, Account: "admin", Name: "平台管理员", Status: 1, IsPlatformAdmin: true}).Error)

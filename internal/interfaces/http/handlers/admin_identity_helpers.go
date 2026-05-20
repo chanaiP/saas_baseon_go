@@ -97,6 +97,9 @@ func (h *IdentityHandler) allPermissionCodesForAdmin(user models.AppUser, filter
 		if filterSubscription && !permissionAllowedByFeatureCodeSet(permission, allowedFeatures) {
 			continue
 		}
+		if !h.permissionAllowedForTenantType(user, permission) {
+			continue
+		}
 		if _, ok := seen[permission.Path]; ok {
 			continue
 		}

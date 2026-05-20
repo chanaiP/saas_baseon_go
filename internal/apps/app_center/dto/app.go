@@ -152,6 +152,7 @@ type AppEntryResponse struct {
 	ParentCode       *string    `json:"parent_code"`
 	SortOrder        int        `json:"sort_order"`
 	PlatformOnly     bool       `json:"platform_only"`
+	TenantScope      string     `json:"tenant_scope"`
 	TenantVisible    bool       `json:"tenant_visible"`
 	ShowInAdmin      bool       `json:"show_in_admin"`
 	TenantEditable   bool       `json:"tenant_editable"`
@@ -184,6 +185,7 @@ type AppPermissionResponse struct {
 	PermissionType   string     `json:"permission_type"`
 	MenuCode         *string    `json:"menu_code"`
 	PlatformOnly     bool       `json:"platform_only"`
+	TenantScope      string     `json:"tenant_scope"`
 	IncludeInPackage bool       `json:"include_in_package"`
 	DataPermMode     string     `json:"data_perm_mode"`
 	Status           string     `json:"status"`

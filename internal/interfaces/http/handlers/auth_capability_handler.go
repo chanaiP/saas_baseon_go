@@ -136,6 +136,9 @@ func (h *IdentityHandler) permissionCodesForUser(user models.AppUser, filterSubs
 		if !user.IsPlatformAdmin && !h.viewerHasPlatformScope(user) && permission.IsPlatformOnly {
 			continue
 		}
+		if !h.permissionAllowedForTenantType(user, permission) {
+			continue
+		}
 		if filterSubscription && !permissionAllowedByFeatureCodeSet(permission, allowedFeatures) {
 			continue
 		}

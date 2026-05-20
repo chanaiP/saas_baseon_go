@@ -14,6 +14,9 @@ func (h *IdentityHandler) routeAllowed(user models.AppUser, method, fullPath str
 }
 
 func (h *IdentityHandler) routeAllowedForRequest(user models.AppUser, method, fullPath, resource string) bool {
+	if routeMetadataReadOptional(method, fullPath) {
+		return true
+	}
 	required := requiredPermissionForRequest(method, fullPath, resource)
 	if required == "" {
 		return routePermissionOptional(method, fullPath)
@@ -21,9 +24,24 @@ func (h *IdentityHandler) routeAllowedForRequest(user models.AppUser, method, fu
 	if required == "brand:edit" {
 		return h.userCanEditTenantBranding(user)
 	}
+	if !h.routeScopeAllowed(user, required) {
+		return false
+	}
 	codes := h.userPermissionCodeSet(user.ID)
 	_, ok := codes[required]
 	return ok
+}
+
+func routeMetadataReadOptional(method, path string) bool {
+	if method != "GET" {
+		return false
+	}
+	switch path {
+	case "/api/roles/permission-menu-bundles", "/api/permission-menu-bundles", "/api/permissions/menu-bundles":
+		return true
+	default:
+		return false
+	}
 }
 
 func (h *IdentityHandler) userPermissionCodeSet(userID uint64) map[string]struct{} {
@@ -117,6 +135,7 @@ func optionalRouteByMethodPath() map[string]bool {
 	return map[string]bool{
 		"GET /api/auth/captcha":                                         true,
 		"GET /api/auth/phone-login-tenants":                             true,
+		"POST /api/auth/register":                                       true,
 		"POST /api/auth/login":                                          true,
 		"GET /api/integration-center/oauth/callback/:provider_app_code": true,
 		"POST /api/integration-center/webhooks/:provider_app_code":      true,
@@ -132,6 +151,9 @@ func optionalRouteByMethodPath() map[string]bool {
 		"GET /api/users/me/preferences":           true,
 		"PUT /api/users/me/preferences":           true,
 		"GET /api/tenant/branding":                true,
+		"GET /api/roles/permission-menu-bundles":  true,
+		"GET /api/permission-menu-bundles":        true,
+		"GET /api/permissions/menu-bundles":       true,
 		"GET /api/dict-types/by-code/:code/items": true,
 		"GET /api/dict-types/by-code":             true,
 		"POST /api/files/upload":                  true,

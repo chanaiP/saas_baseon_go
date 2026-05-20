@@ -106,6 +106,7 @@ type SysAppEntry struct {
 	ParentCode        *string    `gorm:"column:parent_code;type:varchar(120)"`
 	SortOrder         int        `gorm:"column:sort_order;not null;default:0"`
 	PlatformOnly      bool       `gorm:"column:platform_only;not null;default:false"`
+	TenantScope       string     `gorm:"column:tenant_scope;type:varchar(32);not null;default:'enterprise_only';index"`
 	TenantVisible     bool       `gorm:"column:tenant_visible;not null;default:true"`
 	ShowInAdmin       bool       `gorm:"column:show_in_admin;not null;default:true"`
 	TenantEditable    bool       `gorm:"column:tenant_editable;not null;default:false"`
@@ -156,6 +157,7 @@ type SysAppPermission struct {
 	PermissionType    string     `gorm:"column:permission_type;type:varchar(32);not null"`
 	MenuCode          *string    `gorm:"column:menu_code;type:varchar(120);index"`
 	PlatformOnly      bool       `gorm:"column:platform_only;not null;default:false"`
+	TenantScope       string     `gorm:"column:tenant_scope;type:varchar(32);not null;default:'enterprise_only';index"`
 	IncludeInPackage  bool       `gorm:"column:include_in_package;not null;default:false"`
 	DataPermMode      string     `gorm:"column:data_perm_mode;type:varchar(16);not null;default:'ORG'"`
 	ManifestHash      string     `gorm:"column:manifest_hash;type:varchar(128);not null"`

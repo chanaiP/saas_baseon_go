@@ -42,6 +42,9 @@ func (h *IdentityHandler) Login(c *gin.Context) {
 			return
 		}
 	}
+	if h.loginWithAccount(c, body.Account, body.Password, body.TenantID, body.TenantCode) {
+		return
+	}
 	query := h.db.Where("app_user.deleted_at IS NULL").Where("(account = ? OR employee_no = ? OR phone = ?)", body.Account, body.Account, body.Account)
 	if body.TenantID != nil {
 		query = query.Where("tenant_id = ?", *body.TenantID)
@@ -58,7 +61,7 @@ func (h *IdentityHandler) Login(c *gin.Context) {
 	if body.TenantID == nil && looksLikeMobileAccount(body.Account) {
 		tenantOptions := h.activeLoginTenantOptions(candidates)
 		if len(tenantOptions) > 1 {
-			c.JSON(200, response.Body{Code: 2, Message: "请选择主体", Data: gin.H{"token": nil, "token_type": "bearer", "captcha_required": false, "tenants": tenantOptions}})
+			c.JSON(200, response.Body{Code: 2, Message: "请选择空间", Data: gin.H{"token": nil, "token_type": "bearer", "captcha_required": false, "tenants": tenantOptions}})
 			return
 		}
 	}
@@ -74,39 +77,12 @@ func (h *IdentityHandler) Login(c *gin.Context) {
 		return
 	}
 	if len(matched) > 1 && body.TenantID == nil && body.TenantCode == "" {
-		c.JSON(200, response.Body{Code: 2, Message: "请选择主体", Data: gin.H{"token": nil, "token_type": "bearer", "captcha_required": false, "tenants": h.activeLoginTenantOptions(matched)}})
+		c.JSON(200, response.Body{Code: 2, Message: "请选择空间", Data: gin.H{"token": nil, "token_type": "bearer", "captcha_required": false, "tenants": h.activeLoginTenantOptions(matched)}})
 		return
 	}
 	user := matched[0]
-	if user.Status != 1 {
-		h.recordLoginFailure(c, body.Account, &user.ID, &user.TenantID, "账号已停用")
-		response.Error(c, 400, response.CodeBadRequest, "账号已停用")
-		return
-	}
-	var tenant models.Tenant
-	if err := h.db.First(&tenant, user.TenantID).Error; err == nil && tenant.Status != 1 {
-		h.recordLoginFailure(c, body.Account, &user.ID, &user.TenantID, "所属主体已停用")
-		response.Error(c, 400, response.CodeBadRequest, "所属主体已停用，请联系管理员")
-		return
-	}
-	if !h.subscriptionAllowsLogin(user.TenantID) {
-		h.recordLoginFailure(c, body.Account, &user.ID, &user.TenantID, "账户已到期")
-		response.Error(c, 400, response.CodeBadRequest, "账户已到期，请联系管理员续费")
-		return
-	}
-	token, err := h.issueLoginToken(user)
-	if err != nil {
-		response.Error(c, 500, response.CodeInternal, "令牌生成失败")
-		return
-	}
-	h.resetLoginFail(c, body.Account)
-	h.resetIPLoginFail(c)
-	h.recordLogin(c, body.Account, &user.ID, &user.TenantID, true, "登录成功")
-	response.OK(c, gin.H{
-		"token":            token,
-		"token_type":       "bearer",
-		"captcha_required": false,
-	})
+	h.backfillAccountForLegacyUser(&user, body.Password)
+	h.finishLogin(c, body.Account, user)
 }
 
 func (h *IdentityHandler) Logout(c *gin.Context) {
@@ -178,21 +154,21 @@ func (h *IdentityHandler) SwitchTenant(c *gin.Context) {
 		body.TenantID = user.TenantID
 	}
 	if body.TenantID == user.TenantID {
-		response.Error(c, 400, response.CodeBadRequest, "已在当前主体")
+		response.Error(c, 400, response.CodeBadRequest, "已在当前空间")
 		return
 	}
 	if user.Phone == nil || strings.TrimSpace(*user.Phone) == "" {
-		response.Error(c, 400, response.CodeBadRequest, "不可切换到该主体（需为同一手机号下的账号）")
+		response.Error(c, 400, response.CodeBadRequest, "不可切换到该空间（需为同一手机号下的账号）")
 		return
 	}
 	var target models.AppUser
 	if err := h.db.Where("tenant_id = ? AND phone = ? AND status = ?", body.TenantID, *user.Phone, 1).Order("id asc").First(&target).Error; err != nil {
-		response.Error(c, 400, response.CodeBadRequest, "不可切换到该主体（需为同一手机号下的账号）")
+		response.Error(c, 400, response.CodeBadRequest, "不可切换到该空间（需为同一手机号下的账号）")
 		return
 	}
 	var tenant models.Tenant
 	if err := h.db.First(&tenant, target.TenantID).Error; err != nil || tenant.Status != 1 {
-		response.Error(c, 400, response.CodeBadRequest, "主体不可用")
+		response.Error(c, 400, response.CodeBadRequest, "空间不可用")
 		return
 	}
 	if !h.subscriptionAllowsLogin(target.TenantID) {
@@ -208,6 +184,6 @@ func (h *IdentityHandler) SwitchTenant(c *gin.Context) {
 		response.Error(c, 500, response.CodeInternal, "令牌生成失败")
 		return
 	}
-	h.recordLogin(c, coalesceString(user.EmployeeNo, "switch"), &target.ID, &target.TenantID, true, "切换主体登录")
+	h.recordLogin(c, coalesceString(user.EmployeeNo, "switch"), &target.ID, &target.TenantID, true, "切换空间登录")
 	response.OK(c, gin.H{"token": token, "token_type": "bearer", "captcha_required": false})
 }

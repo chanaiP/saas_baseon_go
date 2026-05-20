@@ -7,6 +7,8 @@ type Tenant struct {
 	Code         string     `gorm:"column:code;type:varchar(64);uniqueIndex;not null"`
 	Name         string     `gorm:"column:name;type:varchar(200);not null"`
 	Status       int        `gorm:"column:status;not null;default:1"`
+	TenantType   string     `gorm:"column:tenant_type;type:varchar(32);not null;default:'enterprise';index"`
+	OwnerUserID  *uint64    `gorm:"column:owner_user_id;index"`
 	StartDate    *time.Time `gorm:"column:start_date;type:date"`
 	ExpireDate   *time.Time `gorm:"column:expire_date;type:date"`
 	MaxCompanies int        `gorm:"column:max_companies;not null;default:0"`
@@ -29,6 +31,9 @@ func (Tenant) TableName() string {
 type AppUser struct {
 	ID                uint64     `gorm:"primaryKey;autoIncrement;column:id"`
 	TenantID          uint64     `gorm:"column:tenant_id;not null;index;index:idx_app_user_tenant_employee,unique;index:idx_app_user_tenant_phone,unique"`
+	AccountID         *uint64    `gorm:"column:account_id;index"`
+	IdentityUserID    *uint64    `gorm:"column:identity_user_id;index"`
+	MemberType        string     `gorm:"column:member_type;type:varchar(32);not null;default:'enterprise_member';index"`
 	CompanyID         *uint64    `gorm:"column:company_id;index"`
 	DepartmentID      *uint64    `gorm:"column:department_id;index"`
 	EmployeeNo        string     `gorm:"column:employee_no;type:varchar(64);not null;index:idx_app_user_tenant_employee,unique"`
@@ -50,6 +55,41 @@ type AppUser struct {
 
 func (AppUser) TableName() string {
 	return "app_user"
+}
+
+type Account struct {
+	ID                uint64     `gorm:"primaryKey;autoIncrement;column:id"`
+	LoginAccount      string     `gorm:"column:login_account;type:varchar(128);not null;uniqueIndex"`
+	Phone             *string    `gorm:"column:phone;type:varchar(32);uniqueIndex"`
+	Email             *string    `gorm:"column:email;type:varchar(200);uniqueIndex"`
+	PasswordHash      string     `gorm:"column:password_hash;type:varchar(200);not null"`
+	Status            int        `gorm:"column:status;not null;default:1;index"`
+	SessionVersion    int        `gorm:"column:session_version;not null;default:1"`
+	PasswordChangedAt *time.Time `gorm:"column:password_changed_at"`
+	CreatedAt         time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt         time.Time  `gorm:"column:updated_at;not null"`
+	DeletedAt         *time.Time `gorm:"column:deleted_at;index"`
+}
+
+func (Account) TableName() string {
+	return "account"
+}
+
+type UserIdentity struct {
+	ID          uint64     `gorm:"primaryKey;autoIncrement;column:id"`
+	AccountID   uint64     `gorm:"column:account_id;not null;index"`
+	DisplayName string     `gorm:"column:display_name;type:varchar(100);not null"`
+	AvatarURL   *string    `gorm:"column:avatar_url;type:text"`
+	Phone       *string    `gorm:"column:phone;type:varchar(32);index"`
+	Email       *string    `gorm:"column:email;type:varchar(200);index"`
+	Status      int        `gorm:"column:status;not null;default:1;index"`
+	CreatedAt   time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt   time.Time  `gorm:"column:updated_at;not null"`
+	DeletedAt   *time.Time `gorm:"column:deleted_at;index"`
+}
+
+func (UserIdentity) TableName() string {
+	return "user_identity"
 }
 
 type FileObject struct {
@@ -101,6 +141,7 @@ type Permission struct {
 	Visible          bool       `gorm:"column:visible;not null;default:true"`
 	ShowInAdmin      bool       `gorm:"column:show_in_admin;not null;default:true"`
 	IsPlatformOnly   bool       `gorm:"column:is_platform_only;not null;default:false"`
+	TenantScope      string     `gorm:"column:tenant_scope;type:varchar(32);not null;default:'enterprise_only';index"`
 	IsPackageFeature bool       `gorm:"column:is_package_feature;not null;default:true"`
 	TenantEditable   bool       `gorm:"column:tenant_editable;not null;default:false"`
 	TenantEditScope  *string    `gorm:"column:tenant_edit_scope;type:varchar(100)"`
