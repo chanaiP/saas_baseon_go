@@ -29,6 +29,7 @@ export interface MenuBundle {
   path: string
   title: string
   menu_permission_id: number
+  parent_menu_permission_id?: number | null
   data_permission_id: number
   operations: MenuBundleOp[]
   is_platform_only?: boolean

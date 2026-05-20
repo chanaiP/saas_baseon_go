@@ -38,6 +38,7 @@ func (h *IdentityHandler) MenuBundles(c *gin.Context) {
 			"path":               permission.Path,
 			"title":              permission.Name,
 			"menu_permission_id": permission.ID,
+			"parent_menu_permission_id": permission.ParentID,
 			"data_permission_id": h.dataPermissionIDForMenu(user.TenantID, permission.Path),
 			"operations":         operations,
 			"is_platform_only":   permission.IsPlatformOnly,

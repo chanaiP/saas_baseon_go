@@ -651,12 +651,26 @@ function buildManifestAppMenus(nodes: MenuNode[], bundles: MenuBundle[]): MenuNo
     const rootBundle = sorted[0]
     const rootPath = rootBundle.path
     const directoryTitle = rootBundle.title || appCode
-    const rootMenu: MenuNode = {
-      ...menuNodeFromBundle(rootBundle),
-      id: `${menuNodeIdFromBundle(rootBundle)}-overview`,
-      title: '总览',
+    const rootPermissionId = rootBundle.menu_permission_id
+    const bundleIDs = new Set(sorted.map((bundle) => bundle.menu_permission_id))
+    const childBundles = sorted.filter((bundle) => bundle.menu_permission_id !== rootPermissionId)
+    const childrenByParent = new Map<number, MenuBundle[]>()
+    for (const bundle of childBundles) {
+      const parentID = bundle.parent_menu_permission_id && bundleIDs.has(bundle.parent_menu_permission_id)
+        ? bundle.parent_menu_permission_id
+        : rootPermissionId
+      if (!childrenByParent.has(parentID)) childrenByParent.set(parentID, [])
+      childrenByParent.get(parentID)!.push(bundle)
     }
-    const children = sorted.slice(1).map(menuNodeFromBundle)
+    const buildNode = (bundle: MenuBundle): MenuNode => {
+      const node = menuNodeFromBundle(bundle)
+      const menuChildren = (childrenByParent.get(bundle.menu_permission_id) || []).map(buildNode)
+      if (menuChildren.length) {
+        node.children = [...menuChildren, ...(node.children || [])]
+      }
+      return node
+    }
+    const children = (childrenByParent.get(rootPermissionId) || []).map(buildNode)
     const directory: MenuNode = {
       id: `manifest-app-${appCode}`,
       type: 'directory',
@@ -670,7 +684,8 @@ function buildManifestAppMenus(nodes: MenuNode[], bundles: MenuBundle[]): MenuNo
       tenantScope: rootBundle.tenant_scope,
       showInAdmin: rootBundle.show_in_admin !== false,
       enabled: true,
-      children: [rootMenu, ...children].filter((node) => node.showInAdmin !== false),
+      children: (children.length ? children : [menuNodeFromBundle(rootBundle)])
+        .filter((node) => node.showInAdmin !== false),
     }
 
     if (directory.children?.length && rootPath) {
