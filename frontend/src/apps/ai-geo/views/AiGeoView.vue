@@ -125,7 +125,7 @@
             </div>
             <div class="chat-input">
               <textarea v-model="workbench.prompt" placeholder="输入你的创作想法；不选资料和 Skill 时，AI 将自由发挥生成母稿"></textarea>
-              <button class="btn primary" @click="generateDraftFromChat">生成母稿</button>
+              <button v-if="canGenerateDraft" class="btn primary" @click="generateDraftFromChat">生成母稿</button>
             </div>
           </div>
 
@@ -166,9 +166,17 @@
             </div>
             <PreviewPane v-else :mode="previewMode" :title="editingDraft.title" :summary="editingDraft.summary" :body="editingDraft.body" :cover-image="editingDraft.coverImage" />
             <div class="editor-actions">
-              <button class="btn ghost" @click="saveDraft">保存草稿</button>
-              <button class="btn primary" @click="submitDraftAudit">提交审核</button>
-              <button class="btn dark" @click="generateChannelsForDraft(editingDraft)">生成渠道版本</button>
+              <button v-if="canManageDraft" class="btn ghost" @click="saveDraft">保存草稿</button>
+              <button v-if="canManageDraft" class="btn ghost" @click="generateDraftAudit(editingDraft)">AI审核建议</button>
+              <button v-if="canManageDraft" class="btn primary" @click="submitDraftAudit">提交审核</button>
+              <button v-if="canManageChannelContent" class="btn dark" @click="generateChannelsForDraft(editingDraft)">生成渠道版本</button>
+            </div>
+            <div v-if="draftAuditPanel.summary || draftAuditPanel.items.length" class="audit-result">
+              <div class="audit-result-head">
+                <span :class="['badge', draftAuditPanel.passed ? 'success' : 'warning']">{{ draftAuditPanel.risk }}</span>
+                <strong>{{ draftAuditPanel.summary }}</strong>
+              </div>
+              <ul><li v-for="item in draftAuditPanel.items" :key="item">{{ item }}</li></ul>
             </div>
           </div>
         </div>
@@ -210,8 +218,9 @@
                     </div>
                     <div class="row-actions">
                       <button class="btn small" @click="editDraftInWorkbench(draft)">进入编辑器</button>
-                      <button class="btn small ghost" @click="approveDraft(draft)">审核通过</button>
-                      <button class="btn small dark" @click="generateChannelsForDraft(draft)">生成渠道</button>
+                      <button v-if="canManageDraft" class="btn small ghost" @click="generateDraftAudit(draft)">审核建议</button>
+                      <button v-if="canManageDraft" class="btn small ghost" @click="approveDraft(draft)">审核通过</button>
+                      <button v-if="canManageChannelContent" class="btn small dark" @click="generateChannelsForDraft(draft)">生成渠道</button>
                     </div>
                   </div>
                   <div v-if="draft.channels.length" class="channel-list">
@@ -226,8 +235,8 @@
                       </div>
                       <span :class="['badge', channel.status === '已确认' ? 'success' : 'warning']">{{ channel.status }}</span>
                       <button class="btn small" @click="openChannelEditor(draft, channel)">编辑/预览</button>
-                      <button class="btn small ghost" @click="confirmChannel(channel)">确认</button>
-                      <button class="btn small dark" @click="addChannelToPlan(draft, channel)">加入发布计划</button>
+                      <button v-if="canManageChannelContent" class="btn small ghost" @click="confirmChannel(channel)">确认</button>
+                      <button v-if="canManagePublishPlan" class="btn small dark" @click="addChannelToPlan(draft, channel)">加入发布计划</button>
                     </div>
                   </div>
                 </div>
@@ -287,7 +296,7 @@
                 </div>
                 <div class="filters">
                   <input type="date" v-model="planDate" class="date-input" />
-                  <button class="btn primary" @click="openNewPlanModal">新建发布计划</button>
+                  <button v-if="canManagePublishPlan" class="btn primary" @click="openNewPlanModal">新建发布计划</button>
                 </div>
               </div>
               <div class="table-wrap">
@@ -326,9 +335,9 @@
                       <td><span :class="['badge', queueStatusClass(plan.materialStatus)]">{{ plan.materialStatus }}</span></td>
                       <td><span :class="['badge', queueStatusClass(plan.publishStatus)]">{{ plan.publishStatus }}</span></td>
                       <td class="row-actions-inline">
-                        <button type="button" class="btn small ghost" @click="runPlanAudit(plan)">运行审核</button>
-                        <button type="button" class="btn small ghost" @click="preCheckPlan(plan)">前置检查</button>
-                        <button type="button" class="btn small dark" @click="completePlan(plan)">完成</button>
+                        <button v-if="canManagePublishPlan" type="button" class="btn small ghost" @click="runPlanAudit(plan)">运行审核</button>
+                        <button v-if="canManagePublishPlan" type="button" class="btn small ghost" @click="preCheckPlan(plan)">前置检查</button>
+                        <button v-if="canManagePublishPlan" type="button" class="btn small dark" @click="completePlan(plan)">完成</button>
                       </td>
                     </tr>
                   </tbody>
@@ -354,7 +363,7 @@
               <h3>渠道账号</h3>
               <p>管理各渠道的授权账号与登录态</p>
             </div>
-            <button class="btn primary" @click="showToast('新增渠道账号（原型）')">新增账号</button>
+            <button v-if="canManageChannelAccount" class="btn primary" @click="showToast('新增渠道账号（原型）')">新增账号</button>
           </div>
           <div class="table-wrap">
             <table class="table">
@@ -374,8 +383,8 @@
                   <td><span :class="['badge', account.status === '已授权' ? 'success' : 'warning']">{{ account.status }}</span></td>
                   <td>{{ account.updatedAt }}</td>
                   <td class="row-actions-inline">
-                    <button class="btn small ghost" @click="showToast(`配置 ${account.accountName}`)">配置</button>
-                    <button class="btn small" @click="showToast(`重新授权 ${account.accountName}`)">授权</button>
+                    <button v-if="canManageChannelAccount" class="btn small ghost" @click="showToast(`配置 ${account.accountName}`)">配置</button>
+                    <button v-if="canManageChannelAccount" class="btn small" @click="showToast(`重新授权 ${account.accountName}`)">授权</button>
                   </td>
                 </tr>
               </tbody>
@@ -392,8 +401,8 @@
               <p>品牌第一维度；品牌下包含商品资料卡、SKU 资料、SKU 覆盖、竞品信息</p>
             </div>
             <div class="top-actions">
-              <button class="btn ghost" @click="openImportModal">动态导入</button>
-              <button class="btn primary" @click="openBrandModal">新增品牌</button>
+              <button v-if="canImportData" class="btn ghost" @click="openImportModal">动态导入</button>
+              <button v-if="canImportData" class="btn primary" @click="openBrandModal">新增品牌</button>
             </div>
           </div>
           <div class="brand-grid">
@@ -413,8 +422,8 @@
               <p>{{ currentBrand.position }} · {{ currentBrand.audience }} · {{ currentBrand.priceBand }}</p>
             </div>
             <div class="row-actions">
-              <button class="btn small ghost" @click="openBrandModal(currentBrand)">编辑品牌</button>
-              <button class="btn small dark" @click="generateBrandKeywords">生成关键词</button>
+              <button v-if="canImportData" class="btn small ghost" @click="openBrandModal(currentBrand)">编辑品牌</button>
+              <button v-if="canImportData" class="btn small dark" @click="generateBrandKeywords">生成关键词</button>
             </div>
           </div>
           <div class="tabs">
@@ -511,7 +520,7 @@
           <label>执行方式<select v-model="newPlanMethod"><option>渠道 API</option><option>Agent 执行</option><option>人工执行</option></select></label>
           <label>自动化级别<select v-model="newPlanLevel"><option>全自动</option><option>半自动</option><option>人工</option></select></label>
           <label>计划时间<input type="datetime-local" v-model="newPlanTime" /></label>
-          <button class="btn primary full" @click="createPlan">生成发布任务</button>
+          <button v-if="canManagePublishPlan" class="btn primary full" @click="createPlan">生成发布任务</button>
         </div>
       </div>
     </div>
@@ -547,13 +556,21 @@
             <button class="btn small ghost" @click="optimizeChannel('减少营销感')">减少营销感</button>
             <button class="btn small ghost" @click="optimizeChannel('生成话题标签')">生成话题标签</button>
             <button class="btn small ghost" @click="optimizeChannel('规避敏感词')">规避敏感词</button>
+            <button v-if="canManageChannelContent" class="btn small dark" @click="generateChannelAudit(selectedChannel)">AI审核建议</button>
+          </div>
+          <div v-if="channelAuditPanel.summary || channelAuditPanel.items.length" class="audit-result compact">
+            <div class="audit-result-head">
+              <span :class="['badge', channelAuditPanel.passed ? 'success' : 'warning']">{{ channelAuditPanel.risk }}</span>
+              <strong>{{ channelAuditPanel.summary }}</strong>
+            </div>
+            <ul><li v-for="item in channelAuditPanel.items" :key="item">{{ item }}</li></ul>
           </div>
         </div>
         <ChannelPreview v-else :mode="channelPreviewMode" :channel="selectedChannel" />
         <div class="drawer-actions">
-          <button class="btn ghost" @click="regenerateChannel">重新生成</button>
-          <button class="btn primary" @click="confirmSelectedChannel">确认渠道内容</button>
-          <button class="btn dark" @click="addSelectedChannelToPlan">加入发布计划</button>
+          <button v-if="canManageChannelContent" class="btn ghost" @click="regenerateChannel">重新生成</button>
+          <button v-if="canManageChannelContent" class="btn primary" @click="confirmSelectedChannel">确认渠道内容</button>
+          <button v-if="canManagePublishPlan" class="btn dark" @click="addSelectedChannelToPlan">加入发布计划</button>
         </div>
       </div>
 
@@ -585,7 +602,7 @@
             <div><h4>{{ comp.brand }} - {{ comp.name }}</h4><p>{{ comp.link }}</p></div>
             <div class="competitor-grid"><span>价格：{{ comp.price }}</span><span>主卖点：{{ comp.point }}</span><span>差异点：{{ comp.diff }}</span><span>可借鉴内容：{{ comp.angle }}</span></div>
           </div>
-          <button class="btn ghost" @click="addCompetitor">新增竞品</button>
+          <button v-if="canImportData" class="btn ghost" @click="addCompetitor">新增竞品</button>
         </div>
         <div v-if="productTab === '关键词/内容'" class="keyword-cloud"><span v-for="kw in selectedProduct.keywords" :key="kw" class="keyword">{{ kw }}</span></div>
       </div>
@@ -598,6 +615,7 @@
 <script setup>
 import { computed, defineComponent, h, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { usePermissionStore } from '@/stores/permission'
 import ChannelManagementPanel from '../components/ChannelManagementPanel.vue'
 import {
   approveAiGeoDraft,
@@ -606,13 +624,17 @@ import {
   createAiGeoPublishPlan,
   fetchAiGeoBrands,
   fetchAiGeoChannels,
+  fetchAiGeoChannelContentAuditSuggestions,
   fetchAiGeoCompetitors,
+  fetchAiGeoDraftAuditSuggestions,
   fetchAiGeoDrafts,
   fetchAiGeoOverview,
   fetchAiGeoProducts,
   fetchAiGeoPublishPlans,
   fetchAiGeoSKUs,
+  generateAiGeoChannelContentAuditSuggestion,
   generateAiGeoChannelContent,
+  generateAiGeoDraftAuditSuggestion,
   generateAiGeoDraft,
   importAiGeoMaterials,
   submitAiGeoDraft,
@@ -669,6 +691,14 @@ const menus = [
 
 const route = useRoute()
 const router = useRouter()
+const permissionStore = usePermissionStore()
+
+const canGenerateDraft = computed(() => permissionStore.canUseAction('ai_geo:workbench:generate'))
+const canManageDraft = computed(() => permissionStore.canUseAction('ai_geo:draft:manage'))
+const canManageChannelContent = computed(() => permissionStore.canUseAction('ai_geo:channel_content:manage'))
+const canManagePublishPlan = computed(() => permissionStore.canUseAction('ai_geo:publish_plan:manage'))
+const canManageChannelAccount = computed(() => permissionStore.canUseAction('ai_geo:channel_account:manage'))
+const canImportData = computed(() => permissionStore.canUseAction('ai_geo:data:import'))
 
 const routeMenuMap = {
   overview: 'overview',
@@ -1072,6 +1102,8 @@ const toast = reactive({ show: false, text: '' })
 const selectedChannel = reactive({})
 const selectedDraft = ref(null)
 const selectedProduct = reactive({})
+const draftAuditPanel = reactive({ summary: '', risk: '未审核', passed: false, items: [] })
+const channelAuditPanel = reactive({ summary: '', risk: '未审核', passed: false, items: [] })
 
 const hotspots = reactive([
   { id: 1, title: '通勤穿搭回归轻量化', summary: '春夏职场穿搭更强调舒适、轻正式和可复用单品。', platform: '小红书', heat: 86, risk: '低风险' },
@@ -1110,7 +1142,12 @@ const newPlanMethod = ref('Agent 执行')
 const newPlanLevel = ref('半自动')
 const newPlanTime = ref('2026-05-20T18:00')
 
-onMounted(() => {
+onMounted(async () => {
+  try {
+    await permissionStore.load()
+  } catch {
+    showToast('权限信息加载失败，按钮将以后端校验为准')
+  }
   loadAiGeoData()
 })
 
@@ -1408,6 +1445,24 @@ async function approveDraft(draft) {
     loading.action = false
   }
 }
+async function generateDraftAudit(draft) {
+  const targetId = Number(draft?.id || editingDraft.id)
+  if (!targetId) {
+    showToast('请先保存母稿再生成审核建议')
+    return
+  }
+  loading.action = true
+  try {
+    const suggestion = await generateAiGeoDraftAuditSuggestion(targetId)
+    await fetchAiGeoDraftAuditSuggestions(targetId, { limit: 5 })
+    applyAuditPanel(draftAuditPanel, suggestion)
+    showToast('母稿审核建议已生成')
+  } catch (error) {
+    showToast(error?.message || '母稿审核建议生成失败')
+  } finally {
+    loading.action = false
+  }
+}
 async function generateChannelsForDraft(draft) {
   const target = draft.id ? draft : drafts[0]
   const channel = channelProfiles[0]
@@ -1431,11 +1486,36 @@ async function generateChannelsForDraft(draft) {
     loading.action = false
   }
 }
-function openChannelEditor(draft, channel) { selectedDraft.value = draft; Object.assign(selectedChannel, channel); drawer.type = 'channelEditor'; drawer.title = `${channel.channel} 内容编辑`; channelPreviewMode.value = 'edit' }
+function openChannelEditor(draft, channel) {
+  selectedDraft.value = draft
+  Object.assign(selectedChannel, channel)
+  Object.assign(channelAuditPanel, { summary: '', risk: '未审核', passed: false, items: [] })
+  drawer.type = 'channelEditor'
+  drawer.title = `${channel.channel} 内容编辑`
+  channelPreviewMode.value = 'edit'
+}
 function confirmChannel(channel) { channel.status = '已确认'; showToast('渠道内容已确认') }
 function confirmSelectedChannel() { selectedChannel.status = '已确认'; showToast('渠道内容已确认') }
 function optimizeChannel(type) { selectedChannel.body += `\n\nAI 局部优化：${type}。`; if (type === '生成话题标签') selectedChannel.tags = '#通勤穿搭 #法式穿搭 #小个子穿搭'; showToast(type + '完成') }
 function regenerateChannel() { selectedChannel.body = selectedChannel.body + '\n\n已基于最新母稿重新生成渠道表达。'; showToast('渠道内容已重新生成') }
+async function generateChannelAudit(channel) {
+  const contentId = Number(channel?.id)
+  if (!contentId) {
+    showToast('请先生成渠道内容再运行审核')
+    return
+  }
+  loading.action = true
+  try {
+    const suggestion = await generateAiGeoChannelContentAuditSuggestion(contentId)
+    await fetchAiGeoChannelContentAuditSuggestions(contentId, { limit: 5 })
+    applyAuditPanel(channelAuditPanel, suggestion)
+    showToast('渠道内容审核建议已生成')
+  } catch (error) {
+    showToast(error?.message || '渠道审核建议生成失败')
+  } finally {
+    loading.action = false
+  }
+}
 async function addChannelToPlan(draft, channel) {
   const profile = channelProfiles.find(item => item.name === channel.channel) || channelProfiles[0]
   if (!profile?.id) {
@@ -1565,6 +1645,20 @@ async function updatePlanStatus(plan, payload, successText) {
   }
 }
 
+function applyAuditPanel(panel, suggestion) {
+  const rawSuggestions = suggestion.suggestion_json || suggestion.SuggestionJSON || '[]'
+  const items = parseJsonArray(rawSuggestions)
+    .map(item => {
+      if (typeof item === 'string') return item
+      return item?.text || item?.suggestion || item?.message || item?.title || ''
+    })
+    .filter(Boolean)
+  panel.summary = suggestion.summary || suggestion.Summary || '审核完成，暂无额外摘要'
+  panel.risk = auditRiskLabel(suggestion.risk_level || suggestion.RiskLevel)
+  panel.passed = Boolean(suggestion.passed ?? suggestion.Passed)
+  panel.items = items.length ? items : ['未发现需要阻断的问题，建议进入人工确认。']
+}
+
 function parseJsonArray(value) {
   if (Array.isArray(value)) return value
   if (!value) return []
@@ -1585,6 +1679,14 @@ function parseJsonObject(value) {
   } catch {
     return {}
   }
+}
+
+function auditRiskLabel(risk) {
+  return {
+    low: '低风险',
+    medium: '中风险',
+    high: '高风险',
+  }[risk] || risk || '未评级'
 }
 
 function skuStatusLabel(status) {
