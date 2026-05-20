@@ -236,6 +236,62 @@ func (h *Handler) ArchiveCompetitor(c *gin.Context) {
 	h.ok(c, data, err)
 }
 
+func (h *Handler) MaterialAssets(c *gin.Context) {
+	data, err := h.service.MaterialAssets(c.Request.Context(), viewer(c), pageRequest(c))
+	h.ok(c, data, err)
+}
+
+func (h *Handler) CreateMaterialAsset(c *gin.Context) {
+	var payload dto.MaterialAssetPayload
+	if bind(c, &payload) {
+		data, err := h.service.CreateMaterialAsset(c.Request.Context(), viewer(c), payload)
+		if err == nil {
+			err = h.auditWrite(c, "material_asset_create", fmt.Sprintf("%d", data.ID), "创建素材资料", gin.H{"asset_type": data.AssetType, "asset_name": data.AssetName})
+		}
+		h.ok(c, data, err)
+	}
+}
+
+func (h *Handler) ArchiveMaterialAsset(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	data, err := h.service.ArchiveMaterialAsset(c.Request.Context(), viewer(c), id)
+	if err == nil {
+		err = h.auditWrite(c, "material_asset_archive", fmt.Sprintf("%d", data.ID), "归档素材资料", gin.H{"asset_id": data.ID})
+	}
+	h.ok(c, data, err)
+}
+
+func (h *Handler) Hotspots(c *gin.Context) {
+	data, err := h.service.Hotspots(c.Request.Context(), viewer(c), pageRequest(c))
+	h.ok(c, data, err)
+}
+
+func (h *Handler) CreateHotspot(c *gin.Context) {
+	var payload dto.HotspotPayload
+	if bind(c, &payload) {
+		data, err := h.service.CreateHotspot(c.Request.Context(), viewer(c), payload)
+		if err == nil {
+			err = h.auditWrite(c, "hotspot_create", fmt.Sprintf("%d", data.ID), "创建热点资料", gin.H{"platform": data.Platform, "title": data.Title})
+		}
+		h.ok(c, data, err)
+	}
+}
+
+func (h *Handler) ArchiveHotspot(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	data, err := h.service.ArchiveHotspot(c.Request.Context(), viewer(c), id)
+	if err == nil {
+		err = h.auditWrite(c, "hotspot_archive", fmt.Sprintf("%d", data.ID), "归档热点资料", gin.H{"hotspot_id": data.ID})
+	}
+	h.ok(c, data, err)
+}
+
 func (h *Handler) Channels(c *gin.Context) {
 	data, err := h.service.Channels(c.Request.Context(), viewer(c), pageRequest(c))
 	h.ok(c, data, err)

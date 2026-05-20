@@ -62,6 +62,8 @@ AI GEO 是合并部署的租户应用，`app_code=ai-geo`。它面向多租户�
 - `/api/ai-geo/materials/products`
 - `/api/ai-geo/materials/skus`
 - `/api/ai-geo/materials/competitors`
+- `/api/ai-geo/materials/assets`
+- `/api/ai-geo/materials/hotspots`
 - `/api/ai-geo/materials/imports`
 - `/api/ai-geo/materials/imports/:id/errors`
 - `/api/ai-geo/workbench/drafts/generate`
@@ -74,9 +76,9 @@ AI GEO 是合并部署的租户应用，`app_code=ai-geo`。它面向多租户�
 第一批已落地能力：
 
 - 总览统计：品牌、商品、SKU、渠道、账号、今日母稿、待审母稿、渠道内容、发布计划、资料完整度和配额用量。
-- 资料中心：品牌、商品、SKU 和竞品资料列表/详情/新增/更新/归档。
+- 资料中心：品牌、商品、SKU 和竞品资料列表/详情/新增/更新/归档；素材和热点资料列表/新增/归档。
 - 资料导入：导入批次记录、字段预校验、字段映射落库、品牌/商品/SKU/竞品幂等导入、部分成功状态和错误行明细查询。
-- 工作台：可持久化生成母稿，生产启动时通过 AI 能力中心场景 `ai_geo_draft_generation` 调用 Gateway；测试和未注入场景时保留本地 generator 降级实现。
+- 工作台：可持久化生成母稿，生产启动时通过 AI 能力中心场景 `ai_geo_draft_generation` 调用 Gateway；测试和未注入场景时保留本地 generator 降级实现。生成上下文已包含品牌、商品、SKU、Skill、热点和用户提示。
 - 母稿：列表、详情、新增、提交审核、审核通过、驳回、归档。
 - 审核建议：前端已接入母稿和渠道内容 AI 审核建议入口，结果区展示风险等级、摘要和结构化建议。
 - 渠道内容：从母稿生成渠道版本。
@@ -93,7 +95,7 @@ AI GEO 通过 `internal/apps/ai_geo/services` 下的 Gateway adapter 接入 AI �
 
 当前已接入场景：
 
-- `ai_geo_draft_generation`：工作台母稿生成。输入包含用户提示、Skill、品牌资料和商品资料；输出解析为 `title`、`summary`、`body`、`keywords` 并落库为母稿。
+- `ai_geo_draft_generation`：工作台母稿生成。输入包含用户提示、Skill、品牌资料、商品资料、SKU 明细和热点资料；输出解析为 `title`、`summary`、`body`、`keywords` 并落库为母稿。
 - `ai_geo_channel_rewrite`：渠道内容改写。输入包含母稿、渠道资料和人工覆盖字段；输出解析为 `title`、`body` 并落库为渠道内容。
 - `ai_geo_audit_suggestion`：母稿和渠道内容审核建议。输入包含待审内容、渠道上下文；输出解析为风险等级、通过建议、摘要和结构化建议，并写入 `ai_geo_audit_suggestions` 保留历史。
 
@@ -179,5 +181,18 @@ select ai_scenario_code, status from ai_scenarios where app_code = 'ai-geo' and 
 
 ## 生产级剩余项
 
+- 资料中心仍需补独立关键词 API、素材详情/更新、素材文件上传解析和素材权限边界。
 - 资料导入需继续补文件上传解析、模板下载和大批量异步处理。
 - 渠道发布需接第三方集成中心或 Agent 执行，补 OAuth、Webhook、失败重试和发布链接回填。
+- 渠道内容还需补编辑接口、人工审核状态流转和渠道版本详情查询。
+- 发布计划还需补日历聚合接口、调整时间、失败重试和发布链接回填的执行器闭环。
+- 当前前端仍有部分原型态数据用于展示，应逐步替换为真实接口，避免生产环境误判。
+- 上线前必须跑通普通租户、无套餐租户、无角色权限用户、平台管理员四类访问差异测试。
+
+## 上线检查清单
+
+1. 执行 `go run ./cmd/migrate`，确认 AI GEO 表、Manifest、API 权限、套餐功能点、配额和 AI 场景均已落库。
+2. 确认 AI 能力中心 `chat-default` 或租户策略已绑定可用模型供应商，且 `ai_geo_draft_generation`、`ai_geo_channel_rewrite`、`ai_geo_audit_suggestion` 均可调用。
+3. 使用演示租户完成资料导入、工作台对话生成、母稿提交审核、AI 审核建议、渠道改写、发布计划创建和发布状态更新。
+4. 核对租户套餐、租户菜单覆盖、角色权限变更后，页面入口和 API 写操作即时生效。
+5. 生产环境禁止使用开发默认数据库密码、默认 `JWT_SECRET` 和 `CORS_ORIGINS=*`。

@@ -117,6 +117,15 @@ func TestGenerateDraftInvokesAICapabilityCenterScenario(t *testing.T) {
 	db := newAiGeoTestDB(t)
 	seedAiGeoQuotaPlan(t, db, 1, quotaMonthlyDraftGenerations, "月度母稿生成次数", ptr("MONTH"), 5)
 	service := NewService(repositories.NewRepository(db))
+	viewer := dto.Viewer{TenantID: 1, UserID: 10}
+	brand, err := service.CreateBrand(context.Background(), viewer, dto.BrandPayload{BrandCode: "B1", BrandName: "Mardi Ladin"})
+	require.NoError(t, err)
+	product, err := service.CreateProduct(context.Background(), viewer, dto.ProductPayload{BrandID: brand.ID, ProductCode: "P1", ProductName: "通勤连衣裙"})
+	require.NoError(t, err)
+	_, err = service.CreateSKU(context.Background(), viewer, dto.SKUPayload{ProductID: product.ID, SKUCode: "SKU1", SKUName: "红色 M", Attributes: map[string]interface{}{"color": "red"}, Price: 399})
+	require.NoError(t, err)
+	hotspot, err := service.CreateHotspot(context.Background(), viewer, dto.HotspotPayload{Platform: "xiaohongshu", Title: "小个子通勤穿搭", HeatScore: 88})
+	require.NoError(t, err)
 	gateway := &fakeAIGatewayInvoker{response: aiccservices.InvokeResponse{
 		Status: "success",
 		Data: map[string]interface{}{
@@ -130,7 +139,7 @@ func TestGenerateDraftInvokesAICapabilityCenterScenario(t *testing.T) {
 	}}
 	service.SetDraftGenerator(NewGatewayDraftGenerator(gateway))
 
-	draft, err := service.GenerateDraft(context.Background(), dto.Viewer{TenantID: 1, UserID: 10}, dto.GenerateDraftPayload{Prompt: "春季新品上市"})
+	draft, err := service.GenerateDraft(context.Background(), viewer, dto.GenerateDraftPayload{BrandID: &brand.ID, ProductID: &product.ID, HotspotID: &hotspot.ID, Prompt: "春季新品上市"})
 
 	require.NoError(t, err)
 	require.Equal(t, draftGenerationScenarioCode, gateway.lastRequest.AIScenarioCode)
@@ -140,6 +149,8 @@ func TestGenerateDraftInvokesAICapabilityCenterScenario(t *testing.T) {
 	require.Equal(t, "春季新品 GEO 种草", draft.Title)
 	require.Equal(t, "这是一篇来自 AI Gateway 的母稿正文。", draft.Body)
 	require.Contains(t, draft.Keywords, "GEO")
+	require.Contains(t, gatewayPrompt(t, gateway.lastRequest.Input), "红色 M")
+	require.Contains(t, gatewayPrompt(t, gateway.lastRequest.Input), "小个子通勤穿搭")
 }
 
 func TestGatewayDraftGeneratorParsesProviderTextJSON(t *testing.T) {
@@ -383,6 +394,51 @@ func TestSKUAndCompetitorAreTenantScopedToProduct(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
+func TestMaterialAssetsAndHotspotsKeepTenantScope(t *testing.T) {
+	db := newAiGeoTestDB(t)
+	service := NewService(repositories.NewRepository(db))
+	viewer := dto.Viewer{TenantID: 1, UserID: 10}
+	otherViewer := dto.Viewer{TenantID: 2, UserID: 20}
+	brand, err := service.CreateBrand(context.Background(), viewer, dto.BrandPayload{BrandCode: "B1", BrandName: "品牌一"})
+	require.NoError(t, err)
+	product, err := service.CreateProduct(context.Background(), viewer, dto.ProductPayload{BrandID: brand.ID, ProductCode: "P1", ProductName: "商品一"})
+	require.NoError(t, err)
+
+	asset, err := service.CreateMaterialAsset(context.Background(), viewer, dto.MaterialAssetPayload{BrandID: &brand.ID, ProductID: &product.ID, AssetType: "image", AssetName: "红裙场景图", URL: "https://example.com/red.jpg", Metadata: map[string]interface{}{"scene": "通勤"}})
+	require.NoError(t, err)
+	require.Equal(t, viewer.TenantID, asset.TenantID)
+	require.NotNil(t, asset.BrandID)
+	require.NotNil(t, asset.ProductID)
+	require.Contains(t, asset.Metadata, "通勤")
+
+	hotspot, err := service.CreateHotspot(context.Background(), viewer, dto.HotspotPayload{Platform: "zhihu", Title: "小个子怎么穿", HeatScore: 91})
+	require.NoError(t, err)
+	require.Equal(t, "zhihu", hotspot.Platform)
+
+	assets, err := service.MaterialAssets(context.Background(), viewer, dto.PageRequest{ProductID: product.ID, Keyword: "红裙", Limit: 20})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), assets.Total)
+	hotspots, err := service.Hotspots(context.Background(), viewer, dto.PageRequest{Keyword: "小个子", Limit: 20})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), hotspots.Total)
+
+	_, err = service.CreateMaterialAsset(context.Background(), otherViewer, dto.MaterialAssetPayload{BrandID: &brand.ID, AssetType: "image", AssetName: "跨租户"})
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = service.ArchiveMaterialAsset(context.Background(), otherViewer, asset.ID)
+	require.ErrorIs(t, err, ErrNotFound)
+	archivedAsset, err := service.ArchiveMaterialAsset(context.Background(), viewer, asset.ID)
+	require.NoError(t, err)
+	require.Equal(t, "archived", archivedAsset.Status)
+	require.NotNil(t, archivedAsset.DeletedAt)
+
+	_, err = service.ArchiveHotspot(context.Background(), otherViewer, hotspot.ID)
+	require.ErrorIs(t, err, ErrNotFound)
+	archivedHotspot, err := service.ArchiveHotspot(context.Background(), viewer, hotspot.ID)
+	require.NoError(t, err)
+	require.Equal(t, "archived", archivedHotspot.Status)
+	require.NotNil(t, archivedHotspot.DeletedAt)
+}
+
 func TestMaterialUpdateAndArchiveKeepTenantScope(t *testing.T) {
 	db := newAiGeoTestDB(t)
 	service := NewService(repositories.NewRepository(db))
@@ -537,4 +593,12 @@ type fakeAIGatewayInvoker struct {
 func (f *fakeAIGatewayInvoker) Invoke(_ context.Context, req aiccservices.InvokeRequest) (aiccservices.InvokeResponse, error) {
 	f.lastRequest = req
 	return f.response, f.err
+}
+
+func gatewayPrompt(t *testing.T, input map[string]interface{}) string {
+	t.Helper()
+	messages, ok := input["messages"].([]map[string]string)
+	require.True(t, ok)
+	require.NotEmpty(t, messages)
+	return messages[len(messages)-1]["content"]
 }

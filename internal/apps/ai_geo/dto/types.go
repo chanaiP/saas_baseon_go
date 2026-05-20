@@ -79,6 +79,25 @@ type CompetitorPayload struct {
 	Status      string `json:"status"`
 }
 
+type MaterialAssetPayload struct {
+	BrandID   *uint64                `json:"brand_id"`
+	ProductID *uint64                `json:"product_id"`
+	AssetType string                 `json:"asset_type"`
+	AssetName string                 `json:"asset_name"`
+	URL       string                 `json:"url"`
+	Metadata  map[string]interface{} `json:"metadata"`
+	Status    string                 `json:"status"`
+}
+
+type HotspotPayload struct {
+	Platform   string `json:"platform"`
+	Title      string `json:"title"`
+	HeatScore  int    `json:"heat_score"`
+	SourceURL  string `json:"source_url"`
+	CapturedAt string `json:"captured_at"`
+	Status     string `json:"status"`
+}
+
 type ChannelPayload struct {
 	ChannelCode        string   `json:"channel_code"`
 	ChannelName        string   `json:"channel_name"`

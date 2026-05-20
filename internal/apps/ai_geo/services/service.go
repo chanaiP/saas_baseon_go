@@ -48,6 +48,8 @@ type DraftGenerationRequest struct {
 	Payload dto.GenerateDraftPayload
 	Brand   *models.AiGeoBrandCard
 	Product *models.AiGeoProductCard
+	SKUs    []models.AiGeoSKU
+	Hotspot *models.AiGeoHotspot
 }
 
 type DraftGenerationResult struct {
@@ -595,6 +597,127 @@ func (s *Service) ArchiveCompetitor(ctx context.Context, viewer dto.Viewer, id u
 	return row, err
 }
 
+func (s *Service) MaterialAssets(ctx context.Context, viewer dto.Viewer, req dto.PageRequest) (dto.PageResponse[models.AiGeoMaterialAsset], error) {
+	rows, total, err := s.repo.ListMaterialAssets(ctx, viewer.TenantID, req)
+	return page(rows, total, req), err
+}
+
+func (s *Service) CreateMaterialAsset(ctx context.Context, viewer dto.Viewer, payload dto.MaterialAssetPayload) (models.AiGeoMaterialAsset, error) {
+	payload.AssetType = strings.TrimSpace(payload.AssetType)
+	payload.AssetName = strings.TrimSpace(payload.AssetName)
+	if viewer.TenantID == 0 || payload.AssetType == "" || payload.AssetName == "" {
+		return models.AiGeoMaterialAsset{}, ErrInvalidInput
+	}
+	if payload.BrandID != nil && *payload.BrandID > 0 {
+		if _, err := s.repo.Brand(ctx, viewer.TenantID, *payload.BrandID); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return models.AiGeoMaterialAsset{}, ErrNotFound
+			}
+			return models.AiGeoMaterialAsset{}, err
+		}
+	}
+	if payload.ProductID != nil && *payload.ProductID > 0 {
+		if _, err := s.repo.Product(ctx, viewer.TenantID, *payload.ProductID); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return models.AiGeoMaterialAsset{}, ErrNotFound
+			}
+			return models.AiGeoMaterialAsset{}, err
+		}
+	}
+	now := time.Now()
+	userID := viewer.UserID
+	row := models.AiGeoMaterialAsset{
+		TenantID:  viewer.TenantID,
+		BrandID:   positiveUint64Ptr(payload.BrandID),
+		ProductID: positiveUint64Ptr(payload.ProductID),
+		AssetType: payload.AssetType,
+		AssetName: payload.AssetName,
+		URL:       stringPtr(payload.URL),
+		Metadata:  jsonString(payload.Metadata, map[string]interface{}{}),
+		Status:    defaultString(payload.Status, "active"),
+		CreatedBy: &userID,
+		UpdatedBy: &userID,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	err := s.repo.SaveMaterialAsset(ctx, &row)
+	return row, err
+}
+
+func (s *Service) ArchiveMaterialAsset(ctx context.Context, viewer dto.Viewer, id uint64) (models.AiGeoMaterialAsset, error) {
+	row, err := s.repo.MaterialAsset(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	if err != nil {
+		return row, err
+	}
+	now := time.Now()
+	userID := viewer.UserID
+	row.Status = "archived"
+	row.DeletedAt = &now
+	row.UpdatedAt = now
+	row.UpdatedBy = &userID
+	err = s.repo.SaveMaterialAsset(ctx, &row)
+	return row, err
+}
+
+func (s *Service) Hotspots(ctx context.Context, viewer dto.Viewer, req dto.PageRequest) (dto.PageResponse[models.AiGeoHotspot], error) {
+	rows, total, err := s.repo.ListHotspots(ctx, viewer.TenantID, req)
+	return page(rows, total, req), err
+}
+
+func (s *Service) CreateHotspot(ctx context.Context, viewer dto.Viewer, payload dto.HotspotPayload) (models.AiGeoHotspot, error) {
+	platform := strings.TrimSpace(payload.Platform)
+	title := strings.TrimSpace(payload.Title)
+	if viewer.TenantID == 0 || platform == "" || title == "" {
+		return models.AiGeoHotspot{}, ErrInvalidInput
+	}
+	capturedAt := time.Now()
+	if payload.CapturedAt != "" {
+		parsed, err := time.Parse(time.RFC3339, payload.CapturedAt)
+		if err != nil {
+			return models.AiGeoHotspot{}, ErrInvalidInput
+		}
+		capturedAt = parsed
+	}
+	now := time.Now()
+	userID := viewer.UserID
+	row := models.AiGeoHotspot{
+		TenantID:   viewer.TenantID,
+		Platform:   platform,
+		Title:      title,
+		HeatScore:  payload.HeatScore,
+		SourceURL:  stringPtr(payload.SourceURL),
+		CapturedAt: capturedAt,
+		Status:     defaultString(payload.Status, "active"),
+		CreatedBy:  &userID,
+		UpdatedBy:  &userID,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	err := s.repo.SaveHotspot(ctx, &row)
+	return row, err
+}
+
+func (s *Service) ArchiveHotspot(ctx context.Context, viewer dto.Viewer, id uint64) (models.AiGeoHotspot, error) {
+	row, err := s.repo.Hotspot(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	if err != nil {
+		return row, err
+	}
+	now := time.Now()
+	userID := viewer.UserID
+	row.Status = "archived"
+	row.DeletedAt = &now
+	row.UpdatedAt = now
+	row.UpdatedBy = &userID
+	err = s.repo.SaveHotspot(ctx, &row)
+	return row, err
+}
+
 func (s *Service) Channels(ctx context.Context, viewer dto.Viewer, req dto.PageRequest) (dto.PageResponse[models.AiGeoChannelProfile], error) {
 	rows, total, err := s.repo.ListChannels(ctx, viewer.TenantID, req)
 	return page(rows, total, req), err
@@ -757,6 +880,25 @@ func (s *Service) GenerateDraft(ctx context.Context, viewer dto.Viewer, payload 
 		}
 		product = &row
 	}
+	var skus []models.AiGeoSKU
+	if product != nil {
+		rows, _, err := s.repo.ListSKUs(ctx, viewer.TenantID, dto.PageRequest{ProductID: product.ID, Status: "active", Limit: 20})
+		if err != nil {
+			return models.AiGeoDraft{}, err
+		}
+		skus = rows
+	}
+	var hotspot *models.AiGeoHotspot
+	if payload.HotspotID != nil && *payload.HotspotID > 0 {
+		row, err := s.repo.Hotspot(ctx, viewer.TenantID, *payload.HotspotID)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return models.AiGeoDraft{}, ErrNotFound
+		}
+		if err != nil {
+			return models.AiGeoDraft{}, err
+		}
+		hotspot = &row
+	}
 	if err := s.consumeQuota(ctx, viewer.TenantID, quotaMonthlyDraftGenerations); err != nil {
 		return models.AiGeoDraft{}, err
 	}
@@ -764,7 +906,7 @@ func (s *Service) GenerateDraft(ctx context.Context, viewer dto.Viewer, payload 
 	if generator == nil {
 		generator = localDraftGenerator{}
 	}
-	generated, err := generator.GenerateDraft(ctx, DraftGenerationRequest{Viewer: viewer, Payload: payload, Brand: brand, Product: product})
+	generated, err := generator.GenerateDraft(ctx, DraftGenerationRequest{Viewer: viewer, Payload: payload, Brand: brand, Product: product, SKUs: skus, Hotspot: hotspot})
 	if err != nil {
 		return models.AiGeoDraft{}, err
 	}
@@ -1736,6 +1878,13 @@ func stringPtr(value string) *string {
 		return nil
 	}
 	return &value
+}
+
+func positiveUint64Ptr(value *uint64) *uint64 {
+	if value == nil || *value == 0 {
+		return nil
+	}
+	return value
 }
 
 func defaultString(value, fallback string) string {

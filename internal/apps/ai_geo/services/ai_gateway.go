@@ -201,6 +201,8 @@ func draftGenerationMessages(req DraftGenerationRequest) map[string]interface{} 
 		"skill":   req.Payload.Skill,
 		"brand":   brandContext(req.Brand),
 		"product": productContext(req.Product),
+		"skus":    skuContext(req.SKUs),
+		"hotspot": hotspotContext(req.Hotspot),
 	}
 	raw, _ := json.Marshal(context)
 	return map[string]interface{}{
@@ -586,6 +588,34 @@ func productContext(product *models.AiGeoProductCard) map[string]interface{} {
 		"selling_points": product.SellingPoints,
 		"faq":            product.FAQ,
 		"content_angles": product.ContentAngles,
+	}
+}
+
+func skuContext(skus []models.AiGeoSKU) []map[string]interface{} {
+	items := make([]map[string]interface{}, 0, len(skus))
+	for _, sku := range skus {
+		items = append(items, map[string]interface{}{
+			"sku_code":     sku.SKUCode,
+			"sku_name":     sku.SKUName,
+			"attributes":   sku.Attributes,
+			"price":        sku.Price,
+			"image_url":    stringValueFromPtr(sku.ImageURL),
+			"stock_status": sku.StockStatus,
+		})
+	}
+	return items
+}
+
+func hotspotContext(hotspot *models.AiGeoHotspot) map[string]interface{} {
+	if hotspot == nil {
+		return map[string]interface{}{}
+	}
+	return map[string]interface{}{
+		"platform":    hotspot.Platform,
+		"title":       hotspot.Title,
+		"heat_score":  hotspot.HeatScore,
+		"source_url":  stringValueFromPtr(hotspot.SourceURL),
+		"captured_at": hotspot.CapturedAt.Format(time.RFC3339),
 	}
 }
 

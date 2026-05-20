@@ -762,6 +762,7 @@ import {
   createAiGeoBrand,
   createAiGeoCompetitor,
   createAiGeoDraft,
+  createAiGeoHotspot,
   createAiGeoPublishPlan,
   fetchAiGeoBrands,
   fetchAiGeoChannels,
@@ -769,6 +770,8 @@ import {
   fetchAiGeoCompetitors,
   fetchAiGeoDraftAuditSuggestions,
   fetchAiGeoDrafts,
+  fetchAiGeoHotspots,
+  fetchAiGeoMaterialAssets,
   fetchAiGeoOverview,
   fetchAiGeoProducts,
   fetchAiGeoPublishPlans,
@@ -1311,11 +1314,7 @@ const brandForm = reactive({
 const draftAuditPanel = reactive({ summary: '', risk: '未审核', passed: false, items: [] })
 const channelAuditPanel = reactive({ summary: '', risk: '未审核', passed: false, items: [] })
 
-const hotspots = reactive([
-  { id: 1, title: '通勤穿搭回归轻量化', summary: '春夏职场穿搭更强调舒适、轻正式和可复用单品。', platform: '小红书', heat: 86, risk: '低风险' },
-  { id: 2, title: '小个子显高穿搭讨论升温', summary: '多平台讨论小个子女生如何通过腰线和裙长优化比例。', platform: '知乎', heat: 74, risk: '低风险' },
-  { id: 3, title: '轻法式风格持续走热', summary: '轻法式关键词在穿搭内容里持续出现，适合做品牌风格承接。', platform: '抖音', heat: 69, risk: '中风险' }
-])
+const hotspots = reactive([])
 const hotspotSearch = ref('')
 const filteredHotspots = computed(() => hotspots.filter(h => !hotspotSearch.value || h.title.includes(hotspotSearch.value) || h.summary.includes(hotspotSearch.value)))
 
@@ -1360,18 +1359,21 @@ onMounted(async () => {
 async function loadAiGeoData() {
   loading.page = true
   try {
-    const [overviewData, brandPage, productPage, skuPage, competitorPage, channelPage, draftPage, planPage] = await Promise.all([
+    const [overviewData, brandPage, productPage, skuPage, competitorPage, assetPage, hotspotPage, channelPage, draftPage, planPage] = await Promise.all([
       fetchAiGeoOverview(),
       fetchAiGeoBrands({ limit: 200 }),
       fetchAiGeoProducts({ limit: 200 }),
       fetchAiGeoSKUs({ limit: 500 }),
       fetchAiGeoCompetitors({ limit: 500 }),
+      fetchAiGeoMaterialAssets({ limit: 500 }),
+      fetchAiGeoHotspots({ limit: 200, status: 'active' }),
       fetchAiGeoChannels({ limit: 200 }),
       fetchAiGeoDrafts({ limit: 200 }),
       fetchAiGeoPublishPlans({ limit: 200 }),
     ])
     Object.assign(overview, overviewData)
-    hydrateBrands(brandPage.items || [], productPage.items || [], skuPage.items || [], competitorPage.items || [])
+    hydrateBrands(brandPage.items || [], productPage.items || [], skuPage.items || [], competitorPage.items || [], assetPage.items || [])
+    hydrateHotspots(hotspotPage.items || [])
     hydrateChannels(channelPage.items || [])
     hydrateDrafts(draftPage.items || [])
     hydratePlans(planPage.items || [])
@@ -1389,7 +1391,7 @@ function apiField(obj, ...keys) {
   return undefined
 }
 
-function hydrateBrands(apiBrands, apiProducts, apiSkus = [], apiCompetitors = []) {
+function hydrateBrands(apiBrands, apiProducts, apiSkus = [], apiCompetitors = [], apiAssets = []) {
   brands.splice(0, brands.length, ...apiBrands.map(brand => ({
     id: apiField(brand, 'id', 'ID'),
     code: apiField(brand, 'brand_code', 'BrandCode') || '',
@@ -1400,7 +1402,10 @@ function hydrateBrands(apiBrands, apiProducts, apiSkus = [], apiCompetitors = []
     tone: apiField(brand, 'tone', 'Tone') || '',
     completeness: apiField(brand, 'completeness', 'Completeness') || 0,
     keywordGroups: [{ id: apiField(brand, 'id', 'ID'), name: '品牌关键词', keywords: parseJsonArray(apiField(brand, 'keywords', 'Keywords')) }],
-    materials: [],
+    materials: apiAssets
+      .filter(asset => Number(apiField(asset, 'brand_id', 'BrandID')) === Number(apiField(brand, 'id', 'ID')))
+      .map(asset => apiField(asset, 'asset_name', 'AssetName') || apiField(asset, 'asset_type', 'AssetType'))
+      .filter(Boolean),
     products: apiProducts.filter(product => Number(apiField(product, 'brand_id', 'BrandID')) === Number(apiField(brand, 'id', 'ID'))).map(product => {
       const productId = apiField(product, 'id', 'ID')
       const productSkus = apiSkus.filter(sku => Number(apiField(sku, 'product_id', 'ProductID')) === Number(productId)).map(sku => skuFromApi(sku))
@@ -1465,6 +1470,20 @@ function skuFromApi(sku) {
     status: skuStatusLabel(apiField(sku, 'stock_status', 'StockStatus') || apiField(sku, 'status', 'Status')),
     overrideTitle: attributes.override_title || attributes.title || '',
     overridePoint: attributes.override_point || attributes.selling_point || '',
+  }
+}
+
+function hydrateHotspots(apiHotspots) {
+  hotspots.splice(0, hotspots.length, ...apiHotspots.map(item => ({
+    id: apiField(item, 'id', 'ID'),
+    title: apiField(item, 'title', 'Title') || '',
+    summary: apiField(item, 'source_url', 'SourceURL') || '来自热点资料库，可作为选题借势上下文。',
+    platform: apiField(item, 'platform', 'Platform') || '热点',
+    heat: Number(apiField(item, 'heat_score', 'HeatScore') || 0),
+    risk: '待判断',
+  })))
+  if (workbench.hotspot && !hotspots.find(h => Number(h.id) === Number(workbench.hotspot.id))) {
+    workbench.hotspot = null
   }
 }
 
@@ -1632,7 +1651,17 @@ function pickCoverImage() {
   showToast('已选择封面图（原型演示）')
 }
 function openHotspotDrawer() { drawer.type = 'hotspot'; drawer.title = '引用热点' }
-function addManualHotspot() { hotspots.unshift({ id: Date.now(), title: '手动录入热点', summary: '运营手动录入的热点摘要，可用于轻引用或选题引用。', platform: '手动', heat: 50, risk: '待判断' }); showToast('已添加手动热点') }
+async function addManualHotspot() {
+  try {
+    const title = hotspotSearch.value || '手动录入热点'
+    const created = await createAiGeoHotspot({ platform: '手动', title, heat_score: 50 })
+    hydrateHotspots([created, ...hotspots])
+    workbench.hotspot = hotspots.find(h => Number(h.id) === Number(created.id)) || null
+    showToast('已添加手动热点')
+  } catch (error) {
+    showToast(error?.message || '添加热点失败')
+  }
+}
 function useHotspot(hot, mode) {
   workbench.hotspot = hot
   chatMessages.push({ id: Date.now(), role: 'ai', text: mode === 'dialog' ? `已引用热点：${hot.title}` : `借势角度：围绕「${hot.title}」做轻引用，不夸大热点关系。` })

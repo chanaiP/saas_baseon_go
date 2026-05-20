@@ -78,6 +78,29 @@ export interface AiGeoCompetitor {
   status: string
 }
 
+export interface AiGeoMaterialAsset {
+  id: number
+  tenant_id: number
+  brand_id?: number | null
+  product_id?: number | null
+  asset_type: string
+  asset_name: string
+  url?: string | null
+  metadata: string
+  status: string
+}
+
+export interface AiGeoHotspot {
+  id: number
+  tenant_id: number
+  platform: string
+  title: string
+  heat_score: number
+  source_url?: string | null
+  captured_at: string
+  status: string
+}
+
 export interface AiGeoChannel {
   id: number
   tenant_id: number
@@ -192,6 +215,22 @@ export async function fetchAiGeoCompetitors(params: AiGeoListParams = {}) {
 
 export async function createAiGeoCompetitor(payload: Record<string, unknown>) {
   return unwrap(http.post<ApiResponse<AiGeoCompetitor>>('/api/ai-geo/materials/competitors', payload))
+}
+
+export async function fetchAiGeoMaterialAssets(params: AiGeoListParams = {}) {
+  return unwrap(http.get<ApiResponse<AiGeoPage<AiGeoMaterialAsset>>>('/api/ai-geo/materials/assets', { params }))
+}
+
+export async function createAiGeoMaterialAsset(payload: Record<string, unknown>) {
+  return unwrap(http.post<ApiResponse<AiGeoMaterialAsset>>('/api/ai-geo/materials/assets', payload))
+}
+
+export async function fetchAiGeoHotspots(params: AiGeoListParams = {}) {
+  return unwrap(http.get<ApiResponse<AiGeoPage<AiGeoHotspot>>>('/api/ai-geo/materials/hotspots', { params }))
+}
+
+export async function createAiGeoHotspot(payload: Record<string, unknown>) {
+  return unwrap(http.post<ApiResponse<AiGeoHotspot>>('/api/ai-geo/materials/hotspots', payload))
 }
 
 export async function importAiGeoMaterials(payload: Record<string, unknown>) {

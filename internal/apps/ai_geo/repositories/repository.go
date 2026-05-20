@@ -260,6 +260,68 @@ func (r *Repository) SaveCompetitor(ctx context.Context, competitor *models.AiGe
 	return r.db.WithContext(ctx).Save(competitor).Error
 }
 
+func (r *Repository) MaterialAsset(ctx context.Context, tenantID, id uint64) (models.AiGeoMaterialAsset, error) {
+	var row models.AiGeoMaterialAsset
+	err := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoMaterialAsset{}), tenantID)).Where("id = ?", id).First(&row).Error
+	return row, err
+}
+
+func (r *Repository) ListMaterialAssets(ctx context.Context, tenantID uint64, req dto.PageRequest) ([]models.AiGeoMaterialAsset, int64, error) {
+	db := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoMaterialAsset{}), tenantID))
+	if req.BrandID > 0 {
+		db = db.Where("brand_id = ?", req.BrandID)
+	}
+	if req.ProductID > 0 {
+		db = db.Where("product_id = ?", req.ProductID)
+	}
+	if req.Status != "" {
+		db = db.Where("status = ?", req.Status)
+	}
+	if req.Keyword != "" {
+		k := likeKeyword(req.Keyword)
+		db = db.Where("lower(asset_type) LIKE ? OR lower(asset_name) LIKE ?", k, k)
+	}
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []models.AiGeoMaterialAsset
+	err := paginate(db.Order("id desc"), req).Find(&rows).Error
+	return rows, total, err
+}
+
+func (r *Repository) SaveMaterialAsset(ctx context.Context, asset *models.AiGeoMaterialAsset) error {
+	return r.db.WithContext(ctx).Save(asset).Error
+}
+
+func (r *Repository) Hotspot(ctx context.Context, tenantID, id uint64) (models.AiGeoHotspot, error) {
+	var row models.AiGeoHotspot
+	err := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoHotspot{}), tenantID)).Where("id = ?", id).First(&row).Error
+	return row, err
+}
+
+func (r *Repository) ListHotspots(ctx context.Context, tenantID uint64, req dto.PageRequest) ([]models.AiGeoHotspot, int64, error) {
+	db := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoHotspot{}), tenantID))
+	if req.Status != "" {
+		db = db.Where("status = ?", req.Status)
+	}
+	if req.Keyword != "" {
+		k := likeKeyword(req.Keyword)
+		db = db.Where("lower(platform) LIKE ? OR lower(title) LIKE ?", k, k)
+	}
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []models.AiGeoHotspot
+	err := paginate(db.Order("captured_at desc, id desc"), req).Find(&rows).Error
+	return rows, total, err
+}
+
+func (r *Repository) SaveHotspot(ctx context.Context, hotspot *models.AiGeoHotspot) error {
+	return r.db.WithContext(ctx).Save(hotspot).Error
+}
+
 func (r *Repository) ListChannels(ctx context.Context, tenantID uint64, req dto.PageRequest) ([]models.AiGeoChannelProfile, int64, error) {
 	db := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoChannelProfile{}), tenantID))
 	if req.Status != "" {
