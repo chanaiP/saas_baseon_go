@@ -671,6 +671,7 @@ func (s *AppService) upsertManifestApp(tx *gorm.DB, env manifestEnvelope, now ti
 	if strings.EqualFold(row.Source, "BUILTIN") {
 		row.IsBuiltin = true
 	}
+	desiredPlatformOnly := row.IsPlatformOnly
 	assignments := map[string]interface{}{
 		"app_name":                row.AppName,
 		"icon":                    row.Icon,
@@ -693,10 +694,17 @@ func (s *AppService) upsertManifestApp(tx *gorm.DB, env manifestEnvelope, now ti
 		"last_manifest_synced_at": row.LastManifestSync,
 		"updated_at":              now,
 	}
-	return tx.Clauses(clause.OnConflict{
+	if err := tx.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "app_code"}},
 		DoUpdates: clause.Assignments(assignments),
-	}).Create(&row).Error
+	}).Create(&row).Error; err != nil {
+		return err
+	}
+	platformOnlyValue := 0
+	if desiredPlatformOnly {
+		platformOnlyValue = 1
+	}
+	return tx.Exec("UPDATE sys_app SET is_platform_only = ? WHERE app_code = ? AND deleted_at IS NULL", platformOnlyValue, row.AppCode).Error
 }
 
 func (s *AppService) repoAppByCode(tx *gorm.DB, appCode string) (models.SysApp, error) {

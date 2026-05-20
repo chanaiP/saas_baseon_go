@@ -376,6 +376,11 @@ func TestAppCenterLoadTenantManifestDefaultsConsumerScopes(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "SUCCESS", loaded.Status)
 
+	var app models.SysApp
+	require.NoError(t, db.Where("app_code = ?", "data-center").First(&app).Error)
+	require.Equal(t, "TENANT", app.VisibilityScope)
+	require.False(t, app.IsPlatformOnly)
+
 	var menu models.Permission
 	require.NoError(t, db.Where("app_code = ? AND path = ? AND deleted_at IS NULL", "data-center", "/data-center/dashboard").First(&menu).Error)
 	require.Equal(t, "enterprise_personal", menu.TenantScope)
