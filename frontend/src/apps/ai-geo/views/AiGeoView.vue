@@ -1170,3 +1170,5 @@ function markFailed(plan) { plan.status = '发布失败'; showToast('已标记�
 function openProductDrawer(product) { Object.keys(selectedProduct).forEach(k => delete selectedProduct[k]); Object.assign(selectedProduct, product); drawer.type = 'product'; drawer.title = '商品资料卡'; productTab.value = '公共资料' }
 function addCompetitor() { selectedProduct.competitors.push({ brand: '新增竞品', name: '竞品商品', price: '待录入', point: '待录入', diff: '待分析', angle: '待生成', link: 'https://example.com' }); showToast('已新增竞品信息') }
 </script>
+
+<style src="../styles.css"></style>
