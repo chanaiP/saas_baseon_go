@@ -788,6 +788,7 @@ import {
   submitAiGeoDraft,
   updateAiGeoChannelContent,
   updateAiGeoBrand,
+  updateAiGeoPublishPlan,
   updateAiGeoPublishPlanStatus,
 } from '../api'
 
@@ -2195,7 +2196,10 @@ function completePlan(plan) {
   markPublished(plan)
 }
 function viewPublishMaterial(plan) { showToast(`打开 ${plan.channel} 发布素材包`) }
-function adjustPlan(plan) { plan.time = '20:00'; showToast('已调整计划时间为 20:00') }
+async function adjustPlan(plan) {
+  const nextTime = '20:00'
+  await updatePlanSchedule(plan, nextTime, `已调整计划时间为 ${nextTime}`)
+}
 async function markPublished(plan) {
   await updatePlanStatus(plan, { status: 'published', published_url: plan.link || 'https://example.com/post' }, '已标记为已发布')
 }
@@ -2204,6 +2208,29 @@ async function fillPublishLink(plan) {
 }
 async function markFailed(plan) {
   await updatePlanStatus(plan, { status: 'failed', fail_reason: '人工标记失败' }, '已标记失败，等待重试或人工接管')
+}
+async function updatePlanSchedule(plan, time, successMessage) {
+  if (!plan?.id || !plan?.channelContentId || !plan?.channelId) {
+    showToast('发布计划缺少渠道内容，无法调整')
+    return
+  }
+  loading.action = true
+  try {
+    const updated = await updateAiGeoPublishPlan(Number(plan.id), {
+      channel_content_id: Number(plan.channelContentId),
+      channel_id: Number(plan.channelId),
+      scheduled_at: new Date(`${plan.date || planDate.value}T${time}:00+08:00`).toISOString(),
+      publish_method: plan.method,
+      automation_level: plan.level,
+    })
+    plan.time = time
+    plan.date = String(updated.scheduled_at || updated.ScheduledAt || plan.date).slice(0, 10)
+    showToast(successMessage)
+  } catch (error) {
+    showToast(error?.message || '发布计划调整失败')
+  } finally {
+    loading.action = false
+  }
 }
 function openProductDrawer(product) { Object.keys(selectedProduct).forEach(k => delete selectedProduct[k]); Object.assign(selectedProduct, product); drawer.type = 'product'; drawer.title = '商品资料卡'; productTab.value = '公共资料' }
 async function addCompetitor() {

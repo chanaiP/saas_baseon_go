@@ -602,6 +602,14 @@ func (s *Service) MaterialAssets(ctx context.Context, viewer dto.Viewer, req dto
 	return page(rows, total, req), err
 }
 
+func (s *Service) MaterialAsset(ctx context.Context, viewer dto.Viewer, id uint64) (models.AiGeoMaterialAsset, error) {
+	row, err := s.repo.MaterialAsset(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	return row, err
+}
+
 func (s *Service) CreateMaterialAsset(ctx context.Context, viewer dto.Viewer, payload dto.MaterialAssetPayload) (models.AiGeoMaterialAsset, error) {
 	payload.AssetType = strings.TrimSpace(payload.AssetType)
 	payload.AssetName = strings.TrimSpace(payload.AssetName)
@@ -644,6 +652,53 @@ func (s *Service) CreateMaterialAsset(ctx context.Context, viewer dto.Viewer, pa
 	return row, err
 }
 
+func (s *Service) UpdateMaterialAsset(ctx context.Context, viewer dto.Viewer, id uint64, payload dto.MaterialAssetPayload) (models.AiGeoMaterialAsset, error) {
+	row, err := s.repo.MaterialAsset(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	if err != nil {
+		return row, err
+	}
+	if payload.BrandID != nil && *payload.BrandID > 0 {
+		if _, err := s.repo.Brand(ctx, viewer.TenantID, *payload.BrandID); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return row, ErrNotFound
+			}
+			return row, err
+		}
+		row.BrandID = payload.BrandID
+	}
+	if payload.ProductID != nil && *payload.ProductID > 0 {
+		if _, err := s.repo.Product(ctx, viewer.TenantID, *payload.ProductID); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return row, ErrNotFound
+			}
+			return row, err
+		}
+		row.ProductID = payload.ProductID
+	}
+	if strings.TrimSpace(payload.AssetType) != "" {
+		row.AssetType = strings.TrimSpace(payload.AssetType)
+	}
+	if strings.TrimSpace(payload.AssetName) != "" {
+		row.AssetName = strings.TrimSpace(payload.AssetName)
+	}
+	row.URL = stringPtr(payload.URL)
+	if payload.Metadata != nil {
+		row.Metadata = jsonString(payload.Metadata, map[string]interface{}{})
+	}
+	if strings.TrimSpace(payload.Status) != "" {
+		row.Status = strings.TrimSpace(payload.Status)
+	}
+	now := time.Now()
+	userID := viewer.UserID
+	row.UpdatedAt = now
+	row.UpdatedBy = &userID
+	err = s.repo.SaveMaterialAsset(ctx, &row)
+	return row, err
+}
+
 func (s *Service) ArchiveMaterialAsset(ctx context.Context, viewer dto.Viewer, id uint64) (models.AiGeoMaterialAsset, error) {
 	row, err := s.repo.MaterialAsset(ctx, viewer.TenantID, id)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -665,6 +720,14 @@ func (s *Service) ArchiveMaterialAsset(ctx context.Context, viewer dto.Viewer, i
 func (s *Service) Hotspots(ctx context.Context, viewer dto.Viewer, req dto.PageRequest) (dto.PageResponse[models.AiGeoHotspot], error) {
 	rows, total, err := s.repo.ListHotspots(ctx, viewer.TenantID, req)
 	return page(rows, total, req), err
+}
+
+func (s *Service) Hotspot(ctx context.Context, viewer dto.Viewer, id uint64) (models.AiGeoHotspot, error) {
+	row, err := s.repo.Hotspot(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	return row, err
 }
 
 func (s *Service) CreateHotspot(ctx context.Context, viewer dto.Viewer, payload dto.HotspotPayload) (models.AiGeoHotspot, error) {
@@ -697,6 +760,42 @@ func (s *Service) CreateHotspot(ctx context.Context, viewer dto.Viewer, payload 
 		UpdatedAt:  now,
 	}
 	err := s.repo.SaveHotspot(ctx, &row)
+	return row, err
+}
+
+func (s *Service) UpdateHotspot(ctx context.Context, viewer dto.Viewer, id uint64, payload dto.HotspotPayload) (models.AiGeoHotspot, error) {
+	row, err := s.repo.Hotspot(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	if err != nil {
+		return row, err
+	}
+	if strings.TrimSpace(payload.Platform) != "" {
+		row.Platform = strings.TrimSpace(payload.Platform)
+	}
+	if strings.TrimSpace(payload.Title) != "" {
+		row.Title = strings.TrimSpace(payload.Title)
+	}
+	if payload.HeatScore > 0 {
+		row.HeatScore = payload.HeatScore
+	}
+	row.SourceURL = stringPtr(payload.SourceURL)
+	if payload.CapturedAt != "" {
+		parsed, err := time.Parse(time.RFC3339, payload.CapturedAt)
+		if err != nil {
+			return row, ErrInvalidInput
+		}
+		row.CapturedAt = parsed
+	}
+	if strings.TrimSpace(payload.Status) != "" {
+		row.Status = strings.TrimSpace(payload.Status)
+	}
+	now := time.Now()
+	userID := viewer.UserID
+	row.UpdatedAt = now
+	row.UpdatedBy = &userID
+	err = s.repo.SaveHotspot(ctx, &row)
 	return row, err
 }
 
@@ -1224,6 +1323,66 @@ func (s *Service) CreatePublishPlan(ctx context.Context, viewer dto.Viewer, payl
 			Where("tenant_id = ? AND id = ? AND deleted_at IS NULL", viewer.TenantID, row.ChannelContentID).
 			Updates(map[string]interface{}{"publish_status": "planned", "updated_at": now, "updated_by": &userID}).Error
 	})
+	return row, err
+}
+
+func (s *Service) UpdatePublishPlan(ctx context.Context, viewer dto.Viewer, id uint64, payload dto.PublishPlanPayload) (models.AiGeoPublishPlan, error) {
+	row, err := s.repo.PublishPlan(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	if err != nil {
+		return row, err
+	}
+	if row.Status == "publishing" || row.Status == "published" {
+		return row, ErrInvalidStatus
+	}
+	if payload.ChannelContentID > 0 || payload.ChannelID > 0 {
+		nextContentID := row.ChannelContentID
+		nextChannelID := row.ChannelID
+		if payload.ChannelContentID > 0 {
+			nextContentID = payload.ChannelContentID
+		}
+		if payload.ChannelID > 0 {
+			nextChannelID = payload.ChannelID
+		}
+		content, err := s.repo.ChannelContent(ctx, viewer.TenantID, nextContentID)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return row, ErrNotFound
+		}
+		if err != nil {
+			return row, err
+		}
+		if content.ChannelID != nextChannelID {
+			return row, ErrInvalidInput
+		}
+		if _, err := s.repo.Channel(ctx, viewer.TenantID, nextChannelID); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return row, ErrNotFound
+			}
+			return row, err
+		}
+		row.ChannelContentID = nextContentID
+		row.ChannelID = nextChannelID
+	}
+	if payload.ScheduledAt != "" {
+		scheduledAt, err := time.Parse(time.RFC3339, payload.ScheduledAt)
+		if err != nil {
+			return row, ErrInvalidInput
+		}
+		row.ScheduledAt = scheduledAt
+	}
+	if strings.TrimSpace(payload.PublishMethod) != "" {
+		row.PublishMethod = strings.TrimSpace(payload.PublishMethod)
+	}
+	if strings.TrimSpace(payload.AutomationLevel) != "" {
+		row.AutomationLevel = strings.TrimSpace(payload.AutomationLevel)
+	}
+	now := time.Now()
+	userID := viewer.UserID
+	row.UpdatedAt = now
+	row.UpdatedBy = &userID
+	err = s.repo.SavePublishPlan(ctx, &row)
 	return row, err
 }
 

@@ -235,16 +235,32 @@ export async function fetchAiGeoMaterialAssets(params: AiGeoListParams = {}) {
   return unwrap(http.get<ApiResponse<AiGeoPage<AiGeoMaterialAsset>>>('/api/ai-geo/materials/assets', { params }))
 }
 
+export async function fetchAiGeoMaterialAsset(id: number) {
+  return unwrap(http.get<ApiResponse<AiGeoMaterialAsset>>(`/api/ai-geo/materials/assets/${id}`))
+}
+
 export async function createAiGeoMaterialAsset(payload: Record<string, unknown>) {
   return unwrap(http.post<ApiResponse<AiGeoMaterialAsset>>('/api/ai-geo/materials/assets', payload))
+}
+
+export async function updateAiGeoMaterialAsset(id: number, payload: Record<string, unknown>) {
+  return unwrap(http.put<ApiResponse<AiGeoMaterialAsset>>(`/api/ai-geo/materials/assets/${id}`, payload))
 }
 
 export async function fetchAiGeoHotspots(params: AiGeoListParams = {}) {
   return unwrap(http.get<ApiResponse<AiGeoPage<AiGeoHotspot>>>('/api/ai-geo/materials/hotspots', { params }))
 }
 
+export async function fetchAiGeoHotspot(id: number) {
+  return unwrap(http.get<ApiResponse<AiGeoHotspot>>(`/api/ai-geo/materials/hotspots/${id}`))
+}
+
 export async function createAiGeoHotspot(payload: Record<string, unknown>) {
   return unwrap(http.post<ApiResponse<AiGeoHotspot>>('/api/ai-geo/materials/hotspots', payload))
+}
+
+export async function updateAiGeoHotspot(id: number, payload: Record<string, unknown>) {
+  return unwrap(http.put<ApiResponse<AiGeoHotspot>>(`/api/ai-geo/materials/hotspots/${id}`, payload))
 }
 
 export async function importAiGeoMaterials(payload: Record<string, unknown>) {
@@ -317,6 +333,10 @@ export async function fetchAiGeoPublishPlans(params: AiGeoListParams = {}) {
 
 export async function createAiGeoPublishPlan(payload: Record<string, unknown>) {
   return unwrap(http.post<ApiResponse<AiGeoPublishPlan>>('/api/ai-geo/publish-plans', payload))
+}
+
+export async function updateAiGeoPublishPlan(id: number, payload: Record<string, unknown>) {
+  return unwrap(http.put<ApiResponse<AiGeoPublishPlan>>(`/api/ai-geo/publish-plans/${id}`, payload))
 }
 
 export async function updateAiGeoPublishPlanStatus(id: number, payload: Record<string, unknown>) {

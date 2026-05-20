@@ -241,12 +241,36 @@ func (h *Handler) MaterialAssets(c *gin.Context) {
 	h.ok(c, data, err)
 }
 
+func (h *Handler) MaterialAsset(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	data, err := h.service.MaterialAsset(c.Request.Context(), viewer(c), id)
+	h.ok(c, data, err)
+}
+
 func (h *Handler) CreateMaterialAsset(c *gin.Context) {
 	var payload dto.MaterialAssetPayload
 	if bind(c, &payload) {
 		data, err := h.service.CreateMaterialAsset(c.Request.Context(), viewer(c), payload)
 		if err == nil {
 			err = h.auditWrite(c, "material_asset_create", fmt.Sprintf("%d", data.ID), "创建素材资料", gin.H{"asset_type": data.AssetType, "asset_name": data.AssetName})
+		}
+		h.ok(c, data, err)
+	}
+}
+
+func (h *Handler) UpdateMaterialAsset(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	var payload dto.MaterialAssetPayload
+	if bind(c, &payload) {
+		data, err := h.service.UpdateMaterialAsset(c.Request.Context(), viewer(c), id, payload)
+		if err == nil {
+			err = h.auditWrite(c, "material_asset_update", fmt.Sprintf("%d", data.ID), "更新素材资料", gin.H{"asset_id": data.ID, "asset_name": data.AssetName})
 		}
 		h.ok(c, data, err)
 	}
@@ -269,12 +293,36 @@ func (h *Handler) Hotspots(c *gin.Context) {
 	h.ok(c, data, err)
 }
 
+func (h *Handler) Hotspot(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	data, err := h.service.Hotspot(c.Request.Context(), viewer(c), id)
+	h.ok(c, data, err)
+}
+
 func (h *Handler) CreateHotspot(c *gin.Context) {
 	var payload dto.HotspotPayload
 	if bind(c, &payload) {
 		data, err := h.service.CreateHotspot(c.Request.Context(), viewer(c), payload)
 		if err == nil {
 			err = h.auditWrite(c, "hotspot_create", fmt.Sprintf("%d", data.ID), "创建热点资料", gin.H{"platform": data.Platform, "title": data.Title})
+		}
+		h.ok(c, data, err)
+	}
+}
+
+func (h *Handler) UpdateHotspot(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	var payload dto.HotspotPayload
+	if bind(c, &payload) {
+		data, err := h.service.UpdateHotspot(c.Request.Context(), viewer(c), id, payload)
+		if err == nil {
+			err = h.auditWrite(c, "hotspot_update", fmt.Sprintf("%d", data.ID), "更新热点资料", gin.H{"hotspot_id": data.ID, "title": data.Title})
 		}
 		h.ok(c, data, err)
 	}
@@ -527,6 +575,21 @@ func (h *Handler) CreatePublishPlan(c *gin.Context) {
 		data, err := h.service.CreatePublishPlan(c.Request.Context(), viewer(c), payload)
 		if err == nil {
 			err = h.auditWrite(c, "publish_plan_create", data.PlanCode, "创建发布计划", gin.H{"scheduled_at": data.ScheduledAt})
+		}
+		h.ok(c, data, err)
+	}
+}
+
+func (h *Handler) UpdatePublishPlan(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	var payload dto.PublishPlanPayload
+	if bind(c, &payload) {
+		data, err := h.service.UpdatePublishPlan(c.Request.Context(), viewer(c), id, payload)
+		if err == nil {
+			err = h.auditWrite(c, "publish_plan_update", data.PlanCode, "更新发布计划", gin.H{"scheduled_at": data.ScheduledAt, "channel_id": data.ChannelID})
 		}
 		h.ok(c, data, err)
 	}

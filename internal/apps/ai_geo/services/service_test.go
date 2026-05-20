@@ -459,8 +459,31 @@ func TestMaterialAssetsAndHotspotsKeepTenantScope(t *testing.T) {
 	hotspots, err := service.Hotspots(context.Background(), viewer, dto.PageRequest{Keyword: "小个子", Limit: 20})
 	require.NoError(t, err)
 	require.Equal(t, int64(1), hotspots.Total)
+	assetDetail, err := service.MaterialAsset(context.Background(), viewer, asset.ID)
+	require.NoError(t, err)
+	require.Equal(t, "红裙场景图", assetDetail.AssetName)
+	hotspotDetail, err := service.Hotspot(context.Background(), viewer, hotspot.ID)
+	require.NoError(t, err)
+	require.Equal(t, "小个子怎么穿", hotspotDetail.Title)
+
+	updatedAsset, err := service.UpdateMaterialAsset(context.Background(), viewer, asset.ID, dto.MaterialAssetPayload{AssetType: "image", AssetName: "红裙通勤图", URL: "https://example.com/red-2.jpg", Metadata: map[string]interface{}{"scene": "通勤更新"}})
+	require.NoError(t, err)
+	require.Equal(t, "红裙通勤图", updatedAsset.AssetName)
+	require.Contains(t, updatedAsset.Metadata, "通勤更新")
+	updatedHotspot, err := service.UpdateHotspot(context.Background(), viewer, hotspot.ID, dto.HotspotPayload{Platform: "zhihu", Title: "小个子通勤怎么穿", HeatScore: 95})
+	require.NoError(t, err)
+	require.Equal(t, "小个子通勤怎么穿", updatedHotspot.Title)
+	require.Equal(t, 95, updatedHotspot.HeatScore)
 
 	_, err = service.CreateMaterialAsset(context.Background(), otherViewer, dto.MaterialAssetPayload{BrandID: &brand.ID, AssetType: "image", AssetName: "跨租户"})
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = service.MaterialAsset(context.Background(), otherViewer, asset.ID)
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = service.Hotspot(context.Background(), otherViewer, hotspot.ID)
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = service.UpdateMaterialAsset(context.Background(), otherViewer, asset.ID, dto.MaterialAssetPayload{AssetName: "跨租户更新"})
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = service.UpdateHotspot(context.Background(), otherViewer, hotspot.ID, dto.HotspotPayload{Title: "跨租户更新"})
 	require.ErrorIs(t, err, ErrNotFound)
 	_, err = service.ArchiveMaterialAsset(context.Background(), otherViewer, asset.ID)
 	require.ErrorIs(t, err, ErrNotFound)
@@ -562,6 +585,22 @@ func TestPublishPlanSyncsChannelContentStatusAndStateMachine(t *testing.T) {
 	require.NoError(t, db.First(&plannedContent, content.ID).Error)
 	require.Equal(t, "planned", plannedContent.PublishStatus)
 
+	nextSchedule := time.Now().Add(2 * time.Hour).Truncate(time.Second)
+	updatedPlan, err := service.UpdatePublishPlan(context.Background(), viewer, plan.ID, dto.PublishPlanPayload{
+		ChannelContentID: content.ID,
+		ChannelID:        channel.ID,
+		ScheduledAt:      nextSchedule.Format(time.RFC3339),
+		PublishMethod:    "agent",
+		AutomationLevel:  "semi_auto",
+	})
+	require.NoError(t, err)
+	require.Equal(t, nextSchedule.UTC(), updatedPlan.ScheduledAt.UTC())
+	require.Equal(t, "agent", updatedPlan.PublishMethod)
+
+	_, err = service.UpdatePublishStatus(context.Background(), viewer, plan.ID, dto.PublishStatusPayload{Status: "failed", FailReason: "发布接口失败"})
+	require.NoError(t, err)
+	_, err = service.UpdatePublishStatus(context.Background(), viewer, plan.ID, dto.PublishStatusPayload{Status: "scheduled"})
+	require.NoError(t, err)
 	_, err = service.UpdatePublishStatus(context.Background(), viewer, plan.ID, dto.PublishStatusPayload{Status: "publishing"})
 	require.NoError(t, err)
 	_, err = service.UpdatePublishStatus(context.Background(), viewer, plan.ID, dto.PublishStatusPayload{Status: "published", PublishedURL: "https://example.com/post/1"})
@@ -569,6 +608,8 @@ func TestPublishPlanSyncsChannelContentStatusAndStateMachine(t *testing.T) {
 	require.NoError(t, db.First(&plannedContent, content.ID).Error)
 	require.Equal(t, "published", plannedContent.PublishStatus)
 
+	_, err = service.UpdatePublishPlan(context.Background(), viewer, plan.ID, dto.PublishPlanPayload{ScheduledAt: time.Now().Add(3 * time.Hour).Format(time.RFC3339)})
+	require.ErrorIs(t, err, ErrInvalidStatus)
 	_, err = service.UpdatePublishStatus(context.Background(), viewer, plan.ID, dto.PublishStatusPayload{Status: "cancelled"})
 	require.ErrorIs(t, err, ErrInvalidStatus)
 }

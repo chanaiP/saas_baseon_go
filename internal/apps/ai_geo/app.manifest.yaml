@@ -420,8 +420,15 @@ apis:
   - method: GET
     path: /api/ai-geo/materials/assets
     permission_code: /ai-geo/data/products
+  - method: GET
+    path: /api/ai-geo/materials/assets/:id
+    permission_code: /ai-geo/data/products
   - method: POST
     path: /api/ai-geo/materials/assets
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: PUT
+    path: /api/ai-geo/materials/assets/:id
     permission_code: ai_geo:data:import
     audit: true
   - method: DELETE
@@ -431,8 +438,15 @@ apis:
   - method: GET
     path: /api/ai-geo/materials/hotspots
     permission_code: /ai-geo/data/products
+  - method: GET
+    path: /api/ai-geo/materials/hotspots/:id
+    permission_code: /ai-geo/data/products
   - method: POST
     path: /api/ai-geo/materials/hotspots
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: PUT
+    path: /api/ai-geo/materials/hotspots/:id
     permission_code: ai_geo:data:import
     audit: true
   - method: DELETE
@@ -517,6 +531,10 @@ apis:
     permission_code: /ai-geo/plans/queue
   - method: POST
     path: /api/ai-geo/publish-plans
+    permission_code: ai_geo:publish_plan:manage
+    audit: true
+  - method: PUT
+    path: /api/ai-geo/publish-plans/:id
     permission_code: ai_geo:publish_plan:manage
     audit: true
   - method: PATCH

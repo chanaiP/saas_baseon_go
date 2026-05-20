@@ -63,7 +63,9 @@ AI GEO 是合并部署的租户应用，`app_code=ai-geo`。它面向多租户�
 - `/api/ai-geo/materials/skus`
 - `/api/ai-geo/materials/competitors`
 - `/api/ai-geo/materials/assets`
+- `/api/ai-geo/materials/assets/:id`
 - `/api/ai-geo/materials/hotspots`
+- `/api/ai-geo/materials/hotspots/:id`
 - `/api/ai-geo/materials/imports`
 - `/api/ai-geo/materials/imports/:id/errors`
 - `/api/ai-geo/workbench/drafts/generate`
@@ -74,20 +76,21 @@ AI GEO 是合并部署的租户应用，`app_code=ai-geo`。它面向多租户�
 - `/api/ai-geo/channel-contents/:id/approve`
 - `/api/ai-geo/channel-contents/:id/reject`
 - `/api/ai-geo/publish-plans`
+- `/api/ai-geo/publish-plans/:id`
 - `/api/ai-geo/channels`
 - `/api/ai-geo/channel-accounts`
 
 第一批已落地能力：
 
 - 总览统计：品牌、商品、SKU、渠道、账号、今日母稿、待审母稿、渠道内容、发布计划、资料完整度和配额用量。
-- 资料中心：品牌、商品、SKU 和竞品资料列表/详情/新增/更新/归档；素材和热点资料列表/新增/归档。
+- 资料中心：品牌、商品、SKU、竞品、素材和热点资料列表/详情/新增/更新/归档。
 - 资料导入：导入批次记录、字段预校验、字段映射落库、品牌/商品/SKU/竞品幂等导入、部分成功状态和错误行明细查询。
 - 工作台：可持久化生成母稿，生产启动时通过 AI 能力中心场景 `ai_geo_draft_generation` 调用 Gateway；测试和未注入场景时保留本地 generator 降级实现。生成上下文已包含品牌、商品、SKU、Skill、热点和用户提示。
 - 母稿：列表、详情、新增、提交审核、审核通过、驳回、归档。
 - 审核建议：前端已接入母稿和渠道内容 AI 审核建议入口，结果区展示风险等级、摘要和结构化建议。
 - 渠道内容：从母稿生成渠道版本，支持列表、详情、编辑、人工确认、驳回和审核意见留痕。
 - 渠道管理：渠道资料、渠道账号列表/新增。
-- 发布计划：列表、新增、状态更新、状态机校验，并同步渠道内容发布状态。
+- 发布计划：列表、新增、调整时间、状态更新、失败重试、发布链接回填、状态机校验，并同步渠道内容发布状态。
 - 审计：写操作记录 `audit_log`，`app_code=ai-geo`，`module=ai_geo`。
 - 权限：后端路由已纳入 `auth_policy.go`，读接口走菜单权限，写接口走操作权限。
 - 前端权限：AI GEO 写操作按钮按 `permissionStore.canUseAction` 做显隐，后端仍保留二次校验。
@@ -185,10 +188,10 @@ select ai_scenario_code, status from ai_scenarios where app_code = 'ai-geo' and 
 
 ## 生产级剩余项
 
-- 资料中心仍需补独立关键词 API、素材详情/更新、素材文件上传解析和素材权限边界。
+- 资料中心仍需补独立关键词 API、素材文件上传解析和素材权限边界。
 - 资料导入需继续补文件上传解析、模板下载和大批量异步处理。
 - 渠道发布需接第三方集成中心或 Agent 执行，补 OAuth、Webhook、失败重试和发布链接回填。
-- 发布计划还需补日历聚合接口、调整时间、失败重试和发布链接回填的执行器闭环。
+- 发布计划还需补日历聚合接口和真实发布执行器闭环。
 - 当前前端仍有部分原型态数据用于展示，应逐步替换为真实接口，避免生产环境误判。
 - 上线前必须跑通普通租户、无套餐租户、无角色权限用户、平台管理员四类访问差异测试。
 
