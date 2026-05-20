@@ -1843,7 +1843,12 @@ function buildIdeaAnalysis(prompt) {
 
 function isLowSignalIdea(text) {
   const compact = String(text || '').replace(/\s/g, '')
-  return compact.length < 8 || /^(你好|你好啊|你哈|hello|hi|我想写一篇文章|写文章|生成文章)$/.test(compact)
+  return compact.length < 8 || /^(我想写一篇文章|写文章|生成文章)$/.test(compact)
+}
+
+function isGreetingMessage(text) {
+  const compact = String(text || '').replace(/\s/g, '').toLowerCase()
+  return /^(你好|你好啊|你哈|hello|hi|嗨|在吗|在不在)$/.test(compact)
 }
 
 function workbenchAngleOptions() {
@@ -1879,24 +1884,93 @@ function workbenchAngleOptions() {
   ]
 }
 
+function skillWritingFramework(skillName) {
+  if (/品牌介绍/.test(skillName)) {
+    return {
+      entry: '品牌认知入口',
+      structure: ['先回答“这个品牌适合谁/是什么风格”', '再用定位、人群、价格带和内容口径建立可信度', '最后给出适用场景与选择建议'],
+      sample: '适合写成“某类人为什么会选择这个品牌”的认知型文章，而不是品牌自夸介绍。',
+    }
+  }
+  if (/商品|种草/.test(skillName)) {
+    return {
+      entry: '商品选购入口',
+      structure: ['先定义用户痛点或购买犹豫', '再拆商品卖点和适用人群', '最后给场景化购买理由与避坑提醒'],
+      sample: '适合写成“这件单品适合谁、解决什么问题、为什么值得选”的种草母稿。',
+    }
+  }
+  if (/场景攻略/.test(skillName)) {
+    return {
+      entry: '场景解决方案入口',
+      structure: ['先锁定场景和用户问题', '再给判断标准', '再落到品牌/商品资料里的可用方案', '最后总结适合/不适合人群'],
+      sample: '适合写成“某个场景怎么选/怎么穿/怎么搭”的攻略型 GEO 文章。',
+    }
+  }
+  if (/FAQ|知乎|问答/.test(skillName)) {
+    return {
+      entry: '问答引用入口',
+      structure: ['先用一句话回答问题', '再解释判断依据', '补充适用边界', '最后给可执行建议'],
+      sample: '适合写成 AI 问答和知乎都能引用的解释型内容，重点是可信、克制、有边界。',
+    }
+  }
+  if (/小红书/.test(skillName)) {
+    return {
+      entry: '生活场景种草入口',
+      structure: ['先给真实场景', '再说穿搭/使用感受', '补充适合人群和避雷点', '最后给话题化标题'],
+      sample: '适合先生成母稿逻辑，再改成更口语、可种草的小红书笔记。',
+    }
+  }
+  return {
+    entry: 'GEO 内容入口',
+    structure: ['先回答用户问题', '再引用资料证据', '再给场景建议', '最后沉淀关键词'],
+    sample: '适合生成一篇可继续改写到多渠道的通用母稿。',
+  }
+}
+
+function selectedMaterialSummary() {
+  const brand = selectedWorkbenchBrand.value
+  const product = selectedWorkbenchProduct.value
+  const parts = [
+    brand?.position ? `品牌定位是「${brand.position}」` : '',
+    brand?.audience ? `目标人群是「${brand.audience}」` : '',
+    product?.name ? `当前商品是「${product.name}」` : '',
+    product?.sellingPoints ? `商品卖点可用「${product.sellingPoints}」` : '',
+    workbenchKeywords.value.length ? `关键词可用「${workbenchKeywords.value.slice(0, 5).join('、')}」` : '',
+  ].filter(Boolean)
+  return parts.length ? parts.join('，') : `当前只拿到了「${brand?.name || '品牌'}」的基础资料`
+}
+
+function buildMentorReply(prompt, idea, readiness) {
+  const brand = selectedWorkbenchBrand.value.name
+  const product = selectedWorkbenchProduct.value?.name
+  const skill = selectedSkillProfile.value.name
+  const framework = skillWritingFramework(skill)
+  const searchProblem = ideaSession.searchProblem || prompt
+  const audience = ideaSession.audience || selectedWorkbenchProduct.value?.audience || selectedWorkbenchBrand.value.audience || '潜在目标用户'
+  const scene = ideaSession.scene || '由资料和对话推断的使用场景'
+  const structureText = framework.structure.map((item, index) => `${index + 1}. ${item}`).join('；')
+
+  if (isWorkbenchDraftDecision(prompt) || readiness.ready) {
+    return `这个想法可以进入母稿了。我建议按「${framework.entry}」来写：核心问题是「${searchProblem}」，资料底座用「${brand}」${product ? `和「${product}」` : ''}，目标读者先按「${audience}」，场景按「${scene}」。\n\n写作思路：${structureText}。\n\n范本方向：标题可以围绕「${searchProblem}」展开，正文先给明确答案，再把「${selectedMaterialSummary()}」转成选择理由和场景建议。这样生成出来不是品牌介绍，而是一篇能被搜索和 AI 问答引用的 GEO 母稿。`
+  }
+
+  return `我会先把这个想法当成「${framework.entry}」来处理。基于当前资料，最强的写法不是直接写“${brand} 很好”，而是把用户问题写清楚：例如「${searchProblem}」。\n\n可用资料：${selectedMaterialSummary()}。\n\n建议结构：${structureText}。\n\n现在还差一个决定文章质量的点：${idea?.questions?.[0]?.replace(/^补充/, '') || '明确这篇文章要回答的用户问题'}。你可以直接补一句目标人群、场景或想解决的问题，我会继续把它整理成可生成母稿的范本。`
+}
+
 function buildWorkbenchReply(idea) {
   const latestPrompt = latestWorkbenchUserPrompt.value
   const brand = selectedWorkbenchBrand.value.name
   const skill = selectedSkillProfile.value.name
   const product = selectedWorkbenchProduct.value?.name
   const angles = workbenchAngleOptions()
+  if (isGreetingMessage(latestPrompt)) {
+    return `你好，我在。你可以告诉我想写什么 GEO 母稿，我会基于当前资料和「${skill}」帮你拆思路、定文章入口，再整理成可生成的母稿方向。\n\n如果你还没想清楚，我也可以先帮你从「${brand}」的资料里找选题。比如可以写：${angles.join('；')}。`
+  }
   if (isLowSignalIdea(latestPrompt)) {
     return `收到。当前资料底座是「${brand}」${product ? `，商品是「${product}」` : ''}，Skill 是「${skill}」。我不会直接套模板生成，建议先把文章入口定成一个用户真的会搜索/提问的问题。可以从这三个方向里选一个：${angles.join('；')}。你也可以直接说你的目标人群、使用场景或想解决的问题。`
   }
   const readiness = evaluateWorkbenchReadiness()
-  if (readiness.ready) {
-    if (isWorkbenchDraftDecision(latestWorkbenchUserPrompt.value)) {
-      return `可以，方向已经够了。我会用「${brand}」的资料和「${skill}」来写，不做空泛介绍，重点回答「${ideaSession.searchProblem || latestPrompt}」，并把人群、场景、选择理由和关键词一起带进母稿。现在可以点“生成母稿”。`
-    }
-    return `${isWorkbenchCorrection(latestPrompt) ? '对，我按你补充的信息重新理解了。' : '这个方向可以写。'}我会把「${latestPrompt}」处理成一篇围绕「${brand}」${product ? `和「${product}」` : '现有资料'}的 GEO 母稿：先回答用户问题，再给出可信依据、适用人群、场景建议和可复用关键词。你还可以继续补一句想偏“专业问答”“种草感”还是“品牌认知”，也可以直接生成。`
-  }
-  const question = idea?.questions?.[0]?.replace(/^补充/, '') || '文章要解决的具体问题'
-  return `我理解你的方向是围绕「${brand}」写内容，但现在还缺一个能让文章变强的入口：${question}。不用按表单填，你直接说一句就行，比如「写给 25-35 岁通勤女性，解决怎么穿得正式但不老气」。我会基于资料和「${skill}」继续整理成可生成母稿。`
+  return buildMentorReply(latestPrompt, idea, readiness)
 }
 function sendWorkbenchMessage() {
   const prompt = String(workbench.prompt || '').trim()
