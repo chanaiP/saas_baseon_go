@@ -417,8 +417,21 @@ func (r *Repository) ChannelContent(ctx context.Context, tenantID, id uint64) (m
 
 func (r *Repository) ListChannelContents(ctx context.Context, tenantID uint64, req dto.PageRequest) ([]models.AiGeoChannelContent, int64, error) {
 	db := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoChannelContent{}), tenantID))
+	if req.DraftID > 0 {
+		db = db.Where("draft_id = ?", req.DraftID)
+	}
 	if req.ChannelID > 0 {
 		db = db.Where("channel_id = ?", req.ChannelID)
+	}
+	if req.AuditStatus != "" {
+		db = db.Where("audit_status = ?", req.AuditStatus)
+	}
+	if req.Status != "" {
+		db = db.Where("status = ?", req.Status)
+	}
+	if req.Keyword != "" {
+		k := likeKeyword(req.Keyword)
+		db = db.Where("lower(title) LIKE ? OR lower(body) LIKE ?", k, k)
 	}
 	var total int64
 	if err := db.Count(&total).Error; err != nil {

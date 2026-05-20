@@ -212,6 +212,40 @@ func TestGenerateChannelContentInvokesAICapabilityCenterScenario(t *testing.T) {
 	require.Equal(t, "小红书渠道正文", content.Body)
 }
 
+func TestChannelContentEditReviewAndTenantScope(t *testing.T) {
+	db := newAiGeoTestDB(t)
+	service := NewService(repositories.NewRepository(db))
+	viewer := dto.Viewer{TenantID: 1, UserID: 10}
+	channel, err := service.CreateChannel(context.Background(), viewer, dto.ChannelPayload{ChannelCode: "xhs", ChannelName: "小红书"})
+	require.NoError(t, err)
+	draft, err := service.CreateDraft(context.Background(), viewer, dto.DraftPayload{Title: "母稿", Body: "正文"})
+	require.NoError(t, err)
+	content, err := service.GenerateChannelContent(context.Background(), viewer, draft.ID, dto.ChannelContentPayload{ChannelID: channel.ID})
+	require.NoError(t, err)
+
+	updated, err := service.UpdateChannelContent(context.Background(), viewer, content.ID, dto.ChannelContentPayload{Title: "渠道标题更新", Body: "渠道正文更新"})
+	require.NoError(t, err)
+	require.Equal(t, "渠道标题更新", updated.Title)
+	require.Equal(t, "渠道正文更新", updated.Body)
+	require.Equal(t, "pending", updated.AuditStatus)
+
+	approved, err := service.ReviewChannelContent(context.Background(), viewer, content.ID, true, "渠道表达已确认")
+	require.NoError(t, err)
+	require.Equal(t, "approved", approved.AuditStatus)
+	history, err := service.ChannelContentAuditSuggestions(context.Background(), viewer, content.ID, dto.PageRequest{Limit: 20})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), history.Total)
+	require.Equal(t, "manual_channel_content_review", history.Items[0].ScenarioCode)
+	require.Contains(t, *history.Items[0].Summary, "渠道表达已确认")
+
+	_, err = service.ReviewChannelContent(context.Background(), viewer, content.ID, false, "不允许二次审核")
+	require.ErrorIs(t, err, ErrInvalidStatus)
+	_, err = service.UpdateChannelContent(context.Background(), dto.Viewer{TenantID: 2, UserID: 20}, content.ID, dto.ChannelContentPayload{Title: "跨租户"})
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = service.ReviewChannelContent(context.Background(), dto.Viewer{TenantID: 2, UserID: 20}, content.ID, true, "跨租户")
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
 func TestDraftAuditSuggestionInvokesAIGatewayAndStoresHistory(t *testing.T) {
 	db := newAiGeoTestDB(t)
 	service := NewService(repositories.NewRepository(db))

@@ -69,6 +69,10 @@ AI GEO 是合并部署的租户应用，`app_code=ai-geo`。它面向多租户�
 - `/api/ai-geo/workbench/drafts/generate`
 - `/api/ai-geo/drafts`
 - `/api/ai-geo/drafts/:id/channel-contents`
+- `/api/ai-geo/channel-contents`
+- `/api/ai-geo/channel-contents/:id`
+- `/api/ai-geo/channel-contents/:id/approve`
+- `/api/ai-geo/channel-contents/:id/reject`
 - `/api/ai-geo/publish-plans`
 - `/api/ai-geo/channels`
 - `/api/ai-geo/channel-accounts`
@@ -81,7 +85,7 @@ AI GEO 是合并部署的租户应用，`app_code=ai-geo`。它面向多租户�
 - 工作台：可持久化生成母稿，生产启动时通过 AI 能力中心场景 `ai_geo_draft_generation` 调用 Gateway；测试和未注入场景时保留本地 generator 降级实现。生成上下文已包含品牌、商品、SKU、Skill、热点和用户提示。
 - 母稿：列表、详情、新增、提交审核、审核通过、驳回、归档。
 - 审核建议：前端已接入母稿和渠道内容 AI 审核建议入口，结果区展示风险等级、摘要和结构化建议。
-- 渠道内容：从母稿生成渠道版本。
+- 渠道内容：从母稿生成渠道版本，支持列表、详情、编辑、人工确认、驳回和审核意见留痕。
 - 渠道管理：渠道资料、渠道账号列表/新增。
 - 发布计划：列表、新增、状态更新、状态机校验，并同步渠道内容发布状态。
 - 审计：写操作记录 `audit_log`，`app_code=ai-geo`，`module=ai_geo`。
@@ -184,7 +188,6 @@ select ai_scenario_code, status from ai_scenarios where app_code = 'ai-geo' and 
 - 资料中心仍需补独立关键词 API、素材详情/更新、素材文件上传解析和素材权限边界。
 - 资料导入需继续补文件上传解析、模板下载和大批量异步处理。
 - 渠道发布需接第三方集成中心或 Agent 执行，补 OAuth、Webhook、失败重试和发布链接回填。
-- 渠道内容还需补编辑接口、人工审核状态流转和渠道版本详情查询。
 - 发布计划还需补日历聚合接口、调整时间、失败重试和发布链接回填的执行器闭环。
 - 当前前端仍有部分原型态数据用于展示，应逐步替换为真实接口，避免生产环境误判。
 - 上线前必须跑通普通租户、无套餐租户、无角色权限用户、平台管理员四类访问差异测试。

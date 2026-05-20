@@ -709,6 +709,7 @@
         <div class="drawer-actions">
           <button v-if="canManageChannelContent" class="btn ghost" @click="regenerateChannel">重新生成</button>
           <button v-if="canManageChannelContent" class="btn primary" @click="confirmSelectedChannel">确认渠道内容</button>
+          <button v-if="canManageChannelContent" class="btn ghost danger-text" @click="rejectSelectedChannel">驳回</button>
           <button v-if="canManagePublishPlan" class="btn dark" @click="addSelectedChannelToPlan">加入发布计划</button>
         </div>
       </div>
@@ -757,6 +758,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { usePermissionStore } from '@/stores/permission'
 import ChannelManagementPanel from '../components/ChannelManagementPanel.vue'
 import {
+  approveAiGeoChannelContent,
   approveAiGeoDraft,
   createAiGeoBrand,
   createAiGeoCompetitor,
@@ -765,6 +767,7 @@ import {
   createAiGeoPublishPlan,
   fetchAiGeoBrands,
   fetchAiGeoChannels,
+  fetchAiGeoChannelContents,
   fetchAiGeoChannelContentAuditSuggestions,
   fetchAiGeoCompetitors,
   fetchAiGeoDraftAuditSuggestions,
@@ -781,7 +784,9 @@ import {
   generateAiGeoDraft,
   importAiGeoMaterials,
   rejectAiGeoDraft,
+  rejectAiGeoChannelContent,
   submitAiGeoDraft,
+  updateAiGeoChannelContent,
   updateAiGeoBrand,
   updateAiGeoPublishPlanStatus,
 } from '../api'
@@ -1353,7 +1358,7 @@ onMounted(async () => {
 async function loadAiGeoData() {
   loading.page = true
   try {
-    const [overviewData, brandPage, productPage, skuPage, competitorPage, assetPage, hotspotPage, channelPage, draftPage, planPage] = await Promise.all([
+    const [overviewData, brandPage, productPage, skuPage, competitorPage, assetPage, hotspotPage, channelPage, draftPage, channelContentPage, planPage] = await Promise.all([
       fetchAiGeoOverview(),
       fetchAiGeoBrands({ limit: 200 }),
       fetchAiGeoProducts({ limit: 200 }),
@@ -1363,13 +1368,14 @@ async function loadAiGeoData() {
       fetchAiGeoHotspots({ limit: 200, status: 'active' }),
       fetchAiGeoChannels({ limit: 200 }),
       fetchAiGeoDrafts({ limit: 200 }),
+      fetchAiGeoChannelContents({ limit: 500 }),
       fetchAiGeoPublishPlans({ limit: 200 }),
     ])
     Object.assign(overview, overviewData)
     hydrateBrands(brandPage.items || [], productPage.items || [], skuPage.items || [], competitorPage.items || [], assetPage.items || [])
     hydrateHotspots(hotspotPage.items || [])
     hydrateChannels(channelPage.items || [])
-    hydrateDrafts(draftPage.items || [])
+    hydrateDrafts(draftPage.items || [], channelContentPage.items || [])
     hydratePlans(planPage.items || [])
   } catch (error) {
     showToast(error?.message || 'AI GEO 数据加载失败')
@@ -1502,7 +1508,7 @@ function priceRangeFromSkus(skus) {
   return min === max ? `${min} 元` : `${min}-${max} 元`
 }
 
-function hydrateDrafts(apiDrafts) {
+function hydrateDrafts(apiDrafts, apiChannelContents = []) {
   drafts.splice(0, drafts.length, ...apiDrafts.map(draft => ({
     id: apiField(draft, 'id', 'ID'),
     date: String(apiField(draft, 'created_at', 'CreatedAt') || new Date().toISOString()).slice(0, 10),
@@ -1512,9 +1518,29 @@ function hydrateDrafts(apiDrafts) {
     source: sourceLabel(apiField(draft, 'source', 'Source')),
     status: draftStatusLabel(apiField(draft, 'audit_status', 'AuditStatus')),
     audit: modeConfig.draftAuditMode,
-    channels: [],
+    channels: apiChannelContents
+      .filter(content => Number(apiField(content, 'draft_id', 'DraftID')) === Number(apiField(draft, 'id', 'ID')))
+      .map(channelContentFromApi),
     rawStatus: apiField(draft, 'audit_status', 'AuditStatus'),
   })))
+}
+
+function channelContentFromApi(content) {
+  const channelId = apiField(content, 'channel_id', 'ChannelID')
+  const channel = channelProfiles.find(item => Number(item.id) === Number(channelId))
+  return {
+    id: apiField(content, 'id', 'ID'),
+    channel: channel?.name || `渠道 ${channelId}`,
+    channelId,
+    title: apiField(content, 'title', 'Title') || '',
+    body: apiField(content, 'body', 'Body') || '',
+    tags: '',
+    seoTitle: '',
+    script: '',
+    status: channelContentStatusLabel(apiField(content, 'audit_status', 'AuditStatus')),
+    rawAuditStatus: apiField(content, 'audit_status', 'AuditStatus'),
+    publishStatus: apiField(content, 'publish_status', 'PublishStatus'),
+  }
 }
 
 function hydratePlans(apiPlans) {
@@ -1978,7 +2004,7 @@ async function generateChannelsForDraft(draft, options = {}) {
       title: target.title,
       body: `${target.body}\n\n${channel.name}版本：按渠道语境完成表达适配。`,
     })
-    target.channels.push({ id: content.id || Date.now(), channel: channel.name, title: content.title || target.title, body: content.body || target.body, tags: '', seoTitle: '', script: '', status: '已生成' })
+    target.channels.push(channelContentFromApi(content))
     target.status = '已生成渠道版本'
     if (!options.silent) showToast('已生成渠道版本')
   } catch (error) {
@@ -1996,10 +2022,85 @@ function openChannelEditor(draft, channel) {
   drawer.title = `${channel.channel} 内容编辑`
   channelPreviewMode.value = 'edit'
 }
-function confirmChannel(channel) { channel.status = '已确认'; showToast('渠道内容已确认') }
-function confirmSelectedChannel() { selectedChannel.status = '已确认'; showToast('渠道内容已确认') }
+async function confirmChannel(channel) {
+  const contentId = Number(channel?.id)
+  if (!contentId) {
+    showToast('请先生成渠道内容')
+    return
+  }
+  loading.action = true
+  try {
+    const approved = await approveAiGeoChannelContent(contentId, { opinion: '人工确认渠道内容通过。' })
+    Object.assign(channel, channelContentFromApi(approved))
+    syncSelectedChannel(channel)
+    showToast('渠道内容已确认')
+  } catch (error) {
+    showToast(error?.message || '渠道内容确认失败')
+  } finally {
+    loading.action = false
+  }
+}
+
+async function confirmSelectedChannel() {
+  const saved = await persistSelectedChannel()
+  if (!saved) return
+  await confirmChannel(selectedChannel)
+}
 function optimizeChannel(type) { selectedChannel.body += `\n\nAI 局部优化：${type}。`; if (type === '生成话题标签') selectedChannel.tags = '#通勤穿搭 #法式穿搭 #小个子穿搭'; showToast(type + '完成') }
-function regenerateChannel() { selectedChannel.body = selectedChannel.body + '\n\n已基于最新母稿重新生成渠道表达。'; showToast('渠道内容已重新生成') }
+async function rejectSelectedChannel() {
+  const contentId = Number(selectedChannel?.id)
+  if (!contentId) {
+    showToast('请先生成渠道内容')
+    return
+  }
+  loading.action = true
+  try {
+    const rejected = await rejectAiGeoChannelContent(contentId, { opinion: '人工驳回：需要继续优化渠道表达。' })
+    Object.assign(selectedChannel, channelContentFromApi(rejected))
+    syncSelectedChannel(selectedChannel)
+    showToast('渠道内容已驳回，审核意见已保留')
+  } catch (error) {
+    showToast(error?.message || '渠道内容驳回失败')
+  } finally {
+    loading.action = false
+  }
+}
+
+async function regenerateChannel() {
+  selectedChannel.body = `${selectedChannel.body || ''}\n\n已基于最新母稿重新生成渠道表达。`
+  const saved = await persistSelectedChannel()
+  if (saved) showToast('渠道内容已重新生成并保存')
+}
+
+async function persistSelectedChannel() {
+  const contentId = Number(selectedChannel?.id)
+  if (!contentId) {
+    showToast('请先生成渠道内容')
+    return null
+  }
+  loading.action = true
+  try {
+    const saved = await updateAiGeoChannelContent(contentId, {
+      channel_id: Number(selectedChannel.channelId),
+      title: selectedChannel.title,
+      body: selectedChannel.body,
+    })
+    Object.assign(selectedChannel, channelContentFromApi(saved))
+    syncSelectedChannel(selectedChannel)
+    return saved
+  } catch (error) {
+    showToast(error?.message || '渠道内容保存失败')
+    return null
+  } finally {
+    loading.action = false
+  }
+}
+
+function syncSelectedChannel(channel) {
+  const draft = selectedDraft.value || drafts.find(item => item.channels?.some(content => Number(content.id) === Number(channel.id)))
+  const target = draft?.channels?.find(content => Number(content.id) === Number(channel.id))
+  if (target) Object.assign(target, channel)
+}
 async function generateChannelAudit(channel) {
   const contentId = Number(channel?.id)
   if (!contentId) {
@@ -2226,6 +2327,14 @@ function draftStatusLabel(status) {
     approved: '已通过',
     rejected: '已驳回',
   }[status] || status || '草稿'
+}
+
+function channelContentStatusLabel(status) {
+  return {
+    pending: '待确认',
+    approved: '已确认',
+    rejected: '已驳回',
+  }[status] || status || '待确认'
 }
 
 function publishStatusLabel(status) {

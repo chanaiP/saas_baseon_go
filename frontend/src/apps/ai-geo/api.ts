@@ -132,6 +132,20 @@ export interface AiGeoDraft {
   updated_at?: string
 }
 
+export interface AiGeoChannelContent {
+  id: number
+  tenant_id: number
+  draft_id: number
+  channel_id: number
+  title: string
+  body: string
+  audit_status: string
+  publish_status: string
+  status: string
+  created_at?: string
+  updated_at?: string
+}
+
 export interface AiGeoPublishPlan {
   id: number
   tenant_id: number
@@ -270,7 +284,23 @@ export async function generateAiGeoDraftAuditSuggestion(id: number) {
 }
 
 export async function generateAiGeoChannelContent(id: number, payload: Record<string, unknown>) {
-  return unwrap(http.post<ApiResponse<Record<string, unknown>>>(`/api/ai-geo/drafts/${id}/channel-contents`, payload))
+  return unwrap(http.post<ApiResponse<AiGeoChannelContent>>(`/api/ai-geo/drafts/${id}/channel-contents`, payload))
+}
+
+export async function fetchAiGeoChannelContents(params: AiGeoListParams = {}) {
+  return unwrap(http.get<ApiResponse<AiGeoPage<AiGeoChannelContent>>>('/api/ai-geo/channel-contents', { params }))
+}
+
+export async function updateAiGeoChannelContent(id: number, payload: Record<string, unknown>) {
+  return unwrap(http.put<ApiResponse<AiGeoChannelContent>>(`/api/ai-geo/channel-contents/${id}`, payload))
+}
+
+export async function approveAiGeoChannelContent(id: number, payload: Record<string, unknown> = {}) {
+  return unwrap(http.post<ApiResponse<AiGeoChannelContent>>(`/api/ai-geo/channel-contents/${id}/approve`, payload))
+}
+
+export async function rejectAiGeoChannelContent(id: number, payload: Record<string, unknown> = {}) {
+  return unwrap(http.post<ApiResponse<AiGeoChannelContent>>(`/api/ai-geo/channel-contents/${id}/reject`, payload))
 }
 
 export async function fetchAiGeoChannelContentAuditSuggestions(id: number, params: AiGeoListParams = {}) {

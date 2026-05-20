@@ -443,6 +443,58 @@ func (h *Handler) GenerateChannelContent(c *gin.Context) {
 	}
 }
 
+func (h *Handler) ChannelContents(c *gin.Context) {
+	data, err := h.service.ChannelContents(c.Request.Context(), viewer(c), pageRequest(c))
+	h.ok(c, data, err)
+}
+
+func (h *Handler) ChannelContent(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	data, err := h.service.ChannelContent(c.Request.Context(), viewer(c), id)
+	h.ok(c, data, err)
+}
+
+func (h *Handler) UpdateChannelContent(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	var payload dto.ChannelContentPayload
+	if bind(c, &payload) {
+		data, err := h.service.UpdateChannelContent(c.Request.Context(), viewer(c), id, payload)
+		if err == nil {
+			err = h.auditWrite(c, "channel_content_update", fmt.Sprintf("%d", data.ID), "更新渠道内容", gin.H{"channel_content_id": data.ID, "channel_id": data.ChannelID})
+		}
+		h.ok(c, data, err)
+	}
+}
+
+func (h *Handler) ApproveChannelContent(c *gin.Context) { h.reviewChannelContent(c, true) }
+func (h *Handler) RejectChannelContent(c *gin.Context)  { h.reviewChannelContent(c, false) }
+
+func (h *Handler) reviewChannelContent(c *gin.Context, approved bool) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	var payload dto.ChannelContentReviewPayload
+	_ = c.ShouldBindJSON(&payload)
+	data, err := h.service.ReviewChannelContent(c.Request.Context(), viewer(c), id, approved, payload.Opinion)
+	if err == nil {
+		action := "channel_content_reject"
+		summary := "驳回渠道内容"
+		if approved {
+			action = "channel_content_approve"
+			summary = "审核通过渠道内容"
+		}
+		err = h.auditWrite(c, action, fmt.Sprintf("%d", data.ID), summary, gin.H{"channel_content_id": data.ID, "opinion": payload.Opinion})
+	}
+	h.ok(c, data, err)
+}
+
 func (h *Handler) GenerateChannelContentAuditSuggestion(c *gin.Context) {
 	id, ok := parseID(c)
 	if !ok {
@@ -593,6 +645,7 @@ func pageRequest(c *gin.Context) dto.PageRequest {
 		Status:      c.Query("status"),
 		BrandID:     queryUint(c, "brand_id"),
 		ProductID:   queryUint(c, "product_id"),
+		DraftID:     queryUint(c, "draft_id"),
 		ChannelID:   queryUint(c, "channel_id"),
 		AuditStatus: c.Query("audit_status"),
 	}

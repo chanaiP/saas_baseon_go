@@ -1053,6 +1053,83 @@ func (s *Service) GenerateChannelContent(ctx context.Context, viewer dto.Viewer,
 	return content, nil
 }
 
+func (s *Service) ChannelContents(ctx context.Context, viewer dto.Viewer, req dto.PageRequest) (dto.PageResponse[models.AiGeoChannelContent], error) {
+	rows, total, err := s.repo.ListChannelContents(ctx, viewer.TenantID, req)
+	return page(rows, total, req), err
+}
+
+func (s *Service) ChannelContent(ctx context.Context, viewer dto.Viewer, id uint64) (models.AiGeoChannelContent, error) {
+	row, err := s.repo.ChannelContent(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	return row, err
+}
+
+func (s *Service) UpdateChannelContent(ctx context.Context, viewer dto.Viewer, id uint64, payload dto.ChannelContentPayload) (models.AiGeoChannelContent, error) {
+	row, err := s.repo.ChannelContent(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	if err != nil {
+		return row, err
+	}
+	if row.PublishStatus == "publishing" || row.PublishStatus == "published" {
+		return row, ErrInvalidStatus
+	}
+	if strings.TrimSpace(payload.Title) != "" {
+		row.Title = strings.TrimSpace(payload.Title)
+	}
+	if strings.TrimSpace(payload.Body) != "" {
+		row.Body = strings.TrimSpace(payload.Body)
+	}
+	if payload.ChannelID > 0 && payload.ChannelID != row.ChannelID {
+		if _, err := s.repo.Channel(ctx, viewer.TenantID, payload.ChannelID); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return row, ErrNotFound
+			}
+			return row, err
+		}
+		row.ChannelID = payload.ChannelID
+	}
+	row.AuditStatus = "pending"
+	row.UpdatedAt = time.Now()
+	userID := viewer.UserID
+	row.UpdatedBy = &userID
+	err = s.repo.SaveChannelContent(ctx, &row)
+	return row, err
+}
+
+func (s *Service) ReviewChannelContent(ctx context.Context, viewer dto.Viewer, id uint64, approved bool, opinion string) (models.AiGeoChannelContent, error) {
+	row, err := s.repo.ChannelContent(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	if err != nil {
+		return row, err
+	}
+	if row.AuditStatus != "pending" && row.AuditStatus != "rejected" {
+		return row, ErrInvalidStatus
+	}
+	if approved {
+		row.AuditStatus = "approved"
+	} else {
+		row.AuditStatus = "rejected"
+	}
+	now := time.Now()
+	userID := viewer.UserID
+	row.UpdatedAt = now
+	row.UpdatedBy = &userID
+	err = s.repo.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(&row).Error; err != nil {
+			return err
+		}
+		review := channelContentReviewSuggestionRow(viewer, row, approved, opinion)
+		return tx.Create(&review).Error
+	})
+	return row, err
+}
+
 func (s *Service) GenerateChannelContentAuditSuggestion(ctx context.Context, viewer dto.Viewer, id uint64) (models.AiGeoAuditSuggestion, error) {
 	content, err := s.repo.ChannelContent(ctx, viewer.TenantID, id)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -1858,6 +1935,40 @@ func draftReviewSuggestionRow(viewer dto.Viewer, draft models.AiGeoDraft, approv
 		ObjectID:     draft.ID,
 		ObjectCode:   stringPtr(draft.DraftCode),
 		ScenarioCode: "manual_draft_review",
+		RiskLevel:    riskLevel,
+		Passed:       approved,
+		Summary:      stringPtr(opinion),
+		SuggestionJSON: jsonString([]map[string]interface{}{
+			{"type": "human_review", "content": opinion},
+		}, []map[string]interface{}{}),
+		ModelCode:   stringPtr("human-review"),
+		Status:      "success",
+		GeneratedAt: now,
+		CreatedBy:   &viewer.UserID,
+		CreatedAt:   now,
+	}
+}
+
+func channelContentReviewSuggestionRow(viewer dto.Viewer, content models.AiGeoChannelContent, approved bool, opinion string) models.AiGeoAuditSuggestion {
+	now := time.Now()
+	opinion = strings.TrimSpace(opinion)
+	if opinion == "" {
+		if approved {
+			opinion = "人工确认渠道内容通过，未填写额外意见。"
+		} else {
+			opinion = "人工确认渠道内容驳回，未填写额外意见。"
+		}
+	}
+	riskLevel := "low"
+	if !approved {
+		riskLevel = "high"
+	}
+	return models.AiGeoAuditSuggestion{
+		TenantID:     viewer.TenantID,
+		ObjectType:   "channel_content",
+		ObjectID:     content.ID,
+		ObjectCode:   stringPtr(fmt.Sprintf("%d", content.ID)),
+		ScenarioCode: "manual_channel_content_review",
 		RiskLevel:    riskLevel,
 		Passed:       approved,
 		Summary:      stringPtr(opinion),

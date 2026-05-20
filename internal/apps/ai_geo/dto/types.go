@@ -21,6 +21,7 @@ type PageRequest struct {
 	Status      string
 	BrandID     uint64
 	ProductID   uint64
+	DraftID     uint64
 	ChannelID   uint64
 	AuditStatus string
 	StartDate   *time.Time
@@ -141,6 +142,10 @@ type ChannelContentPayload struct {
 	ChannelID uint64 `json:"channel_id"`
 	Title     string `json:"title"`
 	Body      string `json:"body"`
+}
+
+type ChannelContentReviewPayload struct {
+	Opinion string `json:"opinion"`
 }
 
 type ReviewDraftPayload struct {
