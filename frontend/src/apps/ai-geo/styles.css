@@ -41,6 +41,7 @@
 .geo-growth-page .btn.full { width: 100%; }
 .geo-growth-page .danger-btn { color: var(--danger); border-color: rgba(220,38,38,.2); }
 .geo-growth-page .page { display: grid; gap: 18px; }
+.geo-growth-page .page-loading { position: sticky; top: 0; z-index: 12; margin-bottom: 12px; padding: 10px 14px; border: 1px solid rgba(37, 99, 235, .2); border-radius: 14px; background: var(--primary-soft); color: var(--primary); font-weight: 600; }
 .geo-growth-page .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 22px; padding: 18px; box-shadow: var(--shadow); }
 .geo-growth-page .panel-header { display: flex; justify-content: space-between; gap: 20px; align-items: center; margin-bottom: 16px; }
 .geo-growth-page .panel-header.compact { margin-bottom: 12px; }

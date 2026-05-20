@@ -1,6 +1,7 @@
 <template>
   <div class="geo-growth-page">
     <main class="main">
+      <div v-if="loading.page" class="page-loading">正在加载 AI GEO 业务数据...</div>
       <header class="topbar">
         <div>
           <h2>{{ activeTitle }}</h2>
@@ -615,6 +616,26 @@
           <button class="btn primary full" @click="saveModeConfig">保存配置</button>
         </div>
 
+        <div v-if="modal.type === 'brand'" class="modal-body brand-form">
+          <div class="grid two">
+            <label>品牌名称<input v-model="brandForm.brand_name" placeholder="例如 Mardi Ladin" /></label>
+            <label>品牌编码<input v-model="brandForm.brand_code" :disabled="Boolean(brandForm.id)" placeholder="例如 mardi-ladin" /></label>
+          </div>
+          <label>品牌定位<textarea v-model="brandForm.positioning" rows="2" placeholder="品牌风格、核心品类、差异化定位"></textarea></label>
+          <div class="grid two">
+            <label>目标人群<input v-model="brandForm.target_audience" placeholder="例如 25-35 岁都市女性" /></label>
+            <label>价格带<input v-model="brandForm.price_band" placeholder="例如 299-899 元" /></label>
+          </div>
+          <label>内容口径<input v-model="brandForm.tone" placeholder="例如 专业、轻法式、可信、不硬广" /></label>
+          <label>品牌关键词<textarea v-model="brandForm.keywordsText" rows="2" placeholder="多个关键词用逗号、顿号或换行分隔"></textarea></label>
+          <div class="drawer-actions">
+            <button class="btn ghost" @click="closeModal">取消</button>
+            <button class="btn primary" :disabled="loading.action || !brandForm.brand_name.trim()" @click="saveBrand">
+              {{ loading.action ? '保存中' : '保存品牌' }}
+            </button>
+          </div>
+        </div>
+
         <div v-if="modal.type === 'import'" class="modal-body import-flow">
           <div class="steps"><span class="active">1 上传文件</span><span class="active">2 字段映射</span><span>3 校验预览</span><span>4 确认导入</span></div>
           <div class="upload-box">拖拽或选择 Excel / CSV 文件<br><small>系统读取表头后，映射到商品字段、SKU 字段、SKU 覆盖字段、竞品字段或自定义字段</small></div>
@@ -738,6 +759,7 @@ import { usePermissionStore } from '@/stores/permission'
 import ChannelManagementPanel from '../components/ChannelManagementPanel.vue'
 import {
   approveAiGeoDraft,
+  createAiGeoBrand,
   createAiGeoCompetitor,
   createAiGeoDraft,
   createAiGeoPublishPlan,
@@ -757,6 +779,7 @@ import {
   generateAiGeoDraft,
   importAiGeoMaterials,
   submitAiGeoDraft,
+  updateAiGeoBrand,
   updateAiGeoPublishPlanStatus,
 } from '../api'
 
@@ -1275,6 +1298,16 @@ const toast = reactive({ show: false, text: '' })
 const selectedChannel = reactive({})
 const selectedDraft = ref(null)
 const selectedProduct = reactive({})
+const brandForm = reactive({
+  id: 0,
+  brand_code: '',
+  brand_name: '',
+  positioning: '',
+  target_audience: '',
+  price_band: '',
+  tone: '',
+  keywordsText: '',
+})
 const draftAuditPanel = reactive({ summary: '', risk: '未审核', passed: false, items: [] })
 const channelAuditPanel = reactive({ summary: '', risk: '未审核', passed: false, items: [] })
 
@@ -1349,34 +1382,43 @@ async function loadAiGeoData() {
   }
 }
 
+function apiField(obj, ...keys) {
+  for (const key of keys) {
+    if (obj?.[key] !== undefined && obj?.[key] !== null) return obj[key]
+  }
+  return undefined
+}
+
 function hydrateBrands(apiBrands, apiProducts, apiSkus = [], apiCompetitors = []) {
   brands.splice(0, brands.length, ...apiBrands.map(brand => ({
-    id: brand.id,
-    name: brand.brand_name,
-    position: brand.positioning || '',
-    audience: brand.target_audience || '',
-    priceBand: brand.price_band || '',
-    tone: brand.tone || '',
-    completeness: brand.completeness || 0,
-    keywordGroups: [{ id: brand.id, name: '品牌关键词', keywords: parseJsonArray(brand.keywords) }],
+    id: apiField(brand, 'id', 'ID'),
+    code: apiField(brand, 'brand_code', 'BrandCode') || '',
+    name: apiField(brand, 'brand_name', 'BrandName') || '',
+    position: apiField(brand, 'positioning', 'Positioning') || '',
+    audience: apiField(brand, 'target_audience', 'TargetAudience') || '',
+    priceBand: apiField(brand, 'price_band', 'PriceBand') || '',
+    tone: apiField(brand, 'tone', 'Tone') || '',
+    completeness: apiField(brand, 'completeness', 'Completeness') || 0,
+    keywordGroups: [{ id: apiField(brand, 'id', 'ID'), name: '品牌关键词', keywords: parseJsonArray(apiField(brand, 'keywords', 'Keywords')) }],
     materials: [],
-    products: apiProducts.filter(product => product.brand_id === brand.id).map(product => {
-      const productSkus = apiSkus.filter(sku => sku.product_id === product.id).map(sku => skuFromApi(sku))
-      const productCompetitors = apiCompetitors.filter(comp => comp.product_id === product.id).map(comp => competitorFromApi(comp))
+    products: apiProducts.filter(product => Number(apiField(product, 'brand_id', 'BrandID')) === Number(apiField(brand, 'id', 'ID'))).map(product => {
+      const productId = apiField(product, 'id', 'ID')
+      const productSkus = apiSkus.filter(sku => Number(apiField(sku, 'product_id', 'ProductID')) === Number(productId)).map(sku => skuFromApi(sku))
+      const productCompetitors = apiCompetitors.filter(comp => Number(apiField(comp, 'product_id', 'ProductID')) === Number(productId)).map(comp => competitorFromApi(comp))
       return {
-        id: product.id,
-        code: product.product_code,
-        name: product.product_name,
-        category: product.category_name || '',
+        id: productId,
+        code: apiField(product, 'product_code', 'ProductCode') || '',
+        name: apiField(product, 'product_name', 'ProductName') || '',
+        category: apiField(product, 'category_name', 'CategoryName') || '',
         series: '',
         priceRange: productSkus.length ? priceRangeFromSkus(productSkus) : '',
         fabric: '',
         fit: '',
-        styleTags: parseJsonArray(product.content_angles),
+        styleTags: parseJsonArray(apiField(product, 'content_angles', 'ContentAngles')),
         sceneTags: [],
         audience: '',
-        sellingPoints: parseJsonArray(product.selling_points).join('、'),
-        completeness: product.completeness || 0,
+        sellingPoints: parseJsonArray(apiField(product, 'selling_points', 'SellingPoints')).join('、'),
+        completeness: apiField(product, 'completeness', 'Completeness') || 0,
         missing: [],
         keywords: [],
         competitors: productCompetitors,
@@ -1391,36 +1433,36 @@ function hydrateBrands(apiBrands, apiProducts, apiSkus = [], apiCompetitors = []
 
 function hydrateChannels(apiChannels) {
   channelProfiles.splice(0, channelProfiles.length, ...apiChannels.map(channel => ({
-    id: channel.id,
-    name: channel.channel_name,
-    icon: channelIcon(channel.channel_name),
-    desc: channel.channel_type,
-    type: channel.channel_type,
-    siteUrl: channel.entry_url || '',
-    adminUrl: channel.entry_url || '',
-    contentTypes: parseJsonArray(channel.content_forms).join(' / '),
-    supportMethods: parseJsonArray(channel.support_modes).join(' / '),
-    defaultMethod: channel.default_publish_mode,
+    id: apiField(channel, 'id', 'ID'),
+    name: apiField(channel, 'channel_name', 'ChannelName') || '',
+    icon: channelIcon(apiField(channel, 'channel_name', 'ChannelName')),
+    desc: apiField(channel, 'channel_type', 'ChannelType') || '',
+    type: apiField(channel, 'channel_type', 'ChannelType') || '',
+    siteUrl: apiField(channel, 'entry_url', 'EntryURL') || '',
+    adminUrl: apiField(channel, 'entry_url', 'EntryURL') || '',
+    contentTypes: parseJsonArray(apiField(channel, 'content_forms', 'ContentForms')).join(' / '),
+    supportMethods: parseJsonArray(apiField(channel, 'support_modes', 'SupportModes')).join(' / '),
+    defaultMethod: apiField(channel, 'default_publish_mode', 'DefaultPublishMode'),
     accountCount: 0,
-    status: channel.status === 'active' ? '可发布' : '未配置',
-    method: channel.default_publish_mode,
-    level: channel.default_publish_mode === 'manual' ? '人工' : '半自动',
+    status: apiField(channel, 'status', 'Status') === 'active' ? '可发布' : '未配置',
+    method: apiField(channel, 'default_publish_mode', 'DefaultPublishMode'),
+    level: apiField(channel, 'default_publish_mode', 'DefaultPublishMode') === 'manual' ? '人工' : '半自动',
     skill: '',
     risk: '发布前校验 + 异常人工接管',
-    enabled: channel.status === 'active',
+    enabled: apiField(channel, 'status', 'Status') === 'active',
   })))
 }
 
 function skuFromApi(sku) {
-  const attributes = parseJsonObject(sku.attributes)
+  const attributes = parseJsonObject(apiField(sku, 'attributes', 'Attributes'))
   return {
-    id: sku.id,
-    code: sku.sku_code,
-    name: sku.sku_name,
+    id: apiField(sku, 'id', 'ID'),
+    code: apiField(sku, 'sku_code', 'SKUCode') || '',
+    name: apiField(sku, 'sku_name', 'SKUName') || '',
     color: attributes.color || attributes.颜色 || '',
     size: attributes.size || attributes.尺码 || '',
-    price: Number(sku.price || 0),
-    status: skuStatusLabel(sku.stock_status || sku.status),
+    price: Number(apiField(sku, 'price', 'Price') || 0),
+    status: skuStatusLabel(apiField(sku, 'stock_status', 'StockStatus') || apiField(sku, 'status', 'Status')),
     overrideTitle: attributes.override_title || attributes.title || '',
     overridePoint: attributes.override_point || attributes.selling_point || '',
   }
@@ -1428,14 +1470,14 @@ function skuFromApi(sku) {
 
 function competitorFromApi(comp) {
   return {
-    id: comp.id,
-    brand: comp.brand_name,
-    name: comp.product_name,
-    price: comp.price_text || '待录入',
-    point: comp.point || '待录入',
-    diff: comp.difference || '待分析',
-    angle: comp.angle || '待生成',
-    link: comp.link_url || '',
+    id: apiField(comp, 'id', 'ID'),
+    brand: apiField(comp, 'brand_name', 'BrandName') || '',
+    name: apiField(comp, 'product_name', 'ProductName') || '',
+    price: apiField(comp, 'price_text', 'PriceText') || '待录入',
+    point: apiField(comp, 'point', 'Point') || '待录入',
+    diff: apiField(comp, 'difference', 'Difference') || '待分析',
+    angle: apiField(comp, 'angle', 'Angle') || '待生成',
+    link: apiField(comp, 'link_url', 'LinkURL') || '',
   }
 }
 
@@ -1449,42 +1491,45 @@ function priceRangeFromSkus(skus) {
 
 function hydrateDrafts(apiDrafts) {
   drafts.splice(0, drafts.length, ...apiDrafts.map(draft => ({
-    id: draft.id,
-    date: String(draft.created_at || new Date().toISOString()).slice(0, 10),
-    title: draft.title,
-    summary: draft.summary || '',
-    body: draft.body,
-    source: sourceLabel(draft.source),
-    status: draftStatusLabel(draft.audit_status),
+    id: apiField(draft, 'id', 'ID'),
+    date: String(apiField(draft, 'created_at', 'CreatedAt') || new Date().toISOString()).slice(0, 10),
+    title: apiField(draft, 'title', 'Title') || '',
+    summary: apiField(draft, 'summary', 'Summary') || '',
+    body: apiField(draft, 'body', 'Body') || '',
+    source: sourceLabel(apiField(draft, 'source', 'Source')),
+    status: draftStatusLabel(apiField(draft, 'audit_status', 'AuditStatus')),
     audit: modeConfig.draftAuditMode,
     channels: [],
-    rawStatus: draft.audit_status,
+    rawStatus: apiField(draft, 'audit_status', 'AuditStatus'),
   })))
 }
 
 function hydratePlans(apiPlans) {
   plans.splice(0, plans.length, ...apiPlans.map(plan => {
-    const scheduled = new Date(plan.scheduled_at)
+    const scheduledAt = apiField(plan, 'scheduled_at', 'ScheduledAt')
+    const channelId = apiField(plan, 'channel_id', 'ChannelID')
+    const planStatus = apiField(plan, 'status', 'Status')
+    const scheduled = new Date(scheduledAt)
     return {
-      id: plan.id,
-      date: Number.isNaN(scheduled.getTime()) ? String(plan.scheduled_at).slice(0, 10) : scheduled.toISOString().slice(0, 10),
+      id: apiField(plan, 'id', 'ID'),
+      date: Number.isNaN(scheduled.getTime()) ? String(scheduledAt || '').slice(0, 10) : scheduled.toISOString().slice(0, 10),
       time: Number.isNaN(scheduled.getTime()) ? '' : scheduled.toTimeString().slice(0, 5),
-      title: plan.plan_code,
-      channel: channelProfiles.find(c => c.id === plan.channel_id)?.name || `渠道 ${plan.channel_id}`,
-      channelId: plan.channel_id,
-      channelContentId: plan.channel_content_id,
+      title: apiField(plan, 'plan_code', 'PlanCode') || '',
+      channel: channelProfiles.find(c => Number(c.id) === Number(channelId))?.name || `渠道 ${channelId}`,
+      channelId,
+      channelContentId: apiField(plan, 'channel_content_id', 'ChannelContentID'),
       accountName: '',
-      method: plan.publish_method,
-      level: plan.automation_level,
+      method: apiField(plan, 'publish_method', 'PublishMethod'),
+      level: apiField(plan, 'automation_level', 'AutomationLevel'),
       skill: '',
       risk: '发布前校验 + 异常人工接管',
       owner: '系统',
-      status: publishStatusLabel(plan.status),
-      link: plan.published_url || '',
+      status: publishStatusLabel(planStatus),
+      link: apiField(plan, 'published_url', 'PublishedURL') || '',
       channelAudit: '已通过',
       accountStatus: '可发布',
       materialStatus: '完整',
-      publishStatus: plan.status === 'failed' ? '阻断' : '可发布',
+      publishStatus: planStatus === 'failed' ? '阻断' : '可发布',
     }
   }))
 }
@@ -1506,8 +1551,64 @@ function openPendingTask(task) {
 }
 function saveModeConfig() { closeModal(); showToast('模式配置已保存') }
 function openImportModal() { modal.type = 'import'; modal.title = '动态字段导入：商品 / SKU / 竞品信息'; modal.wide = true }
-function openBrandModal() { showToast('新增/编辑品牌弹窗已触发') }
+function openBrandModal(brand = null) {
+  const isEdit = Boolean(brand?.id)
+  Object.assign(brandForm, {
+    id: isEdit ? brand.id : 0,
+    brand_code: isEdit ? String(brand.code || brand.brand_code || brand.name || '') : '',
+    brand_name: isEdit ? String(brand.name || brand.brand_name || '') : '',
+    positioning: isEdit ? String(brand.position || brand.positioning || '') : '',
+    target_audience: isEdit ? String(brand.audience || brand.target_audience || '') : '',
+    price_band: isEdit ? String(brand.priceBand || brand.price_band || '') : '',
+    tone: isEdit ? String(brand.tone || '') : '',
+    keywordsText: isEdit ? (brand.keywordGroups || []).flatMap(group => group.keywords || []).join('、') : '',
+  })
+  modal.type = 'brand'
+  modal.title = isEdit ? '编辑品牌资料' : '新增品牌资料'
+  modal.wide = false
+}
 function openNewPlanModal() { modal.type = 'newPlan'; modal.title = '新建发布计划' }
+function normalizeBrandCode(name) {
+  const raw = String(name || '').trim().toLowerCase()
+  const ascii = raw
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return ascii || `brand-${Date.now()}`
+}
+function splitKeywords(value) {
+  return String(value || '').split(/[\n,，、;；]+/).map(item => item.trim()).filter(Boolean)
+}
+async function saveBrand() {
+  const name = String(brandForm.brand_name || '').trim()
+  if (!name) {
+    showToast('请填写品牌名称')
+    return
+  }
+  const payload = {
+    brand_code: brandForm.id ? brandForm.brand_code : (String(brandForm.brand_code || '').trim() || normalizeBrandCode(name)),
+    brand_name: name,
+    positioning: String(brandForm.positioning || '').trim(),
+    target_audience: String(brandForm.target_audience || '').trim(),
+    price_band: String(brandForm.price_band || '').trim(),
+    tone: String(brandForm.tone || '').trim(),
+    keywords: splitKeywords(brandForm.keywordsText),
+    status: 'active',
+  }
+  loading.action = true
+  try {
+    const saved = brandForm.id
+      ? await updateAiGeoBrand(Number(brandForm.id), payload)
+      : await createAiGeoBrand(payload)
+    selectedBrandId.value = saved.id
+    closeModal()
+    await loadAiGeoData()
+    showToast(brandForm.id ? '品牌资料已更新' : '品牌资料已创建')
+  } catch (error) {
+    showToast(error?.message || '品牌资料保存失败')
+  } finally {
+    loading.action = false
+  }
+}
 async function mockImport() {
   loading.action = true
   try {
