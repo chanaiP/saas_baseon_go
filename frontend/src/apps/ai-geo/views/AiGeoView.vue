@@ -1518,15 +1518,16 @@ function useHotspot(hot, mode) {
 }
 function evaluateWorkbenchReadiness(extraPrompt = '') {
   const intentText = [...workbenchUserMessages.value.map(msg => msg.text), extraPrompt].filter(Boolean).join('\n')
+  const userAcceptedDraft = isWorkbenchDraftDecision(intentText)
   const hasSearchQuestion = /写|生成|文章|攻略|问答|种草|小红书|知乎|通勤|怎么|如何|适合|推荐|选择|对比|人群|场景|卖点|关键词/.test(intentText)
   const hasSpecificBrief = intentText.replace(/\s/g, '').length >= 16
   const hasStructuredContext = Boolean(workbench.skill || ideaSession.recommendedSkill || selectedWorkbenchProduct.value || workbench.hotspot)
-  const ready = ideaSession.stage === 'ready'
+  const ready = ideaSession.stage === 'ready' || (userAcceptedDraft && hasSearchQuestion && hasSpecificBrief)
   const missing = []
   if (!hasSearchQuestion) missing.push('文章要回答的搜索问题')
   if (!hasSpecificBrief) missing.push('目标人群、场景或口吻')
   if (!hasStructuredContext) missing.push('Skill、商品或热点')
-  if (ideaSession.stage === 'shaping' && !missing.length) missing.push('再补充一轮澄清信息')
+  if (ideaSession.stage === 'shaping' && !missing.length && !userAcceptedDraft) missing.push('再补充一轮澄清信息')
   return {
     ready,
     missing,
@@ -1560,9 +1561,13 @@ function extractIdeaSlots(text) {
 function isWorkbenchCorrection(text) {
   return /不是.*补充|已经补充|刚才.*说了|不是给了|你没看到|同样的话|重复问/.test(text)
 }
+function isWorkbenchDraftDecision(text) {
+  return /不补了|不用补|先生成|直接生成|测试一轮|试一轮|看下?是否生成|看能不能生成|可以生成|按这个方向生成|生成母稿/.test(text)
+}
 function buildIdeaAnalysis(prompt) {
   const messages = workbenchUserMessages.value.map(msg => msg.text)
   if (messages[messages.length - 1] !== prompt) messages.push(prompt)
+  const userAcceptedDraft = isWorkbenchDraftDecision(prompt)
   const allText = messages.filter(text => text && !isWorkbenchCorrection(text)).join('\n')
   const recommendedSkill = inferWorkbenchSkill(allText)
   const matchedProduct = inferWorkbenchProduct(allText)
@@ -1585,26 +1590,32 @@ function buildIdeaAnalysis(prompt) {
   if (!ideaSession.searchProblem) missing.push('这篇文章要回答的具体搜索问题')
   if (!ideaSession.audience) missing.push('目标人群')
   if (!ideaSession.scene) missing.push('使用场景')
-  ideaSession.stage = missing.length === 0 || (isWorkbenchCorrection(prompt) && ideaSession.audience && ideaSession.scene) ? 'ready' : 'shaping'
+  ideaSession.stage = missing.length === 0 || userAcceptedDraft || (isWorkbenchCorrection(prompt) && ideaSession.audience && ideaSession.scene) ? 'ready' : 'shaping'
   ideaSession.brief = `围绕「${brand}」和「${product}」，用「${recommendedSkill}」写一篇${ideaSession.tone || '清晰可信'}的 GEO 文章，解决「${ideaSession.searchProblem || '用户选购/穿搭问题'}」，面向「${ideaSession.audience || '潜在目标用户'}」，场景聚焦「${ideaSession.scene || '待补充'}」。`
   const correctionReading = isWorkbenchCorrection(prompt) && ideaSession.stage === 'ready'
     ? `你说得对，目标用户和使用场景已经补充了。我已把目标用户识别为「${ideaSession.audience}」，使用场景识别为「${ideaSession.scene}」，现在可以进入生成或继续细化口吻。`
     : ''
+  const decisionReading = userAcceptedDraft
+    ? `收到，你已经决定先不继续补充。当前信息会作为一次可生成 brief，缺失的人群、场景或口吻由 AI 按品牌资料和 Skill 兜底，不再阻塞生成。`
+    : ''
   return {
     intent: recommendedSkill,
-    reading: correctionReading || `我理解你不是要泛泛写品牌介绍，而是要把「${prompt}」转成一个能被搜索/AI 问答引用的选题。当前品牌是「${brand}」，${matchedProduct ? `已匹配商品「${matchedProduct.name}」` : `先使用「${product}」作为资料底座`}。`,
+    reading: correctionReading || decisionReading || `我理解你不是要泛泛写品牌介绍，而是要把「${prompt}」转成一个能被搜索/AI 问答引用的选题。当前品牌是「${brand}」，${matchedProduct ? `已匹配商品「${matchedProduct.name}」` : `先使用「${product}」作为资料底座`}。`,
     expand: [
       `品牌锚点：用「${selectedWorkbenchBrand.value.position || brand}」建立可信背景，不硬广。`,
       `用户问题：把想法放大成“${ideaSession.searchProblem || '用户到底在搜索什么'}”的回答入口。`,
       `内容资产：保留可改写到小红书、知乎、独立站的标题、摘要、FAQ 和关键词。`,
     ],
     converge: ideaSession.brief,
-    questions: missing.length ? missing.slice(0, 2).map(item => `补充${item}`) : ['按这个方向生成母稿', '再强化商品卖点'],
+    questions: ideaSession.stage === 'ready' ? ['按这个方向生成母稿', '再强化商品卖点'] : missing.slice(0, 2).map(item => `补充${item}`),
   }
 }
 function buildWorkbenchReply(idea) {
   const readiness = evaluateWorkbenchReadiness()
   if (readiness.ready) {
+    if (isWorkbenchDraftDecision(latestWorkbenchUserPrompt.value)) {
+      return `可以，闭环到生成。${ideaSession.brief} 现在可以点击“生成母稿”，我会用现有资料先跑一版，再让你在右侧编辑器里验证质量。`
+    }
     return `${isWorkbenchCorrection(latestWorkbenchUserPrompt.value) ? '对，是我刚才没有正确识别字段。' : '我已经把想法收敛成可生成 brief：'}${ideaSession.brief} 可以生成母稿，也可以继续告诉我你想更偏种草、专业问答还是 SEO 长文。`
   }
   const question = idea?.questions?.[0] || '请补充文章目标'
