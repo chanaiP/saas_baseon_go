@@ -63,6 +63,7 @@ func NewRouter(cfg Config, db *gorm.DB, redisClient *redis.Client) *gin.Engine {
 	dataCenterService.SetAIAnalyzer(dcservices.NewGatewayAIAnalyzer(aiCapabilityCenterService))
 	dataCenterHandler := dchandlers.NewHandler(dataCenterService)
 	aiGeoService := aigeoservices.NewService(aigeorepos.NewRepository(db))
+	aiGeoService.SetDraftGenerator(aigeoservices.NewGatewayDraftGenerator(aiCapabilityCenterService))
 	aiGeoHandler := aigeohandlers.NewHandler(aiGeoService)
 
 	router.GET("/health", healthHandler.Check)

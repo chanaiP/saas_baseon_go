@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	quotaapp "saas_baseon_go/internal/application/quota"
+	aiccservices "saas_baseon_go/internal/apps/ai_capability_center/services"
 	"saas_baseon_go/internal/apps/ai_geo/dto"
 	"saas_baseon_go/internal/apps/ai_geo/repositories"
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
@@ -112,6 +113,60 @@ func TestGenerateDraftConsumesMonthlyQuota(t *testing.T) {
 	require.Equal(t, 1, usage.UsedValue)
 }
 
+func TestGenerateDraftInvokesAICapabilityCenterScenario(t *testing.T) {
+	db := newAiGeoTestDB(t)
+	seedAiGeoQuotaPlan(t, db, 1, quotaMonthlyDraftGenerations, "月度母稿生成次数", ptr("MONTH"), 5)
+	service := NewService(repositories.NewRepository(db))
+	gateway := &fakeAIGatewayInvoker{response: aiccservices.InvokeResponse{
+		Status: "success",
+		Data: map[string]interface{}{
+			"draft": map[string]interface{}{
+				"title":    "春季新品 GEO 种草",
+				"summary":  "围绕春季场景强化新品心智。",
+				"body":     "这是一篇来自 AI Gateway 的母稿正文。",
+				"keywords": []interface{}{"春季", "新品", "GEO"},
+			},
+		},
+	}}
+	service.SetDraftGenerator(NewGatewayDraftGenerator(gateway))
+
+	draft, err := service.GenerateDraft(context.Background(), dto.Viewer{TenantID: 1, UserID: 10}, dto.GenerateDraftPayload{Prompt: "春季新品上市"})
+
+	require.NoError(t, err)
+	require.Equal(t, draftGenerationScenarioCode, gateway.lastRequest.AIScenarioCode)
+	require.Equal(t, "ai-geo", gateway.lastRequest.AppCode)
+	require.Equal(t, "1", gateway.lastRequest.TenantID)
+	require.Equal(t, "10", gateway.lastRequest.UserID)
+	require.Equal(t, "春季新品 GEO 种草", draft.Title)
+	require.Equal(t, "这是一篇来自 AI Gateway 的母稿正文。", draft.Body)
+	require.Contains(t, draft.Keywords, "GEO")
+}
+
+func TestGatewayDraftGeneratorParsesProviderTextJSON(t *testing.T) {
+	gateway := &fakeAIGatewayInvoker{response: aiccservices.InvokeResponse{
+		Status: "success",
+		Data: map[string]interface{}{
+			"choices": []interface{}{
+				map[string]interface{}{
+					"message": map[string]interface{}{
+						"content": `{"title":"文本 JSON 标题","summary":"文本摘要","body":"文本正文","keywords":["文本","解析"]}`,
+					},
+				},
+			},
+		},
+	}}
+
+	result, err := NewGatewayDraftGenerator(gateway).GenerateDraft(context.Background(), DraftGenerationRequest{
+		Viewer:  dto.Viewer{TenantID: 1, UserID: 10},
+		Payload: dto.GenerateDraftPayload{Prompt: "文本解析"},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, "文本 JSON 标题", result.Title)
+	require.Equal(t, "文本正文", result.Body)
+	require.Equal(t, []string{"文本", "解析"}, result.Keywords)
+}
+
 func newAiGeoTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
@@ -157,4 +212,15 @@ func seedAiGeoQuotaPlan(t *testing.T, db *gorm.DB, tenantID uint64, quotaCode st
 
 func ptr(value string) *string {
 	return &value
+}
+
+type fakeAIGatewayInvoker struct {
+	response    aiccservices.InvokeResponse
+	err         error
+	lastRequest aiccservices.InvokeRequest
+}
+
+func (f *fakeAIGatewayInvoker) Invoke(_ context.Context, req aiccservices.InvokeRequest) (aiccservices.InvokeResponse, error) {
+	f.lastRequest = req
+	return f.response, f.err
 }

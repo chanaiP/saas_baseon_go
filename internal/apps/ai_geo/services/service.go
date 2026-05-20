@@ -31,12 +31,40 @@ var (
 )
 
 type Service struct {
-	repo  *repositories.Repository
-	quota *quotaapp.Service
+	repo           *repositories.Repository
+	quota          *quotaapp.Service
+	draftGenerator DraftGenerator
 }
 
 func NewService(repo *repositories.Repository) *Service {
-	return &Service{repo: repo, quota: quotaapp.NewService(repo.DB())}
+	return &Service{repo: repo, quota: quotaapp.NewService(repo.DB()), draftGenerator: localDraftGenerator{}}
+}
+
+type DraftGenerationRequest struct {
+	Viewer  dto.Viewer
+	Payload dto.GenerateDraftPayload
+	Brand   *models.AiGeoBrandCard
+	Product *models.AiGeoProductCard
+}
+
+type DraftGenerationResult struct {
+	Title    string
+	Summary  string
+	Body     string
+	Keywords []string
+	Source   string
+}
+
+type DraftGenerator interface {
+	GenerateDraft(ctx context.Context, req DraftGenerationRequest) (DraftGenerationResult, error)
+}
+
+func (s *Service) SetDraftGenerator(generator DraftGenerator) {
+	if generator == nil {
+		s.draftGenerator = localDraftGenerator{}
+		return
+	}
+	s.draftGenerator = generator
 }
 
 func (s *Service) RecordAudit(ctx context.Context, viewer dto.Viewer, meta dto.RequestMeta, action string, objectCode string, summary string, detail interface{}) error {
@@ -352,25 +380,50 @@ func (s *Service) CreateDraft(ctx context.Context, viewer dto.Viewer, payload dt
 
 func (s *Service) GenerateDraft(ctx context.Context, viewer dto.Viewer, payload dto.GenerateDraftPayload) (models.AiGeoDraft, error) {
 	prompt := strings.TrimSpace(payload.Prompt)
-	if prompt == "" {
+	if viewer.TenantID == 0 || prompt == "" {
 		return models.AiGeoDraft{}, ErrInvalidInput
+	}
+	var brand *models.AiGeoBrandCard
+	if payload.BrandID != nil && *payload.BrandID > 0 {
+		row, err := s.repo.Brand(ctx, viewer.TenantID, *payload.BrandID)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return models.AiGeoDraft{}, ErrNotFound
+		}
+		if err != nil {
+			return models.AiGeoDraft{}, err
+		}
+		brand = &row
+	}
+	var product *models.AiGeoProductCard
+	if payload.ProductID != nil && *payload.ProductID > 0 {
+		row, err := s.repo.Product(ctx, viewer.TenantID, *payload.ProductID)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return models.AiGeoDraft{}, ErrNotFound
+		}
+		if err != nil {
+			return models.AiGeoDraft{}, err
+		}
+		product = &row
 	}
 	if err := s.consumeQuota(ctx, viewer.TenantID, quotaMonthlyDraftGenerations); err != nil {
 		return models.AiGeoDraft{}, err
 	}
-	title := prompt
-	if len([]rune(title)) > 42 {
-		title = string([]rune(title)[:42])
+	generator := s.draftGenerator
+	if generator == nil {
+		generator = localDraftGenerator{}
 	}
-	body := fmt.Sprintf("围绕“%s”生成一篇可进入审核的母稿。\n\n创作要求：结合品牌资料、商品卖点、渠道语境和热点素材，输出结构化内容，后续可生成小红书、知乎、独立站等渠道版本。", prompt)
+	generated, err := generator.GenerateDraft(ctx, DraftGenerationRequest{Viewer: viewer, Payload: payload, Brand: brand, Product: product})
+	if err != nil {
+		return models.AiGeoDraft{}, err
+	}
 	return s.CreateDraft(ctx, viewer, dto.DraftPayload{
 		BrandID:   payload.BrandID,
 		ProductID: payload.ProductID,
-		Title:     title,
-		Summary:   "AI 工作台生成母稿，待人工审核确认。",
-		Body:      body,
-		Keywords:  []string{"AI生成", "母稿"},
-		Source:    "ai_workbench",
+		Title:     generated.Title,
+		Summary:   generated.Summary,
+		Body:      generated.Body,
+		Keywords:  generated.Keywords,
+		Source:    defaultString(generated.Source, "ai_workbench"),
 	})
 }
 
