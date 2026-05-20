@@ -75,6 +75,38 @@ func (h *Handler) CreateProduct(c *gin.Context) {
 	}
 }
 
+func (h *Handler) SKUs(c *gin.Context) {
+	data, err := h.service.SKUs(c.Request.Context(), viewer(c), pageRequest(c))
+	h.ok(c, data, err)
+}
+
+func (h *Handler) CreateSKU(c *gin.Context) {
+	var payload dto.SKUPayload
+	if bind(c, &payload) {
+		data, err := h.service.CreateSKU(c.Request.Context(), viewer(c), payload)
+		if err == nil {
+			err = h.auditWrite(c, "sku_create", data.SKUCode, "创建 SKU 资料", gin.H{"sku_name": data.SKUName})
+		}
+		h.ok(c, data, err)
+	}
+}
+
+func (h *Handler) Competitors(c *gin.Context) {
+	data, err := h.service.Competitors(c.Request.Context(), viewer(c), pageRequest(c))
+	h.ok(c, data, err)
+}
+
+func (h *Handler) CreateCompetitor(c *gin.Context) {
+	var payload dto.CompetitorPayload
+	if bind(c, &payload) {
+		data, err := h.service.CreateCompetitor(c.Request.Context(), viewer(c), payload)
+		if err == nil {
+			err = h.auditWrite(c, "competitor_create", fmt.Sprintf("%d", data.ID), "创建竞品资料", gin.H{"brand_name": data.BrandName, "product_name": data.ProductName})
+		}
+		h.ok(c, data, err)
+	}
+}
+
 func (h *Handler) Channels(c *gin.Context) {
 	data, err := h.service.Channels(c.Request.Context(), viewer(c), pageRequest(c))
 	h.ok(c, data, err)

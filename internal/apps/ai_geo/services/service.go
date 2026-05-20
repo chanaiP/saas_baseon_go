@@ -269,6 +269,81 @@ func (s *Service) CreateProduct(ctx context.Context, viewer dto.Viewer, payload 
 	return row, err
 }
 
+func (s *Service) SKUs(ctx context.Context, viewer dto.Viewer, req dto.PageRequest) (dto.PageResponse[models.AiGeoSKU], error) {
+	rows, total, err := s.repo.ListSKUs(ctx, viewer.TenantID, req)
+	return page(rows, total, req), err
+}
+
+func (s *Service) CreateSKU(ctx context.Context, viewer dto.Viewer, payload dto.SKUPayload) (models.AiGeoSKU, error) {
+	payload.SKUCode = strings.TrimSpace(payload.SKUCode)
+	payload.SKUName = strings.TrimSpace(payload.SKUName)
+	if viewer.TenantID == 0 || payload.ProductID == 0 || payload.SKUCode == "" || payload.SKUName == "" {
+		return models.AiGeoSKU{}, ErrInvalidInput
+	}
+	if _, err := s.repo.Product(ctx, viewer.TenantID, payload.ProductID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return models.AiGeoSKU{}, ErrNotFound
+		}
+		return models.AiGeoSKU{}, err
+	}
+	now := time.Now()
+	userID := viewer.UserID
+	row := models.AiGeoSKU{
+		TenantID:    viewer.TenantID,
+		ProductID:   payload.ProductID,
+		SKUCode:     payload.SKUCode,
+		SKUName:     payload.SKUName,
+		Attributes:  jsonString(payload.Attributes, map[string]interface{}{}),
+		Price:       payload.Price,
+		ImageURL:    stringPtr(payload.ImageURL),
+		StockStatus: defaultString(payload.StockStatus, "unknown"),
+		Status:      defaultString(payload.Status, "active"),
+		CreatedBy:   &userID,
+		UpdatedBy:   &userID,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	err := s.repo.SaveSKU(ctx, &row)
+	return row, err
+}
+
+func (s *Service) Competitors(ctx context.Context, viewer dto.Viewer, req dto.PageRequest) (dto.PageResponse[models.AiGeoCompetitor], error) {
+	rows, total, err := s.repo.ListCompetitors(ctx, viewer.TenantID, req)
+	return page(rows, total, req), err
+}
+
+func (s *Service) CreateCompetitor(ctx context.Context, viewer dto.Viewer, payload dto.CompetitorPayload) (models.AiGeoCompetitor, error) {
+	if viewer.TenantID == 0 || payload.ProductID == 0 || strings.TrimSpace(payload.BrandName) == "" || strings.TrimSpace(payload.ProductName) == "" {
+		return models.AiGeoCompetitor{}, ErrInvalidInput
+	}
+	if _, err := s.repo.Product(ctx, viewer.TenantID, payload.ProductID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return models.AiGeoCompetitor{}, ErrNotFound
+		}
+		return models.AiGeoCompetitor{}, err
+	}
+	now := time.Now()
+	userID := viewer.UserID
+	row := models.AiGeoCompetitor{
+		TenantID:    viewer.TenantID,
+		ProductID:   payload.ProductID,
+		BrandName:   strings.TrimSpace(payload.BrandName),
+		ProductName: strings.TrimSpace(payload.ProductName),
+		PriceText:   stringPtr(payload.PriceText),
+		Point:       stringPtr(payload.Point),
+		Difference:  stringPtr(payload.Difference),
+		Angle:       stringPtr(payload.Angle),
+		LinkURL:     stringPtr(payload.LinkURL),
+		Status:      defaultString(payload.Status, "active"),
+		CreatedBy:   &userID,
+		UpdatedBy:   &userID,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	err := s.repo.SaveCompetitor(ctx, &row)
+	return row, err
+}
+
 func (s *Service) Channels(ctx context.Context, viewer dto.Viewer, req dto.PageRequest) (dto.PageResponse[models.AiGeoChannelProfile], error) {
 	rows, total, err := s.repo.ListChannels(ctx, viewer.TenantID, req)
 	return page(rows, total, req), err

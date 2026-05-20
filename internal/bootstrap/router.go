@@ -285,6 +285,8 @@ func openAPISpec() gin.H {
 			"/api/ai-geo/materials/brands":                               gin.H{"get": api("ai-geo", "品牌资料卡列表"), "post": api("ai-geo", "创建品牌资料卡")},
 			"/api/ai-geo/materials/brands/{id}":                          gin.H{"put": api("ai-geo", "更新品牌资料卡")},
 			"/api/ai-geo/materials/products":                             gin.H{"get": api("ai-geo", "商品资料卡列表"), "post": api("ai-geo", "创建商品资料卡")},
+			"/api/ai-geo/materials/skus":                                 gin.H{"get": api("ai-geo", "SKU 资料列表"), "post": api("ai-geo", "创建 SKU 资料")},
+			"/api/ai-geo/materials/competitors":                          gin.H{"get": api("ai-geo", "竞品资料列表"), "post": api("ai-geo", "创建竞品资料")},
 			"/api/ai-geo/materials/imports":                              gin.H{"post": api("ai-geo", "导入资料")},
 			"/api/ai-geo/materials/imports/{id}/errors":                  gin.H{"get": api("ai-geo", "导入错误明细")},
 			"/api/ai-geo/workbench/drafts/generate":                      gin.H{"post": api("ai-geo", "生成母稿")},

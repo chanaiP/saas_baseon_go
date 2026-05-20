@@ -363,6 +363,20 @@ apis:
     path: /api/ai-geo/materials/products
     permission_code: ai_geo:data:import
     audit: true
+  - method: GET
+    path: /api/ai-geo/materials/skus
+    permission_code: /ai-geo/data/products
+  - method: POST
+    path: /api/ai-geo/materials/skus
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: GET
+    path: /api/ai-geo/materials/competitors
+    permission_code: /ai-geo/data/products
+  - method: POST
+    path: /api/ai-geo/materials/competitors
+    permission_code: ai_geo:data:import
+    audit: true
   - method: POST
     path: /api/ai-geo/materials/imports
     permission_code: ai_geo:data:import

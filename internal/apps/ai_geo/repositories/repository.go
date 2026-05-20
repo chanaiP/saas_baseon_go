@@ -174,6 +174,56 @@ func (r *Repository) SaveProduct(ctx context.Context, product *models.AiGeoProdu
 	return r.db.WithContext(ctx).Save(product).Error
 }
 
+func (r *Repository) ListSKUs(ctx context.Context, tenantID uint64, req dto.PageRequest) ([]models.AiGeoSKU, int64, error) {
+	db := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoSKU{}), tenantID))
+	if req.ProductID > 0 {
+		db = db.Where("product_id = ?", req.ProductID)
+	}
+	if req.Status != "" {
+		db = db.Where("status = ?", req.Status)
+	}
+	if req.Keyword != "" {
+		k := likeKeyword(req.Keyword)
+		db = db.Where("lower(sku_code) LIKE ? OR lower(sku_name) LIKE ?", k, k)
+	}
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []models.AiGeoSKU
+	err := paginate(db.Order("id desc"), req).Find(&rows).Error
+	return rows, total, err
+}
+
+func (r *Repository) SaveSKU(ctx context.Context, sku *models.AiGeoSKU) error {
+	return r.db.WithContext(ctx).Save(sku).Error
+}
+
+func (r *Repository) ListCompetitors(ctx context.Context, tenantID uint64, req dto.PageRequest) ([]models.AiGeoCompetitor, int64, error) {
+	db := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoCompetitor{}), tenantID))
+	if req.ProductID > 0 {
+		db = db.Where("product_id = ?", req.ProductID)
+	}
+	if req.Status != "" {
+		db = db.Where("status = ?", req.Status)
+	}
+	if req.Keyword != "" {
+		k := likeKeyword(req.Keyword)
+		db = db.Where("lower(brand_name) LIKE ? OR lower(product_name) LIKE ?", k, k)
+	}
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []models.AiGeoCompetitor
+	err := paginate(db.Order("id desc"), req).Find(&rows).Error
+	return rows, total, err
+}
+
+func (r *Repository) SaveCompetitor(ctx context.Context, competitor *models.AiGeoCompetitor) error {
+	return r.db.WithContext(ctx).Save(competitor).Error
+}
+
 func (r *Repository) ListChannels(ctx context.Context, tenantID uint64, req dto.PageRequest) ([]models.AiGeoChannelProfile, int64, error) {
 	db := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoChannelProfile{}), tenantID))
 	if req.Status != "" {

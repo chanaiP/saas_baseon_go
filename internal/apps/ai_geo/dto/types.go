@@ -56,6 +56,29 @@ type ProductPayload struct {
 	Status        string   `json:"status"`
 }
 
+type SKUPayload struct {
+	ProductID   uint64                 `json:"product_id"`
+	SKUCode     string                 `json:"sku_code"`
+	SKUName     string                 `json:"sku_name"`
+	Attributes  map[string]interface{} `json:"attributes"`
+	Price       float64                `json:"price"`
+	ImageURL    string                 `json:"image_url"`
+	StockStatus string                 `json:"stock_status"`
+	Status      string                 `json:"status"`
+}
+
+type CompetitorPayload struct {
+	ProductID   uint64 `json:"product_id"`
+	BrandName   string `json:"brand_name"`
+	ProductName string `json:"product_name"`
+	PriceText   string `json:"price_text"`
+	Point       string `json:"point"`
+	Difference  string `json:"difference"`
+	Angle       string `json:"angle"`
+	LinkURL     string `json:"link_url"`
+	Status      string `json:"status"`
+}
+
 type ChannelPayload struct {
 	ChannelCode        string   `json:"channel_code"`
 	ChannelName        string   `json:"channel_name"`

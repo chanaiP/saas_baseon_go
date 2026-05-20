@@ -198,6 +198,38 @@ func TestImportMaterialsRecordsRowErrorsAndPartialSuccess(t *testing.T) {
 	require.Equal(t, "empty_row", errorsPage.Items[1].ErrorCode)
 }
 
+func TestSKUAndCompetitorAreTenantScopedToProduct(t *testing.T) {
+	db := newAiGeoTestDB(t)
+	service := NewService(repositories.NewRepository(db))
+	viewer := dto.Viewer{TenantID: 1, UserID: 10}
+	otherViewer := dto.Viewer{TenantID: 2, UserID: 20}
+	brand, err := service.CreateBrand(context.Background(), viewer, dto.BrandPayload{BrandCode: "B1", BrandName: "品牌一"})
+	require.NoError(t, err)
+	product, err := service.CreateProduct(context.Background(), viewer, dto.ProductPayload{BrandID: brand.ID, ProductCode: "P1", ProductName: "商品一"})
+	require.NoError(t, err)
+
+	sku, err := service.CreateSKU(context.Background(), viewer, dto.SKUPayload{ProductID: product.ID, SKUCode: "SKU1", SKUName: "黑色 M", Attributes: map[string]interface{}{"color": "black"}, Price: 199})
+	require.NoError(t, err)
+	require.Equal(t, viewer.TenantID, sku.TenantID)
+	require.Equal(t, `{"color":"black"}`, sku.Attributes)
+
+	competitor, err := service.CreateCompetitor(context.Background(), viewer, dto.CompetitorPayload{ProductID: product.ID, BrandName: "竞品品牌", ProductName: "竞品商品", Point: "价格更低"})
+	require.NoError(t, err)
+	require.Equal(t, viewer.TenantID, competitor.TenantID)
+
+	skus, err := service.SKUs(context.Background(), viewer, dto.PageRequest{ProductID: product.ID, Limit: 20})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), skus.Total)
+	competitors, err := service.Competitors(context.Background(), viewer, dto.PageRequest{ProductID: product.ID, Limit: 20})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), competitors.Total)
+
+	_, err = service.CreateSKU(context.Background(), otherViewer, dto.SKUPayload{ProductID: product.ID, SKUCode: "SKU-X", SKUName: "跨租户"})
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = service.CreateCompetitor(context.Background(), otherViewer, dto.CompetitorPayload{ProductID: product.ID, BrandName: "跨租户", ProductName: "竞品"})
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
 func TestPublishPlanSyncsChannelContentStatusAndStateMachine(t *testing.T) {
 	db := newAiGeoTestDB(t)
 	service := NewService(repositories.NewRepository(db))
