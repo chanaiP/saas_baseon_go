@@ -97,7 +97,7 @@ AI GEO 通过 `internal/apps/ai_geo/services` 下的 Gateway adapter 接入 AI �
 - `ai_geo_channel_rewrite`：渠道内容改写。输入包含母稿、渠道资料和人工覆盖字段；输出解析为 `title`、`body` 并落库为渠道内容。
 - `ai_geo_audit_suggestion`：母稿和渠道内容审核建议。输入包含待审内容、渠道上下文；输出解析为风险等级、通过建议、摘要和结构化建议，并写入 `ai_geo_audit_suggestions` 保留历史。
 
-上线前需在 AI 能力中心配置启用的 `AIScenario`、基础路由、供应商账号/API、模型和租户策略。Gateway 成功调用会写入 `ai_usage_records`。
+`000089_ai_geo_ai_scenarios` 会把三条场景幂等登记到 AI 能力中心，默认绑定 `chat-default` 基础路由；启动 seed 也会修复新环境中的场景缺失。上线前仍需确认 `chat-default` 已绑定可用模型、供应商账号/API、租户策略和限流/配额规则。Gateway 成功调用会写入 `ai_usage_records`。
 
 ## 数据模型
 
@@ -142,6 +142,7 @@ select to_regclass('public.ai_geo_audit_suggestions') is not null as has_audit_s
 select count(*) from app_api_permissions where path like '/api/ai-geo/%';
 select count(*) from package_features where feature_code like 'ai_geo_%';
 select count(*) from saas_quota where quota_code like 'ai_geo_%';
+select ai_scenario_code, status from ai_scenarios where app_code = 'ai-geo' and deleted_at is null order by ai_scenario_code;
 ```
 
 回滚说明：

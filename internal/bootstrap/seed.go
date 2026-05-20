@@ -1375,6 +1375,9 @@ func seedAIRoutesAndScenarios(db *gorm.DB, modelByCapability map[string][]string
 		{appCode: "integration-center", appName: "第三方集成中心", code: "connector_mapping_reasoning", name: "连接器映射推理", sceneType: "reasoning", capability: "reasoning", modelType: "text", routeID: routeIDs["reasoning"]},
 		{appCode: "data-center", appName: "Ai经营决策中心", code: "anomaly_analysis", name: "经营异常诊断", sceneType: "reasoning", capability: "reasoning", modelType: "text", routeID: routeIDs["reasoning"]},
 		{appCode: "data-center", appName: "Ai经营决策中心", code: "knowledge_embedding", name: "知识库向量化", sceneType: "embedding", capability: "embedding", modelType: "embedding", routeID: routeIDs["embedding"]},
+		{appCode: "ai-geo", appName: "AI GEO", code: "ai_geo_draft_generation", name: "AI GEO 母稿生成", sceneType: "text", capability: "chat_completion", modelType: "text", routeID: routeIDs["chat_completion"]},
+		{appCode: "ai-geo", appName: "AI GEO", code: "ai_geo_channel_rewrite", name: "AI GEO 渠道内容改写", sceneType: "text", capability: "chat_completion", modelType: "text", routeID: routeIDs["chat_completion"]},
+		{appCode: "ai-geo", appName: "AI GEO", code: "ai_geo_audit_suggestion", name: "AI GEO 内容审核建议", sceneType: "text", capability: "chat_completion", modelType: "text", routeID: routeIDs["chat_completion"]},
 		{appCode: "workbench", appName: "工作台", code: "poster_image_generate", name: "运营图片生成", sceneType: "image", capability: "image_generation", modelType: "image", routeID: routeIDs["image_generation"]},
 		{appCode: "system-management", appName: "系统管理", code: "policy_doc_review", name: "制度长文审阅", sceneType: "text", capability: "long_context", modelType: "text", routeID: routeIDs["long_context"]},
 	}
