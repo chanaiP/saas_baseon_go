@@ -203,10 +203,6 @@
                 </button>
               </div>
             </div>
-            <div class="conversation-state" :class="{ ready: workbenchReadiness.ready }">
-              <span>{{ workbenchReadiness.ready ? '信息已足够' : '继续沟通中' }}</span>
-              <strong>{{ workbenchReadiness.hint }}</strong>
-            </div>
           </div>
 
           <div class="editor-panel panel">
