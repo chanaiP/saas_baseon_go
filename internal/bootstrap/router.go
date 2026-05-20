@@ -314,6 +314,7 @@ func openAPISpec() gin.H {
 			"/api/ai-geo/channel-contents/{id}/reject":                   gin.H{"post": api("ai-geo", "驳回渠道内容")},
 			"/api/ai-geo/channel-contents/{id}/audit-suggestions":        gin.H{"get": api("ai-geo", "渠道内容审核建议列表"), "post": api("ai-geo", "生成渠道内容审核建议")},
 			"/api/ai-geo/publish-plans":                                  gin.H{"get": api("ai-geo", "发布计划列表"), "post": api("ai-geo", "创建发布计划")},
+			"/api/ai-geo/publish-plans/calendar":                         gin.H{"get": api("ai-geo", "发布日历聚合")},
 			"/api/ai-geo/publish-plans/{id}":                             gin.H{"put": api("ai-geo", "更新发布计划")},
 			"/api/ai-geo/publish-plans/{id}/status":                      gin.H{"patch": api("ai-geo", "更新发布计划状态")},
 			"/api/ai-geo/channels":                                       gin.H{"get": api("ai-geo", "渠道资料列表"), "post": api("ai-geo", "创建渠道资料")},

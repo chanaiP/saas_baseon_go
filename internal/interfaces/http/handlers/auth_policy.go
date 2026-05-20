@@ -485,6 +485,7 @@ func menuPermissionByRoute() map[string]string {
 		"/api/ai-geo/channel-contents/:id/reject":                   "/ai-geo/drafts",
 		"/api/ai-geo/channel-contents/:id/audit-suggestions":        "/ai-geo/drafts",
 		"/api/ai-geo/publish-plans":                                 "/ai-geo/plans/queue",
+		"/api/ai-geo/publish-plans/calendar":                        "/ai-geo/plans/calendar",
 		"/api/ai-geo/channels":                                      "/ai-geo/channels/profiles",
 		"/api/ai-geo/channel-accounts":                              "/ai-geo/channels/accounts",
 		"/api/plans":                                                "/plans",

@@ -515,6 +515,15 @@ func (r *Repository) ListPublishPlans(ctx context.Context, tenantID uint64, req 
 	return rows, total, err
 }
 
+func (r *Repository) ListPublishPlansBySchedule(ctx context.Context, tenantID uint64, start time.Time, endExclusive time.Time) ([]models.AiGeoPublishPlan, error) {
+	var rows []models.AiGeoPublishPlan
+	err := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoPublishPlan{}), tenantID)).
+		Where("scheduled_at >= ? AND scheduled_at < ?", start, endExclusive).
+		Order("scheduled_at asc, id asc").
+		Find(&rows).Error
+	return rows, err
+}
+
 func (r *Repository) SavePublishPlan(ctx context.Context, plan *models.AiGeoPublishPlan) error {
 	return r.db.WithContext(ctx).Save(plan).Error
 }

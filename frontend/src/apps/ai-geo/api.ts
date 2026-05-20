@@ -175,6 +175,23 @@ export interface AiGeoPublishPlan {
   updated_at?: string
 }
 
+export interface AiGeoPublishPlanCalendarDay {
+  date: string
+  total: number
+  scheduled: number
+  publishing: number
+  published: number
+  failed: number
+  cancelled: number
+  items: AiGeoPublishPlan[]
+}
+
+export interface AiGeoPublishPlanCalendar {
+  start_date: string
+  end_date: string
+  days: AiGeoPublishPlanCalendarDay[]
+}
+
 export interface AiGeoAuditSuggestion {
   id: number
   object_type?: string
@@ -358,6 +375,10 @@ export async function generateAiGeoChannelContentAuditSuggestion(id: number) {
 
 export async function fetchAiGeoPublishPlans(params: AiGeoListParams = {}) {
   return unwrap(http.get<ApiResponse<AiGeoPage<AiGeoPublishPlan>>>('/api/ai-geo/publish-plans', { params }))
+}
+
+export async function fetchAiGeoPublishPlanCalendar(params: Pick<AiGeoListParams, 'start_date' | 'end_date'> = {}) {
+  return unwrap(http.get<ApiResponse<AiGeoPublishPlanCalendar>>('/api/ai-geo/publish-plans/calendar', { params }))
 }
 
 export async function createAiGeoPublishPlan(payload: Record<string, unknown>) {

@@ -777,6 +777,7 @@ import {
   fetchAiGeoMaterialAssets,
   fetchAiGeoOverview,
   fetchAiGeoProducts,
+  fetchAiGeoPublishPlanCalendar,
   fetchAiGeoPublishPlans,
   fetchAiGeoSKUs,
   generateAiGeoChannelContentAuditSuggestion,
@@ -1073,7 +1074,16 @@ const channelAccounts = reactive([
   { id: 7, channel: '百家号', accountName: 'Mardi 百家号', login: '—', status: '未配置', updatedAt: '2026-05-13' }
 ])
 
+const planCalendarDays = ref([])
+
 const calendarDays = computed(() => {
+  if (planCalendarDays.value.length) {
+    return planCalendarDays.value.map(day => ({
+      date: day.date,
+      label: day.date.slice(5).replace('-', '/'),
+      plans: (day.items || []).map(apiPlanToPlan),
+    }))
+  }
   const base = new Date(planDate.value || '2026-05-20')
   const days = []
   for (let i = -2; i <= 4; i++) {
@@ -1357,10 +1367,15 @@ onMounted(async () => {
   loadAiGeoData()
 })
 
+watch(planDate, () => {
+  loadPlanCalendar()
+})
+
 async function loadAiGeoData() {
   loading.page = true
   try {
-    const [overviewData, brandPage, productPage, skuPage, competitorPage, keywordPage, assetPage, hotspotPage, channelPage, draftPage, channelContentPage, planPage] = await Promise.all([
+    const calendarRange = publishCalendarRange()
+    const [overviewData, brandPage, productPage, skuPage, competitorPage, keywordPage, assetPage, hotspotPage, channelPage, draftPage, channelContentPage, planPage, planCalendar] = await Promise.all([
       fetchAiGeoOverview(),
       fetchAiGeoBrands({ limit: 200 }),
       fetchAiGeoProducts({ limit: 200 }),
@@ -1373,6 +1388,7 @@ async function loadAiGeoData() {
       fetchAiGeoDrafts({ limit: 200 }),
       fetchAiGeoChannelContents({ limit: 500 }),
       fetchAiGeoPublishPlans({ limit: 200 }),
+      fetchAiGeoPublishPlanCalendar(calendarRange),
     ])
     Object.assign(overview, overviewData)
     hydrateBrands(brandPage.items || [], productPage.items || [], skuPage.items || [], competitorPage.items || [], assetPage.items || [], keywordPage.items || [])
@@ -1380,10 +1396,35 @@ async function loadAiGeoData() {
     hydrateChannels(channelPage.items || [])
     hydrateDrafts(draftPage.items || [], channelContentPage.items || [])
     hydratePlans(planPage.items || [])
+    planCalendarDays.value = planCalendar.days || []
   } catch (error) {
     showToast(error?.message || 'AI GEO 数据加载失败')
   } finally {
     loading.page = false
+  }
+}
+
+async function loadPlanCalendar() {
+  try {
+    const calendar = await fetchAiGeoPublishPlanCalendar(publishCalendarRange())
+    planCalendarDays.value = calendar.days || []
+  } catch (error) {
+    showToast(error?.message || '发布日历加载失败')
+  }
+}
+
+function publishCalendarRange() {
+  const base = new Date(planDate.value || new Date())
+  if (Number.isNaN(base.getTime())) {
+    return {}
+  }
+  const start = new Date(base)
+  start.setDate(base.getDate() - 2)
+  const end = new Date(base)
+  end.setDate(base.getDate() + 4)
+  return {
+    start_date: start.toISOString().slice(0, 10),
+    end_date: end.toISOString().slice(0, 10),
   }
 }
 
@@ -1567,34 +1608,36 @@ function channelContentFromApi(content) {
   }
 }
 
+function apiPlanToPlan(plan) {
+  const scheduledAt = apiField(plan, 'scheduled_at', 'ScheduledAt')
+  const channelId = apiField(plan, 'channel_id', 'ChannelID')
+  const planStatus = apiField(plan, 'status', 'Status')
+  const scheduled = new Date(scheduledAt)
+  return {
+    id: apiField(plan, 'id', 'ID'),
+    date: Number.isNaN(scheduled.getTime()) ? String(scheduledAt || '').slice(0, 10) : scheduled.toISOString().slice(0, 10),
+    time: Number.isNaN(scheduled.getTime()) ? '' : scheduled.toTimeString().slice(0, 5),
+    title: apiField(plan, 'plan_code', 'PlanCode') || '',
+    channel: channelProfiles.find(c => Number(c.id) === Number(channelId))?.name || `渠道 ${channelId}`,
+    channelId,
+    channelContentId: apiField(plan, 'channel_content_id', 'ChannelContentID'),
+    accountName: '',
+    method: apiField(plan, 'publish_method', 'PublishMethod'),
+    level: apiField(plan, 'automation_level', 'AutomationLevel'),
+    skill: '',
+    risk: '发布前校验 + 异常人工接管',
+    owner: '系统',
+    status: publishStatusLabel(planStatus),
+    link: apiField(plan, 'published_url', 'PublishedURL') || '',
+    channelAudit: '已通过',
+    accountStatus: '可发布',
+    materialStatus: '完整',
+    publishStatus: planStatus === 'failed' ? '阻断' : '可发布',
+  }
+}
+
 function hydratePlans(apiPlans) {
-  plans.splice(0, plans.length, ...apiPlans.map(plan => {
-    const scheduledAt = apiField(plan, 'scheduled_at', 'ScheduledAt')
-    const channelId = apiField(plan, 'channel_id', 'ChannelID')
-    const planStatus = apiField(plan, 'status', 'Status')
-    const scheduled = new Date(scheduledAt)
-    return {
-      id: apiField(plan, 'id', 'ID'),
-      date: Number.isNaN(scheduled.getTime()) ? String(scheduledAt || '').slice(0, 10) : scheduled.toISOString().slice(0, 10),
-      time: Number.isNaN(scheduled.getTime()) ? '' : scheduled.toTimeString().slice(0, 5),
-      title: apiField(plan, 'plan_code', 'PlanCode') || '',
-      channel: channelProfiles.find(c => Number(c.id) === Number(channelId))?.name || `渠道 ${channelId}`,
-      channelId,
-      channelContentId: apiField(plan, 'channel_content_id', 'ChannelContentID'),
-      accountName: '',
-      method: apiField(plan, 'publish_method', 'PublishMethod'),
-      level: apiField(plan, 'automation_level', 'AutomationLevel'),
-      skill: '',
-      risk: '发布前校验 + 异常人工接管',
-      owner: '系统',
-      status: publishStatusLabel(planStatus),
-      link: apiField(plan, 'published_url', 'PublishedURL') || '',
-      channelAudit: '已通过',
-      accountStatus: '可发布',
-      materialStatus: '完整',
-      publishStatus: planStatus === 'failed' ? '阻断' : '可发布',
-    }
-  }))
+  plans.splice(0, plans.length, ...apiPlans.map(apiPlanToPlan))
 }
 
 function showToast(text) {

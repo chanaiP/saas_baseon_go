@@ -1392,6 +1392,58 @@ func (s *Service) PublishPlans(ctx context.Context, viewer dto.Viewer, req dto.P
 	return page(rows, total, req), err
 }
 
+func (s *Service) PublishPlanCalendar(ctx context.Context, viewer dto.Viewer, req dto.PageRequest) (dto.PublishPlanCalendar, error) {
+	if viewer.TenantID == 0 {
+		return dto.PublishPlanCalendar{}, ErrInvalidInput
+	}
+	now := time.Now()
+	start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	if req.StartDate != nil {
+		start = dateOnly(*req.StartDate)
+	}
+	end := start.AddDate(0, 1, -1)
+	if req.EndDate != nil {
+		end = dateOnly(*req.EndDate)
+	}
+	if end.Before(start) {
+		return dto.PublishPlanCalendar{}, ErrInvalidInput
+	}
+	if end.Sub(start).Hours()/24 > 370 {
+		return dto.PublishPlanCalendar{}, ErrInvalidInput
+	}
+	rows, err := s.repo.ListPublishPlansBySchedule(ctx, viewer.TenantID, start, end.AddDate(0, 0, 1))
+	if err != nil {
+		return dto.PublishPlanCalendar{}, err
+	}
+	byDate := map[string][]models.AiGeoPublishPlan{}
+	for _, row := range rows {
+		key := row.ScheduledAt.In(start.Location()).Format("2006-01-02")
+		byDate[key] = append(byDate[key], row)
+	}
+	days := make([]dto.PublishPlanCalendarDay, 0, int(end.Sub(start).Hours()/24)+1)
+	for day := start; !day.After(end); day = day.AddDate(0, 0, 1) {
+		key := day.Format("2006-01-02")
+		calendarDay := dto.PublishPlanCalendarDay{Date: key, Items: byDate[key]}
+		for _, item := range calendarDay.Items {
+			calendarDay.Total++
+			switch item.Status {
+			case "scheduled":
+				calendarDay.Scheduled++
+			case "publishing":
+				calendarDay.Publishing++
+			case "published":
+				calendarDay.Published++
+			case "failed":
+				calendarDay.Failed++
+			case "cancelled":
+				calendarDay.Cancelled++
+			}
+		}
+		days = append(days, calendarDay)
+	}
+	return dto.PublishPlanCalendar{StartDate: start.Format("2006-01-02"), EndDate: end.Format("2006-01-02"), Days: days}, nil
+}
+
 func (s *Service) CreatePublishPlan(ctx context.Context, viewer dto.Viewer, payload dto.PublishPlanPayload) (models.AiGeoPublishPlan, error) {
 	if viewer.TenantID == 0 || payload.ChannelContentID == 0 || payload.ChannelID == 0 || payload.ScheduledAt == "" {
 		return models.AiGeoPublishPlan{}, ErrInvalidInput
@@ -2323,6 +2375,10 @@ func defaultString(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func dateOnly(value time.Time) time.Time {
+	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, value.Location())
 }
 
 func completeness(values ...string) int {

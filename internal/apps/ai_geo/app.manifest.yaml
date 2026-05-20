@@ -547,6 +547,9 @@ apis:
   - method: GET
     path: /api/ai-geo/publish-plans
     permission_code: /ai-geo/plans/queue
+  - method: GET
+    path: /api/ai-geo/publish-plans/calendar
+    permission_code: /ai-geo/plans/calendar
   - method: POST
     path: /api/ai-geo/publish-plans
     permission_code: ai_geo:publish_plan:manage

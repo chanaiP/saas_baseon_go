@@ -397,6 +397,7 @@ func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHan
 			aiGeo.GET("/channel-contents/:id/audit-suggestions", aiGeoHandler.ChannelContentAuditSuggestions)
 			aiGeo.POST("/channel-contents/:id/audit-suggestions", aiGeoHandler.GenerateChannelContentAuditSuggestion)
 			aiGeo.GET("/publish-plans", aiGeoHandler.PublishPlans)
+			aiGeo.GET("/publish-plans/calendar", aiGeoHandler.PublishPlanCalendar)
 			aiGeo.POST("/publish-plans", aiGeoHandler.CreatePublishPlan)
 			aiGeo.PUT("/publish-plans/:id", aiGeoHandler.UpdatePublishPlan)
 			aiGeo.PATCH("/publish-plans/:id/status", aiGeoHandler.UpdatePublishStatus)

@@ -657,6 +657,38 @@ func TestPublishPlanSyncsChannelContentStatusAndStateMachine(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalidStatus)
 }
 
+func TestPublishPlanCalendarAggregatesByTenantDateAndStatus(t *testing.T) {
+	db := newAiGeoTestDB(t)
+	service := NewService(repositories.NewRepository(db))
+	viewer := dto.Viewer{TenantID: 1, UserID: 10}
+	channel, err := service.CreateChannel(context.Background(), viewer, dto.ChannelPayload{ChannelCode: "zhihu", ChannelName: "知乎"})
+	require.NoError(t, err)
+	draft, err := service.CreateDraft(context.Background(), viewer, dto.DraftPayload{Title: "母稿", Body: "正文"})
+	require.NoError(t, err)
+	content, err := service.GenerateChannelContent(context.Background(), viewer, draft.ID, dto.ChannelContentPayload{ChannelID: channel.ID})
+	require.NoError(t, err)
+	scheduledAt := time.Date(2026, 5, 20, 9, 30, 0, 0, time.UTC)
+	plan, err := service.CreatePublishPlan(context.Background(), viewer, dto.PublishPlanPayload{
+		ChannelContentID: content.ID,
+		ChannelID:        channel.ID,
+		ScheduledAt:      scheduledAt.Format(time.RFC3339),
+	})
+	require.NoError(t, err)
+	_, err = service.UpdatePublishStatus(context.Background(), viewer, plan.ID, dto.PublishStatusPayload{Status: "failed", FailReason: "模拟失败"})
+	require.NoError(t, err)
+	require.NoError(t, db.Create(&models.AiGeoPublishPlan{TenantID: 2, PlanCode: "OTHER", ChannelContentID: content.ID, ChannelID: channel.ID, ScheduledAt: scheduledAt, Status: "scheduled"}).Error)
+
+	calendar, err := service.PublishPlanCalendar(context.Background(), viewer, dto.PageRequest{StartDate: &scheduledAt, EndDate: &scheduledAt})
+
+	require.NoError(t, err)
+	require.Equal(t, "2026-05-20", calendar.StartDate)
+	require.Equal(t, "2026-05-20", calendar.EndDate)
+	require.Len(t, calendar.Days, 1)
+	require.Equal(t, 1, calendar.Days[0].Total)
+	require.Equal(t, 1, calendar.Days[0].Failed)
+	require.Equal(t, "PLAN", calendar.Days[0].Items[0].PlanCode[:4])
+}
+
 func newAiGeoTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})

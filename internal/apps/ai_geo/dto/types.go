@@ -1,6 +1,10 @@
 package dto
 
-import "time"
+import (
+	"time"
+
+	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
+)
 
 type Viewer struct {
 	UserID          uint64
@@ -175,6 +179,23 @@ type PublishStatusPayload struct {
 	Status       string `json:"status"`
 	PublishedURL string `json:"published_url"`
 	FailReason   string `json:"fail_reason"`
+}
+
+type PublishPlanCalendarDay struct {
+	Date       string                    `json:"date"`
+	Total      int                       `json:"total"`
+	Scheduled  int                       `json:"scheduled"`
+	Publishing int                       `json:"publishing"`
+	Published  int                       `json:"published"`
+	Failed     int                       `json:"failed"`
+	Cancelled  int                       `json:"cancelled"`
+	Items      []models.AiGeoPublishPlan `json:"items"`
+}
+
+type PublishPlanCalendar struct {
+	StartDate string                   `json:"start_date"`
+	EndDate   string                   `json:"end_date"`
+	Days      []PublishPlanCalendarDay `json:"days"`
 }
 
 type ImportPayload struct {

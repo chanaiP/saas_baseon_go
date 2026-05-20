@@ -621,6 +621,11 @@ func (h *Handler) PublishPlans(c *gin.Context) {
 	h.ok(c, data, err)
 }
 
+func (h *Handler) PublishPlanCalendar(c *gin.Context) {
+	data, err := h.service.PublishPlanCalendar(c.Request.Context(), viewer(c), pageRequest(c))
+	h.ok(c, data, err)
+}
+
 func (h *Handler) CreatePublishPlan(c *gin.Context) {
 	var payload dto.PublishPlanPayload
 	if bind(c, &payload) {
