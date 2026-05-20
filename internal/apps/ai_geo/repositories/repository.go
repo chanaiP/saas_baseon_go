@@ -139,6 +139,14 @@ func (r *Repository) Brand(ctx context.Context, tenantID, id uint64) (models.AiG
 	return row, err
 }
 
+func (r *Repository) BrandByCode(ctx context.Context, tenantID uint64, code string) (models.AiGeoBrandCard, error) {
+	var row models.AiGeoBrandCard
+	err := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoBrandCard{}), tenantID)).
+		Where("brand_code = ?", strings.TrimSpace(code)).
+		First(&row).Error
+	return row, err
+}
+
 func (r *Repository) SaveBrand(ctx context.Context, brand *models.AiGeoBrandCard) error {
 	return r.db.WithContext(ctx).Save(brand).Error
 }
@@ -170,6 +178,14 @@ func (r *Repository) Product(ctx context.Context, tenantID, id uint64) (models.A
 	return row, err
 }
 
+func (r *Repository) ProductByCode(ctx context.Context, tenantID uint64, code string) (models.AiGeoProductCard, error) {
+	var row models.AiGeoProductCard
+	err := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoProductCard{}), tenantID)).
+		Where("product_code = ?", strings.TrimSpace(code)).
+		First(&row).Error
+	return row, err
+}
+
 func (r *Repository) SaveProduct(ctx context.Context, product *models.AiGeoProductCard) error {
 	return r.db.WithContext(ctx).Save(product).Error
 }
@@ -177,6 +193,14 @@ func (r *Repository) SaveProduct(ctx context.Context, product *models.AiGeoProdu
 func (r *Repository) SKU(ctx context.Context, tenantID, id uint64) (models.AiGeoSKU, error) {
 	var row models.AiGeoSKU
 	err := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoSKU{}), tenantID)).Where("id = ?", id).First(&row).Error
+	return row, err
+}
+
+func (r *Repository) SKUByCode(ctx context.Context, tenantID uint64, code string) (models.AiGeoSKU, error) {
+	var row models.AiGeoSKU
+	err := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoSKU{}), tenantID)).
+		Where("sku_code = ?", strings.TrimSpace(code)).
+		First(&row).Error
 	return row, err
 }
 

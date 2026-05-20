@@ -278,6 +278,77 @@ func TestImportMaterialsRecordsRowErrorsAndPartialSuccess(t *testing.T) {
 	require.Equal(t, "brand_name", *errorsPage.Items[0].FieldName)
 	require.Equal(t, 3, errorsPage.Items[1].RowNumber)
 	require.Equal(t, "empty_row", errorsPage.Items[1].ErrorCode)
+
+	brands, err := service.Brands(context.Background(), viewer, dto.PageRequest{Limit: 20})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), brands.Total)
+	require.Equal(t, "B1", brands.Items[0].BrandCode)
+
+	updateBatch, err := service.ImportMaterials(context.Background(), viewer, dto.ImportPayload{
+		ImportType: "brand",
+		Records: []map[string]interface{}{
+			{"brand_code": "B1", "brand_name": "品牌一更新", "positioning": "高端户外"},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), updateBatch.SuccessCount)
+	brands, err = service.Brands(context.Background(), viewer, dto.PageRequest{Limit: 20})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), brands.Total)
+	require.Equal(t, "品牌一更新", brands.Items[0].BrandName)
+	require.NotNil(t, brands.Items[0].Positioning)
+	require.Equal(t, "高端户外", *brands.Items[0].Positioning)
+}
+
+func TestImportMaterialsPersistsProductSKUAndCompetitorRows(t *testing.T) {
+	db := newAiGeoTestDB(t)
+	service := NewService(repositories.NewRepository(db))
+	viewer := dto.Viewer{TenantID: 1, UserID: 10}
+	brand, err := service.CreateBrand(context.Background(), viewer, dto.BrandPayload{BrandCode: "B1", BrandName: "品牌一"})
+	require.NoError(t, err)
+
+	productBatch, err := service.ImportMaterials(context.Background(), viewer, dto.ImportPayload{
+		ImportType: "product",
+		Records: []map[string]interface{}{
+			{"brand_code": brand.BrandCode, "product_code": "P1", "product_name": "商品一", "selling_points": "轻量,保暖"},
+			{"brand_code": "NOPE", "product_code": "P2", "product_name": "商品二"},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "partial_success", productBatch.Status)
+	require.Equal(t, int64(1), productBatch.SuccessCount)
+	require.Equal(t, int64(1), productBatch.FailedCount)
+	products, err := service.Products(context.Background(), viewer, dto.PageRequest{Limit: 20})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), products.Total)
+	require.Equal(t, "P1", products.Items[0].ProductCode)
+
+	skuBatch, err := service.ImportMaterials(context.Background(), viewer, dto.ImportPayload{
+		ImportType: "sku",
+		Records: []map[string]interface{}{
+			{"product_code": "P1", "sku_code": "SKU1", "sku_name": "黑色 M", "attributes": `{"color":"black"}`, "price": "199.5"},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "completed", skuBatch.Status)
+	skus, err := service.SKUs(context.Background(), viewer, dto.PageRequest{Limit: 20})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), skus.Total)
+	require.Equal(t, float64(199.5), skus.Items[0].Price)
+	require.Equal(t, `{"color":"black"}`, skus.Items[0].Attributes)
+
+	competitorBatch, err := service.ImportMaterials(context.Background(), viewer, dto.ImportPayload{
+		ImportType: "competitor",
+		Records: []map[string]interface{}{
+			{"product_code": "P1", "brand_name": "竞品品牌", "product_name": "竞品商品", "difference": "更便宜"},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "completed", competitorBatch.Status)
+	competitors, err := service.Competitors(context.Background(), viewer, dto.PageRequest{ProductID: products.Items[0].ID, Limit: 20})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), competitors.Total)
+	require.Equal(t, "竞品品牌", competitors.Items[0].BrandName)
 }
 
 func TestSKUAndCompetitorAreTenantScopedToProduct(t *testing.T) {

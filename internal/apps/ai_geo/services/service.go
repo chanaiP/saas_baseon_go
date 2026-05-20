@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -978,29 +979,27 @@ func (s *Service) UpdatePublishStatus(ctx context.Context, viewer dto.Viewer, id
 }
 
 func (s *Service) ImportMaterials(ctx context.Context, viewer dto.Viewer, payload dto.ImportPayload) (models.AiGeoImportBatch, error) {
-	if viewer.TenantID == 0 || strings.TrimSpace(payload.ImportType) == "" {
+	importType := normalizeImportType(payload.ImportType)
+	if viewer.TenantID == 0 || !supportedImportType(importType) {
 		return models.AiGeoImportBatch{}, ErrInvalidInput
 	}
 	now := time.Now()
 	userID := viewer.UserID
-	importErrors := validateImportRecords(viewer.TenantID, payload.Records, payload.ImportType, now)
-	successCount := int64(len(payload.Records) - len(importErrors))
-	failedCount := int64(len(importErrors))
-	status := "completed"
-	if failedCount > 0 && successCount > 0 {
-		status = "partial_success"
-	} else if failedCount > 0 {
-		status = "failed"
+	importErrors := validateImportRecords(viewer.TenantID, payload.Records, importType, now)
+	failedRows := map[int]bool{}
+	for _, row := range importErrors {
+		failedRows[row.RowNumber] = true
+	}
+	if err := s.validateMaterialImportQuotas(ctx, viewer, importType, payload.Records, failedRows); err != nil {
+		return models.AiGeoImportBatch{}, err
 	}
 	batch := models.AiGeoImportBatch{
 		TenantID:      viewer.TenantID,
 		BatchCode:     code("IMPORT", now),
-		ImportType:    strings.TrimSpace(payload.ImportType),
+		ImportType:    importType,
 		MappingConfig: jsonString(payload.MappingConfig, map[string]interface{}{}),
 		RecordCount:   int64(len(payload.Records)),
-		SuccessCount:  successCount,
-		FailedCount:   failedCount,
-		Status:        status,
+		Status:        "pending",
 		CreatedBy:     &userID,
 		UpdatedBy:     &userID,
 		CreatedAt:     now,
@@ -1010,11 +1009,34 @@ func (s *Service) ImportMaterials(ctx context.Context, viewer dto.Viewer, payloa
 		if err := tx.Save(&batch).Error; err != nil {
 			return err
 		}
-		for i := range importErrors {
-			importErrors[i].BatchID = batch.ID
+		for index, record := range payload.Records {
+			rowNumber := index + 1
+			if failedRows[rowNumber] {
+				continue
+			}
+			rowError, err := s.applyMaterialImportRow(ctx, tx, viewer, importType, record, rowNumber, now)
+			if err != nil {
+				return err
+			}
+			if rowError != nil {
+				failedRows[rowNumber] = true
+				importErrors = append(importErrors, *rowError)
+			}
 		}
 		if len(importErrors) > 0 {
-			return tx.Create(&importErrors).Error
+			for i := range importErrors {
+				importErrors[i].BatchID = batch.ID
+			}
+			if err := tx.Create(&importErrors).Error; err != nil {
+				return err
+			}
+		}
+		batch.FailedCount = int64(len(failedRows))
+		batch.SuccessCount = batch.RecordCount - batch.FailedCount
+		batch.Status = importBatchStatus(batch.SuccessCount, batch.FailedCount)
+		batch.UpdatedAt = time.Now()
+		if err := tx.Save(&batch).Error; err != nil {
+			return err
 		}
 		return nil
 	})
@@ -1035,6 +1057,229 @@ func (s *Service) ImportErrors(ctx context.Context, viewer dto.Viewer, batchID u
 	return page(rows, total, req), err
 }
 
+func (s *Service) applyMaterialImportRow(ctx context.Context, tx *gorm.DB, viewer dto.Viewer, importType string, record map[string]interface{}, rowNumber int, now time.Time) (*models.AiGeoImportError, error) {
+	switch importType {
+	case "brand":
+		return s.importBrandRow(ctx, tx, viewer, record, rowNumber, now)
+	case "product":
+		return s.importProductRow(ctx, tx, viewer, record, rowNumber, now)
+	case "sku":
+		return s.importSKURow(ctx, tx, viewer, record, rowNumber, now)
+	case "competitor":
+		return s.importCompetitorRow(ctx, tx, viewer, record, rowNumber, now)
+	default:
+		row := importErrorRow(viewer.TenantID, rowNumber, "import_type", "unsupported_type", "不支持的导入类型", record, now)
+		return &row, nil
+	}
+}
+
+func (s *Service) importBrandRow(ctx context.Context, tx *gorm.DB, viewer dto.Viewer, record map[string]interface{}, rowNumber int, now time.Time) (*models.AiGeoImportError, error) {
+	brandCode := importString(record, "brand_code")
+	userID := viewer.UserID
+	var row models.AiGeoBrandCard
+	err := notDeletedTenant(tx.WithContext(ctx).Model(&models.AiGeoBrandCard{}), viewer.TenantID).
+		Where("brand_code = ?", brandCode).
+		First(&row).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		row = models.AiGeoBrandCard{
+			TenantID:  viewer.TenantID,
+			BrandCode: brandCode,
+			CreatedBy: &userID,
+			CreatedAt: now,
+		}
+	}
+	row.BrandName = importString(record, "brand_name")
+	row.Positioning = stringPtr(importString(record, "positioning"))
+	row.TargetAudience = stringPtr(importString(record, "target_audience", "audience"))
+	row.PriceBand = stringPtr(importString(record, "price_band"))
+	row.Tone = stringPtr(importString(record, "tone"))
+	row.Keywords = jsonString(importStringList(record, "keywords"), []string{})
+	row.Completeness = completeness(row.BrandName, importString(record, "positioning"), importString(record, "target_audience", "audience"), importString(record, "price_band"), importString(record, "tone"))
+	row.Status = defaultString(importString(record, "status"), "active")
+	row.UpdatedBy = &userID
+	row.UpdatedAt = now
+	return nil, tx.Save(&row).Error
+}
+
+func (s *Service) importProductRow(ctx context.Context, tx *gorm.DB, viewer dto.Viewer, record map[string]interface{}, rowNumber int, now time.Time) (*models.AiGeoImportError, error) {
+	brandID, err := resolveImportBrandID(ctx, tx, viewer.TenantID, record)
+	if err != nil {
+		row := importErrorRow(viewer.TenantID, rowNumber, "brand_code", "not_found", "品牌不存在，请先导入品牌或提供 brand_id", record, now)
+		return &row, nil
+	}
+	productCode := importString(record, "product_code")
+	userID := viewer.UserID
+	var row models.AiGeoProductCard
+	err = notDeletedTenant(tx.WithContext(ctx).Model(&models.AiGeoProductCard{}), viewer.TenantID).
+		Where("product_code = ?", productCode).
+		First(&row).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		row = models.AiGeoProductCard{
+			TenantID:    viewer.TenantID,
+			ProductCode: productCode,
+			CreatedBy:   &userID,
+			CreatedAt:   now,
+		}
+	}
+	sellingPoints := importStringList(record, "selling_points", "selling_point")
+	faq := importStringList(record, "faq")
+	row.BrandID = brandID
+	row.ProductName = importString(record, "product_name")
+	row.CategoryName = stringPtr(importString(record, "category_name", "category"))
+	row.SellingPoints = jsonString(sellingPoints, []string{})
+	row.FAQ = jsonString(faq, []string{})
+	row.ContentAngles = jsonString(importStringList(record, "content_angles", "angles"), []string{})
+	row.Completeness = completeness(row.ProductName, importString(record, "category_name", "category"), strings.Join(sellingPoints, ","), strings.Join(faq, ","))
+	row.Status = defaultString(importString(record, "status"), "active")
+	row.UpdatedBy = &userID
+	row.UpdatedAt = now
+	return nil, tx.Save(&row).Error
+}
+
+func (s *Service) importSKURow(ctx context.Context, tx *gorm.DB, viewer dto.Viewer, record map[string]interface{}, rowNumber int, now time.Time) (*models.AiGeoImportError, error) {
+	productID, err := resolveImportProductID(ctx, tx, viewer.TenantID, record)
+	if err != nil {
+		row := importErrorRow(viewer.TenantID, rowNumber, "product_code", "not_found", "商品不存在，请先导入商品或提供 product_id", record, now)
+		return &row, nil
+	}
+	skuCode := importString(record, "sku_code")
+	userID := viewer.UserID
+	var row models.AiGeoSKU
+	err = notDeletedTenant(tx.WithContext(ctx).Model(&models.AiGeoSKU{}), viewer.TenantID).
+		Where("sku_code = ?", skuCode).
+		First(&row).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		row = models.AiGeoSKU{
+			TenantID:  viewer.TenantID,
+			SKUCode:   skuCode,
+			CreatedBy: &userID,
+			CreatedAt: now,
+		}
+	}
+	row.ProductID = productID
+	row.SKUName = importString(record, "sku_name")
+	row.Attributes = jsonString(importMap(record, "attributes"), map[string]interface{}{})
+	row.Price = importFloat(record, "price")
+	row.ImageURL = stringPtr(importString(record, "image_url"))
+	row.StockStatus = defaultString(importString(record, "stock_status"), "unknown")
+	row.Status = defaultString(importString(record, "status"), "active")
+	row.UpdatedBy = &userID
+	row.UpdatedAt = now
+	return nil, tx.Save(&row).Error
+}
+
+func (s *Service) importCompetitorRow(ctx context.Context, tx *gorm.DB, viewer dto.Viewer, record map[string]interface{}, rowNumber int, now time.Time) (*models.AiGeoImportError, error) {
+	productID, err := resolveImportProductID(ctx, tx, viewer.TenantID, record)
+	if err != nil {
+		row := importErrorRow(viewer.TenantID, rowNumber, "product_code", "not_found", "商品不存在，请先导入商品或提供 product_id", record, now)
+		return &row, nil
+	}
+	userID := viewer.UserID
+	brandName := importString(record, "brand_name", "competitor_brand_name")
+	productName := importString(record, "product_name", "competitor_product_name")
+	var row models.AiGeoCompetitor
+	err = notDeletedTenant(tx.WithContext(ctx).Model(&models.AiGeoCompetitor{}), viewer.TenantID).
+		Where("product_id = ? AND brand_name = ? AND product_name = ?", productID, brandName, productName).
+		First(&row).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		row = models.AiGeoCompetitor{
+			TenantID:    viewer.TenantID,
+			ProductID:   productID,
+			BrandName:   brandName,
+			ProductName: productName,
+			CreatedBy:   &userID,
+			CreatedAt:   now,
+		}
+	}
+	row.ProductID = productID
+	row.BrandName = brandName
+	row.ProductName = productName
+	row.PriceText = stringPtr(importString(record, "price_text"))
+	row.Point = stringPtr(importString(record, "point"))
+	row.Difference = stringPtr(importString(record, "difference"))
+	row.Angle = stringPtr(importString(record, "angle"))
+	row.LinkURL = stringPtr(importString(record, "link_url"))
+	row.Status = defaultString(importString(record, "status"), "active")
+	row.UpdatedBy = &userID
+	row.UpdatedAt = now
+	return nil, tx.Save(&row).Error
+}
+
+func (s *Service) validateMaterialImportQuotas(ctx context.Context, viewer dto.Viewer, importType string, records []map[string]interface{}, failedRows map[int]bool) error {
+	switch importType {
+	case "brand":
+		return s.validateImportStaticQuota(ctx, viewer.TenantID, quotaBrandCount, s.repo.CountBrands, records, failedRows, "brand_code", s.brandImportExists)
+	case "product":
+		return s.validateImportStaticQuota(ctx, viewer.TenantID, quotaProductCount, s.repo.CountProducts, records, failedRows, "product_code", s.productImportExists)
+	default:
+		return nil
+	}
+}
+
+func (s *Service) validateImportStaticQuota(ctx context.Context, tenantID uint64, quotaCode string, currentCount func(context.Context, uint64) (int64, error), records []map[string]interface{}, failedRows map[int]bool, codeField string, exists func(context.Context, uint64, string) (bool, error)) error {
+	if s.quota == nil {
+		return nil
+	}
+	limit, quota, ok, err := s.quota.CurrentLimitByCode(ctx, tenantID, quotaCode)
+	if err != nil || !ok || limit < 0 {
+		return err
+	}
+	count, err := currentCount(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+	newCodes := map[string]bool{}
+	for index, record := range records {
+		rowNumber := index + 1
+		if failedRows[rowNumber] {
+			continue
+		}
+		codeValue := importString(record, codeField)
+		if codeValue == "" {
+			continue
+		}
+		existing, err := exists(ctx, tenantID, codeValue)
+		if err != nil {
+			return err
+		}
+		if !existing {
+			newCodes[strings.ToLower(codeValue)] = true
+		}
+	}
+	if int(count)+len(newCodes) > limit {
+		return &quotaapp.ExceededError{QuotaName: quota.QuotaName, Limit: limit, Used: int(count)}
+	}
+	return nil
+}
+
+func (s *Service) brandImportExists(ctx context.Context, tenantID uint64, code string) (bool, error) {
+	_, err := s.repo.BrandByCode(ctx, tenantID, code)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+func (s *Service) productImportExists(ctx context.Context, tenantID uint64, code string) (bool, error) {
+	_, err := s.repo.ProductByCode(ctx, tenantID, code)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 func (s *Service) ensureStaticQuota(ctx context.Context, tenantID uint64, quotaCode string, currentCount func(context.Context, uint64) (int64, error)) error {
 	if s.quota == nil {
 		return nil
@@ -1053,6 +1298,24 @@ func (s *Service) ensureStaticQuota(ctx context.Context, tenantID uint64, quotaC
 	return nil
 }
 
+func (s *Service) ensureStaticQuotaWithDB(ctx context.Context, db *gorm.DB, tenantID uint64, quotaCode string, model interface{}) error {
+	if s.quota == nil {
+		return nil
+	}
+	limit, quota, ok, err := s.quota.CurrentLimitByCode(ctx, tenantID, quotaCode)
+	if err != nil || !ok || limit < 0 {
+		return err
+	}
+	var count int64
+	if err := notDeletedTenant(db.WithContext(ctx).Model(model), tenantID).Where("status = ?", "active").Count(&count).Error; err != nil {
+		return err
+	}
+	if int(count)+1 > limit {
+		return &quotaapp.ExceededError{QuotaName: quota.QuotaName, Limit: limit, Used: int(count)}
+	}
+	return nil
+}
+
 func (s *Service) consumeQuota(ctx context.Context, tenantID uint64, quotaCode string) error {
 	if s.quota == nil {
 		return nil
@@ -1061,17 +1324,26 @@ func (s *Service) consumeQuota(ctx context.Context, tenantID uint64, quotaCode s
 }
 
 func validateImportRecords(tenantID uint64, records []map[string]interface{}, importType string, now time.Time) []models.AiGeoImportError {
-	importType = strings.ToLower(strings.TrimSpace(importType))
+	importType = normalizeImportType(importType)
 	required := []string{}
+	uniqueField := ""
 	switch importType {
-	case "brand", "brands":
+	case "brand":
 		required = []string{"brand_code", "brand_name"}
-	case "product", "products":
+		uniqueField = "brand_code"
+	case "product":
 		required = []string{"product_code", "product_name"}
+		uniqueField = "product_code"
+	case "sku":
+		required = []string{"sku_code", "sku_name"}
+		uniqueField = "sku_code"
+	case "competitor":
+		required = []string{"brand_name", "product_name"}
 	default:
-		required = []string{}
+		return []models.AiGeoImportError{importErrorRow(tenantID, 0, "import_type", "unsupported_type", "不支持的导入类型", map[string]interface{}{"import_type": importType}, now)}
 	}
 	errorsOut := []models.AiGeoImportError{}
+	seen := map[string]int{}
 	for index, record := range records {
 		rowNumber := index + 1
 		if len(record) == 0 {
@@ -1079,12 +1351,245 @@ func validateImportRecords(tenantID uint64, records []map[string]interface{}, im
 			continue
 		}
 		for _, field := range required {
-			if strings.TrimSpace(fmt.Sprint(record[field])) == "" || strings.TrimSpace(fmt.Sprint(record[field])) == "<nil>" {
+			if importString(record, field) == "" {
 				errorsOut = append(errorsOut, importErrorRow(tenantID, rowNumber, field, "required", "必填字段缺失", record, now))
+			}
+		}
+		if uniqueField != "" {
+			value := importString(record, uniqueField)
+			if value != "" {
+				key := strings.ToLower(value)
+				if firstRow, ok := seen[key]; ok {
+					errorsOut = append(errorsOut, importErrorRow(tenantID, rowNumber, uniqueField, "duplicate_in_batch", fmt.Sprintf("导入批次内重复，首次出现在第 %d 行", firstRow), record, now))
+				} else {
+					seen[key] = rowNumber
+				}
 			}
 		}
 	}
 	return errorsOut
+}
+
+func normalizeImportType(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "brand", "brands":
+		return "brand"
+	case "product", "products":
+		return "product"
+	case "sku", "skus":
+		return "sku"
+	case "competitor", "competitors":
+		return "competitor"
+	default:
+		return strings.ToLower(strings.TrimSpace(value))
+	}
+}
+
+func supportedImportType(value string) bool {
+	switch value {
+	case "brand", "product", "sku", "competitor":
+		return true
+	default:
+		return false
+	}
+}
+
+func importBatchStatus(successCount int64, failedCount int64) string {
+	if failedCount > 0 && successCount > 0 {
+		return "partial_success"
+	}
+	if failedCount > 0 {
+		return "failed"
+	}
+	return "completed"
+}
+
+func notDeletedTenant(db *gorm.DB, tenantID uint64) *gorm.DB {
+	return db.Where("tenant_id = ? AND deleted_at IS NULL", tenantID)
+}
+
+func resolveImportBrandID(ctx context.Context, tx *gorm.DB, tenantID uint64, record map[string]interface{}) (uint64, error) {
+	if id := importUint(record, "brand_id"); id > 0 {
+		var brand models.AiGeoBrandCard
+		err := notDeletedTenant(tx.WithContext(ctx).Model(&models.AiGeoBrandCard{}), tenantID).Where("id = ?", id).First(&brand).Error
+		if err != nil {
+			return 0, err
+		}
+		return brand.ID, nil
+	}
+	brandCode := importString(record, "brand_code")
+	if brandCode == "" {
+		return 0, gorm.ErrRecordNotFound
+	}
+	var brand models.AiGeoBrandCard
+	err := notDeletedTenant(tx.WithContext(ctx).Model(&models.AiGeoBrandCard{}), tenantID).Where("brand_code = ?", brandCode).First(&brand).Error
+	if err != nil {
+		return 0, err
+	}
+	return brand.ID, nil
+}
+
+func resolveImportProductID(ctx context.Context, tx *gorm.DB, tenantID uint64, record map[string]interface{}) (uint64, error) {
+	if id := importUint(record, "product_id"); id > 0 {
+		var product models.AiGeoProductCard
+		err := notDeletedTenant(tx.WithContext(ctx).Model(&models.AiGeoProductCard{}), tenantID).Where("id = ?", id).First(&product).Error
+		if err != nil {
+			return 0, err
+		}
+		return product.ID, nil
+	}
+	productCode := importString(record, "product_code")
+	if productCode == "" {
+		return 0, gorm.ErrRecordNotFound
+	}
+	var product models.AiGeoProductCard
+	err := notDeletedTenant(tx.WithContext(ctx).Model(&models.AiGeoProductCard{}), tenantID).Where("product_code = ?", productCode).First(&product).Error
+	if err != nil {
+		return 0, err
+	}
+	return product.ID, nil
+}
+
+func importString(record map[string]interface{}, keys ...string) string {
+	for _, key := range keys {
+		value, ok := record[key]
+		if !ok || value == nil {
+			continue
+		}
+		text := strings.TrimSpace(fmt.Sprint(value))
+		if text != "" && text != "<nil>" {
+			return text
+		}
+	}
+	return ""
+}
+
+func importStringList(record map[string]interface{}, keys ...string) []string {
+	for _, key := range keys {
+		value, ok := record[key]
+		if !ok || value == nil {
+			continue
+		}
+		switch typed := value.(type) {
+		case []string:
+			return compactStrings(typed)
+		case []interface{}:
+			out := make([]string, 0, len(typed))
+			for _, item := range typed {
+				if text := strings.TrimSpace(fmt.Sprint(item)); text != "" && text != "<nil>" {
+					out = append(out, text)
+				}
+			}
+			return out
+		case string:
+			text := strings.TrimSpace(typed)
+			if text == "" {
+				continue
+			}
+			var parsed []string
+			if strings.HasPrefix(text, "[") && json.Unmarshal([]byte(text), &parsed) == nil {
+				return compactStrings(parsed)
+			}
+			parts := strings.FieldsFunc(text, func(r rune) bool {
+				return r == ',' || r == '，' || r == ';' || r == '；' || r == '\n'
+			})
+			return compactStrings(parts)
+		default:
+			text := strings.TrimSpace(fmt.Sprint(value))
+			if text != "" && text != "<nil>" {
+				return []string{text}
+			}
+		}
+	}
+	return []string{}
+}
+
+func compactStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		text := strings.TrimSpace(value)
+		if text != "" {
+			out = append(out, text)
+		}
+	}
+	return out
+}
+
+func importMap(record map[string]interface{}, keys ...string) map[string]interface{} {
+	for _, key := range keys {
+		value, ok := record[key]
+		if !ok || value == nil {
+			continue
+		}
+		switch typed := value.(type) {
+		case map[string]interface{}:
+			return typed
+		case string:
+			var parsed map[string]interface{}
+			if json.Unmarshal([]byte(strings.TrimSpace(typed)), &parsed) == nil {
+				return parsed
+			}
+		}
+	}
+	return map[string]interface{}{}
+}
+
+func importUint(record map[string]interface{}, keys ...string) uint64 {
+	for _, key := range keys {
+		value, ok := record[key]
+		if !ok || value == nil {
+			continue
+		}
+		switch typed := value.(type) {
+		case uint64:
+			return typed
+		case uint:
+			return uint64(typed)
+		case int:
+			if typed > 0 {
+				return uint64(typed)
+			}
+		case int64:
+			if typed > 0 {
+				return uint64(typed)
+			}
+		case float64:
+			if typed > 0 {
+				return uint64(typed)
+			}
+		case string:
+			parsed, err := strconv.ParseUint(strings.TrimSpace(typed), 10, 64)
+			if err == nil {
+				return parsed
+			}
+		}
+	}
+	return 0
+}
+
+func importFloat(record map[string]interface{}, keys ...string) float64 {
+	for _, key := range keys {
+		value, ok := record[key]
+		if !ok || value == nil {
+			continue
+		}
+		switch typed := value.(type) {
+		case float64:
+			return typed
+		case float32:
+			return float64(typed)
+		case int:
+			return float64(typed)
+		case int64:
+			return float64(typed)
+		case string:
+			parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+			if err == nil {
+				return parsed
+			}
+		}
+	}
+	return 0
 }
 
 func importErrorRow(tenantID uint64, rowNumber int, fieldName string, errorCode string, message string, raw map[string]interface{}, now time.Time) models.AiGeoImportError {
