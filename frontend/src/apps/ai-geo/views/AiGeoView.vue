@@ -158,6 +158,29 @@
             <div class="chat-log geo-dialogue">
               <div v-for="msg in chatMessages" :key="msg.id" :class="['bubble', msg.role]">
                 <p>{{ msg.text }}</p>
+                <div v-if="msg.idea" class="idea-breakdown">
+                  <div class="idea-section">
+                    <span>解析</span>
+                    <strong>{{ msg.idea.intent }}</strong>
+                    <p>{{ msg.idea.reading }}</p>
+                  </div>
+                  <div class="idea-section">
+                    <span>放大</span>
+                    <ul>
+                      <li v-for="item in msg.idea.expand" :key="item">{{ item }}</li>
+                    </ul>
+                  </div>
+                  <div class="idea-section">
+                    <span>收敛</span>
+                    <p>{{ msg.idea.converge }}</p>
+                  </div>
+                  <div class="idea-section questions">
+                    <span>澄清</span>
+                    <button v-for="question in msg.idea.questions" :key="question" type="button" @click="useClarifyQuestion(question)">
+                      {{ question }}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
             <div class="chat-input">
@@ -1026,8 +1049,19 @@ const skills = ['品牌介绍母稿 Skill', '商品种草母稿 Skill', '场景�
 
 const workbench = reactive({ brandId: '', productId: '', skill: '', hotspot: null, prompt: '' })
 const chatMessages = reactive([
-  { id: 1, role: 'ai', text: '请选择资料和 Skill，告诉我这篇 GEO 文章要解决什么搜索问题。我会基于品牌资料、商品卖点、关键词和热点生成母稿。' }
+  { id: 1, role: 'ai', text: '你可以直接说一个模糊想法。我会先解析意图，再围绕品牌、商品和 Skill 帮你放大、澄清、收敛，最后生成有指向性的 GEO 母稿。' }
 ])
+const ideaSession = reactive({
+  stage: 'collecting',
+  intent: '等待想法',
+  recommendedSkill: '',
+  recommendedProductId: '',
+  searchProblem: '',
+  audience: '',
+  scene: '',
+  tone: '',
+  brief: '',
+})
 const skillProfiles = {
   '品牌介绍母稿 Skill': { name: '品牌介绍母稿 Skill', goal: '建立品牌认知', output: '品牌定位长文', desc: '适合生成品牌介绍、品牌故事、品牌优势和 GEO 搜索入口文章。', tags: ['品牌定位', '目标人群', '搜索心智'] },
   '商品种草母稿 Skill': { name: '商品种草母稿 Skill', goal: '推动商品种草', output: '商品推荐文章', desc: '适合围绕单品卖点、适用人群、选购理由生成有转化指向的内容。', tags: ['卖点提炼', '适用场景', '购买理由'] },
@@ -1467,38 +1501,102 @@ function evaluateWorkbenchReadiness(extraPrompt = '') {
   const intentText = [...workbenchUserMessages.value.map(msg => msg.text), extraPrompt].filter(Boolean).join('\n')
   const hasSearchQuestion = /写|生成|文章|攻略|问答|种草|小红书|知乎|通勤|怎么|如何|适合|推荐|选择|对比|人群|场景|卖点|关键词/.test(intentText)
   const hasSpecificBrief = intentText.replace(/\s/g, '').length >= 16
-  const hasStructuredContext = Boolean(workbench.skill || selectedWorkbenchProduct.value || workbench.hotspot)
-  const enoughTurns = workbenchUserMessages.value.length >= 2
-  const ready = Boolean(hasSearchQuestion && hasSpecificBrief && (hasStructuredContext || enoughTurns))
+  const hasStructuredContext = Boolean(workbench.skill || ideaSession.recommendedSkill || selectedWorkbenchProduct.value || workbench.hotspot)
+  const ready = ideaSession.stage === 'ready'
   const missing = []
   if (!hasSearchQuestion) missing.push('文章要回答的搜索问题')
   if (!hasSpecificBrief) missing.push('目标人群、场景或口吻')
-  if (!hasStructuredContext && !enoughTurns) missing.push('Skill、商品、热点或再补一轮需求')
+  if (!hasStructuredContext) missing.push('Skill、商品或热点')
+  if (ideaSession.stage === 'shaping' && !missing.length) missing.push('再补充一轮澄清信息')
   return {
     ready,
     missing,
     hint: ready ? '可以生成母稿；生成时会带上本轮对话、资料、关键词和 Skill。' : `还需要补充：${missing.join('、')}。`,
   }
 }
-function buildWorkbenchReply() {
+function inferWorkbenchSkill(text) {
+  if (/小红书|种草|笔记|探店|穿搭分享/.test(text)) return '小红书改写 Skill'
+  if (/知乎|问答|为什么|如何|怎么|对比|避坑|选购/.test(text)) return '知乎问答改写 Skill'
+  if (/场景|通勤|约会|职场|旅行|攻略|怎么穿|怎么选/.test(text)) return '场景攻略母稿 Skill'
+  if (/商品|单品|卖点|推荐|种草|购买|转化/.test(text)) return '商品种草母稿 Skill'
+  if (/品牌|定位|介绍|故事|认知/.test(text)) return '品牌介绍母稿 Skill'
+  return workbench.skill || '场景攻略母稿 Skill'
+}
+function inferWorkbenchProduct(text) {
+  const normalized = text.toLowerCase()
+  return selectedWorkbenchBrand.value.products.find(product => {
+    const haystack = [product.name, product.sellingPoints, ...(product.keywords || [])].join(' ').toLowerCase()
+    return haystack && haystack.split(/\s+|、|,|，/).some(token => token && token.length > 1 && normalized.includes(token))
+  }) || null
+}
+function extractIdeaSlots(text) {
+  const audience = text.match(/(小个子|梨形|职场新人|通勤党|18-35岁[^，。,.]*)/)?.[0] || selectedWorkbenchProduct.value?.audience || selectedWorkbenchBrand.value.audience || ''
+  const scene = text.match(/(通勤|上班|职场|约会|轻正式|旅行|面试|日常|春夏|秋冬)/g)?.join('、') || ''
+  const tone = text.match(/(专业问答|种草|轻松|理性|高级|口语|真实|避坑)/g)?.join('、') || ''
+  const searchProblem = text.match(/(怎么[^，。,.]*|如何[^，。,.]*|适合[^，。,.]*|为什么[^，。,.]*|选[^，。,.]*)/)?.[0] || ''
+  return { audience, scene, tone, searchProblem }
+}
+function buildIdeaAnalysis(prompt) {
+  const allText = [...workbenchUserMessages.value.map(msg => msg.text), prompt].filter(Boolean).join('\n')
+  const recommendedSkill = inferWorkbenchSkill(allText)
+  const matchedProduct = inferWorkbenchProduct(allText)
+  if (!workbench.skill && recommendedSkill) workbench.skill = recommendedSkill
+  if (!workbench.productId && matchedProduct?.id) workbench.productId = String(matchedProduct.id)
+
+  const slots = extractIdeaSlots(allText)
+  Object.assign(ideaSession, {
+    intent: recommendedSkill,
+    recommendedSkill,
+    recommendedProductId: matchedProduct?.id || ideaSession.recommendedProductId,
+    searchProblem: slots.searchProblem || ideaSession.searchProblem,
+    audience: slots.audience || ideaSession.audience,
+    scene: slots.scene || ideaSession.scene,
+    tone: slots.tone || ideaSession.tone,
+  })
+  const brand = selectedWorkbenchBrand.value.name
+  const product = matchedProduct?.name || selectedWorkbenchProduct.value?.name || '当前品牌资料'
+  const missing = []
+  if (!ideaSession.searchProblem) missing.push('这篇文章要回答的具体搜索问题')
+  if (!ideaSession.audience) missing.push('目标人群')
+  if (!ideaSession.scene) missing.push('使用场景')
+  if (!ideaSession.tone) missing.push('内容口吻')
+  ideaSession.stage = missing.length <= 1 ? 'ready' : 'shaping'
+  ideaSession.brief = `围绕「${brand}」和「${product}」，用「${recommendedSkill}」写一篇${ideaSession.tone || '清晰可信'}的 GEO 文章，解决「${ideaSession.searchProblem || '用户选购/穿搭问题'}」，面向「${ideaSession.audience || '潜在目标用户'}」，场景聚焦「${ideaSession.scene || '待补充'}」。`
+  return {
+    intent: recommendedSkill,
+    reading: `我理解你不是要泛泛写品牌介绍，而是要把「${prompt}」转成一个能被搜索/AI 问答引用的选题。当前品牌是「${brand}」，${matchedProduct ? `已匹配商品「${matchedProduct.name}」` : `先使用「${product}」作为资料底座`}。`,
+    expand: [
+      `品牌锚点：用「${selectedWorkbenchBrand.value.position || brand}」建立可信背景，不硬广。`,
+      `用户问题：把想法放大成“${ideaSession.searchProblem || '用户到底在搜索什么'}”的回答入口。`,
+      `内容资产：保留可改写到小红书、知乎、独立站的标题、摘要、FAQ 和关键词。`,
+    ],
+    converge: ideaSession.brief,
+    questions: missing.length ? missing.slice(0, 2).map(item => `补充${item}`) : ['按这个方向生成母稿', '再强化商品卖点'],
+  }
+}
+function buildWorkbenchReply(idea) {
   const readiness = evaluateWorkbenchReadiness()
   if (readiness.ready) {
-    return `信息够了。我会按「${selectedSkillProfile.value.name}」生成一篇面向「${selectedSkillProfile.value.goal}」的 GEO 母稿，并带上品牌资料、关键词和本轮对话。现在可以点击“生成母稿”。`
+    return `我已经把想法收敛成可生成 brief：${ideaSession.brief} 可以生成母稿，也可以继续告诉我你想更偏种草、专业问答还是 SEO 长文。`
   }
-  const nextQuestion = readiness.missing[0] || '文章目标'
-  const product = selectedWorkbenchProduct.value?.name ? `当前商品是「${selectedWorkbenchProduct.value.name}」；` : ''
-  return `收到，${product}我先不生成。为了让文章更有指向性，请再补充「${nextQuestion}」。例如：这篇文章要回答什么搜索问题、写给谁、希望偏种草还是专业问答。`
+  const question = idea?.questions?.[0] || '请补充文章目标'
+  return `我先帮你把想法拆开，不急着生成。下一步建议先回答：「${question}」，这样母稿会更像一个可发布选题，而不是泛文案。`
 }
 function sendWorkbenchMessage() {
   const prompt = String(workbench.prompt || '').trim()
   if (!prompt) return
   chatMessages.push({ id: Date.now(), role: 'user', text: prompt })
+  const idea = buildIdeaAnalysis(prompt)
   chatMessages.push({
     id: Date.now() + 1,
     role: 'ai',
-    text: buildWorkbenchReply(),
+    text: buildWorkbenchReply(idea),
+    idea,
   })
   workbench.prompt = ''
+}
+function useClarifyQuestion(question) {
+  workbench.prompt = question.replace(/^补充/, '')
 }
 async function generateDraftFromChat() {
   if (!workbenchReadiness.value.ready) {
@@ -1521,9 +1619,13 @@ async function generateDraftFromChat() {
       skill,
       hotspot_id: workbench.hotspot?.id,
       prompt: [
-        prompt,
+        ideaSession.brief || prompt,
+        `用户原始想法：${prompt}`,
         `品牌定位：${selectedWorkbenchBrand.value.position || '未维护'}`,
         product ? `商品卖点：${product.sellingPoints || product.name}` : '',
+        ideaSession.audience ? `目标人群：${ideaSession.audience}` : '',
+        ideaSession.scene ? `场景：${ideaSession.scene}` : '',
+        ideaSession.tone ? `口吻：${ideaSession.tone}` : '',
         `关键词：${workbenchKeywords.value.join('、') || '未维护'}`,
         workbench.hotspot ? `引用热点：${workbench.hotspot.title}` : '',
       ].filter(Boolean).join('\n'),
