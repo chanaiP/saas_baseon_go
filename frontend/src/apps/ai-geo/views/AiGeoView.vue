@@ -165,6 +165,7 @@
             <div v-if="hasStartedWorkbenchChat" class="chat-log geo-dialogue">
               <div v-for="msg in chatMessages" :key="msg.id" :class="['bubble', msg.role]">
                 <p>{{ msg.text }}</p>
+                <span v-if="msg.streaming" class="stream-cursor"></span>
               </div>
             </div>
             <div class="chat-input">
@@ -174,7 +175,9 @@
                 @keydown.enter.exact.prevent="sendWorkbenchMessage"
               ></textarea>
               <div class="chat-input-actions">
-                <button class="btn send-btn" :disabled="!hasWorkbenchInput" @click="sendWorkbenchMessage">发送</button>
+                <button class="btn send-btn" :disabled="!hasWorkbenchInput || chatStreaming" @click="sendWorkbenchMessage">
+                  {{ chatStreaming ? '输出中' : '发送' }}
+                </button>
                 <button v-if="canGenerateDraft && hasStartedWorkbenchChat" class="btn primary" :disabled="loading.action || !workbenchReadiness.ready" @click="generateDraftFromChat">
                   {{ loading.action ? '生成中' : (workbenchReadiness.ready ? '生成母稿' : '继续沟通') }}
                 </button>
@@ -1119,6 +1122,7 @@ const skills = ['品牌介绍母稿 Skill', '商品种草母稿 Skill', '场景�
 
 const workbench = reactive({ brandId: '', productId: '', skill: '', hotspot: null, prompt: '' })
 const chatMessages = reactive([])
+const chatStreaming = ref(false)
 const ideaSession = reactive({
   stage: 'collecting',
   intent: '等待想法',
@@ -1972,25 +1976,49 @@ function buildWorkbenchReply(idea) {
   const readiness = evaluateWorkbenchReadiness()
   return buildMentorReply(latestPrompt, idea, readiness)
 }
-function sendWorkbenchMessage() {
+function wait(ms) {
+  return new Promise(resolve => window.setTimeout(resolve, ms))
+}
+
+function nextStreamChunk(text, index) {
+  const punctuation = '。！？；\n'
+  const current = text[index] || ''
+  if (punctuation.includes(current)) return current
+  const size = /[A-Za-z0-9]/.test(current) ? 4 : 2
+  return text.slice(index, index + size)
+}
+
+async function streamAiMessage(text, idea) {
+  const message = reactive({ id: Date.now() + 1, role: 'ai', text: '', idea, streaming: true })
+  chatMessages.push(message)
+  chatStreaming.value = true
+  try {
+    for (let index = 0; index < text.length;) {
+      const chunk = nextStreamChunk(text, index)
+      message.text += chunk
+      index += chunk.length
+      await wait(/[。！？；\n]$/.test(chunk) ? 90 : 22)
+    }
+  } finally {
+    message.streaming = false
+    chatStreaming.value = false
+  }
+}
+
+async function sendWorkbenchMessage() {
   const prompt = String(workbench.prompt || '').trim()
-  if (!prompt) return
+  if (!prompt || chatStreaming.value) return
   chatMessages.push({ id: Date.now(), role: 'user', text: prompt })
   const idea = buildIdeaAnalysis(prompt)
-  chatMessages.push({
-    id: Date.now() + 1,
-    role: 'ai',
-    text: buildWorkbenchReply(idea),
-    idea,
-  })
   workbench.prompt = ''
+  await streamAiMessage(buildWorkbenchReply(idea), idea)
 }
 function useClarifyQuestion(question) {
   workbench.prompt = question.replace(/^补充/, '')
 }
 async function generateDraftFromChat() {
   if (!workbenchReadiness.value.ready) {
-    chatMessages.push({ id: Date.now(), role: 'ai', text: buildWorkbenchReply() })
+    await streamAiMessage(buildWorkbenchReply(), null)
     return
   }
   loading.action = true
