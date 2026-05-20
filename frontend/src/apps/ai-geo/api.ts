@@ -78,6 +78,8 @@ export interface AiGeoDraft {
   audit_status: string
   channel_status: string
   status: string
+  created_at?: string
+  updated_at?: string
 }
 
 export interface AiGeoPublishPlan {
@@ -92,6 +94,8 @@ export interface AiGeoPublishPlan {
   status: string
   published_url?: string | null
   fail_reason?: string | null
+  created_at?: string
+  updated_at?: string
 }
 
 export interface AiGeoListParams {

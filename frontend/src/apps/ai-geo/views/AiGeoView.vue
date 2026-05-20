@@ -596,9 +596,25 @@
 </template>
 
 <script setup>
-import { computed, defineComponent, h, reactive, ref, watch } from 'vue'
+import { computed, defineComponent, h, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ChannelManagementPanel from '../components/ChannelManagementPanel.vue'
+import {
+  approveAiGeoDraft,
+  createAiGeoDraft,
+  createAiGeoPublishPlan,
+  fetchAiGeoBrands,
+  fetchAiGeoChannels,
+  fetchAiGeoDrafts,
+  fetchAiGeoOverview,
+  fetchAiGeoProducts,
+  fetchAiGeoPublishPlans,
+  generateAiGeoChannelContent,
+  generateAiGeoDraft,
+  importAiGeoMaterials,
+  submitAiGeoDraft,
+  updateAiGeoPublishPlanStatus,
+} from '../api'
 
 const MetricCard = defineComponent({
   props: ['title', 'value', 'desc'],
@@ -694,6 +710,21 @@ const channelPreviewMode = ref('edit')
 const draftDate = ref('')
 const planDate = ref('2026-05-20')
 const draftFilter = ref('全部状态')
+const loading = reactive({ page: false, action: false })
+const overview = reactive({
+  brand_count: 0,
+  product_count: 0,
+  sku_count: 0,
+  channel_count: 0,
+  channel_account_count: 0,
+  draft_count_today: 0,
+  pending_draft_count: 0,
+  channel_content_count: 0,
+  publish_plan_today: 0,
+  average_completeness: 0,
+  pending_tasks: [],
+  quota_usage: {},
+})
 
 const brands = reactive([
   {
@@ -775,9 +806,10 @@ const brands = reactive([
   }
 ])
 
-const currentBrand = computed(() => brands.find(b => b.id === Number(selectedBrandId.value)) || brands[0])
-const productCount = computed(() => brands.reduce((sum, b) => sum + b.products.length, 0))
-const skuCount = computed(() => brands.reduce((sum, b) => sum + countSkus(b), 0))
+const emptyBrand = { id: 0, name: '暂无品牌', position: '', audience: '', priceBand: '', tone: '', completeness: 0, keywordGroups: [], materials: [], products: [] }
+const currentBrand = computed(() => brands.find(b => b.id === Number(selectedBrandId.value)) || brands[0] || emptyBrand)
+const productCount = computed(() => overview.product_count || brands.reduce((sum, b) => sum + b.products.length, 0))
+const skuCount = computed(() => overview.sku_count || brands.reduce((sum, b) => sum + countSkus(b), 0))
 function countSkus(brand) { return brand.products.reduce((sum, p) => sum + p.skus.length, 0) }
 
 const auditModeCatalog = [
@@ -874,13 +906,16 @@ const dataIssues = computed(() => [
 ])
 
 const progressStats = computed(() => [
-  { label: '今日母稿', value: drafts.filter(d => d.date === '2026-05-20').length, desc: '含草稿和已审核' },
-  { label: '待审核', value: drafts.filter(d => d.status === '待审核').length, desc: '需人工确认' },
-  { label: '渠道内容', value: drafts.reduce((s, d) => s + d.channels.length, 0), desc: '已生成版本' },
-  { label: '今日发布', value: plans.filter(p => p.date === '2026-05-20').length, desc: '发布计划任务' }
+  { label: '今日母稿', value: overview.draft_count_today || drafts.filter(d => d.date === '2026-05-20').length, desc: '含草稿和已审核' },
+  { label: '待审核', value: overview.pending_draft_count || drafts.filter(d => d.status === '待审核').length, desc: '需人工确认' },
+  { label: '渠道内容', value: overview.channel_content_count || drafts.reduce((s, d) => s + d.channels.length, 0), desc: '已生成版本' },
+  { label: '今日发布', value: overview.publish_plan_today || plans.filter(p => p.date === '2026-05-20').length, desc: '发布计划任务' }
 ])
 
 const pendingTasks = computed(() => {
+  if (overview.pending_tasks?.length) {
+    return overview.pending_tasks.map((task, index) => ({ id: `api-${index}`, tag: task.tag, title: task.title, menu: index === 0 ? 'drafts' : 'data' }))
+  }
   const pendingDraftCount = drafts.filter(d => d.status === '待审核').length
   const failedPlanCount = plans.filter(p => p.status === '发布失败').length
   return [
@@ -1072,6 +1107,133 @@ const newPlanMethod = ref('Agent 执行')
 const newPlanLevel = ref('半自动')
 const newPlanTime = ref('2026-05-20T18:00')
 
+onMounted(() => {
+  loadAiGeoData()
+})
+
+async function loadAiGeoData() {
+  loading.page = true
+  try {
+    const [overviewData, brandPage, productPage, channelPage, draftPage, planPage] = await Promise.all([
+      fetchAiGeoOverview(),
+      fetchAiGeoBrands({ limit: 200 }),
+      fetchAiGeoProducts({ limit: 200 }),
+      fetchAiGeoChannels({ limit: 200 }),
+      fetchAiGeoDrafts({ limit: 200 }),
+      fetchAiGeoPublishPlans({ limit: 200 }),
+    ])
+    Object.assign(overview, overviewData)
+    hydrateBrands(brandPage.items || [], productPage.items || [])
+    hydrateChannels(channelPage.items || [])
+    hydrateDrafts(draftPage.items || [])
+    hydratePlans(planPage.items || [])
+  } catch (error) {
+    showToast(error?.message || 'AI GEO 数据加载失败')
+  } finally {
+    loading.page = false
+  }
+}
+
+function hydrateBrands(apiBrands, apiProducts) {
+  brands.splice(0, brands.length, ...apiBrands.map(brand => ({
+    id: brand.id,
+    name: brand.brand_name,
+    position: brand.positioning || '',
+    audience: brand.target_audience || '',
+    priceBand: brand.price_band || '',
+    tone: brand.tone || '',
+    completeness: brand.completeness || 0,
+    keywordGroups: [{ id: brand.id, name: '品牌关键词', keywords: parseJsonArray(brand.keywords) }],
+    materials: [],
+    products: apiProducts.filter(product => product.brand_id === brand.id).map(product => ({
+      id: product.id,
+      code: product.product_code,
+      name: product.product_name,
+      category: product.category_name || '',
+      series: '',
+      priceRange: '',
+      fabric: '',
+      fit: '',
+      styleTags: parseJsonArray(product.content_angles),
+      sceneTags: [],
+      audience: '',
+      sellingPoints: parseJsonArray(product.selling_points).join('、'),
+      completeness: product.completeness || 0,
+      missing: [],
+      keywords: [],
+      competitors: [],
+      skus: [],
+    })),
+  })))
+  if (!brands.find(b => b.id === Number(selectedBrandId.value))) {
+    selectedBrandId.value = brands[0]?.id || 0
+  }
+}
+
+function hydrateChannels(apiChannels) {
+  channelProfiles.splice(0, channelProfiles.length, ...apiChannels.map(channel => ({
+    id: channel.id,
+    name: channel.channel_name,
+    icon: channelIcon(channel.channel_name),
+    desc: channel.channel_type,
+    type: channel.channel_type,
+    siteUrl: channel.entry_url || '',
+    adminUrl: channel.entry_url || '',
+    contentTypes: parseJsonArray(channel.content_forms).join(' / '),
+    supportMethods: parseJsonArray(channel.support_modes).join(' / '),
+    defaultMethod: channel.default_publish_mode,
+    accountCount: 0,
+    status: channel.status === 'active' ? '可发布' : '未配置',
+    method: channel.default_publish_mode,
+    level: channel.default_publish_mode === 'manual' ? '人工' : '半自动',
+    skill: '',
+    risk: '发布前校验 + 异常人工接管',
+    enabled: channel.status === 'active',
+  })))
+}
+
+function hydrateDrafts(apiDrafts) {
+  drafts.splice(0, drafts.length, ...apiDrafts.map(draft => ({
+    id: draft.id,
+    date: String(draft.created_at || new Date().toISOString()).slice(0, 10),
+    title: draft.title,
+    summary: draft.summary || '',
+    body: draft.body,
+    source: sourceLabel(draft.source),
+    status: draftStatusLabel(draft.audit_status),
+    audit: modeConfig.draftAuditMode,
+    channels: [],
+    rawStatus: draft.audit_status,
+  })))
+}
+
+function hydratePlans(apiPlans) {
+  plans.splice(0, plans.length, ...apiPlans.map(plan => {
+    const scheduled = new Date(plan.scheduled_at)
+    return {
+      id: plan.id,
+      date: Number.isNaN(scheduled.getTime()) ? String(plan.scheduled_at).slice(0, 10) : scheduled.toISOString().slice(0, 10),
+      time: Number.isNaN(scheduled.getTime()) ? '' : scheduled.toTimeString().slice(0, 5),
+      title: plan.plan_code,
+      channel: channelProfiles.find(c => c.id === plan.channel_id)?.name || `渠道 ${plan.channel_id}`,
+      channelId: plan.channel_id,
+      channelContentId: plan.channel_content_id,
+      accountName: '',
+      method: plan.publish_method,
+      level: plan.automation_level,
+      skill: '',
+      risk: '发布前校验 + 异常人工接管',
+      owner: '系统',
+      status: publishStatusLabel(plan.status),
+      link: plan.published_url || '',
+      channelAudit: '已通过',
+      accountStatus: '可发布',
+      materialStatus: '完整',
+      publishStatus: plan.status === 'failed' ? '阻断' : '可发布',
+    }
+  }))
+}
+
 function showToast(text) {
   toast.text = text
   toast.show = true
@@ -1091,7 +1253,23 @@ function saveModeConfig() { closeModal(); showToast('模式配置已保存') }
 function openImportModal() { modal.type = 'import'; modal.title = '动态字段导入：商品 / SKU / 竞品信息'; modal.wide = true }
 function openBrandModal() { showToast('新增/编辑品牌弹窗已触发') }
 function openNewPlanModal() { modal.type = 'newPlan'; modal.title = '新建发布计划' }
-function mockImport() { closeModal(); showToast('已完成字段映射校验，导入 2 个商品、6 个 SKU、3 条竞品信息') }
+async function mockImport() {
+  loading.action = true
+  try {
+    await importAiGeoMaterials({
+      import_type: 'product_material',
+      mapping_config: Object.fromEntries(importMappings.map(item => [item.source, item.target])),
+      records: [],
+    })
+    closeModal()
+    await loadAiGeoData()
+    showToast('资料导入批次已记录')
+  } catch (error) {
+    showToast(error?.message || '资料导入失败')
+  } finally {
+    loading.action = false
+  }
+}
 function generateBrandKeywords() { showToast('已基于品牌、商品、竞品信息生成关键词') }
 function pickCoverImage() {
   editingDraft.coverImage = sampleCoverImage
@@ -1104,38 +1282,164 @@ function useHotspot(hot, mode) {
   chatMessages.push({ id: Date.now(), role: 'ai', text: mode === 'dialog' ? `已引用热点：${hot.title}` : `借势角度：围绕「${hot.title}」做轻引用，不夸大热点关系。` })
   closeDrawer()
 }
-function generateDraftFromChat() {
+async function generateDraftFromChat() {
+  loading.action = true
   const product = currentBrand.value.products.find(p => p.id === Number(workbench.productId))
   const skill = workbench.skill || '无 Skill，自由发挥'
-  editingDraft.title = product ? `${product.name}怎么写出种草感？` : '根据你的想法生成的新母稿'
-  editingDraft.summary = `生成方式：人工创作；Skill：${skill}；${workbench.hotspot ? '引用热点：' + workbench.hotspot.title : '未引用热点'}。`
-  editingDraft.body = `这是一篇基于当前输入生成的母稿。\n${product ? `关联商品：${product.name}，核心卖点：${product.sellingPoints}` : '未装载商品资料，因此内容会以用户想法为主。'}\n${workbench.hotspot ? `热点轻引用：${workbench.hotspot.summary}` : '没有引用热点，内容保持常规表达。'}\n后续可以继续通过 AI 重构、人工编辑，并生成渠道版本。`
-  editingDraft.status = '草稿'
-  editingDraft.source = '人工创作'
-  chatMessages.push({ id: Date.now(), role: 'ai', text: '母稿已生成到右侧编辑器，可以编辑、预览或提交审核。' })
+  try {
+    const draft = await generateAiGeoDraft({
+      brand_id: workbench.brandId ? Number(workbench.brandId) : undefined,
+      product_id: workbench.productId ? Number(workbench.productId) : undefined,
+      skill,
+      hotspot_id: workbench.hotspot?.id,
+      prompt: workbench.prompt || (product ? `${product.name}怎么写出种草感？` : '根据运营想法生成母稿'),
+    })
+    Object.assign(editingDraft, {
+      id: draft.id,
+      title: draft.title,
+      summary: draft.summary || '',
+      body: draft.body,
+      keywordsText: parseJsonArray(draft.keywords).join(', '),
+      status: draftStatusLabel(draft.audit_status),
+      source: sourceLabel(draft.source),
+    })
+    await loadAiGeoData()
+    chatMessages.push({ id: Date.now(), role: 'ai', text: '母稿已生成并保存，可以编辑、预览或提交审核。' })
+  } catch (error) {
+    showToast(error?.message || '母稿生成失败')
+  } finally {
+    loading.action = false
+  }
 }
-function saveDraft() { showToast('母稿草稿已保存') }
-function submitDraftAudit() { editingDraft.status = '待审核'; showToast('母稿已提交审核') }
+async function saveDraft() {
+  loading.action = true
+  try {
+    const draft = await createAiGeoDraft({
+      brand_id: workbench.brandId ? Number(workbench.brandId) : undefined,
+      product_id: workbench.productId ? Number(workbench.productId) : undefined,
+      title: editingDraft.title,
+      summary: editingDraft.summary,
+      body: editingDraft.body,
+      keywords: String(editingDraft.keywordsText || '').split(',').map(s => s.trim()).filter(Boolean),
+      source: 'manual',
+    })
+    editingDraft.id = draft.id
+    await loadAiGeoData()
+    showToast('母稿草稿已保存')
+  } catch (error) {
+    showToast(error?.message || '母稿保存失败')
+  } finally {
+    loading.action = false
+  }
+}
+async function submitDraftAudit() {
+  if (!editingDraft.id) {
+    await saveDraft()
+  }
+  if (!editingDraft.id) return
+  loading.action = true
+  try {
+    const draft = await submitAiGeoDraft(Number(editingDraft.id))
+    editingDraft.status = draftStatusLabel(draft.audit_status)
+    await loadAiGeoData()
+    showToast('母稿已提交审核')
+  } catch (error) {
+    showToast(error?.message || '提交审核失败')
+  } finally {
+    loading.action = false
+  }
+}
 function editDraftInWorkbench(draft) { Object.assign(editingDraft, { ...draft, keywordsText: '通勤穿搭, 商品种草' }); activeMenu.value = 'workbench'; previewMode.value = 'edit' }
-function approveDraft(draft) { draft.status = '已通过'; showToast('母稿审核通过') }
-function generateChannelsForDraft(draft) {
+async function approveDraft(draft) {
+  loading.action = true
+  try {
+    const updated = await approveAiGeoDraft(Number(draft.id))
+    draft.status = draftStatusLabel(updated.audit_status)
+    await loadAiGeoData()
+    showToast('母稿审核通过')
+  } catch (error) {
+    showToast(error?.message || '母稿审核失败')
+  } finally {
+    loading.action = false
+  }
+}
+async function generateChannelsForDraft(draft) {
   const target = draft.id ? draft : drafts[0]
-  if (!target.channels.find(c => c.channel === '微信公众号')) target.channels.push({ id: Date.now(), channel: '微信公众号', title: target.title, body: `${target.body}\n\n公众号版本：结构更完整，适合阅读和转发。`, tags: '', seoTitle: '', script: '', status: '已生成' })
-  if (!target.channels.find(c => c.channel === '知乎')) target.channels.push({ id: Date.now() + 1, channel: '知乎', title: target.title, body: `${target.body}\n\n知乎版本：增加理性分析，减少促销语气。`, tags: '', seoTitle: '', script: '', status: '已生成' })
-  target.status = '已生成渠道版本'
-  showToast('已生成渠道版本')
+  const channel = channelProfiles[0]
+  if (!target?.id || !channel?.id) {
+    showToast('请先准备母稿和渠道资料')
+    return
+  }
+  loading.action = true
+  try {
+    const content = await generateAiGeoChannelContent(Number(target.id), {
+      channel_id: Number(channel.id),
+      title: target.title,
+      body: `${target.body}\n\n${channel.name}版本：按渠道语境完成表达适配。`,
+    })
+    target.channels.push({ id: content.id || Date.now(), channel: channel.name, title: content.title || target.title, body: content.body || target.body, tags: '', seoTitle: '', script: '', status: '已生成' })
+    target.status = '已生成渠道版本'
+    showToast('已生成渠道版本')
+  } catch (error) {
+    showToast(error?.message || '生成渠道内容失败')
+  } finally {
+    loading.action = false
+  }
 }
 function openChannelEditor(draft, channel) { selectedDraft.value = draft; Object.assign(selectedChannel, channel); drawer.type = 'channelEditor'; drawer.title = `${channel.channel} 内容编辑`; channelPreviewMode.value = 'edit' }
 function confirmChannel(channel) { channel.status = '已确认'; showToast('渠道内容已确认') }
 function confirmSelectedChannel() { selectedChannel.status = '已确认'; showToast('渠道内容已确认') }
 function optimizeChannel(type) { selectedChannel.body += `\n\nAI 局部优化：${type}。`; if (type === '生成话题标签') selectedChannel.tags = '#通勤穿搭 #法式穿搭 #小个子穿搭'; showToast(type + '完成') }
 function regenerateChannel() { selectedChannel.body = selectedChannel.body + '\n\n已基于最新母稿重新生成渠道表达。'; showToast('渠道内容已重新生成') }
-function addChannelToPlan(draft, channel) { plans.push({ id: Date.now(), date: '2026-05-20', time: '18:00', title: channel.title, channel: channel.channel, method: channel.channel === '独立站' ? '渠道 API' : 'Agent 执行', level: channel.channel === '独立站' ? '全自动' : '半自动', skill: channel.channel === '小红书' ? '小红书图文发布 Skill' : '', risk: '发布前校验 + 异常人工接管', owner: '运营A', status: '已排期', link: '' }); channel.status = '已加入发布计划'; showToast('已加入发布计划') }
+async function addChannelToPlan(draft, channel) {
+  const profile = channelProfiles.find(item => item.name === channel.channel) || channelProfiles[0]
+  if (!profile?.id) {
+    showToast('请先配置可发布渠道')
+    return
+  }
+  loading.action = true
+  try {
+    await createAiGeoPublishPlan({
+      channel_content_id: Number(channel.id || draft?.channelContentId || 1),
+      channel_id: Number(profile.id),
+      scheduled_at: new Date(`${planDate.value || '2026-05-20'}T18:00:00+08:00`).toISOString(),
+      publish_method: profile.method || 'manual',
+      automation_level: profile.level || 'manual',
+    })
+    channel.status = '已加入发布计划'
+    await loadAiGeoData()
+    showToast('已加入发布计划')
+  } catch (error) {
+    showToast(error?.message || '加入发布计划失败')
+  } finally {
+    loading.action = false
+  }
+}
 function addSelectedChannelToPlan() { addChannelToPlan(selectedDraft.value || drafts[0], selectedChannel) }
-function createPlan() {
+async function createPlan() {
   const draft = drafts.find(d => d.id === Number(newPlanDraftId.value)) || drafts[0]
-  plans.push({ id: Date.now(), date: newPlanTime.value.slice(0, 10), time: newPlanTime.value.slice(11, 16), title: draft.title, channel: newPlanChannel.value, method: newPlanMethod.value, level: newPlanLevel.value, skill: newPlanMethod.value === 'Agent 执行' ? `${newPlanChannel.value}发布 Skill` : '', risk: newPlanMethod.value === 'Agent 执行' ? '频率限制 + 人工接管' : '发布前校验', owner: '运营A', status: '已排期', link: '' })
-  closeModal(); showToast('发布计划已创建')
+  const channel = channelProfiles.find(c => c.name === newPlanChannel.value) || channelProfiles[0]
+  if (!draft || !channel?.id) {
+    showToast('请先准备母稿和渠道')
+    return
+  }
+  loading.action = true
+  try {
+    await createAiGeoPublishPlan({
+      channel_content_id: Number(draft.channels?.[0]?.id || 1),
+      channel_id: Number(channel.id),
+      scheduled_at: new Date(`${newPlanTime.value}:00+08:00`).toISOString(),
+      publish_method: newPlanMethod.value,
+      automation_level: newPlanLevel.value,
+    })
+    closeModal()
+    await loadAiGeoData()
+    showToast('发布计划已创建')
+  } catch (error) {
+    showToast(error?.message || '发布计划创建失败')
+  } finally {
+    loading.action = false
+  }
 }
 function runPlanAudit(plan) {
   plan.channelAudit = '已通过'
@@ -1164,11 +1468,79 @@ function completePlan(plan) {
 }
 function viewPublishMaterial(plan) { showToast(`打开 ${plan.channel} 发布素材包`) }
 function adjustPlan(plan) { plan.time = '20:00'; showToast('已调整计划时间为 20:00') }
-function markPublished(plan) { plan.status = '已发布'; plan.link = plan.link || 'https://example.com/post'; showToast('已标记为已发布') }
-function fillPublishLink(plan) { plan.link = 'https://example.com/published-link'; showToast('发布链接已回填') }
-function markFailed(plan) { plan.status = '发布失败'; showToast('已标记失败，等待重试或人工接管') }
+async function markPublished(plan) {
+  await updatePlanStatus(plan, { status: 'published', published_url: plan.link || 'https://example.com/post' }, '已标记为已发布')
+}
+async function fillPublishLink(plan) {
+  await updatePlanStatus(plan, { status: 'published', published_url: 'https://example.com/published-link' }, '发布链接已回填')
+}
+async function markFailed(plan) {
+  await updatePlanStatus(plan, { status: 'failed', fail_reason: '人工标记失败' }, '已标记失败，等待重试或人工接管')
+}
 function openProductDrawer(product) { Object.keys(selectedProduct).forEach(k => delete selectedProduct[k]); Object.assign(selectedProduct, product); drawer.type = 'product'; drawer.title = '商品资料卡'; productTab.value = '公共资料' }
 function addCompetitor() { selectedProduct.competitors.push({ brand: '新增竞品', name: '竞品商品', price: '待录入', point: '待录入', diff: '待分析', angle: '待生成', link: 'https://example.com' }); showToast('已新增竞品信息') }
+
+async function updatePlanStatus(plan, payload, successText) {
+  loading.action = true
+  try {
+    const updated = await updateAiGeoPublishPlanStatus(Number(plan.id), payload)
+    plan.status = publishStatusLabel(updated.status)
+    plan.link = updated.published_url || plan.link || ''
+    await loadAiGeoData()
+    showToast(successText)
+  } catch (error) {
+    showToast(error?.message || '发布计划状态更新失败')
+  } finally {
+    loading.action = false
+  }
+}
+
+function parseJsonArray(value) {
+  if (Array.isArray(value)) return value
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function channelIcon(name) {
+  if (name?.includes('小红书')) return '📕'
+  if (name?.includes('抖音')) return '🎵'
+  if (name?.includes('微信')) return '💬'
+  if (name?.includes('知乎')) return '💡'
+  if (name?.includes('微博')) return '📢'
+  if (name?.includes('百家')) return '📰'
+  if (name?.includes('站')) return '🌐'
+  return '📣'
+}
+
+function sourceLabel(source) {
+  if (source === 'ai_workbench') return '智能生成'
+  if (source === 'manual') return '人工创作'
+  return source || '人工创作'
+}
+
+function draftStatusLabel(status) {
+  return {
+    draft: '草稿',
+    pending: '待审核',
+    approved: '已通过',
+    rejected: '已驳回',
+  }[status] || status || '草稿'
+}
+
+function publishStatusLabel(status) {
+  return {
+    scheduled: '已排期',
+    publishing: '发布中',
+    published: '已发布',
+    failed: '发布失败',
+    cancelled: '已取消',
+  }[status] || status || '已排期'
+}
 </script>
 
 <style src="../styles.css"></style>
