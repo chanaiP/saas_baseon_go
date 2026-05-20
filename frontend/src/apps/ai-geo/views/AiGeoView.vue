@@ -221,20 +221,6 @@
                 <button :class="{ active: previewMode === 'mobile' }" @click="previewMode = 'mobile'">手机预览</button>
               </div>
             </div>
-            <div class="generation-recipe">
-              <div>
-                <span>生成指向</span>
-                <strong>{{ selectedSkillProfile.goal }}</strong>
-              </div>
-              <div>
-                <span>资料完整度</span>
-                <strong>{{ brandOverallCompleteness(selectedWorkbenchBrand) }}%</strong>
-              </div>
-              <div>
-                <span>可用关键词</span>
-                <strong>{{ workbenchKeywords.slice(0, 3).join(' / ') || '待补充' }}</strong>
-              </div>
-            </div>
             <div v-if="previewMode === 'edit'" class="draft-editor">
               <div class="draft-hero">
                 <div class="draft-cover-col">
