@@ -162,7 +162,7 @@
               </div>
             </div>
 
-            <div class="chat-log geo-dialogue">
+            <div v-if="hasStartedWorkbenchChat" class="chat-log geo-dialogue">
               <div v-for="msg in chatMessages" :key="msg.id" :class="['bubble', msg.role]">
                 <p>{{ msg.text }}</p>
                 <div v-if="msg.idea" class="idea-breakdown">
@@ -1159,9 +1159,7 @@ const pendingTasks = computed(() => {
 const skills = ['品牌介绍母稿 Skill', '商品种草母稿 Skill', '场景攻略母稿 Skill', 'FAQ问答母稿 Skill', '小红书改写 Skill', '知乎问答改写 Skill']
 
 const workbench = reactive({ brandId: '', productId: '', skill: '', hotspot: null, prompt: '' })
-const chatMessages = reactive([
-  { id: 1, role: 'ai', text: '你可以直接说一个模糊想法。我会先解析意图，再围绕品牌、商品和 Skill 帮你放大、澄清、收敛，最后生成有指向性的 GEO 母稿。' }
-])
+const chatMessages = reactive([])
 const ideaSession = reactive({
   stage: 'collecting',
   intent: '等待想法',
