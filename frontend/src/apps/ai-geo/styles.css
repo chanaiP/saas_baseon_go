@@ -210,6 +210,10 @@
 .geo-growth-page .chat-input textarea { min-height: 72px; }
 .geo-growth-page .chat-input-actions { display: flex; gap: 8px; align-items: center; }
 .geo-growth-page .send-btn { min-width: 72px; border-color: rgba(37, 99, 235, .22); color: var(--primary); background: var(--surface-blue); }
+.geo-growth-page .conversation-state { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.geo-growth-page .conversation-state span { padding: 4px 8px; border-radius: 99px; background: #fff7ed; color: #c2410c; border: 1px solid rgba(249, 115, 22, .22); }
+.geo-growth-page .conversation-state.ready span { background: #ecfdf5; color: #047857; border-color: rgba(16, 185, 129, .24); }
+.geo-growth-page .conversation-state strong { font-weight: 600; color: var(--muted); }
 .geo-growth-page .btn:disabled { opacity: .48; cursor: not-allowed; box-shadow: none; }
 .geo-growth-page .editor-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; gap: 14px; }
 .geo-growth-page .segmented { display: inline-flex; gap: 4px; padding: 4px; background: #f1f5f9; border-radius: 14px; }

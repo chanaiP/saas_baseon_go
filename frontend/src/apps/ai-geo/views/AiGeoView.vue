@@ -168,12 +168,15 @@
               ></textarea>
               <div class="chat-input-actions">
                 <button class="btn send-btn" :disabled="!hasWorkbenchInput" @click="sendWorkbenchMessage">发送</button>
-                <button v-if="canGenerateDraft" class="btn primary" :disabled="loading.action || !canRunWorkbench" @click="generateDraftFromChat">
-                  {{ loading.action ? '生成中' : '生成母稿' }}
+                <button v-if="canGenerateDraft" class="btn primary" :disabled="loading.action || !workbenchReadiness.ready" @click="generateDraftFromChat">
+                  {{ loading.action ? '生成中' : (workbenchReadiness.ready ? '生成母稿' : '继续沟通') }}
                 </button>
               </div>
             </div>
-            <p v-if="!canRunWorkbench" class="field-hint">请选择 Skill，或在输入框里说明文章目标。</p>
+            <div class="conversation-state" :class="{ ready: workbenchReadiness.ready }">
+              <span>{{ workbenchReadiness.ready ? '信息已足够' : '继续沟通中' }}</span>
+              <strong>{{ workbenchReadiness.hint }}</strong>
+            </div>
           </div>
 
           <div class="editor-panel panel">
@@ -1066,7 +1069,9 @@ const generationPlaceholder = computed(() => {
   return `例如：围绕「${product}」写一篇回答“小个子通勤怎么穿”的 GEO 文章，强调适合人群、选择理由、场景建议。`
 })
 const hasWorkbenchInput = computed(() => Boolean(String(workbench.prompt || '').trim()))
-const canRunWorkbench = computed(() => Boolean(String(workbench.prompt || '').trim() || workbench.skill))
+const workbenchUserMessages = computed(() => chatMessages.filter(msg => msg.role === 'user'))
+const latestWorkbenchUserPrompt = computed(() => [...chatMessages].reverse().find(msg => msg.role === 'user')?.text || '')
+const workbenchReadiness = computed(() => evaluateWorkbenchReadiness(String(workbench.prompt || '').trim()))
 watch(() => workbench.brandId, () => {
   workbench.productId = ''
 })
@@ -1458,25 +1463,53 @@ function useHotspot(hot, mode) {
   chatMessages.push({ id: Date.now(), role: 'ai', text: mode === 'dialog' ? `已引用热点：${hot.title}` : `借势角度：围绕「${hot.title}」做轻引用，不夸大热点关系。` })
   closeDrawer()
 }
+function evaluateWorkbenchReadiness(extraPrompt = '') {
+  const intentText = [...workbenchUserMessages.value.map(msg => msg.text), extraPrompt].filter(Boolean).join('\n')
+  const hasSearchQuestion = /写|生成|文章|攻略|问答|种草|小红书|知乎|通勤|怎么|如何|适合|推荐|选择|对比|人群|场景|卖点|关键词/.test(intentText)
+  const hasSpecificBrief = intentText.replace(/\s/g, '').length >= 16
+  const hasStructuredContext = Boolean(workbench.skill || selectedWorkbenchProduct.value || workbench.hotspot)
+  const enoughTurns = workbenchUserMessages.value.length >= 2
+  const ready = Boolean(hasSearchQuestion && hasSpecificBrief && (hasStructuredContext || enoughTurns))
+  const missing = []
+  if (!hasSearchQuestion) missing.push('文章要回答的搜索问题')
+  if (!hasSpecificBrief) missing.push('目标人群、场景或口吻')
+  if (!hasStructuredContext && !enoughTurns) missing.push('Skill、商品、热点或再补一轮需求')
+  return {
+    ready,
+    missing,
+    hint: ready ? '可以生成母稿；生成时会带上本轮对话、资料、关键词和 Skill。' : `还需要补充：${missing.join('、')}。`,
+  }
+}
+function buildWorkbenchReply() {
+  const readiness = evaluateWorkbenchReadiness()
+  if (readiness.ready) {
+    return `信息够了。我会按「${selectedSkillProfile.value.name}」生成一篇面向「${selectedSkillProfile.value.goal}」的 GEO 母稿，并带上品牌资料、关键词和本轮对话。现在可以点击“生成母稿”。`
+  }
+  const nextQuestion = readiness.missing[0] || '文章目标'
+  const product = selectedWorkbenchProduct.value?.name ? `当前商品是「${selectedWorkbenchProduct.value.name}」；` : ''
+  return `收到，${product}我先不生成。为了让文章更有指向性，请再补充「${nextQuestion}」。例如：这篇文章要回答什么搜索问题、写给谁、希望偏种草还是专业问答。`
+}
 function sendWorkbenchMessage() {
   const prompt = String(workbench.prompt || '').trim()
   if (!prompt) return
   chatMessages.push({ id: Date.now(), role: 'user', text: prompt })
-  const product = selectedWorkbenchProduct.value?.name ? `，当前商品是「${selectedWorkbenchProduct.value.name}」` : ''
-  const keywords = workbenchKeywords.value.slice(0, 4).join('、') || '待补关键词'
   chatMessages.push({
     id: Date.now() + 1,
     role: 'ai',
-    text: `收到。我会按「${selectedSkillProfile.value.name}」处理这条需求，当前品牌是「${selectedWorkbenchBrand.value.name}」${product}，可用关键词为：${keywords}。继续补充人群、场景或口吻，或直接点击“生成母稿”。`,
+    text: buildWorkbenchReply(),
   })
   workbench.prompt = ''
 }
 async function generateDraftFromChat() {
+  if (!workbenchReadiness.value.ready) {
+    chatMessages.push({ id: Date.now(), role: 'ai', text: buildWorkbenchReply() })
+    return
+  }
   loading.action = true
   const product = selectedWorkbenchProduct.value
   const skill = workbench.skill || '通用 GEO 母稿 Skill'
   const typedPrompt = String(workbench.prompt || '').trim()
-  const latestUserPrompt = [...chatMessages].reverse().find(msg => msg.role === 'user')?.text || ''
+  const latestUserPrompt = latestWorkbenchUserPrompt.value
   const prompt = typedPrompt || latestUserPrompt || `请基于 ${selectedWorkbenchBrand.value.name}${product ? ` 的 ${product.name}` : ''}，生成一篇面向「${selectedSkillProfile.value.goal}」的 GEO 文章。`
   if (typedPrompt || !latestUserPrompt) {
     chatMessages.push({ id: Date.now(), role: 'user', text: prompt })
