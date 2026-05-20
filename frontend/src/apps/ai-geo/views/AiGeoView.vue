@@ -105,7 +105,7 @@
             <div v-if="!hasStartedWorkbenchChat" class="workbench-brief">
               <span class="badge muted-badge">GEO Article Console</span>
               <h3>按资料和 Skill 生成有指向性的 GEO 文章</h3>
-              <p>直接说想法也可以；我会帮你识别品牌、商品、Skill 和热点，再把模糊想法收敛成可生成的 GEO 母稿。</p>
+              <p>直接说想法也可以；我会基于品牌、商品、Skill 和热点资料，把模糊想法整理成可生成的 GEO 母稿。</p>
             </div>
 
             <div v-if="!hasStartedWorkbenchChat" class="context-strip setup-strip">
@@ -165,29 +165,6 @@
             <div v-if="hasStartedWorkbenchChat" class="chat-log geo-dialogue">
               <div v-for="msg in chatMessages" :key="msg.id" :class="['bubble', msg.role]">
                 <p>{{ msg.text }}</p>
-                <div v-if="msg.idea" class="idea-breakdown">
-                  <div class="idea-section">
-                    <span>解析</span>
-                    <strong>{{ msg.idea.intent }}</strong>
-                    <p>{{ msg.idea.reading }}</p>
-                  </div>
-                  <div class="idea-section">
-                    <span>放大</span>
-                    <ul>
-                      <li v-for="item in msg.idea.expand" :key="item">{{ item }}</li>
-                    </ul>
-                  </div>
-                  <div class="idea-section">
-                    <span>收敛</span>
-                    <p>{{ msg.idea.converge }}</p>
-                  </div>
-                  <div class="idea-section questions">
-                    <span>澄清</span>
-                    <button v-for="question in msg.idea.questions" :key="question" type="button" @click="useClarifyQuestion(question)">
-                      {{ question }}
-                    </button>
-                  </div>
-                </div>
               </div>
             </div>
             <div class="chat-input">
@@ -1863,16 +1840,63 @@ function buildIdeaAnalysis(prompt) {
     questions: ideaSession.stage === 'ready' ? ['按这个方向生成母稿', '强化人群和场景', '强化商品卖点'] : missing.slice(0, 2).map(item => `补充${item}`),
   }
 }
+
+function isLowSignalIdea(text) {
+  const compact = String(text || '').replace(/\s/g, '')
+  return compact.length < 8 || /^(你好|你好啊|你哈|hello|hi|我想写一篇文章|写文章|生成文章)$/.test(compact)
+}
+
+function workbenchAngleOptions() {
+  const brand = selectedWorkbenchBrand.value.name
+  const product = selectedWorkbenchProduct.value?.name
+  const audience = selectedWorkbenchProduct.value?.audience || selectedWorkbenchBrand.value.audience || '目标用户'
+  const scene = ideaSession.scene || '日常/通勤场景'
+  if (/品牌介绍/.test(selectedSkillProfile.value.name)) {
+    return [
+      `「${brand} 是什么风格，适合哪些人」`,
+      `「${brand} 为什么适合 ${audience}」`,
+      `「${brand} 和同类品牌的差异在哪里」`,
+    ]
+  }
+  if (/商品|种草/.test(selectedSkillProfile.value.name) && product) {
+    return [
+      `「${product} 适合什么人买」`,
+      `「${product} 在${scene}怎么搭」`,
+      `「${product} 的卖点和避坑点」`,
+    ]
+  }
+  if (/知乎|问答|FAQ/.test(selectedSkillProfile.value.name)) {
+    return [
+      `「${brand} 适合 ${audience} 吗」`,
+      `「${scene}应该怎么选这类单品」`,
+      `「这类风格和普通通勤装有什么区别」`,
+    ]
+  }
+  return [
+    `「${scene}怎么穿更合适」`,
+    `「${brand} 适合哪些人」`,
+    `「怎么根据身材和场景选择单品」`,
+  ]
+}
+
 function buildWorkbenchReply(idea) {
+  const latestPrompt = latestWorkbenchUserPrompt.value
+  const brand = selectedWorkbenchBrand.value.name
+  const skill = selectedSkillProfile.value.name
+  const product = selectedWorkbenchProduct.value?.name
+  const angles = workbenchAngleOptions()
+  if (isLowSignalIdea(latestPrompt)) {
+    return `收到。当前资料底座是「${brand}」${product ? `，商品是「${product}」` : ''}，Skill 是「${skill}」。我不会直接套模板生成，建议先把文章入口定成一个用户真的会搜索/提问的问题。可以从这三个方向里选一个：${angles.join('；')}。你也可以直接说你的目标人群、使用场景或想解决的问题。`
+  }
   const readiness = evaluateWorkbenchReadiness()
   if (readiness.ready) {
     if (isWorkbenchDraftDecision(latestWorkbenchUserPrompt.value)) {
-      return `可以，已经闭环到可输出母版。${ideaSession.brief} 现在点“生成母稿”，我会用选择资料、Skill 和这轮对话先跑一版。`
+      return `可以，方向已经够了。我会用「${brand}」的资料和「${skill}」来写，不做空泛介绍，重点回答「${ideaSession.searchProblem || latestPrompt}」，并把人群、场景、选择理由和关键词一起带进母稿。现在可以点“生成母稿”。`
     }
-    return `${isWorkbenchCorrection(latestWorkbenchUserPrompt.value) ? '对，是我刚才没有正确识别字段。' : '我已经把想法收敛成可生成母版 brief：'}${ideaSession.brief} 你可以继续补充方向，也可以直接生成母稿。`
+    return `${isWorkbenchCorrection(latestPrompt) ? '对，我按你补充的信息重新理解了。' : '这个方向可以写。'}我会把「${latestPrompt}」处理成一篇围绕「${brand}」${product ? `和「${product}」` : '现有资料'}的 GEO 母稿：先回答用户问题，再给出可信依据、适用人群、场景建议和可复用关键词。你还可以继续补一句想偏“专业问答”“种草感”还是“品牌认知”，也可以直接生成。`
   }
-  const question = idea?.questions?.[0] || '请补充文章目标'
-  return `我先把想法拆开，还差一个关键点：「${question}」。补上后我会继续帮你放大和收敛，再输出母稿。`
+  const question = idea?.questions?.[0]?.replace(/^补充/, '') || '文章要解决的具体问题'
+  return `我理解你的方向是围绕「${brand}」写内容，但现在还缺一个能让文章变强的入口：${question}。不用按表单填，你直接说一句就行，比如「写给 25-35 岁通勤女性，解决怎么穿得正式但不老气」。我会基于资料和「${skill}」继续整理成可生成母稿。`
 }
 function sendWorkbenchMessage() {
   const prompt = String(workbench.prompt || '').trim()

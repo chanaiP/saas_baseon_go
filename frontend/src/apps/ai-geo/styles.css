@@ -216,16 +216,6 @@
 .geo-growth-page .is-chatting .bubble.ai { border-bottom-left-radius: 6px; }
 .geo-growth-page .bubble p { margin: 0; color: inherit; }
 .geo-growth-page .bubble.ai { max-width: 96%; }
-.geo-growth-page .idea-breakdown { display: grid; gap: 8px; width: 100%; min-width: 0; margin-top: 10px; }
-.geo-growth-page .idea-section { padding: 10px 11px; border: 1px solid var(--line); border-radius: 12px; background: linear-gradient(180deg, #f8fbff, #fff); }
-.geo-growth-page .idea-section span { display: block; margin-bottom: 4px; color: var(--primary); font-size: 12px; font-weight: 700; }
-.geo-growth-page .idea-section strong { display: block; margin-bottom: 5px; font-size: 14px; }
-.geo-growth-page .idea-section p { color: var(--muted); line-height: 1.6; }
-.geo-growth-page .idea-section ul { margin: 0; padding-left: 18px; color: var(--muted); line-height: 1.55; }
-.geo-growth-page .idea-section.questions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.geo-growth-page .idea-section.questions span { width: 100%; margin-bottom: 0; }
-.geo-growth-page .idea-section.questions button { border: 1px solid rgba(37, 99, 235, .2); background: white; color: var(--primary); border-radius: 999px; padding: 6px 10px; font-size: 12px; cursor: pointer; }
-.geo-growth-page .idea-section.questions button:hover { background: var(--primary-soft); }
 .geo-growth-page .chat-actions { display: flex; gap: 10px; margin: 12px 0; }
 .geo-growth-page .chat-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; padding: 10px; border: 1px solid var(--line); border-radius: 18px; background: rgba(255,255,255,.92); box-shadow: 0 10px 28px rgba(15, 23, 42, .06); }
 .geo-growth-page .chat-input textarea { min-height: 56px; max-height: 120px; resize: none; border: 0; background: transparent; padding: 8px 10px; line-height: 1.55; }
@@ -461,7 +451,6 @@ html.dark .geo-growth-page .bubble.ai,
 html.dark .geo-growth-page .timeline-empty,
 html.dark .geo-growth-page .context-card,
 html.dark .geo-growth-page .evidence-item,
-html.dark .geo-growth-page .idea-section,
 html.dark .geo-growth-page .conversation-context-bar,
 html.dark .geo-growth-page .conversation-context-bar span,
 .admin-shell.dark .geo-growth-page .panel,
@@ -492,7 +481,6 @@ html.dark .geo-growth-page .conversation-context-bar span,
 .admin-shell.dark .geo-growth-page .timeline-empty,
 .admin-shell.dark .geo-growth-page .context-card,
 .admin-shell.dark .geo-growth-page .evidence-item,
-.admin-shell.dark .geo-growth-page .idea-section,
 .admin-shell.dark .geo-growth-page .conversation-context-bar,
 .admin-shell.dark .geo-growth-page .conversation-context-bar span {
   background: var(--surface);
