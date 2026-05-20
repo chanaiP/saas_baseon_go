@@ -284,6 +284,24 @@ func (s *Service) UpdateBrand(ctx context.Context, viewer dto.Viewer, id uint64,
 	return row, err
 }
 
+func (s *Service) ArchiveBrand(ctx context.Context, viewer dto.Viewer, id uint64) (models.AiGeoBrandCard, error) {
+	row, err := s.repo.Brand(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	if err != nil {
+		return row, err
+	}
+	now := time.Now()
+	userID := viewer.UserID
+	row.Status = "archived"
+	row.DeletedAt = &now
+	row.UpdatedAt = now
+	row.UpdatedBy = &userID
+	err = s.repo.SaveBrand(ctx, &row)
+	return row, err
+}
+
 func (s *Service) Products(ctx context.Context, viewer dto.Viewer, req dto.PageRequest) (dto.PageResponse[models.AiGeoProductCard], error) {
 	rows, total, err := s.repo.ListProducts(ctx, viewer.TenantID, req)
 	return page(rows, total, req), err
@@ -321,6 +339,59 @@ func (s *Service) CreateProduct(ctx context.Context, viewer dto.Viewer, payload 
 		UpdatedAt:     now,
 	}
 	err := s.repo.SaveProduct(ctx, &row)
+	return row, err
+}
+
+func (s *Service) UpdateProduct(ctx context.Context, viewer dto.Viewer, id uint64, payload dto.ProductPayload) (models.AiGeoProductCard, error) {
+	row, err := s.repo.Product(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	if err != nil {
+		return row, err
+	}
+	if payload.BrandID > 0 && payload.BrandID != row.BrandID {
+		if _, err := s.repo.Brand(ctx, viewer.TenantID, payload.BrandID); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return row, ErrNotFound
+			}
+			return row, err
+		}
+		row.BrandID = payload.BrandID
+	}
+	if strings.TrimSpace(payload.ProductName) != "" {
+		row.ProductName = strings.TrimSpace(payload.ProductName)
+	}
+	row.CategoryName = stringPtr(payload.CategoryName)
+	row.SellingPoints = jsonString(payload.SellingPoints, []string{})
+	row.FAQ = jsonString(payload.FAQ, []string{})
+	row.ContentAngles = jsonString(payload.ContentAngles, []string{})
+	row.Completeness = completeness(row.ProductName, payload.CategoryName, strings.Join(payload.SellingPoints, ","), strings.Join(payload.FAQ, ","))
+	if payload.Status != "" {
+		row.Status = payload.Status
+	}
+	userID := viewer.UserID
+	row.UpdatedBy = &userID
+	row.UpdatedAt = time.Now()
+	err = s.repo.SaveProduct(ctx, &row)
+	return row, err
+}
+
+func (s *Service) ArchiveProduct(ctx context.Context, viewer dto.Viewer, id uint64) (models.AiGeoProductCard, error) {
+	row, err := s.repo.Product(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	if err != nil {
+		return row, err
+	}
+	now := time.Now()
+	userID := viewer.UserID
+	row.Status = "archived"
+	row.DeletedAt = &now
+	row.UpdatedAt = now
+	row.UpdatedBy = &userID
+	err = s.repo.SaveProduct(ctx, &row)
 	return row, err
 }
 
@@ -362,6 +433,51 @@ func (s *Service) CreateSKU(ctx context.Context, viewer dto.Viewer, payload dto.
 	return row, err
 }
 
+func (s *Service) UpdateSKU(ctx context.Context, viewer dto.Viewer, id uint64, payload dto.SKUPayload) (models.AiGeoSKU, error) {
+	row, err := s.repo.SKU(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	if err != nil {
+		return row, err
+	}
+	if strings.TrimSpace(payload.SKUName) != "" {
+		row.SKUName = strings.TrimSpace(payload.SKUName)
+	}
+	row.Attributes = jsonString(payload.Attributes, map[string]interface{}{})
+	row.Price = payload.Price
+	row.ImageURL = stringPtr(payload.ImageURL)
+	if payload.StockStatus != "" {
+		row.StockStatus = payload.StockStatus
+	}
+	if payload.Status != "" {
+		row.Status = payload.Status
+	}
+	userID := viewer.UserID
+	row.UpdatedBy = &userID
+	row.UpdatedAt = time.Now()
+	err = s.repo.SaveSKU(ctx, &row)
+	return row, err
+}
+
+func (s *Service) ArchiveSKU(ctx context.Context, viewer dto.Viewer, id uint64) (models.AiGeoSKU, error) {
+	row, err := s.repo.SKU(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	if err != nil {
+		return row, err
+	}
+	now := time.Now()
+	userID := viewer.UserID
+	row.Status = "archived"
+	row.DeletedAt = &now
+	row.UpdatedAt = now
+	row.UpdatedBy = &userID
+	err = s.repo.SaveSKU(ctx, &row)
+	return row, err
+}
+
 func (s *Service) Competitors(ctx context.Context, viewer dto.Viewer, req dto.PageRequest) (dto.PageResponse[models.AiGeoCompetitor], error) {
 	rows, total, err := s.repo.ListCompetitors(ctx, viewer.TenantID, req)
 	return page(rows, total, req), err
@@ -396,6 +512,53 @@ func (s *Service) CreateCompetitor(ctx context.Context, viewer dto.Viewer, paylo
 		UpdatedAt:   now,
 	}
 	err := s.repo.SaveCompetitor(ctx, &row)
+	return row, err
+}
+
+func (s *Service) UpdateCompetitor(ctx context.Context, viewer dto.Viewer, id uint64, payload dto.CompetitorPayload) (models.AiGeoCompetitor, error) {
+	row, err := s.repo.Competitor(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	if err != nil {
+		return row, err
+	}
+	if strings.TrimSpace(payload.BrandName) != "" {
+		row.BrandName = strings.TrimSpace(payload.BrandName)
+	}
+	if strings.TrimSpace(payload.ProductName) != "" {
+		row.ProductName = strings.TrimSpace(payload.ProductName)
+	}
+	row.PriceText = stringPtr(payload.PriceText)
+	row.Point = stringPtr(payload.Point)
+	row.Difference = stringPtr(payload.Difference)
+	row.Angle = stringPtr(payload.Angle)
+	row.LinkURL = stringPtr(payload.LinkURL)
+	if payload.Status != "" {
+		row.Status = payload.Status
+	}
+	userID := viewer.UserID
+	row.UpdatedBy = &userID
+	row.UpdatedAt = time.Now()
+	err = s.repo.SaveCompetitor(ctx, &row)
+	return row, err
+}
+
+func (s *Service) ArchiveCompetitor(ctx context.Context, viewer dto.Viewer, id uint64) (models.AiGeoCompetitor, error) {
+	row, err := s.repo.Competitor(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	if err != nil {
+		return row, err
+	}
+	now := time.Now()
+	userID := viewer.UserID
+	row.Status = "archived"
+	row.DeletedAt = &now
+	row.UpdatedAt = now
+	row.UpdatedBy = &userID
+	err = s.repo.SaveCompetitor(ctx, &row)
 	return row, err
 }
 

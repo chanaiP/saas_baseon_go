@@ -312,6 +312,40 @@ func TestSKUAndCompetitorAreTenantScopedToProduct(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
+func TestMaterialUpdateAndArchiveKeepTenantScope(t *testing.T) {
+	db := newAiGeoTestDB(t)
+	service := NewService(repositories.NewRepository(db))
+	viewer := dto.Viewer{TenantID: 1, UserID: 10}
+	brand, err := service.CreateBrand(context.Background(), viewer, dto.BrandPayload{BrandCode: "B1", BrandName: "品牌一"})
+	require.NoError(t, err)
+	product, err := service.CreateProduct(context.Background(), viewer, dto.ProductPayload{BrandID: brand.ID, ProductCode: "P1", ProductName: "商品一"})
+	require.NoError(t, err)
+	sku, err := service.CreateSKU(context.Background(), viewer, dto.SKUPayload{ProductID: product.ID, SKUCode: "SKU1", SKUName: "黑色 M", Price: 199})
+	require.NoError(t, err)
+	competitor, err := service.CreateCompetitor(context.Background(), viewer, dto.CompetitorPayload{ProductID: product.ID, BrandName: "竞品", ProductName: "竞品商品"})
+	require.NoError(t, err)
+
+	updatedProduct, err := service.UpdateProduct(context.Background(), viewer, product.ID, dto.ProductPayload{ProductName: "商品一更新", CategoryName: "女装", SellingPoints: []string{"显瘦"}, FAQ: []string{"怎么洗"}})
+	require.NoError(t, err)
+	require.Equal(t, "商品一更新", updatedProduct.ProductName)
+	updatedSKU, err := service.UpdateSKU(context.Background(), viewer, sku.ID, dto.SKUPayload{SKUName: "黑色 L", Attributes: map[string]interface{}{"size": "L"}, Price: 219, StockStatus: "in_stock"})
+	require.NoError(t, err)
+	require.Equal(t, "黑色 L", updatedSKU.SKUName)
+	updatedCompetitor, err := service.UpdateCompetitor(context.Background(), viewer, competitor.ID, dto.CompetitorPayload{BrandName: "竞品更新", ProductName: "竞品商品更新", Difference: "风格不同"})
+	require.NoError(t, err)
+	require.Equal(t, "竞品更新", updatedCompetitor.BrandName)
+
+	archivedSKU, err := service.ArchiveSKU(context.Background(), viewer, sku.ID)
+	require.NoError(t, err)
+	require.Equal(t, "archived", archivedSKU.Status)
+	require.NotNil(t, archivedSKU.DeletedAt)
+	_, err = service.UpdateSKU(context.Background(), viewer, sku.ID, dto.SKUPayload{SKUName: "不应更新"})
+	require.ErrorIs(t, err, ErrNotFound)
+
+	_, err = service.ArchiveCompetitor(context.Background(), dto.Viewer{TenantID: 2, UserID: 20}, competitor.ID)
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
 func TestPublishPlanSyncsChannelContentStatusAndStateMachine(t *testing.T) {
 	db := newAiGeoTestDB(t)
 	service := NewService(repositories.NewRepository(db))

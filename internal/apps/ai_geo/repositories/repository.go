@@ -174,6 +174,12 @@ func (r *Repository) SaveProduct(ctx context.Context, product *models.AiGeoProdu
 	return r.db.WithContext(ctx).Save(product).Error
 }
 
+func (r *Repository) SKU(ctx context.Context, tenantID, id uint64) (models.AiGeoSKU, error) {
+	var row models.AiGeoSKU
+	err := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoSKU{}), tenantID)).Where("id = ?", id).First(&row).Error
+	return row, err
+}
+
 func (r *Repository) ListSKUs(ctx context.Context, tenantID uint64, req dto.PageRequest) ([]models.AiGeoSKU, int64, error) {
 	db := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoSKU{}), tenantID))
 	if req.ProductID > 0 {
@@ -197,6 +203,12 @@ func (r *Repository) ListSKUs(ctx context.Context, tenantID uint64, req dto.Page
 
 func (r *Repository) SaveSKU(ctx context.Context, sku *models.AiGeoSKU) error {
 	return r.db.WithContext(ctx).Save(sku).Error
+}
+
+func (r *Repository) Competitor(ctx context.Context, tenantID, id uint64) (models.AiGeoCompetitor, error) {
+	var row models.AiGeoCompetitor
+	err := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoCompetitor{}), tenantID)).Where("id = ?", id).First(&row).Error
+	return row, err
 }
 
 func (r *Repository) ListCompetitors(ctx context.Context, tenantID uint64, req dto.PageRequest) ([]models.AiGeoCompetitor, int64, error) {

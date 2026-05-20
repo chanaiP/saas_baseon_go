@@ -59,6 +59,18 @@ func (h *Handler) UpdateBrand(c *gin.Context) {
 	}
 }
 
+func (h *Handler) ArchiveBrand(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	data, err := h.service.ArchiveBrand(c.Request.Context(), viewer(c), id)
+	if err == nil {
+		err = h.auditWrite(c, "brand_archive", data.BrandCode, "归档品牌资料卡", gin.H{"brand_id": data.ID})
+	}
+	h.ok(c, data, err)
+}
+
 func (h *Handler) Products(c *gin.Context) {
 	data, err := h.service.Products(c.Request.Context(), viewer(c), pageRequest(c))
 	h.ok(c, data, err)
@@ -73,6 +85,33 @@ func (h *Handler) CreateProduct(c *gin.Context) {
 		}
 		h.ok(c, data, err)
 	}
+}
+
+func (h *Handler) UpdateProduct(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	var payload dto.ProductPayload
+	if bind(c, &payload) {
+		data, err := h.service.UpdateProduct(c.Request.Context(), viewer(c), id, payload)
+		if err == nil {
+			err = h.auditWrite(c, "product_update", data.ProductCode, "更新商品资料卡", gin.H{"product_id": data.ID})
+		}
+		h.ok(c, data, err)
+	}
+}
+
+func (h *Handler) ArchiveProduct(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	data, err := h.service.ArchiveProduct(c.Request.Context(), viewer(c), id)
+	if err == nil {
+		err = h.auditWrite(c, "product_archive", data.ProductCode, "归档商品资料卡", gin.H{"product_id": data.ID})
+	}
+	h.ok(c, data, err)
 }
 
 func (h *Handler) SKUs(c *gin.Context) {
@@ -91,6 +130,33 @@ func (h *Handler) CreateSKU(c *gin.Context) {
 	}
 }
 
+func (h *Handler) UpdateSKU(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	var payload dto.SKUPayload
+	if bind(c, &payload) {
+		data, err := h.service.UpdateSKU(c.Request.Context(), viewer(c), id, payload)
+		if err == nil {
+			err = h.auditWrite(c, "sku_update", data.SKUCode, "更新 SKU 资料", gin.H{"sku_id": data.ID})
+		}
+		h.ok(c, data, err)
+	}
+}
+
+func (h *Handler) ArchiveSKU(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	data, err := h.service.ArchiveSKU(c.Request.Context(), viewer(c), id)
+	if err == nil {
+		err = h.auditWrite(c, "sku_archive", data.SKUCode, "归档 SKU 资料", gin.H{"sku_id": data.ID})
+	}
+	h.ok(c, data, err)
+}
+
 func (h *Handler) Competitors(c *gin.Context) {
 	data, err := h.service.Competitors(c.Request.Context(), viewer(c), pageRequest(c))
 	h.ok(c, data, err)
@@ -105,6 +171,33 @@ func (h *Handler) CreateCompetitor(c *gin.Context) {
 		}
 		h.ok(c, data, err)
 	}
+}
+
+func (h *Handler) UpdateCompetitor(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	var payload dto.CompetitorPayload
+	if bind(c, &payload) {
+		data, err := h.service.UpdateCompetitor(c.Request.Context(), viewer(c), id, payload)
+		if err == nil {
+			err = h.auditWrite(c, "competitor_update", fmt.Sprintf("%d", data.ID), "更新竞品资料", gin.H{"competitor_id": data.ID})
+		}
+		h.ok(c, data, err)
+	}
+}
+
+func (h *Handler) ArchiveCompetitor(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	data, err := h.service.ArchiveCompetitor(c.Request.Context(), viewer(c), id)
+	if err == nil {
+		err = h.auditWrite(c, "competitor_archive", fmt.Sprintf("%d", data.ID), "归档竞品资料", gin.H{"competitor_id": data.ID})
+	}
+	h.ok(c, data, err)
 }
 
 func (h *Handler) Channels(c *gin.Context) {
