@@ -155,17 +155,6 @@
               <span>热点 <strong>{{ workbench.hotspot?.title || '未引用' }}</strong></span>
             </div>
 
-            <div v-if="!hasStartedWorkbenchChat" class="skill-panel">
-              <div>
-                <span>当前 Skill</span>
-                <strong>{{ selectedSkillProfile.name }}</strong>
-                <p>{{ selectedSkillProfile.desc }}</p>
-              </div>
-              <div class="skill-tags">
-                <span v-for="tag in selectedSkillProfile.tags" :key="tag">{{ tag }}</span>
-              </div>
-            </div>
-
             <div v-if="!hasStartedWorkbenchChat" class="evidence-list">
               <div v-for="item in workbenchEvidence" :key="item.label" class="evidence-item">
                 <span>{{ item.label }}</span>
