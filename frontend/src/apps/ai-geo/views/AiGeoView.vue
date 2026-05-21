@@ -209,6 +209,19 @@
               <label>正文<textarea class="body-editor" v-model="editingDraft.body"></textarea></label>
             </div>
             <PreviewPane v-else :mode="previewMode" :title="editingDraft.title" :summary="editingDraft.summary" :body="editingDraft.body" />
+            <div v-if="draftSourceRecords.length" class="draft-source-record">
+              <div class="source-record-head">
+                <span>基础资料记录</span>
+                <strong>本母稿生成依据</strong>
+              </div>
+              <div class="source-record-grid">
+                <div v-for="record in draftSourceRecords" :key="record.label" class="source-record-item">
+                  <span>{{ record.label }}</span>
+                  <strong>{{ record.title }}</strong>
+                  <p>{{ record.desc }}</p>
+                </div>
+              </div>
+            </div>
             <div class="editor-actions">
               <button v-if="canManageDraft" class="btn ghost" @click="saveDraft">保存草稿</button>
               <button v-if="canManageDraft" class="btn ghost" @click="generateDraftAudit(editingDraft)">AI审核建议</button>
@@ -1195,7 +1208,8 @@ const editingDraft = reactive({
   body: '',
   keywordsText: '',
   status: '草稿',
-  source: '人工创作'
+  source: '人工创作',
+  sourceSnapshot: {}
 })
 
 const selectedWorkbenchBrand = computed(() => brands.find(b => b.id === Number(workbench.brandId)) || currentBrand.value)
@@ -1212,6 +1226,7 @@ const workbenchEvidence = computed(() => [
   { label: '关键词', value: workbenchKeywords.value.slice(0, 4).join('、') || '未维护' },
   { label: '热点', value: workbench.hotspot?.title || '不引用热点' },
 ])
+const draftSourceRecords = computed(() => sourceRecordsFromSnapshot(editingDraft.sourceSnapshot))
 const generationPlaceholder = computed(() => {
   const product = selectedWorkbenchProduct.value?.name || '当前资料'
   return `例如：围绕「${product}」写一篇回答“小个子通勤怎么穿”的 GEO 文章，强调适合人群、选择理由、场景建议。`
@@ -1577,6 +1592,7 @@ function hydrateDrafts(apiDrafts, apiChannelContents = []) {
     body: apiField(draft, 'body', 'Body') || '',
     keywords: apiField(draft, 'keywords', 'Keywords') || '[]',
     conversation: parseJsonArray(apiField(draft, 'conversation', 'Conversation')),
+    sourceSnapshot: parseJsonObject(apiField(draft, 'source_snapshot', 'SourceSnapshot')),
     source: sourceLabel(apiField(draft, 'source', 'Source')),
     status: draftStatusLabel(apiField(draft, 'audit_status', 'AuditStatus')),
     audit: modeConfig.draftAuditMode,
@@ -2310,6 +2326,7 @@ function applyDraftToEditor(draft, fallback) {
   const body = extractArticleBody(draft?.body || fallback.body) || fallback.body
   const title = extractArticleTitle(draft?.title || body, fallback.title)
   const summary = extractArticleSummary(draft?.summary || fallback.summary, body)
+  const sourceSnapshot = parseJsonObject(draft?.source_snapshot || draft?.SourceSnapshot || draft?.sourceSnapshot)
   Object.assign(editingDraft, {
     id: Number(draft?.id || editingDraft.id || 0),
     title,
@@ -2318,12 +2335,14 @@ function applyDraftToEditor(draft, fallback) {
     keywordsText: keywords.length ? keywords.join(', ') : fallback.keywordsText,
     status: draftStatusLabel(draft?.audit_status || 'draft'),
     source: sourceLabel(draft?.source || 'ai_workbench'),
+    sourceSnapshot: Object.keys(sourceSnapshot).length ? sourceSnapshot : (fallback.sourceSnapshot || workbenchSourceSnapshot()),
   })
   previewMode.value = 'edit'
 }
 
 function restoreDraftToWorkbench(draft, options = {}) {
   const rawKeywords = parseJsonArray(draft.raw?.keywords || draft.raw?.Keywords || draft.keywords)
+  const sourceSnapshot = parseJsonObject(draft.raw?.source_snapshot || draft.raw?.SourceSnapshot || draft.sourceSnapshot)
   restoringWorkbenchContext = true
   if (draft.brandId) {
     workbench.brandId = String(draft.brandId)
@@ -2333,6 +2352,7 @@ function restoreDraftToWorkbench(draft, options = {}) {
   Object.assign(editingDraft, {
     ...draft,
     keywordsText: rawKeywords.length ? rawKeywords.join(', ') : String(draft.keywordsText || ''),
+    sourceSnapshot,
   })
   chatMessages.splice(0, chatMessages.length, ...(draft.conversation || []).map((message, index) => ({
     id: Date.now() + index,
@@ -2363,6 +2383,98 @@ function draftConversationPayload(extraMessages = []) {
     }))
 }
 
+function workbenchSourceSnapshot() {
+  const brand = selectedWorkbenchBrand.value
+  const product = selectedWorkbenchProduct.value
+  return {
+    brand: brand?.id ? {
+      id: brand.id,
+      code: brand.code,
+      name: brand.name,
+      positioning: brand.position,
+      target_audience: brand.audience,
+      price_band: brand.priceBand,
+      tone: brand.tone,
+      keywords: brand.keywordGroups?.flatMap(group => group.keywords || []) || [],
+      completeness: brand.completeness,
+    } : null,
+    product: product?.id ? {
+      id: product.id,
+      code: product.code,
+      name: product.name,
+      category: product.category,
+      selling_points: product.sellingPoints,
+      target_audience: product.audience,
+      keywords: product.keywords || [],
+      sku_count: product.skus?.length || 0,
+      completeness: product.completeness,
+    } : null,
+    skill: workbench.skill || selectedSkillProfile.value.name,
+    skill_goal: selectedSkillProfile.value.goal,
+    hotspot: workbench.hotspot ? {
+      id: workbench.hotspot.id,
+      title: workbench.hotspot.title,
+      platform: workbench.hotspot.platform || workbench.hotspot.source || '',
+      heat_score: workbench.hotspot.score || workbench.hotspot.heat_score || '',
+    } : null,
+    prompt: latestWorkbenchUserPrompt.value || String(workbench.prompt || '').trim(),
+    brief: ideaSession.brief,
+    inferred_slots: {
+      search_problem: ideaSession.searchProblem,
+      audience: ideaSession.audience,
+      scene: ideaSession.scene,
+      tone: ideaSession.tone,
+    },
+    keywords: workbenchKeywords.value.slice(0, 12),
+    references: workbenchEvidence.value.map(item => ({ label: item.label, value: item.value })),
+  }
+}
+
+function sourceRecordsFromSnapshot(snapshotValue) {
+  const snapshot = parseJsonObject(snapshotValue)
+  if (!Object.keys(snapshot).length) return []
+  const brand = parseJsonObject(snapshot.brand)
+  const product = parseJsonObject(snapshot.product)
+  const hotspot = parseJsonObject(snapshot.hotspot)
+  const inferred = parseJsonObject(snapshot.inferred_slots)
+  const keywords = Array.isArray(snapshot.keywords) ? snapshot.keywords : parseJsonArray(snapshot.keywords)
+  const records = []
+  if (brand.name) {
+    records.push({
+      label: '品牌',
+      title: brand.name,
+      desc: [brand.positioning, brand.target_audience, brand.price_band].filter(Boolean).join(' · ') || '已记录品牌资料',
+    })
+  }
+  if (product.name) {
+    records.push({
+      label: '商品',
+      title: product.name,
+      desc: [product.category, product.selling_points, product.target_audience].filter(Boolean).join(' · ') || '未指定商品资料',
+    })
+  }
+  records.push({
+    label: 'Skill',
+    title: snapshot.skill || selectedSkillProfile.value.name,
+    desc: [snapshot.skill_goal, inferred.search_problem || snapshot.brief || snapshot.prompt].filter(Boolean).join(' · ') || '通用 GEO 母稿',
+  })
+  if (hotspot.title) {
+    records.push({
+      label: '热点',
+      title: hotspot.title,
+      desc: [hotspot.platform, hotspot.heat_score ? `热度 ${hotspot.heat_score}` : ''].filter(Boolean).join(' · ') || '已记录引用热点',
+    })
+  }
+  if (keywords.length) {
+    records.push({
+      label: '关键词',
+      title: keywords.slice(0, 4).join('、'),
+      desc: keywords.slice(4, 12).join('、') || '用于母稿与渠道改写',
+    })
+  }
+  return records.filter(record => record.title)
+}
+
 function draftPayload(source = 'manual', extraMessages = []) {
   return {
     brand_id: workbench.brandId ? Number(workbench.brandId) : undefined,
@@ -2372,6 +2484,7 @@ function draftPayload(source = 'manual', extraMessages = []) {
     body: editingDraft.body,
     keywords: String(editingDraft.keywordsText || '').split(',').map(s => s.trim()).filter(Boolean),
     conversation: draftConversationPayload(extraMessages),
+    source_snapshot: workbenchSourceSnapshot(),
     source,
   }
 }
@@ -2415,6 +2528,7 @@ async function generateDraftFromChat() {
       skill,
       hotspot_id: workbench.hotspot?.id,
       conversation: draftConversationPayload(),
+      source_snapshot: workbenchSourceSnapshot(),
       prompt: [
         '你是 AI GEO 母稿协作编辑。请根据用户选择的资料、Skill 和聊天中收敛出的 brief 生成一篇可作为多渠道源稿的 GEO 母稿。',
         '生成目标：先回答用户真实搜索/AI 问答问题，再自然带出品牌与商品资料；避免空泛品牌介绍和硬广。',

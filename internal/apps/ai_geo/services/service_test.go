@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -65,6 +66,10 @@ func TestUpdateDraftPersistsConversationAndResetsReview(t *testing.T) {
 	draft, err := service.CreateDraft(context.Background(), viewer, dto.DraftPayload{
 		Title: "初稿",
 		Body:  "正文",
+		SourceSnapshot: map[string]interface{}{
+			"brand": map[string]interface{}{"name": "测试品牌"},
+			"skill": "场景攻略母稿 Skill",
+		},
 		Conversation: []dto.DraftConversationMessage{
 			{Role: "user", Text: "我想写通勤场景"},
 		},
@@ -77,6 +82,11 @@ func TestUpdateDraftPersistsConversationAndResetsReview(t *testing.T) {
 	updated, err := service.UpdateDraft(context.Background(), viewer, draft.ID, dto.DraftPayload{
 		Title: "更新初稿",
 		Body:  "更新正文",
+		SourceSnapshot: map[string]interface{}{
+			"brand":   map[string]interface{}{"name": "更新品牌"},
+			"product": map[string]interface{}{"name": "通勤连衣裙"},
+			"skill":   "品牌介绍母稿 Skill",
+		},
 		Conversation: []dto.DraftConversationMessage{
 			{Role: "user", Text: "我想写通勤场景"},
 			{Role: "ai", Text: "建议聚焦选择理由"},
@@ -87,6 +97,8 @@ func TestUpdateDraftPersistsConversationAndResetsReview(t *testing.T) {
 	require.Equal(t, "draft", updated.AuditStatus)
 	require.Contains(t, updated.Conversation, "我想写通勤场景")
 	require.Contains(t, updated.Conversation, "建议聚焦选择理由")
+	require.Contains(t, updated.SourceSnapshot, "更新品牌")
+	require.Contains(t, updated.SourceSnapshot, "通勤连衣裙")
 }
 
 func TestDraftCannotCrossTenant(t *testing.T) {
@@ -185,6 +197,12 @@ func TestGenerateDraftInvokesAICapabilityCenterScenario(t *testing.T) {
 	require.Equal(t, "春季新品 GEO 种草", draft.Title)
 	require.Equal(t, "这是一篇来自 AI Gateway 的母稿正文。", draft.Body)
 	require.Contains(t, draft.Keywords, "GEO")
+	var snapshot map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(draft.SourceSnapshot), &snapshot))
+	require.Equal(t, "春季新品上市", snapshot["prompt"])
+	require.Equal(t, "Mardi Ladin", snapshot["brand"].(map[string]interface{})["name"])
+	require.Equal(t, "通勤连衣裙", snapshot["product"].(map[string]interface{})["name"])
+	require.Equal(t, "小个子通勤穿搭", snapshot["hotspot"].(map[string]interface{})["title"])
 	require.Contains(t, gatewayPrompt(t, gateway.lastRequest.Input), "红色 M")
 	require.Contains(t, gatewayPrompt(t, gateway.lastRequest.Input), "小个子通勤穿搭")
 }

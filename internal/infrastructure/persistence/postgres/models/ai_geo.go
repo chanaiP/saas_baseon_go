@@ -151,27 +151,28 @@ type AiGeoChannelAccount struct {
 func (AiGeoChannelAccount) TableName() string { return "ai_geo_channel_accounts" }
 
 type AiGeoDraft struct {
-	ID            uint64     `gorm:"primaryKey;autoIncrement;column:id"`
-	TenantID      uint64     `gorm:"column:tenant_id;not null;index;index:idx_ai_geo_draft_tenant_code,unique"`
-	CompanyID     *uint64    `gorm:"column:company_id;index"`
-	DepartmentID  *uint64    `gorm:"column:department_id;index"`
-	DraftCode     string     `gorm:"column:draft_code;type:varchar(100);not null;index:idx_ai_geo_draft_tenant_code,unique"`
-	BrandID       *uint64    `gorm:"column:brand_id;index"`
-	ProductID     *uint64    `gorm:"column:product_id;index"`
-	Title         string     `gorm:"column:title;type:varchar(240);not null"`
-	Summary       *string    `gorm:"column:summary;type:text"`
-	Body          string     `gorm:"column:body;type:text;not null"`
-	Keywords      string     `gorm:"column:keywords;type:jsonb;not null;default:'[]'"`
-	Conversation  string     `gorm:"column:conversation;type:jsonb;not null;default:'[]'"`
-	Source        string     `gorm:"column:source;type:varchar(80);not null;default:'manual'"`
-	AuditStatus   string     `gorm:"column:audit_status;type:varchar(32);not null;default:'draft';index"`
-	ChannelStatus string     `gorm:"column:channel_status;type:varchar(32);not null;default:'not_generated';index"`
-	Status        string     `gorm:"column:status;type:varchar(32);not null;default:'active';index"`
-	CreatedBy     *uint64    `gorm:"column:created_by"`
-	UpdatedBy     *uint64    `gorm:"column:updated_by"`
-	CreatedAt     time.Time  `gorm:"column:created_at;not null"`
-	UpdatedAt     time.Time  `gorm:"column:updated_at;not null"`
-	DeletedAt     *time.Time `gorm:"column:deleted_at;index"`
+	ID             uint64     `gorm:"primaryKey;autoIncrement;column:id"`
+	TenantID       uint64     `gorm:"column:tenant_id;not null;index;index:idx_ai_geo_draft_tenant_code,unique"`
+	CompanyID      *uint64    `gorm:"column:company_id;index"`
+	DepartmentID   *uint64    `gorm:"column:department_id;index"`
+	DraftCode      string     `gorm:"column:draft_code;type:varchar(100);not null;index:idx_ai_geo_draft_tenant_code,unique"`
+	BrandID        *uint64    `gorm:"column:brand_id;index"`
+	ProductID      *uint64    `gorm:"column:product_id;index"`
+	Title          string     `gorm:"column:title;type:varchar(240);not null"`
+	Summary        *string    `gorm:"column:summary;type:text"`
+	Body           string     `gorm:"column:body;type:text;not null"`
+	Keywords       string     `gorm:"column:keywords;type:jsonb;not null;default:'[]'"`
+	Conversation   string     `gorm:"column:conversation;type:jsonb;not null;default:'[]'"`
+	SourceSnapshot string     `gorm:"column:source_snapshot;type:jsonb;not null;default:'{}'"`
+	Source         string     `gorm:"column:source;type:varchar(80);not null;default:'manual'"`
+	AuditStatus    string     `gorm:"column:audit_status;type:varchar(32);not null;default:'draft';index"`
+	ChannelStatus  string     `gorm:"column:channel_status;type:varchar(32);not null;default:'not_generated';index"`
+	Status         string     `gorm:"column:status;type:varchar(32);not null;default:'active';index"`
+	CreatedBy      *uint64    `gorm:"column:created_by"`
+	UpdatedBy      *uint64    `gorm:"column:updated_by"`
+	CreatedAt      time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt      time.Time  `gorm:"column:updated_at;not null"`
+	DeletedAt      *time.Time `gorm:"column:deleted_at;index"`
 }
 
 func (AiGeoDraft) TableName() string { return "ai_geo_drafts" }

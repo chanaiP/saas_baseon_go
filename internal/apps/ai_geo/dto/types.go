@@ -136,23 +136,25 @@ type ChannelAccountPayload struct {
 }
 
 type DraftPayload struct {
-	BrandID      *uint64                    `json:"brand_id"`
-	ProductID    *uint64                    `json:"product_id"`
-	Title        string                     `json:"title"`
-	Summary      string                     `json:"summary"`
-	Body         string                     `json:"body"`
-	Keywords     []string                   `json:"keywords"`
-	Conversation []DraftConversationMessage `json:"conversation"`
-	Source       string                     `json:"source"`
+	BrandID        *uint64                    `json:"brand_id"`
+	ProductID      *uint64                    `json:"product_id"`
+	Title          string                     `json:"title"`
+	Summary        string                     `json:"summary"`
+	Body           string                     `json:"body"`
+	Keywords       []string                   `json:"keywords"`
+	Conversation   []DraftConversationMessage `json:"conversation"`
+	SourceSnapshot map[string]interface{}     `json:"source_snapshot"`
+	Source         string                     `json:"source"`
 }
 
 type GenerateDraftPayload struct {
-	BrandID      *uint64                    `json:"brand_id"`
-	ProductID    *uint64                    `json:"product_id"`
-	Skill        string                     `json:"skill"`
-	HotspotID    *uint64                    `json:"hotspot_id"`
-	Prompt       string                     `json:"prompt"`
-	Conversation []DraftConversationMessage `json:"conversation"`
+	BrandID        *uint64                    `json:"brand_id"`
+	ProductID      *uint64                    `json:"product_id"`
+	Skill          string                     `json:"skill"`
+	HotspotID      *uint64                    `json:"hotspot_id"`
+	Prompt         string                     `json:"prompt"`
+	Conversation   []DraftConversationMessage `json:"conversation"`
+	SourceSnapshot map[string]interface{}     `json:"source_snapshot"`
 }
 
 type DraftConversationMessage struct {

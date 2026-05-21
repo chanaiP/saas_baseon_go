@@ -138,6 +138,7 @@ export interface AiGeoDraft {
   body: string
   keywords: string
   conversation?: string
+  source_snapshot?: string
   source: string
   audit_status: string
   channel_status: string

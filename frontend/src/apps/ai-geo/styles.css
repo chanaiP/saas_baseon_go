@@ -195,6 +195,7 @@
 .geo-growth-page .editor-panel .draft-editor .body-editor { flex: 1 1 auto; min-height: 0; }
 .geo-growth-page .editor-panel .preview-pane { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .geo-growth-page .editor-panel .editor-actions { flex-shrink: 0; margin-top: 12px; }
+.geo-growth-page .editor-panel .draft-source-record { flex-shrink: 0; max-height: 154px; overflow: auto; }
 .geo-growth-page .editor-panel .audit-result { flex-shrink: 0; max-height: 128px; overflow: auto; }
 .geo-growth-page .loaders { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 6px 0 10px; }
 .geo-growth-page .loaders label, .geo-growth-page .draft-editor label, .geo-growth-page .modal-body label { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
@@ -246,6 +247,15 @@
 .geo-growth-page .draft-meta-col { display: grid; gap: 10px; min-width: 0; }
 .geo-growth-page .summary-editor { min-height: 52px; max-height: 72px; resize: vertical; line-height: 1.5; }
 .geo-growth-page .body-editor { min-height: 260px; line-height: 1.7; }
+.geo-growth-page .draft-source-record { margin-top: 12px; padding: 12px; border: 1px solid rgba(37, 99, 235, .16); border-radius: 16px; background: linear-gradient(135deg, rgba(248, 250, 252, .96), rgba(239, 246, 255, .82)); }
+.geo-growth-page .source-record-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.geo-growth-page .source-record-head span { color: var(--muted); font-size: 12px; }
+.geo-growth-page .source-record-head strong { font-size: 13px; color: var(--text); }
+.geo-growth-page .source-record-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.geo-growth-page .source-record-item { min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255, 255, 255, .82); }
+.geo-growth-page .source-record-item span { display: block; margin-bottom: 4px; color: var(--muted); font-size: 11px; }
+.geo-growth-page .source-record-item strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: 13px; }
+.geo-growth-page .source-record-item p { margin: 4px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .geo-growth-page .field-optional { font-style: normal; font-weight: 400; color: #94a3b8; font-size: 12px; }
 .geo-growth-page .editor-actions, .geo-growth-page .drawer-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
 .geo-growth-page .preview-pane, .geo-growth-page .channel-preview { background: #fff; border: 1px solid var(--line); line-height: 1.8; }
@@ -793,6 +803,8 @@ html.dark .geo-growth-page .badge.warning,
 }
 
 html.dark .geo-growth-page .audit-result,
+.admin-shell.dark .geo-growth-page .draft-source-record,
+html.dark .geo-growth-page .draft-source-record,
 .admin-shell.dark .geo-growth-page .audit-result {
   background: linear-gradient(135deg, rgba(38, 244, 223, .08), rgba(16, 28, 46, .86));
   border-color: rgba(38, 244, 223, .18);

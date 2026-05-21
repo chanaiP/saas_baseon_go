@@ -1033,23 +1033,24 @@ func (s *Service) CreateDraft(ctx context.Context, viewer dto.Viewer, payload dt
 	now := time.Now()
 	userID := viewer.UserID
 	row := models.AiGeoDraft{
-		TenantID:      viewer.TenantID,
-		DraftCode:     code("DRAFT", now),
-		BrandID:       payload.BrandID,
-		ProductID:     payload.ProductID,
-		Title:         strings.TrimSpace(payload.Title),
-		Summary:       stringPtr(payload.Summary),
-		Body:          strings.TrimSpace(payload.Body),
-		Keywords:      jsonString(payload.Keywords, []string{}),
-		Conversation:  jsonString(sanitizeDraftConversation(payload.Conversation), []dto.DraftConversationMessage{}),
-		Source:        defaultString(payload.Source, "manual"),
-		AuditStatus:   "draft",
-		ChannelStatus: "not_generated",
-		Status:        "active",
-		CreatedBy:     &userID,
-		UpdatedBy:     &userID,
-		CreatedAt:     now,
-		UpdatedAt:     now,
+		TenantID:       viewer.TenantID,
+		DraftCode:      code("DRAFT", now),
+		BrandID:        payload.BrandID,
+		ProductID:      payload.ProductID,
+		Title:          strings.TrimSpace(payload.Title),
+		Summary:        stringPtr(payload.Summary),
+		Body:           strings.TrimSpace(payload.Body),
+		Keywords:       jsonString(payload.Keywords, []string{}),
+		Conversation:   jsonString(sanitizeDraftConversation(payload.Conversation), []dto.DraftConversationMessage{}),
+		SourceSnapshot: jsonString(payload.SourceSnapshot, map[string]interface{}{}),
+		Source:         defaultString(payload.Source, "manual"),
+		AuditStatus:    "draft",
+		ChannelStatus:  "not_generated",
+		Status:         "active",
+		CreatedBy:      &userID,
+		UpdatedBy:      &userID,
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 	err := s.repo.SaveDraft(ctx, &row)
 	return row, err
@@ -1077,6 +1078,7 @@ func (s *Service) UpdateDraft(ctx context.Context, viewer dto.Viewer, id uint64,
 	row.Body = strings.TrimSpace(payload.Body)
 	row.Keywords = jsonString(payload.Keywords, []string{})
 	row.Conversation = jsonString(sanitizeDraftConversation(payload.Conversation), []dto.DraftConversationMessage{})
+	row.SourceSnapshot = jsonString(payload.SourceSnapshot, map[string]interface{}{})
 	row.Source = defaultString(payload.Source, row.Source)
 	row.UpdatedBy = &userID
 	row.UpdatedAt = time.Now()
@@ -1163,15 +1165,79 @@ func (s *Service) GenerateDraft(ctx context.Context, viewer dto.Viewer, payload 
 		return models.AiGeoDraft{}, err
 	}
 	return s.CreateDraft(ctx, viewer, dto.DraftPayload{
-		BrandID:      payload.BrandID,
-		ProductID:    payload.ProductID,
-		Title:        generated.Title,
-		Summary:      generated.Summary,
-		Body:         generated.Body,
-		Keywords:     generated.Keywords,
-		Conversation: payload.Conversation,
-		Source:       defaultString(generated.Source, "ai_workbench"),
+		BrandID:        payload.BrandID,
+		ProductID:      payload.ProductID,
+		Title:          generated.Title,
+		Summary:        generated.Summary,
+		Body:           generated.Body,
+		Keywords:       generated.Keywords,
+		Conversation:   payload.Conversation,
+		SourceSnapshot: draftSourceSnapshot(payload, brand, product, skus, hotspot),
+		Source:         defaultString(generated.Source, "ai_workbench"),
 	})
+}
+
+func draftSourceSnapshot(payload dto.GenerateDraftPayload, brand *models.AiGeoBrandCard, product *models.AiGeoProductCard, skus []models.AiGeoSKU, hotspot *models.AiGeoHotspot) map[string]interface{} {
+	snapshot := make(map[string]interface{})
+	for key, value := range payload.SourceSnapshot {
+		snapshot[key] = value
+	}
+	if skill := strings.TrimSpace(payload.Skill); skill != "" {
+		snapshot["skill"] = skill
+	}
+	if prompt := strings.TrimSpace(payload.Prompt); prompt != "" {
+		snapshot["prompt"] = prompt
+	}
+	if brand != nil {
+		snapshot["brand"] = map[string]interface{}{
+			"id":              brand.ID,
+			"code":            brand.BrandCode,
+			"name":            brand.BrandName,
+			"positioning":     stringValueFromPtr(brand.Positioning),
+			"target_audience": stringValueFromPtr(brand.TargetAudience),
+			"price_band":      stringValueFromPtr(brand.PriceBand),
+			"tone":            stringValueFromPtr(brand.Tone),
+			"keywords":        brand.Keywords,
+			"completeness":    brand.Completeness,
+		}
+	}
+	if product != nil {
+		snapshot["product"] = map[string]interface{}{
+			"id":             product.ID,
+			"code":           product.ProductCode,
+			"name":           product.ProductName,
+			"category":       stringValueFromPtr(product.CategoryName),
+			"selling_points": product.SellingPoints,
+			"faq":            product.FAQ,
+			"content_angles": product.ContentAngles,
+			"completeness":   product.Completeness,
+		}
+	}
+	if len(skus) > 0 {
+		items := make([]map[string]interface{}, 0, len(skus))
+		for _, sku := range skus {
+			items = append(items, map[string]interface{}{
+				"id":           sku.ID,
+				"code":         sku.SKUCode,
+				"name":         sku.SKUName,
+				"attributes":   sku.Attributes,
+				"price":        sku.Price,
+				"image_url":    stringValueFromPtr(sku.ImageURL),
+				"stock_status": sku.StockStatus,
+			})
+		}
+		snapshot["skus"] = items
+	}
+	if hotspot != nil {
+		snapshot["hotspot"] = map[string]interface{}{
+			"id":         hotspot.ID,
+			"platform":   hotspot.Platform,
+			"title":      hotspot.Title,
+			"heat_score": hotspot.HeatScore,
+			"source_url": stringValueFromPtr(hotspot.SourceURL),
+		}
+	}
+	return snapshot
 }
 
 func (s *Service) SubmitDraft(ctx context.Context, viewer dto.Viewer, id uint64) (models.AiGeoDraft, error) {
