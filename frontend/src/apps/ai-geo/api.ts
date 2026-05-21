@@ -317,6 +317,63 @@ export async function generateAiGeoDraft(payload: Record<string, unknown>) {
   return unwrap(http.post<ApiResponse<AiGeoDraft>>('/api/ai-geo/workbench/drafts/generate', payload))
 }
 
+export type AiGatewayStreamEvent = {
+  type: 'meta' | 'delta' | 'final' | 'error' | string
+  delta?: string
+  text?: string
+  status?: string
+  error_code?: string
+  error_message?: string
+  data?: Record<string, unknown>
+}
+
+export async function streamAiGeoGatewayInvoke(
+  payload: Record<string, unknown>,
+  handlers: {
+    onMeta?: (event: AiGatewayStreamEvent) => void
+    onDelta?: (delta: string, event: AiGatewayStreamEvent) => void
+    onFinal?: (event: AiGatewayStreamEvent) => void
+    onError?: (event: AiGatewayStreamEvent) => void
+  } = {},
+) {
+  const baseURL = String(http.defaults.baseURL || '').replace(/\/$/, '')
+  const token = localStorage.getItem('access_token')
+  const response = await fetch(`${baseURL}/api/ai-gateway/v1/invoke/stream`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok || !response.body) {
+    throw new Error(`AI Gateway 流式调用失败（HTTP ${response.status}）`)
+  }
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''
+  const consumeEvent = (raw: string) => {
+    const dataLine = raw.split('\n').find(line => line.startsWith('data:'))
+    if (!dataLine) return
+    const data = dataLine.replace(/^data:\s*/, '').trim()
+    if (!data || data === '[DONE]') return
+    const event = JSON.parse(data) as AiGatewayStreamEvent
+    if (event.type === 'meta') handlers.onMeta?.(event)
+    if (event.type === 'delta' && event.delta) handlers.onDelta?.(event.delta, event)
+    if (event.type === 'final') handlers.onFinal?.(event)
+    if (event.type === 'error') handlers.onError?.(event)
+  }
+  while (true) {
+    const { value, done } = await reader.read()
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
+    const parts = buffer.split('\n\n')
+    buffer = parts.pop() || ''
+    parts.forEach(consumeEvent)
+    if (done) break
+  }
+  if (buffer.trim()) consumeEvent(buffer)
+}
+
 export async function fetchAiGeoDrafts(params: AiGeoListParams = {}) {
   return unwrap(http.get<ApiResponse<AiGeoPage<AiGeoDraft>>>('/api/ai-geo/drafts', { params }))
 }

@@ -738,6 +738,7 @@ import {
   importAiGeoMaterials,
   rejectAiGeoDraft,
   rejectAiGeoChannelContent,
+  streamAiGeoGatewayInvoke,
   submitAiGeoDraft,
   updateAiGeoChannelContent,
   updateAiGeoBrand,
@@ -2005,13 +2006,105 @@ async function streamAiMessage(text, idea) {
   }
 }
 
+function buildGatewayMentorMessages(prompt, idea) {
+  const recentMessages = chatMessages.slice(-8).map(msg => ({
+    role: msg.role === 'user' ? 'user' : 'assistant',
+    content: msg.text,
+  }))
+  const context = {
+    brand: {
+      name: selectedWorkbenchBrand.value.name,
+      positioning: selectedWorkbenchBrand.value.position,
+      audience: selectedWorkbenchBrand.value.audience,
+      keywords: selectedWorkbenchBrand.value.keywordGroups?.flatMap(group => group.keywords || []) || [],
+    },
+    product: selectedWorkbenchProduct.value ? {
+      name: selectedWorkbenchProduct.value.name,
+      audience: selectedWorkbenchProduct.value.audience,
+      selling_points: selectedWorkbenchProduct.value.sellingPoints,
+      keywords: selectedWorkbenchProduct.value.keywords || [],
+    } : null,
+    skill: selectedSkillProfile.value,
+    hotspot: workbench.hotspot,
+    inferred_brief: ideaSession.brief,
+    inferred_slots: {
+      search_problem: ideaSession.searchProblem,
+      audience: ideaSession.audience,
+      scene: ideaSession.scene,
+      tone: ideaSession.tone,
+    },
+    latest_prompt: prompt,
+    local_readiness: evaluateWorkbenchReadiness(prompt),
+    local_reference_reply: buildWorkbenchReply(idea),
+  }
+  return [
+    {
+      role: 'system',
+      content: [
+        '你是 AI GEO 写作导师，不是模板生成器。',
+        '你的任务是根据用户想法、品牌资料、商品资料、Skill 和热点，边聊边把模糊想法拆解、放大、澄清、收敛成可生成母稿的方向。',
+        '用户打招呼时要自然回应，并主动询问要写什么，或基于资料猜测可写方向。',
+        '不要重复机械追问；如果用户已经给了目标人群或场景，要承认并继续推进。',
+        '回复要像专家：给具体文章入口、搜索/AI 问答问题、结构建议、资料如何使用。不要输出 JSON，不要说自己基于规则。',
+        '如果信息足够，明确告诉用户可以生成母稿；如果不足，只问一个最关键的澄清点。',
+      ].join('\n'),
+    },
+    {
+      role: 'user',
+      content: `当前 AI GEO 工作台上下文：\n${JSON.stringify(context, null, 2)}`,
+    },
+    ...recentMessages,
+    { role: 'user', content: prompt },
+  ]
+}
+
+async function streamGatewayMentorReply(prompt, idea) {
+  const message = reactive({ id: Date.now() + 1, role: 'ai', text: '', idea, streaming: true })
+  chatMessages.push(message)
+  chatStreaming.value = true
+  try {
+    await streamAiGeoGatewayInvoke({
+      app_code: 'ai-geo',
+      app_name: 'AI GEO',
+      ai_scenario_code: 'ai_geo_draft_generation',
+      params: {
+        usage_amount: 1,
+        usage_unit: 'calls',
+        temperature: 0.45,
+        max_tokens: 900,
+      },
+      input: {
+        messages: buildGatewayMentorMessages(prompt, idea),
+      },
+    }, {
+      onDelta(delta) {
+        message.text += delta
+      },
+      onFinal(event) {
+        if (!message.text && event.text) message.text = event.text
+      },
+      onError(event) {
+        throw new Error(event.error_message || 'AI Gateway 流式调用失败')
+      },
+    })
+  } catch (error) {
+    const index = chatMessages.findIndex(item => item.id === message.id)
+    if (index >= 0) chatMessages.splice(index, 1)
+    await streamAiMessage(buildWorkbenchReply(idea), idea)
+    showToast(error?.message || 'AI 流式沟通失败，已切回本地兜底')
+  } finally {
+    message.streaming = false
+    chatStreaming.value = false
+  }
+}
+
 async function sendWorkbenchMessage() {
   const prompt = String(workbench.prompt || '').trim()
   if (!prompt || chatStreaming.value) return
   chatMessages.push({ id: Date.now(), role: 'user', text: prompt })
   const idea = buildIdeaAnalysis(prompt)
   workbench.prompt = ''
-  await streamAiMessage(buildWorkbenchReply(idea), idea)
+  await streamGatewayMentorReply(prompt, idea)
 }
 function useClarifyQuestion(question) {
   workbench.prompt = question.replace(/^补充/, '')
