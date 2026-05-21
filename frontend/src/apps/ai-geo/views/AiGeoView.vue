@@ -397,9 +397,9 @@
                       <td><span :class="['badge', queueStatusClass(plan.materialStatus)]">{{ plan.materialStatus }}</span></td>
                       <td><span :class="['badge', queueStatusClass(plan.publishStatus)]">{{ plan.publishStatus }}</span></td>
                       <td class="row-actions-inline">
-                        <button v-if="canManagePublishPlan" type="button" class="btn small ghost" @click="runPlanAudit(plan)">运行审核</button>
-                        <button v-if="canManagePublishPlan" type="button" class="btn small ghost" @click="preCheckPlan(plan)">前置检查</button>
-                        <button v-if="canManagePublishPlan" type="button" class="btn small dark" @click="completePlan(plan)">完成</button>
+                        <button v-if="canManagePublishPlan && canRunPlanAudit(plan)" type="button" class="btn small ghost" @click="runPlanAudit(plan)">运行审核</button>
+                        <button v-if="canManagePublishPlan && canPreCheckPlan(plan)" type="button" class="btn small ghost" @click="preCheckPlan(plan)">前置检查</button>
+                        <button v-if="canManagePublishPlan && canCompletePlan(plan)" type="button" class="btn small dark" @click="completePlan(plan)">完成</button>
                       </td>
                     </tr>
                   </tbody>
@@ -1506,18 +1506,19 @@ const filteredPlans = computed(() => plans.filter(p => p.date === planDate.value
 
 const planQueueSummary = computed(() => {
   const list = filteredPlans.value
-  const isReady = p => p.channelAudit === '已通过' && p.accountStatus === '可发布' && p.materialStatus === '完整' && p.publishStatus === '可发布'
+  const canPublish = p => ['已排期', '发布中'].includes(p.publishStatus) && p.channelAudit === '已通过' && p.accountStatus === '可发布' && p.materialStatus === '完整'
   return {
     total: list.length,
-    ready: list.filter(p => p.publishStatus === '可发布').length,
+    ready: list.filter(canPublish).length,
     manual: list.filter(p => p.accountStatus === '待人工确认').length,
-    blocked: list.filter(p => p.publishStatus === '阻断' || p.accountStatus === '阻断').length
+    blocked: list.filter(p => ['发布失败', '已取消'].includes(p.publishStatus) || ['阻断', '待授权'].includes(p.accountStatus) || p.channelAudit === '阻断' || p.materialStatus !== '完整').length
   }
 })
 
 function queueStatusClass(status) {
-  if (['已通过', '可发布', '完整'].includes(status)) return 'success'
-  if (status === '阻断') return 'danger'
+  if (['已通过', '可发布', '完整', '已发布'].includes(status)) return 'success'
+  if (['阻断', '发布失败', '缺渠道内容', '缺正文'].includes(status)) return 'danger'
+  if (['发布中', '已排期'].includes(status)) return 'info'
   return 'warning'
 }
 
@@ -2090,31 +2091,64 @@ function apiPlanToPlan(plan) {
   const channelId = apiField(plan, 'channel_id', 'ChannelID')
   const planStatus = apiField(plan, 'status', 'Status')
   const scheduled = new Date(scheduledAt)
+  const channelContentId = apiField(plan, 'channel_content_id', 'ChannelContentID')
+  const channelContent = findChannelContentById(channelContentId)
+  const account = channelAccounts.find(item => Number(item.channelId) === Number(channelId))
   return {
     id: apiField(plan, 'id', 'ID'),
     date: Number.isNaN(scheduled.getTime()) ? String(scheduledAt || '').slice(0, 10) : scheduled.toISOString().slice(0, 10),
     time: Number.isNaN(scheduled.getTime()) ? '' : scheduled.toTimeString().slice(0, 5),
-    title: apiField(plan, 'plan_code', 'PlanCode') || '',
+    planCode: apiField(plan, 'plan_code', 'PlanCode') || '',
+    title: channelContent?.title || apiField(plan, 'plan_code', 'PlanCode') || '',
     channel: channelProfiles.find(c => Number(c.id) === Number(channelId))?.name || `渠道 ${channelId}`,
     channelId,
-    channelContentId: apiField(plan, 'channel_content_id', 'ChannelContentID'),
-    accountName: '',
+    channelContentId,
+    accountName: account?.accountName || '未绑定账号',
     method: apiField(plan, 'publish_method', 'PublishMethod'),
     level: apiField(plan, 'automation_level', 'AutomationLevel'),
     skill: '',
     risk: '发布前校验 + 异常人工接管',
     owner: '系统',
+    rawStatus: planStatus,
     status: publishStatusLabel(planStatus),
     link: apiField(plan, 'published_url', 'PublishedURL') || '',
-    channelAudit: '已通过',
-    accountStatus: '可发布',
-    materialStatus: '完整',
-    publishStatus: planStatus === 'failed' ? '阻断' : '可发布',
+    channelAudit: channelAuditStatusLabel(channelContent?.rawAuditStatus),
+    accountStatus: planAccountStatusLabel(account),
+    materialStatus: planMaterialStatusLabel(channelContent),
+    publishStatus: publishStatusLabel(planStatus),
   }
 }
 
 function hydratePlans(apiPlans) {
   plans.splice(0, plans.length, ...apiPlans.map(apiPlanToPlan))
+}
+
+function findChannelContentById(contentId) {
+  const id = Number(contentId || 0)
+  if (!id) return null
+  for (const draft of drafts) {
+    const content = draft.channels?.find(item => Number(item.id) === id)
+    if (content) return content
+  }
+  return null
+}
+
+function channelAuditStatusLabel(status) {
+  return {
+    approved: '已通过',
+    pending: '待审核',
+    rejected: '阻断',
+  }[status] || '待审核'
+}
+
+function planAccountStatusLabel(account) {
+  if (!account) return '待授权'
+  return account.status === '已授权' ? '可发布' : '阻断'
+}
+
+function planMaterialStatusLabel(content) {
+  if (!content) return '缺渠道内容'
+  return String(content.body || content.title || '').trim() ? '完整' : '缺正文'
 }
 
 function showToast(text) {
@@ -3775,26 +3809,47 @@ async function createPlan() {
     loading.action = false
   }
 }
-function runPlanAudit(plan) {
-  plan.channelAudit = '已通过'
-  if (plan.materialStatus === '凭证异常') plan.materialStatus = '完整'
-  showToast(`已完成 ${plan.channel} 渠道审核`)
+function canRunPlanAudit(plan) {
+  return plan?.channelAudit !== '已通过' && plan?.publishStatus !== '已发布'
 }
-function preCheckPlan(plan) {
+
+function canPreCheckPlan(plan) {
+  return plan?.rawStatus === 'scheduled' && plan?.channelAudit === '已通过'
+}
+
+function canCompletePlan(plan) {
+  return ['scheduled', 'publishing'].includes(plan?.rawStatus) && plan?.publishStatus !== '已发布'
+}
+
+async function runPlanAudit(plan) {
+  if (!plan?.channelContentId) {
+    showToast('发布计划缺少渠道内容，无法运行审核')
+    return
+  }
+  loading.action = true
+  try {
+    await approveAiGeoChannelContent(Number(plan.channelContentId), { opinion: '发布队列运行审核通过。' })
+    await loadAiGeoData()
+    showToast(`已完成 ${plan.channel} 渠道审核`)
+  } catch (error) {
+    showToast(error?.message || '渠道审核失败')
+  } finally {
+    loading.action = false
+  }
+}
+async function preCheckPlan(plan) {
   if (plan.accountStatus === '阻断') {
     showToast('账号状态阻断，请先处理账号授权')
     return
   }
-  if (plan.materialStatus === '缺封面') {
-    showToast('素材缺封面，请补齐后重试')
+  if (plan.materialStatus !== '完整') {
+    showToast('素材或渠道内容不完整，请补齐后重试')
     return
   }
-  plan.accountStatus = plan.method === 'Agent 执行' ? '待人工确认' : '可发布'
-  plan.publishStatus = plan.accountStatus === '可发布' && plan.channelAudit === '已通过' && plan.materialStatus === '完整' ? '可发布' : '待审核'
-  showToast('前置检查完成')
+  await updatePlanStatus(plan, { status: 'publishing' }, '前置检查完成，任务已进入发布中')
 }
 function completePlan(plan) {
-  if (plan.publishStatus === '阻断' || plan.accountStatus === '阻断') {
+  if (plan.channelAudit !== '已通过' || plan.materialStatus !== '完整' || ['阻断', '待授权'].includes(plan.accountStatus)) {
     showToast('任务仍被阻断，无法完成发布')
     return
   }
@@ -3866,10 +3921,16 @@ async function addCompetitor() {
 }
 
 async function updatePlanStatus(plan, payload, successText) {
+  if (!plan?.id) {
+    showToast('发布计划缺少 ID，无法更新状态')
+    return
+  }
   loading.action = true
   try {
     const updated = await updateAiGeoPublishPlanStatus(Number(plan.id), payload)
+    plan.rawStatus = updated.status
     plan.status = publishStatusLabel(updated.status)
+    plan.publishStatus = publishStatusLabel(updated.status)
     plan.link = updated.published_url || plan.link || ''
     await loadAiGeoData()
     showToast(successText)
