@@ -535,6 +535,15 @@ func (r *Repository) ListPublishPlansBySchedule(ctx context.Context, tenantID ui
 	return rows, err
 }
 
+func (r *Repository) ActivePublishPlanByContentChannel(ctx context.Context, tenantID uint64, channelContentID uint64, channelID uint64) (models.AiGeoPublishPlan, error) {
+	var row models.AiGeoPublishPlan
+	err := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoPublishPlan{}), tenantID)).
+		Where("channel_content_id = ? AND channel_id = ? AND status IN ?", channelContentID, channelID, []string{"scheduled", "publishing", "published"}).
+		Order("CASE status WHEN 'published' THEN 1 WHEN 'publishing' THEN 2 ELSE 3 END, id desc").
+		First(&row).Error
+	return row, err
+}
+
 func (r *Repository) SavePublishPlan(ctx context.Context, plan *models.AiGeoPublishPlan) error {
 	return r.db.WithContext(ctx).Save(plan).Error
 }

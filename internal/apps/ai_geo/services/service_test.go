@@ -713,6 +713,16 @@ func TestPublishPlanSyncsChannelContentStatusAndStateMachine(t *testing.T) {
 		ScheduledAt:      time.Now().Add(time.Hour).Format(time.RFC3339),
 	})
 	require.NoError(t, err)
+	duplicatePlan, err := service.CreatePublishPlan(context.Background(), viewer, dto.PublishPlanPayload{
+		ChannelContentID: content.ID,
+		ChannelID:        channel.ID,
+		ScheduledAt:      time.Now().Add(90 * time.Minute).Format(time.RFC3339),
+	})
+	require.NoError(t, err)
+	require.Equal(t, plan.ID, duplicatePlan.ID)
+	var planCount int64
+	require.NoError(t, db.Model(&models.AiGeoPublishPlan{}).Where("tenant_id = ? AND channel_content_id = ? AND channel_id = ?", viewer.TenantID, content.ID, channel.ID).Count(&planCount).Error)
+	require.Equal(t, int64(1), planCount)
 	var plannedContent models.AiGeoChannelContent
 	require.NoError(t, db.First(&plannedContent, content.ID).Error)
 	require.Equal(t, "planned", plannedContent.PublishStatus)

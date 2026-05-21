@@ -1631,6 +1631,13 @@ func (s *Service) CreatePublishPlan(ctx context.Context, viewer dto.Viewer, payl
 	if err != nil {
 		return models.AiGeoPublishPlan{}, ErrInvalidInput
 	}
+	existing, err := s.repo.ActivePublishPlanByContentChannel(ctx, viewer.TenantID, payload.ChannelContentID, payload.ChannelID)
+	if err == nil {
+		return existing, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return models.AiGeoPublishPlan{}, err
+	}
 	if err := s.consumeQuota(ctx, viewer.TenantID, quotaMonthlyPublishTasks); err != nil {
 		return models.AiGeoPublishPlan{}, err
 	}

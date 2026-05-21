@@ -1367,7 +1367,7 @@ const calendarDays = computed(() => {
     return planCalendarDays.value.map(day => ({
       date: day.date,
       label: day.date.slice(5).replace('-', '/'),
-      plans: (day.items || []).map(apiPlanToPlan),
+      plans: dedupePlans((day.items || []).map(apiPlanToPlan)),
     }))
   }
   const base = new Date(planDate.value || '2026-05-20')
@@ -2140,7 +2140,34 @@ function apiPlanToPlan(plan) {
 }
 
 function hydratePlans(apiPlans) {
-  plans.splice(0, plans.length, ...apiPlans.map(apiPlanToPlan))
+  plans.splice(0, plans.length, ...dedupePlans(apiPlans.map(apiPlanToPlan)))
+}
+
+function dedupePlans(planItems) {
+  const statusRank = {
+    published: 5,
+    publishing: 4,
+    scheduled: 3,
+    failed: 2,
+    cancelled: 1,
+  }
+  const byContentChannel = new Map()
+  planItems.forEach(plan => {
+    const contentId = Number(plan.channelContentId || 0)
+    const channelId = Number(plan.channelId || 0)
+    const key = contentId && channelId ? `${contentId}:${channelId}` : `id:${plan.id}`
+    const current = byContentChannel.get(key)
+    if (!current) {
+      byContentChannel.set(key, plan)
+      return
+    }
+    const currentRank = statusRank[current.rawStatus] || 0
+    const nextRank = statusRank[plan.rawStatus] || 0
+    if (nextRank > currentRank || (nextRank === currentRank && Number(plan.id || 0) > Number(current.id || 0))) {
+      byContentChannel.set(key, plan)
+    }
+  })
+  return Array.from(byContentChannel.values())
 }
 
 function findChannelContentById(contentId) {
