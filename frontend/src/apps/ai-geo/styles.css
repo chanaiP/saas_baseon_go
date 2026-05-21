@@ -585,6 +585,14 @@
 .geo-growth-page .channel-empty-state { flex: 1 1 auto; display: grid; place-items: center; color: var(--muted); background: #fbfcff; }
 .geo-growth-page .channel-source-editor { flex: 1 1 auto; min-height: 0; overflow: auto; display: grid; gap: 12px; padding: 16px; }
 .geo-growth-page .channel-source-editor textarea { min-height: 260px; resize: vertical; line-height: 1.7; }
+.geo-growth-page .channel-meta-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 16px; background: linear-gradient(180deg, #fbfdff, #f8fafc); }
+.geo-growth-page .channel-meta-fields label { min-width: 0; }
+.geo-growth-page .channel-meta-fields input,
+.geo-growth-page .channel-meta-fields textarea { width: 100%; background: #fff; color: var(--text); border-color: #dbe4f0; }
+.geo-growth-page .channel-meta-fields input[readonly],
+.geo-growth-page .channel-meta-fields textarea[readonly] { cursor: default; }
+.geo-growth-page .channel-meta-fields textarea { min-height: 76px; resize: vertical; line-height: 1.65; }
+.geo-growth-page .channel-meta-field--wide { grid-column: 1 / -1; }
 .geo-growth-page .structured-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .geo-growth-page .asset-brief { padding: 12px; border: 1px dashed rgba(37, 99, 235, .35); border-radius: 14px; background: #f8fbff; }
 .geo-growth-page .asset-brief p { margin: 6px 0 0; color: var(--muted); line-height: 1.55; }
@@ -668,7 +676,7 @@
   .geo-growth-page .platform-pane-head { flex-direction: column; align-items: flex-start; }
   .geo-growth-page .channel-picker-row { grid-template-columns: 1fr; }
   .geo-growth-page .channel-picker-actions { justify-content: flex-start; padding-left: 0; border-left: 0; }
-  .geo-growth-page .structured-fields, .geo-growth-page .source-record-grid.compact { grid-template-columns: 1fr; }
+  .geo-growth-page .structured-fields, .geo-growth-page .channel-meta-fields, .geo-growth-page .source-record-grid.compact { grid-template-columns: 1fr; }
 }
 
 .geo-growth-page .main { width: 100%; padding: 0; }

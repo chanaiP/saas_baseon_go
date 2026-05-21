@@ -667,14 +667,22 @@
                 <div v-if="!activeChannelNode?.contentPayload?.body" class="channel-empty-state">当前平台还没有生成渠道内容。</div>
                 <div v-else-if="channelGeneration.previewMode === 'source'" class="channel-source-editor">
                   <label>标题<input v-model="activeChannelNode.contentPayload.title" /></label>
+                  <div v-if="activeChannelExtraFields.length || activeChannelAssetSummary" class="channel-meta-fields">
+                    <label
+                      v-for="field in activeChannelExtraFields"
+                      :key="field.label"
+                      :class="{ 'channel-meta-field--wide': isLongChannelMetaField(field) }"
+                    >
+                      {{ field.label }}
+                      <textarea v-if="isLongChannelMetaField(field)" :value="field.value || '待维护'" readonly></textarea>
+                      <input v-else :value="field.value || '待维护'" readonly />
+                    </label>
+                    <label class="channel-meta-field--wide">
+                      素材需求
+                      <textarea :value="activeChannelAssetSummary" readonly></textarea>
+                    </label>
+                  </div>
                   <label>正文<textarea v-model="activeChannelNode.contentPayload.body"></textarea></label>
-                  <div class="structured-fields">
-                    <InfoBlock v-for="field in activeChannelExtraFields" :key="field.label" :title="field.label" :value="field.value" />
-                  </div>
-                  <div class="asset-brief">
-                    <strong>素材需求</strong>
-                    <p>{{ activeChannelAssetSummary }}</p>
-                  </div>
                 </div>
                 <ChannelPreview v-else :mode="channelGeneration.previewMode" :channel="activeChannelPreview" />
                 <div class="platform-actions">
@@ -2013,12 +2021,33 @@ function arrayOrObjectText(value) {
   return String(value || '').trim()
 }
 
+function normalizeFieldKey(key) {
+  return String(key || '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[-\s]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toLowerCase()
+}
+
 function channelFieldLabel(key) {
-  return {
+  const labels = {
     cover_title: '封面标题',
+    cover_style: '封面风格',
+    image_count: '图片数量',
+    image_suggestions: '图片建议',
+    note_type: '笔记类型',
+    content_type: '内容类型',
+    platform_notes: '平台说明',
+    topic_tags: '话题标签',
+    material_notes: '素材说明',
     publish_notes: '发布备注',
     question_title: '问题标题',
     answer_title: '回答标题',
+    title: '标题',
+    body: '正文',
+    summary: '摘要',
+    caption: '发布文案',
+    cta: '行动引导',
     key_points: '核心观点',
     argument_structure: '论证结构',
     product_mention_strategy: '商品露出方式',
@@ -2041,7 +2070,14 @@ function channelFieldLabel(key) {
     tags: '话题标签',
     hashtags: '话题标签',
     keywords: '关键词',
-  }[key] || key
+  }
+  const normalized = normalizeFieldKey(key)
+  return labels[normalized] || labels[key] || key
+}
+
+function isLongChannelMetaField(field) {
+  const value = String(field?.value || '')
+  return value.length > 44 || ['图片建议', '素材需求', '核心观点', '小标题结构', 'FAQ', '平台说明', '素材说明'].includes(field?.label)
 }
 
 function apiPlanToPlan(plan) {
