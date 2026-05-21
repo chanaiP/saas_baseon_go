@@ -648,7 +648,7 @@
                 >
                   <span class="chain-dot"></span>
                   <strong>{{ index + 1 }}. {{ node.channelName }}</strong>
-                  <small>{{ generationNodeStatusLabel(node.status) }} · {{ node.contentType }}</small>
+                  <small>{{ node.contentType }}</small>
                   <em>{{ node.updatedLabel || '等待中' }}</em>
                 </li>
               </ol>
