@@ -258,11 +258,206 @@
 .geo-growth-page .cover-empty-hint em { font-style: normal; color: #94a3b8; }
 .geo-growth-page .field-optional { font-style: normal; font-weight: 400; color: #94a3b8; font-size: 12px; }
 .geo-growth-page .preview-cover { width: 100%; max-height: 320px; object-fit: cover; border-radius: 16px; margin-bottom: 18px; display: block; }
-.geo-growth-page .mobile-frame .preview-cover { max-height: 240px; border-radius: 12px; }
+.geo-growth-page .mobile-frame .preview-cover { max-height: 220px; border-radius: 18px; }
 .geo-growth-page .editor-actions, .geo-growth-page .drawer-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
 .geo-growth-page .preview-pane, .geo-growth-page .channel-preview { background: #fff; border: 1px solid var(--line); line-height: 1.8; }
 .geo-growth-page .pc-frame { width: 100%; min-height: 430px; padding: 36px; border-radius: 18px; }
-.geo-growth-page .mobile-frame { width: 360px; max-width: 100%; min-height: 560px; padding: 22px; border-radius: 34px; margin: 0 auto; box-shadow: inset 0 0 0 8px #111827; }
+.geo-growth-page .mobile-frame {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 0;
+  padding: 18px;
+  border-radius: 18px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 0, rgba(255, 255, 255, .96), rgba(239, 244, 255, .72) 32%, transparent 58%),
+    linear-gradient(135deg, #f7f9ff, #e9eef8);
+}
+.geo-growth-page .iphone-preview-stage {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+.geo-growth-page .iphone-device {
+  --iphone-shell: #171b25;
+  --iphone-border: #070a11;
+  --iphone-glass: #fdfefe;
+  position: relative;
+  width: clamp(240px, min(390px, 100%, calc((100vh - 400px) * .477)), 390px);
+  aspect-ratio: 78 / 163.4;
+  padding: 14px;
+  border-radius: 54px;
+  background:
+    linear-gradient(145deg, #343a48 0%, #0d111b 32%, #05070d 72%, #2a3040 100%);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 255, 255, .08),
+    inset 0 0 0 7px var(--iphone-border),
+    0 24px 54px rgba(15, 23, 42, .18),
+    0 2px 0 rgba(255, 255, 255, .62);
+}
+.geo-growth-page .iphone-metal-edge {
+  position: absolute;
+  inset: 4px;
+  border-radius: 50px;
+  pointer-events: none;
+  border: 1px solid rgba(255, 255, 255, .16);
+  box-shadow: inset 0 0 0 1px rgba(3, 7, 18, .72);
+}
+.geo-growth-page .iphone-side-button {
+  position: absolute;
+  width: 3px;
+  border-radius: 999px;
+  background: linear-gradient(#2b3040, #070a12);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .05);
+}
+.geo-growth-page .iphone-side-button-left { left: -2px; top: 124px; height: 78px; }
+.geo-growth-page .iphone-side-button-right { right: -2px; top: 176px; height: 104px; }
+.geo-growth-page .iphone-screen {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 42px;
+  background: var(--iphone-glass);
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .12);
+}
+.geo-growth-page .iphone-statusbar {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 45px;
+  padding: 12px 28px 0;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+.geo-growth-page .iphone-status-icons { display: inline-flex; align-items: center; gap: 5px; }
+.geo-growth-page .iphone-signal {
+  width: 18px;
+  height: 11px;
+  background: linear-gradient(to top, #111827 0 3px, transparent 3px 100%);
+  border-radius: 2px;
+  box-shadow: inset 5px -2px 0 #111827, inset 10px -5px 0 #111827, inset 15px -8px 0 #111827;
+}
+.geo-growth-page .iphone-wifi {
+  width: 14px;
+  height: 10px;
+  border: 2px solid #111827;
+  border-bottom: 0;
+  border-radius: 14px 14px 0 0;
+  transform: scaleX(.9);
+}
+.geo-growth-page .iphone-battery {
+  position: relative;
+  width: 23px;
+  height: 11px;
+  border: 1.8px solid #111827;
+  border-radius: 4px;
+}
+.geo-growth-page .iphone-battery::before {
+  content: "";
+  position: absolute;
+  inset: 2px 6px 2px 2px;
+  border-radius: 2px;
+  background: #111827;
+}
+.geo-growth-page .iphone-battery::after {
+  content: "";
+  position: absolute;
+  right: -4px;
+  top: 3px;
+  width: 2px;
+  height: 5px;
+  border-radius: 0 2px 2px 0;
+  background: #111827;
+}
+.geo-growth-page .iphone-dynamic-island {
+  position: absolute;
+  z-index: 4;
+  top: 13px;
+  left: 50%;
+  width: 112px;
+  height: 32px;
+  border-radius: 999px;
+  transform: translateX(-50%);
+  background: #05070d;
+  box-shadow: inset 0 1px 1px rgba(255,255,255,.08), 0 1px 4px rgba(15,23,42,.18);
+}
+.geo-growth-page .iphone-dynamic-island::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #1c273f, #05070d 70%);
+}
+.geo-growth-page .iphone-app-bar {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  min-height: 50px;
+  padding: 8px 18px 12px;
+  border-bottom: 1px solid rgba(226, 232, 240, .86);
+}
+.geo-growth-page .iphone-app-bar strong { font-size: 15px; line-height: 1.2; }
+.geo-growth-page .iphone-app-bar span { color: #8a94a6; font-size: 11px; white-space: nowrap; }
+.geo-growth-page .iphone-content-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px 18px 34px;
+  color: #111827;
+  background:
+    linear-gradient(rgba(248, 250, 252, .64) 1px, transparent 1px),
+    #fff;
+  background-size: 100% 44px;
+  scrollbar-width: none;
+}
+.geo-growth-page .iphone-content-scroll::-webkit-scrollbar { display: none; }
+.geo-growth-page .iphone-content-scroll h1,
+.geo-growth-page .iphone-content-scroll h2 {
+  margin: 0 0 12px;
+  font-size: 23px;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+.geo-growth-page .iphone-content-scroll .summary {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: #f5f7fb;
+  color: #5b6678;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.geo-growth-page .iphone-content-scroll p {
+  margin: 0 0 14px;
+  color: #1f2937;
+  font-size: 14px;
+  line-height: 1.82;
+}
+.geo-growth-page .iphone-home-indicator {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  width: 132px;
+  height: 5px;
+  border-radius: 999px;
+  transform: translateX(-50%);
+  background: rgba(17, 24, 39, .88);
+}
 .geo-growth-page .preview-pane h1, .geo-growth-page .channel-preview h2 { margin-top: 18px; }
 .geo-growth-page .summary { color: var(--muted); font-size: 15px; }
 .geo-growth-page .draft-timeline { display: grid; gap: 0; padding-top: 4px; }
@@ -679,4 +874,33 @@ html.dark .geo-growth-page .channel-知乎,
 .admin-shell.dark .geo-growth-page .channel-百家号,
 .admin-shell.dark .geo-growth-page .channel-知乎 {
   background: rgba(96, 165, 250, .08);
+}
+
+html.dark .geo-growth-page .mobile-frame,
+.admin-shell.dark .geo-growth-page .mobile-frame {
+  background:
+    radial-gradient(circle at 50% 0, rgba(38, 244, 223, .14), transparent 42%),
+    linear-gradient(135deg, rgba(10, 21, 38, .94), rgba(4, 10, 20, .96));
+}
+
+html.dark .geo-growth-page .iphone-device,
+.admin-shell.dark .geo-growth-page .iphone-device {
+  background:
+    linear-gradient(145deg, #475569 0%, #101827 30%, #020617 72%, #2d3748 100%);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 255, 255, .08),
+    inset 0 0 0 7px #030712,
+    0 24px 64px rgba(0, 0, 0, .46),
+    0 0 36px rgba(38, 244, 223, .1);
+}
+
+html.dark .geo-growth-page .iphone-screen,
+.admin-shell.dark .geo-growth-page .iphone-screen {
+  background: #fdfefe;
+  color: #111827;
+}
+
+html.dark .geo-growth-page .iphone-app-bar,
+.admin-shell.dark .geo-growth-page .iphone-app-bar {
+  border-bottom-color: rgba(226, 232, 240, .92);
 }

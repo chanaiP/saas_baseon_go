@@ -782,28 +782,61 @@ const InfoBlock = defineComponent({
   }
 })
 
+function renderIphoneShell(children, label = 'GEO 预览') {
+  return h('div', { class: 'iphone-preview-stage' }, [
+    h('div', { class: 'iphone-device iphone-17-pro-max', 'aria-label': 'iPhone 17 Pro Max 样机预览' }, [
+      h('div', { class: 'iphone-metal-edge' }),
+      h('div', { class: 'iphone-side-button iphone-side-button-left' }),
+      h('div', { class: 'iphone-side-button iphone-side-button-right' }),
+      h('div', { class: 'iphone-screen' }, [
+        h('div', { class: 'iphone-statusbar' }, [
+          h('span', { class: 'iphone-time' }, '9:41'),
+          h('span', { class: 'iphone-status-icons' }, [
+            h('span', { class: 'iphone-signal' }),
+            h('span', { class: 'iphone-wifi' }),
+            h('span', { class: 'iphone-battery' }),
+          ]),
+        ]),
+        h('div', { class: 'iphone-dynamic-island' }),
+        h('div', { class: 'iphone-app-bar' }, [
+          h('strong', label),
+          h('span', 'iPhone 17 Pro Max')
+        ]),
+        h('div', { class: 'iphone-content-scroll' }, children),
+        h('div', { class: 'iphone-home-indicator' }),
+      ]),
+    ]),
+  ])
+}
+
 const PreviewPane = defineComponent({
   props: ['mode', 'title', 'summary', 'body', 'coverImage'],
   setup(props) {
-    return () => h('div', { class: ['preview-pane', props.mode === 'mobile' ? 'mobile-frame' : 'pc-frame'] }, [
+    const renderContent = () => [
       props.coverImage ? h('img', { class: 'preview-cover', src: props.coverImage, alt: '封面' }) : null,
       h('h1', props.title),
       h('p', { class: 'summary' }, props.summary),
       ...String(props.body || '').split('\n').map(p => h('p', p))
-    ])
+    ]
+    return () => h('div', { class: ['preview-pane', props.mode === 'mobile' ? 'mobile-frame' : 'pc-frame'] },
+      props.mode === 'mobile' ? renderIphoneShell(renderContent(), '母稿预览') : renderContent()
+    )
   }
 })
 
 const ChannelPreview = defineComponent({
   props: ['mode', 'channel'],
   setup(props) {
-    return () => h('div', { class: ['channel-preview', props.mode === 'mobile' ? 'mobile-frame' : 'pc-frame', `channel-${props.channel.channel}`] }, [
+    const renderContent = () => [
       h('div', { class: 'preview-channel-name' }, `${props.channel.channel} 预览`),
       h('h2', props.channel.title),
       h('p', { class: 'summary' }, props.channel.tags || props.channel.seoTitle || ''),
       ...String(props.channel.body || '').split('\n').map(p => h('p', p)),
       props.channel.script ? h('pre', props.channel.script) : null
-    ])
+    ]
+    return () => h('div', { class: ['channel-preview', props.mode === 'mobile' ? 'mobile-frame' : 'pc-frame', `channel-${props.channel.channel}`] },
+      props.mode === 'mobile' ? renderIphoneShell(renderContent(), `${props.channel.channel} 预览`) : renderContent()
+    )
   }
 })
 
