@@ -575,9 +575,9 @@
 .geo-growth-page .channel-picker-actions .btn { flex: 0 0 auto; }
 .geo-growth-page .channel-pill { flex: 0 0 auto; min-height: 34px; border: 1px solid var(--line); background: white; color: var(--muted); border-radius: 999px; padding: 5px 11px; font-size: 13px; line-height: 1.2; font-weight: 650; white-space: nowrap; }
 .geo-growth-page .channel-pill.active { border-color: rgba(37, 99, 235, .5); background: var(--primary); color: white; }
-.geo-growth-page .channel-chain-layout { flex: 1 1 auto; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(160px, 210px) minmax(0, 1fr); }
+.geo-growth-page .channel-chain-layout { flex: 1 1 auto; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(190px, 230px) minmax(0, 1fr); }
 .geo-growth-page .chain-node-list { margin: 0; padding: 14px 12px 14px 28px; border-right: 1px solid var(--line); overflow: auto; display: grid; gap: 10px; align-content: start; }
-.geo-growth-page .chain-node { position: relative; cursor: pointer; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+.geo-growth-page .chain-node { position: relative; cursor: pointer; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 10px; align-items: center; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
 .geo-growth-page .chain-node::before { content: ''; position: absolute; left: -16px; top: -10px; bottom: -10px; width: 2px; background: #dbe4f0; }
 .geo-growth-page .chain-node:first-child::before { top: 14px; }
 .geo-growth-page .chain-node:last-child::before { bottom: calc(100% - 14px); }
@@ -587,8 +587,8 @@
 .geo-growth-page .chain-node .channel-logo { width: 30px; height: 30px; border-radius: 10px; font-size: 14px; }
 .geo-growth-page .chain-node .channel-logo img,
 .geo-growth-page .chain-node .channel-logo svg { width: 17px; height: 17px; }
-.geo-growth-page .chain-node strong { min-width: 0; font-size: 13px; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.geo-growth-page .chain-node em { align-self: center; color: var(--muted); font-size: 12px; line-height: 1; font-style: normal; white-space: nowrap; padding: 5px 8px; border-radius: 999px; background: #f1f5f9; }
+.geo-growth-page .chain-node strong { min-width: 0; font-size: 13px; line-height: 1.35; white-space: normal; overflow: visible; text-overflow: clip; word-break: keep-all; }
+.geo-growth-page .chain-node em { grid-column: 2; justify-self: start; align-self: center; color: var(--muted); font-size: 12px; line-height: 1; font-style: normal; white-space: nowrap; padding: 5px 8px; border-radius: 999px; background: #f1f5f9; }
 .geo-growth-page .chain-node.active em { color: #1d4ed8; background: #eff6ff; }
 .geo-growth-page .current-platform-pane { min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .geo-growth-page .platform-pane-head { flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
