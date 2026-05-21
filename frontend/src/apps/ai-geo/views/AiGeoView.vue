@@ -294,10 +294,11 @@
                           <span class="channel-title">{{ channel.title }}</span>
                         </div>
                       </div>
-                      <span :class="['badge', channel.status === '已确认' ? 'success' : 'warning']">{{ channel.status }}</span>
+                      <span :class="['badge', channelStatusBadgeClass(channel)]">{{ channelDisplayStatus(channel) }}</span>
                       <button class="btn small" @click="openChannelEditor(draft, channel)">编辑/预览</button>
-                      <button v-if="canManageChannelContent" class="btn small ghost" @click="confirmChannel(channel)">确认</button>
-                      <button v-if="canManagePublishPlan" class="btn small dark" @click="addChannelToPlan(draft, channel)">加入发布计划</button>
+                      <button v-if="canShowChannelConfirm(channel)" class="btn small ghost" @click="confirmChannel(channel)">确认</button>
+                      <button v-if="canShowChannelConfirmAndPlan(channel)" class="btn small dark" @click="confirmAndAddChannelToPlan(draft, channel)">确认并加入发布计划</button>
+                      <button v-if="canShowChannelAddPlan(channel)" class="btn small dark" @click="addChannelToPlan(draft, channel)">加入发布计划</button>
                     </div>
                   </div>
                 </div>
@@ -843,9 +844,10 @@
         <ChannelPreview v-else :mode="channelPreviewMode" :channel="selectedChannel" />
         <div class="drawer-actions">
           <button v-if="canManageChannelContent" class="btn ghost" @click="regenerateChannel">重新生成</button>
-          <button v-if="canManageChannelContent" class="btn primary" @click="confirmSelectedChannel">确认渠道内容</button>
+          <button v-if="canShowChannelConfirm(selectedChannel)" class="btn primary" @click="confirmSelectedChannel">确认</button>
+          <button v-if="canShowChannelConfirmAndPlan(selectedChannel)" class="btn dark" @click="confirmAndAddSelectedChannelToPlan">确认并加入发布计划</button>
           <button v-if="canManageChannelContent" class="btn ghost danger-text" @click="rejectSelectedChannel">驳回</button>
-          <button v-if="canManagePublishPlan" class="btn dark" @click="addSelectedChannelToPlan">加入发布计划</button>
+          <button v-if="canShowChannelAddPlan(selectedChannel)" class="btn dark" @click="addSelectedChannelToPlan">加入发布计划</button>
         </div>
       </div>
 
@@ -3571,7 +3573,7 @@ async function confirmChannel(channel) {
   const contentId = Number(channel?.id)
   if (!contentId) {
     showToast('请先生成渠道内容')
-    return
+    return false
   }
   loading.action = true
   try {
@@ -3579,8 +3581,10 @@ async function confirmChannel(channel) {
     Object.assign(channel, channelContentFromApi(approved))
     syncSelectedChannel(channel)
     showToast('渠道内容已确认')
+    return true
   } catch (error) {
     showToast(error?.message || '渠道内容确认失败')
+    return false
   } finally {
     loading.action = false
   }
@@ -3591,6 +3595,42 @@ async function confirmSelectedChannel() {
   if (!saved) return
   await confirmChannel(selectedChannel)
 }
+
+function isChannelConfirmed(channel) {
+  return ['已确认', '已通过'].includes(channel?.status) || ['approved', 'pass'].includes(channel?.rawAuditStatus)
+}
+
+function isChannelInPublishPlan(channel) {
+  const contentId = Number(channel?.id)
+  return channel?.status === '已加入发布计划'
+    || ['scheduled', 'publishing', 'published'].includes(channel?.publishStatus)
+    || (contentId > 0 && plans.some(plan => Number(plan.channelContentId) === contentId))
+}
+
+function canShowChannelConfirm(channel) {
+  return canManageChannelContent.value && !isChannelConfirmed(channel) && !isChannelInPublishPlan(channel)
+}
+
+function canShowChannelConfirmAndPlan(channel) {
+  return canManageChannelContent.value && canManagePublishPlan.value && !isChannelConfirmed(channel) && !isChannelInPublishPlan(channel)
+}
+
+function canShowChannelAddPlan(channel) {
+  return canManagePublishPlan.value && isChannelConfirmed(channel) && !isChannelInPublishPlan(channel)
+}
+
+function channelStatusBadgeClass(channel) {
+  if (isChannelInPublishPlan(channel)) return 'success'
+  if (isChannelConfirmed(channel)) return 'success'
+  if (channel?.status === '已驳回') return 'danger'
+  return 'warning'
+}
+
+function channelDisplayStatus(channel) {
+  if (isChannelInPublishPlan(channel)) return '已加入发布计划'
+  return channel?.status || '待确认'
+}
+
 function optimizeChannel(type) { selectedChannel.body += `\n\nAI 局部优化：${type}。`; if (type === '生成话题标签') selectedChannel.tags = '#通勤穿搭 #法式穿搭 #小个子穿搭'; showToast(type + '完成') }
 async function rejectSelectedChannel() {
   const contentId = Number(selectedChannel?.id)
@@ -3688,7 +3728,27 @@ async function addChannelToPlan(draft, channel) {
     loading.action = false
   }
 }
-function addSelectedChannelToPlan() { addChannelToPlan(selectedDraft.value || drafts[0], selectedChannel) }
+
+async function confirmAndAddChannelToPlan(draft, channel) {
+  if (!isChannelConfirmed(channel)) {
+    const confirmed = await confirmChannel(channel)
+    if (!confirmed) return
+  }
+  if (!isChannelInPublishPlan(channel)) {
+    await addChannelToPlan(draft || selectedDraft.value || drafts[0], channel)
+  }
+}
+
+async function addSelectedChannelToPlan() {
+  await addChannelToPlan(selectedDraft.value || drafts[0], selectedChannel)
+}
+
+async function confirmAndAddSelectedChannelToPlan() {
+  const saved = await persistSelectedChannel()
+  if (!saved) return
+  await confirmAndAddChannelToPlan(selectedDraft.value || drafts[0], selectedChannel)
+}
+
 async function createPlan() {
   const draft = drafts.find(d => d.id === Number(newPlanDraftId.value)) || drafts[0]
   const channel = channelProfiles.find(c => c.name === newPlanChannel.value) || channelProfiles[0]
