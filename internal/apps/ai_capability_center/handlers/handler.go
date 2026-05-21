@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -285,6 +287,50 @@ func (h *Handler) Invoke(c *gin.Context) {
 		return
 	}
 	response.OK(c, result)
+}
+
+func (h *Handler) InvokeStream(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "请先登录")
+		return
+	}
+	tenantID, ok := currentTenantID(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "租户上下文无效")
+		return
+	}
+	var req services.InvokeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequest, "请求参数不合法")
+		return
+	}
+	if err := applyInvokeIdentity(&req, userID, tenantID); err != nil {
+		response.Error(c, http.StatusForbidden, response.CodeForbidden, "不允许为其他租户发起 AI Gateway 调用")
+		return
+	}
+	c.Header("Content-Type", "text/event-stream; charset=utf-8")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	c.Status(http.StatusOK)
+	flusher, _ := c.Writer.(http.Flusher)
+	emit := func(event services.InvokeStreamEvent) error {
+		payload, err := json.Marshal(event)
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event.Type, payload); err != nil {
+			return err
+		}
+		if flusher != nil {
+			flusher.Flush()
+		}
+		return nil
+	}
+	if err := h.service.InvokeStream(c.Request.Context(), req, emit); err != nil {
+		_ = emit(services.InvokeStreamEvent{Type: "error", ErrorCode: "gateway_stream_failed", ErrorMessage: err.Error()})
+	}
 }
 
 func (h *Handler) QueryVideoTask(c *gin.Context) {

@@ -354,7 +354,7 @@ AI 场景通过 `POST /api/ai-capability-center/scenarios/import` 批量注册�
 
 ## AI Gateway 调用链路
 
-`POST /api/ai-gateway/v1/invoke` 的执行闭环：
+`POST /api/ai-gateway/v1/invoke` 和 `POST /api/ai-gateway/v1/invoke/stream` 的执行闭环：
 
 1. 按 `app_code + ai_scenario_code` 查找启用的 AI 场景。
 2. 按租户策略匹配顺序选择策略：`include` 命中当前租户优先，其次 `all`，再其次未排除当前租户的 `exclude`。
@@ -363,11 +363,13 @@ AI 场景通过 `POST /api/ai-capability-center/scenarios/import` 批量注册�
 5. 按模型和能力匹配价格策略，并按 `mode/resolution/quality/aspect_ratio/duration_seconds` 尝试命中分档价格。
 6. 按策略下多条配额规则和限流规则判定，响应返回 `controls.quota_rules` 和 `controls.rate_limit_rules` 的判定结果。
 7. 检查模型池节点、模型、供应商账号和供应商 API 可执行性；未配置密钥、占位 endpoint、健康状态异常或空模型池会明确失败，不产生成功计费。
-8. 通过 provider adapter 执行真实调用。当前 OpenAI-compatible 支持 chat/text_generation、responses、embeddings、images；按路由和模型节点超时、重试 5xx/429/网络错误，并记录平台 `trace_id`、供应商 HTTP 状态和 request id。
+8. 通过 provider adapter 执行真实调用。当前 OpenAI-compatible 支持 chat/text_generation、responses、embeddings、images；流式接口支持 chat/text_generation 和 responses，输出 `text/event-stream` 的 `meta`、`delta`、`final`、`error` 事件；按路由和模型节点超时、重试 5xx/429/网络错误，并记录平台 `trace_id`、供应商 HTTP 状态和 request id。
 9. 按供应商返回 usage 优先回填用量；图片等无 token usage 的接口按供应商返回数量或请求数量回填。
 10. 写入 `ai_usage_records`，包含 `tenant_strategy_id`、`base_route_id`、`model_id`、`provider_id`、`provider_account_id`、`provider_api_id`、`price_policy_id`、`price_tier_id`、`cost_amount`、`billing_amount`、`platform_unit`、`platform_amount`、`provider_http_status`、`provider_request_id`、`started_at`、`finished_at`、`retry_count`、`data_source` 和 `is_demo`。
 
 当配额或限流规则的超限动作是 `reject` 时，本次记录会以 `rejected` 状态写入，并带上 `quota_exceeded` 或 `rate_limited` 错误码；其他动作先记录判定结果，交由调用方或后续执行器处理降级、排队、审批等动作。
+
+流式接口是 AI 能力中心公共 Gateway API，不属于某个业务应用私有接口。业务应用仍只传 `app_code`、`ai_scenario_code`、`input` 和 `params`，由能力中心统一完成场景解析、模型路由、供应商鉴权、配额限流、计费、审计和调用日志落库。成功流式调用的用量记录 `data_source=gateway_stream`。
 
 ## 部署与装载验证
 

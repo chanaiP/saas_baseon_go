@@ -230,6 +230,7 @@ func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHan
 			ai.DELETE("/:resource/:id", aiCapabilityCenterHandler.Delete)
 		}
 		api.POST("/ai-gateway/v1/invoke", aiCapabilityCenterHandler.Invoke)
+		api.POST("/ai-gateway/v1/invoke/stream", aiCapabilityCenterHandler.InvokeStream)
 		api.GET("/ai-gateway/v1/video-tasks/:task_id", aiCapabilityCenterHandler.QueryVideoTask)
 
 		integration := api.Group("/integration-center")

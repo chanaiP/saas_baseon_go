@@ -181,6 +181,7 @@ func operationPermissionByRoute() map[string]string {
 		"PUT /api/ai-capability-center/:resource/:id":                     "ai_capability_center:manage",
 		"DELETE /api/ai-capability-center/:resource/:id":                  "ai_capability_center:manage",
 		"POST /api/ai-gateway/v1/invoke":                                  "ai_gateway:invoke",
+		"POST /api/ai-gateway/v1/invoke/stream":                           "ai_gateway:invoke",
 		"GET /api/ai-gateway/v1/video-tasks/:task_id":                     "ai_gateway:invoke",
 		"POST /api/integration-center/connectivity-check":                 "integration_center:connection_manage",
 		"POST /api/integration-center/gateway/invoke":                     "integration_center:connection_manage",
