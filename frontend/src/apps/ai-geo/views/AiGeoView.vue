@@ -3344,6 +3344,7 @@ function setupChannelGenerationNodes(draft) {
   channelEditorMessages.splice(0, channelEditorMessages.length, {
     id: Date.now(),
     role: 'ai',
+    kind: 'intro',
     text: '先在右侧选择平台并点击“开始自动生成”。初次生成由系统按渠道内容标准生成 Skill 完成；这里的 AI 对话只修改当前选中的平台内容。',
   })
 }
@@ -3493,6 +3494,7 @@ async function applyChannelAiEdit() {
   const node = activeChannelNode.value
   const prompt = String(channelEditPrompt.value || '').trim()
   if (!node || !prompt) return
+  removeChannelEditorIntro()
   const userMessage = { id: Date.now(), role: 'user', text: prompt }
   const aiMessage = reactive({
     id: Date.now() + 1,
@@ -3536,6 +3538,11 @@ async function applyChannelAiEdit() {
     aiMessage.streaming = false
     loading.action = false
   }
+}
+
+function removeChannelEditorIntro() {
+  const introIndex = channelEditorMessages.findIndex(message => message.kind === 'intro')
+  if (introIndex >= 0) channelEditorMessages.splice(introIndex, 1)
 }
 
 async function applyPendingChannelEdit(message) {
