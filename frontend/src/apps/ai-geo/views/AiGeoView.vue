@@ -541,16 +541,9 @@
           </div>
         </div>
       </section>
-    </main>
 
-    <div v-if="modal.type" class="modal-mask" @click.self="closeModal">
-      <div class="modal" :class="modal.wide ? 'wide-modal' : ''">
-        <div class="modal-header">
-          <h3>{{ modal.title }}</h3>
-          <button @click="closeModal">×</button>
-        </div>
-
-        <div v-if="modal.type === 'channelGenerator'" class="modal-body channel-generation-console">
+      <section v-if="activeMenu === 'channelGeneration'" class="page channel-generation-page">
+        <div class="channel-generation-console">
           <section class="channel-console-col master-readonly">
             <div class="console-panel-head">
               <div>
@@ -686,11 +679,20 @@
                 <div v-if="channelGenerationStatus === 'completed'" class="generation-complete-actions">
                   <button class="btn ghost" @click="saveAllGeneratedChannels">保存全部渠道内容</button>
                   <button class="btn primary" @click="enterChannelAudit">进入渠道审核</button>
-                  <button class="btn ghost" @click="closeModal">返回母稿</button>
+                  <button class="btn ghost" @click="returnToDrafts">返回母稿</button>
                 </div>
               </div>
             </div>
           </section>
+        </div>
+      </section>
+    </main>
+
+    <div v-if="modal.type" class="modal-mask" @click.self="closeModal">
+      <div class="modal" :class="modal.wide ? 'wide-modal' : ''">
+        <div class="modal-header">
+          <h3>{{ modal.title }}</h3>
+          <button @click="closeModal">×</button>
         </div>
 
         <div v-if="modal.type === 'mode'" class="modal-body">
@@ -1015,6 +1017,7 @@ const routeMenuMap = {
   data: 'data',
   brands: 'data',
   products: 'data',
+  'channel-generation': 'channelGeneration',
 }
 
 const menuRouteMap = {
@@ -1024,6 +1027,7 @@ const menuRouteMap = {
   plans: '/ai-geo/plans/queue',
   channels: '/ai-geo/channels',
   data: '/ai-geo/data/products',
+  channelGeneration: '/ai-geo/channel-generation',
 }
 
 const activeMenu = computed({
@@ -1449,14 +1453,15 @@ const drafts = reactive([])
 
 const plans = reactive([])
 
-const activeTitle = computed(() => menus.find(m => m.key === activeMenu.value)?.label || '')
+const activeTitle = computed(() => menus.find(m => m.key === activeMenu.value)?.label || ({ channelGeneration: '渠道内容生成' }[activeMenu.value] || ''))
 const activeSubtitle = computed(() => ({
   overview: '整个应用总览：资料、母稿、发布计划、渠道管理',
   workbench: '人工 AI 创作空间：左侧对话，右侧母稿编辑与预览',
   drafts: '母稿与渠道内容：按日期管理和编辑预览',
   plans: '发布日历与发布队列',
   channels: '渠道资料与账号授权',
-  data: '资料中心：品牌 → 商品资料卡 → SKU / 竞品信息'
+  data: '资料中心：品牌 → 商品资料卡 → SKU / 竞品信息',
+  channelGeneration: '基于已通过母稿生成各平台渠道版本'
 }[activeMenu.value]))
 
 const draftDateOptions = computed(() => [...new Set(drafts.map(d => d.date))].sort((a, b) => b.localeCompare(a)))
@@ -1537,6 +1542,13 @@ const hotspots = reactive([])
 const hotspotSearch = ref('')
 const filteredHotspots = computed(() => hotspots.filter(h => !hotspotSearch.value || h.title.includes(hotspotSearch.value) || h.summary.includes(hotspotSearch.value)))
 
+watch(
+  () => [route.params.section, route.query.draft_id, drafts.length],
+  ([section]) => {
+    if (section === 'channel-generation') restoreChannelGenerationAfterLoad()
+  }
+)
+
 const selectedHotspotId = computed({
   get: () => workbench.hotspot?.id ?? '',
   set(id) {
@@ -1604,6 +1616,7 @@ async function loadAiGeoData() {
     hydrateChannels(channelPage.items || [])
     hydrateDrafts(draftPage.items || [], channelContentPage.items || [])
     restoreWorkbenchDraftAfterLoad()
+    restoreChannelGenerationAfterLoad()
     hydratePlans(planPage.items || [])
     planCalendarDays.value = planCalendar.days || []
   } catch (error) {
@@ -1848,6 +1861,15 @@ function restoreWorkbenchDraftAfterLoad() {
   const target = routeDraft || cachedDraft || latestRecoverableDraft()
   if (!target) return
   restoreDraftToWorkbench(target, { navigate: false })
+}
+
+function restoreChannelGenerationAfterLoad() {
+  if (activeMenu.value !== 'channelGeneration') return
+  const routeDraft = findDraftById(route.query.draft_id)
+  const target = routeDraft || selectedDraft.value || drafts.find(canGenerateChannelFromDraft)
+  if (!target?.id) return
+  selectedDraft.value = target
+  setupChannelGenerationNodes(target)
 }
 
 function channelContentFromApi(content) {
@@ -3124,9 +3146,12 @@ function openChannelGenerationConsole(draft) {
   }
   selectedDraft.value = target
   setupChannelGenerationNodes(target)
-  modal.type = 'channelGenerator'
-  modal.title = '渠道内容生成'
-  modal.wide = true
+  closeModal()
+  router.push({ path: menuRouteMap.channelGeneration, query: { draft_id: String(target.id) } }).catch(() => {})
+}
+
+function returnToDrafts() {
+  router.push(menuRouteMap.drafts).catch(() => {})
 }
 
 function setupChannelGenerationNodes(draft) {
@@ -3297,7 +3322,7 @@ async function submitActiveChannelAudit() {
 
 function enterChannelAudit() {
   showToast('渠道内容已进入审核列表，可在母稿列表中查看并确认')
-  closeModal()
+  returnToDrafts()
 }
 
 async function applyChannelAiEdit() {
