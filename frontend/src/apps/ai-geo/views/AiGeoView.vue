@@ -843,6 +843,7 @@
         </div>
         <ChannelPreview v-else :mode="channelPreviewMode" :channel="selectedChannel" />
         <div class="drawer-actions">
+          <button class="btn ghost" @click="closeDrawer">关闭</button>
           <button v-if="canManageChannelContent" class="btn ghost" @click="regenerateChannel">重新生成</button>
           <button v-if="canShowChannelConfirm(selectedChannel)" class="btn primary" @click="confirmSelectedChannel">确认</button>
           <button v-if="canShowChannelConfirmAndPlan(selectedChannel)" class="btn dark" @click="confirmAndAddSelectedChannelToPlan">确认并加入发布计划</button>
