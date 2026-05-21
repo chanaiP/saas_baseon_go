@@ -625,14 +625,18 @@
               <span :class="['badge', channelGenerationStatus === 'completed' ? 'success' : 'warning']">{{ channelGenerationStatusLabel }}</span>
             </div>
             <div class="channel-picker-row">
-              <button
-                v-for="platform in channelGenerationPlatforms"
-                :key="platform.name"
-                :class="['channel-pill', { active: channelGeneration.selectedChannels.includes(platform.name) }]"
-                @click="toggleGenerationChannel(platform.name)"
-              >{{ platform.name }}</button>
-              <button class="btn small primary" :disabled="loading.action || !channelGeneration.selectedChannels.length" @click="startChannelGeneration">开始自动生成</button>
-              <button class="btn small ghost" :disabled="loading.action" @click="resetChannelGeneration">重置</button>
+              <div class="channel-picker-scroll">
+                <button
+                  v-for="platform in channelGenerationPlatforms"
+                  :key="platform.name"
+                  :class="['channel-pill', { active: channelGeneration.selectedChannels.includes(platform.name) }]"
+                  @click="toggleGenerationChannel(platform.name)"
+                >{{ platform.name }}</button>
+              </div>
+              <div class="channel-picker-actions">
+                <button class="btn small primary" :disabled="loading.action || !channelGeneration.selectedChannels.length" @click="startChannelGeneration">开始自动生成</button>
+                <button class="btn small ghost" :disabled="loading.action" @click="resetChannelGeneration">重置</button>
+              </div>
             </div>
             <div class="channel-chain-layout">
               <ol class="chain-node-list">
