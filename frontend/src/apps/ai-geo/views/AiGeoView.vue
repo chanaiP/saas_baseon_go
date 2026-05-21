@@ -658,37 +658,36 @@
               </ol>
               <div class="current-platform-pane">
                 <div class="platform-pane-head">
-                  <div>
-                    <span>当前平台</span>
-                    <h4>{{ activeChannelNode?.channelName || '请选择平台' }}</h4>
+                  <div class="channel-content-tabs">
+                    <button :class="{ active: channelGeneration.detailTab === 'basic' }" @click="channelGeneration.detailTab = 'basic'">基本信息</button>
+                    <button :class="{ active: channelGeneration.detailTab === 'body' }" @click="channelGeneration.detailTab = 'body'">正文</button>
                   </div>
-                  <div class="segmented">
+                  <div v-if="channelGeneration.detailTab === 'body'" class="segmented">
                     <button :class="{ active: channelGeneration.previewMode === 'source' }" @click="channelGeneration.previewMode = 'source'">原文</button>
                     <button :class="{ active: channelGeneration.previewMode === 'pc' }" @click="channelGeneration.previewMode = 'pc'">PC预览</button>
                     <button :class="{ active: channelGeneration.previewMode === 'mobile' }" @click="channelGeneration.previewMode = 'mobile'">手机预览</button>
                   </div>
                 </div>
                 <div v-if="!activeChannelNode?.contentPayload?.body" class="channel-empty-state">当前平台还没有生成渠道内容。</div>
-                <div v-else-if="channelGeneration.previewMode === 'source'" class="channel-source-editor">
-                  <label>标题<input v-model="activeChannelNode.contentPayload.title" /></label>
-                  <div v-if="activeChannelExtraFields.length || activeChannelAssetSummary" class="channel-meta-fields">
-                    <label
-                      v-for="field in activeChannelExtraFields"
+                <div v-else-if="channelGeneration.detailTab === 'basic'" class="channel-basic-panel">
+                  <label class="channel-basic-title">标题<input v-model="activeChannelNode.contentPayload.title" /></label>
+                  <div class="channel-basic-grid">
+                    <div
+                      v-for="field in activeChannelBasicFields"
                       :key="field.label"
-                      :class="{ 'channel-meta-field--wide': isLongChannelMetaField(field) }"
+                      :class="['channel-basic-card', { 'channel-basic-card--wide': field.wide }]"
                     >
-                      {{ field.label }}
-                      <textarea v-if="isLongChannelMetaField(field)" :value="field.value || '待维护'" readonly></textarea>
-                      <input v-else :value="field.value || '待维护'" readonly />
-                    </label>
-                    <label class="channel-meta-field--wide">
-                      素材需求
-                      <textarea :value="activeChannelAssetSummary" readonly></textarea>
-                    </label>
+                      <span>{{ field.label }}</span>
+                      <p>{{ field.value || '待维护' }}</p>
+                    </div>
                   </div>
-                  <label>正文<textarea v-model="activeChannelNode.contentPayload.body"></textarea></label>
                 </div>
-                <ChannelPreview v-else :mode="channelGeneration.previewMode" :channel="activeChannelPreview" />
+                <template v-else>
+                  <div v-if="channelGeneration.previewMode === 'source'" class="channel-source-editor">
+                    <label>正文<textarea v-model="activeChannelNode.contentPayload.body"></textarea></label>
+                  </div>
+                  <ChannelPreview v-else :mode="channelGeneration.previewMode" :channel="activeChannelPreview" />
+                </template>
                 <div class="platform-actions">
                   <button class="btn ghost" :disabled="loading.action || !activeChannelNode" @click="regenerateActiveChannel">重新生成当前平台</button>
                   <button class="btn ghost" @click="showToast('选择资料库素材功能稍后接入资料中心素材弹窗')">选择资料库素材</button>
@@ -1265,6 +1264,7 @@ const channelGenerationOrder = ['小红书', '知乎', '微信公众号', '抖�
 const channelGeneration = reactive({
   selectedChannels: ['小红书', '知乎', '微信公众号'],
   activeChannel: '小红书',
+  detailTab: 'basic',
   previewMode: 'source',
   status: 'not_started',
   nodes: [],
@@ -1310,6 +1310,24 @@ const activeChannelAssetSummary = computed(() => {
   if (required.length) return `需要：${required.join('、')}。`
   return '当前平台无强制素材，可按渠道需要补充。'
 })
+const activeChannelBasicFields = computed(() => {
+  const node = activeChannelNode.value || {}
+  const payload = node.contentPayload || {}
+  const asset = node.assetPayload || {}
+  const rows = []
+  const add = (label, value, wide = false) => {
+    const text = arrayOrObjectText(value)
+    if (text) rows.push({ label, value: text, wide })
+  }
+  add('平台', node.channelName)
+  add('内容类型', payload.note_type || payload.content_type || channelContentTypeForName(node.channelName))
+  add('封面风格', asset.coverStyle || asset.cover_style || payload.cover_style, true)
+  add('图片数量', asset.imageCount || asset.image_count || payload.image_count)
+  add('话题标签', payload.tags || payload.hashtags || payload.topic_tags || payload.keywords, true)
+  add('图片建议', asset.imageSuggestions || asset.image_suggestions || payload.image_suggestions, true)
+  add('素材需求', activeChannelAssetSummary.value, true)
+  return rows
+})
 const activeChannelPreview = computed(() => {
   const node = activeChannelNode.value || {}
   const payload = node.contentPayload || {}
@@ -1340,6 +1358,7 @@ watch(
 )
 
 const channelAccounts = reactive([])
+const channelContentIndex = reactive([])
 
 const planCalendarDays = ref([])
 
@@ -1827,6 +1846,7 @@ function priceRangeFromSkus(skus) {
 }
 
 function hydrateDrafts(apiDrafts, apiChannelContents = []) {
+  channelContentIndex.splice(0, channelContentIndex.length, ...apiChannelContents.map(channelContentFromApi))
   drafts.splice(0, drafts.length, ...apiDrafts.map(draft => ({
     raw: draft,
     id: apiField(draft, 'id', 'ID'),
@@ -1844,9 +1864,8 @@ function hydrateDrafts(apiDrafts, apiChannelContents = []) {
     source: sourceLabel(apiField(draft, 'source', 'Source')),
     status: draftStatusLabel(apiField(draft, 'audit_status', 'AuditStatus')),
     audit: modeConfig.draftAuditMode,
-    channels: apiChannelContents
-      .filter(content => Number(apiField(content, 'draft_id', 'DraftID')) === Number(apiField(draft, 'id', 'ID')))
-      .map(channelContentFromApi),
+    channels: channelContentIndex
+      .filter(content => Number(content.draftId) === Number(apiField(draft, 'id', 'ID'))),
     rawStatus: apiField(draft, 'audit_status', 'AuditStatus'),
   })))
 }
@@ -1910,6 +1929,7 @@ function channelContentFromApi(content) {
   const pkg = parseChannelPackage(body, channel?.name || `渠道 ${channelId}`)
   return {
     id: apiField(content, 'id', 'ID'),
+    draftId: apiField(content, 'draft_id', 'DraftID'),
     channel: channel?.name || `渠道 ${channelId}`,
     channelId,
     title: apiField(content, 'title', 'Title') || pkg.contentPayload.title || '',
@@ -3318,6 +3338,7 @@ function setupChannelGenerationNodes(draft) {
     return emptyChannelNode(name, channel?.id)
   }))
   channelGeneration.activeChannel = channelGeneration.nodes[0]?.channelName || ''
+  channelGeneration.detailTab = 'basic'
   channelGeneration.previewMode = 'source'
   channelGeneration.status = channelGeneration.nodes.some(node => node.contentId) ? 'partial_completed' : 'not_started'
   channelEditorMessages.splice(0, channelEditorMessages.length, {
@@ -3360,6 +3381,7 @@ function toggleGenerationChannel(name) {
 
 function selectChannelNode(name) {
   channelGeneration.activeChannel = name
+  channelGeneration.detailTab = 'basic'
 }
 
 function channelCodeByName(name) {
