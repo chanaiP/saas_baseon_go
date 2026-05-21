@@ -2127,25 +2127,63 @@ function inlineMarkdown(text) {
     .replace(/`([^`]+)`/g, '<code>$1</code>')
 }
 
+function normalizeChatMarkdown(text) {
+  return String(text || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\*\*([^*]+)\*\*/g, '\n**$1** ')
+    .replace(/([。！？；])\s*(?=(?:第[一二三四五六七八九十]+步|注意|请确认|生成方向|入口问题|对比问题|适配问题)[:：])/g, '$1\n\n')
+    .replace(/\s*(?=(?:第[一二三四五六七八九十]+步|注意|请确认|生成方向)[:：])/g, '\n\n')
+    .replace(/\s*(?=(?:入口问题|对比问题|适配问题)[:：])/g, '\n')
+    .replace(/\s+(?=\d+[.、]\s*)/g, '\n')
+    .replace(/\s+(?=[-*•]\s*)/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+function renderChatLine(line) {
+  if (/^\*\*[^*]+[:：]?\*\*\s*$/.test(line)) {
+    return `<h4>${inlineMarkdown(line)}</h4>`
+  }
+  if (/^(?:第[一二三四五六七八九十]+步|注意|请确认|生成方向)[:：]/.test(line)) {
+    const [title, ...rest] = line.split(/[:：]/)
+    return `<h4>${inlineMarkdown(title)}</h4>${rest.join('：').trim() ? `<p>${inlineMarkdown(rest.join('：').trim())}</p>` : ''}`
+  }
+  return `<p>${inlineMarkdown(line)}</p>`
+}
+
 function formatChatMessage(text) {
-  const source = String(text || '').trim()
+  const source = normalizeChatMarkdown(text)
   if (!source) return '<p></p>'
   const blocks = source
-    .replace(/([。！？])\s*(?=(?:\d+[.、]|[-•])\s*)/g, '$1\n')
-    .replace(/\s+(?=(?:\d+[.、]|[-•])\s*[^\n])/g, '\n')
     .split(/\n{2,}/)
     .map(block => block.trim())
     .filter(Boolean)
   return blocks.map(block => {
     const lines = block.split('\n').map(line => line.trim()).filter(Boolean)
-    const numbered = lines.every(line => /^\d+[.、]\s*/.test(line))
-    const bulleted = lines.every(line => /^[-•]\s*/.test(line))
-    if (numbered || bulleted) {
-      const tag = numbered ? 'ol' : 'ul'
-      const items = lines.map(line => `<li>${inlineMarkdown(line.replace(/^(?:\d+[.、]|[-•])\s*/, ''))}</li>`).join('')
-      return `<${tag}>${items}</${tag}>`
+    const rendered = []
+    let listTag = ''
+    let listItems = []
+    const flushList = () => {
+      if (!listTag) return
+      rendered.push(`<${listTag}>${listItems.join('')}</${listTag}>`)
+      listTag = ''
+      listItems = []
     }
-    return `<p>${inlineMarkdown(lines.join('\n')).replace(/\n/g, '<br>')}</p>`
+    for (const line of lines) {
+      const numbered = line.match(/^(\d+)[.、]\s*(.+)$/)
+      const bulleted = line.match(/^[-•]\s*(.+)$/)
+      if (numbered || bulleted) {
+        const tag = numbered ? 'ol' : 'ul'
+        if (listTag && listTag !== tag) flushList()
+        listTag = tag
+        listItems.push(`<li>${inlineMarkdown((numbered?.[2] || bulleted?.[1] || '').trim())}</li>`)
+        continue
+      }
+      flushList()
+      rendered.push(renderChatLine(line))
+    }
+    flushList()
+    return rendered.join('')
   }).join('')
 }
 async function generateDraftFromChat() {
