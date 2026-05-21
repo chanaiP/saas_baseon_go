@@ -654,9 +654,9 @@
                   @click="selectChannelNode(node.channelName)"
                 >
                   <span class="chain-dot"></span>
+                  <ChannelLogo :name="node.channelName" :code="channelCodeByName(node.channelName)" />
                   <strong>{{ index + 1 }}. {{ node.channelName }}</strong>
-                  <small>{{ node.contentType }}</small>
-                  <em>{{ node.updatedLabel || '等待中' }}</em>
+                  <em>{{ generationNodeStatusLabel(node.status) }}</em>
                 </li>
               </ol>
               <div class="current-platform-pane">
@@ -3327,6 +3327,10 @@ function toggleGenerationChannel(name) {
 
 function selectChannelNode(name) {
   channelGeneration.activeChannel = name
+}
+
+function channelCodeByName(name) {
+  return channelProfiles.find(item => item.name === name)?.code || ''
 }
 
 function generationNodeStatusLabel(status) {
