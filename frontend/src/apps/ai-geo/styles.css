@@ -534,8 +534,8 @@
 .geo-growth-page .modal-header h3, .geo-growth-page .drawer-header h3 { margin: 0; }
 .geo-growth-page .modal-header button, .geo-growth-page .drawer-header button { border: 0; background: transparent; font-size: 24px; }
 .geo-growth-page .modal-body { padding: 20px; display: grid; gap: 14px; }
-.geo-growth-page .channel-generation-page { width: 100%; max-width: 100%; min-width: 0; min-height: calc(100dvh - 48px); display: flex; flex-direction: column; }
-.geo-growth-page .channel-generation-console { width: 100%; max-width: 100%; box-sizing: border-box; flex: 1 1 auto; min-height: 720px; height: calc(100dvh - 48px); display: grid; grid-template-columns: minmax(240px, 24%) minmax(260px, 24%) minmax(0, 1fr); gap: 14px; padding: 0; background: transparent; overflow: hidden; border: 0; border-radius: 0; }
+.geo-growth-page .channel-generation-page { --channel-generation-available-height: calc(100dvh - 192px); width: 100%; max-width: 100%; min-width: 0; height: var(--channel-generation-available-height); min-height: min(640px, var(--channel-generation-available-height)); max-height: var(--channel-generation-available-height); display: flex; flex-direction: column; overflow: hidden; }
+.geo-growth-page .channel-generation-console { width: 100%; max-width: 100%; box-sizing: border-box; flex: 1 1 auto; min-height: 0; height: 100%; display: grid; grid-template-columns: minmax(240px, 24%) minmax(260px, 24%) minmax(0, 1fr); gap: 14px; padding: 0; background: transparent; overflow: hidden; border: 0; border-radius: 0; }
 .geo-growth-page .channel-console-col { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: rgba(255, 255, 255, .96); box-shadow: 0 14px 38px rgba(15, 23, 42, .06); }
 .geo-growth-page .console-panel-head { flex-shrink: 0; display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; padding: 14px 16px; border-bottom: 1px solid var(--line); }
 .geo-growth-page .console-panel-head h4 { margin: 0 0 4px; font-size: 16px; }
@@ -630,7 +630,8 @@
   .geo-growth-page .chat-panel, .geo-growth-page .editor-panel { height: auto; max-height: none; }
   .geo-growth-page .chat-panel.is-chatting { min-height: min(760px, calc(100dvh - 120px)); }
   .geo-growth-page .context-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .geo-growth-page .channel-generation-console { height: auto; min-height: calc(100dvh - 120px); grid-template-columns: 1fr; overflow: visible; }
+  .geo-growth-page .channel-generation-page { --channel-generation-available-height: auto; height: auto; min-height: 0; max-height: none; overflow: visible; }
+  .geo-growth-page .channel-generation-console { height: auto; min-height: 0; grid-template-columns: 1fr; overflow: visible; }
   .geo-growth-page .channel-console-col { min-height: 420px; }
   .geo-growth-page .channel-chain-layout { grid-template-columns: 1fr; }
   .geo-growth-page .chain-node-list { border-right: 0; border-bottom: 1px solid var(--line); }
