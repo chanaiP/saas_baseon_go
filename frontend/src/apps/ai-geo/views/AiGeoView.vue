@@ -586,14 +586,10 @@
           <section class="channel-console-col channel-ai-editor">
             <div class="console-panel-head">
               <div>
-                <h4>AI 对话</h4>
+                <h4>{{ activeChannelNode?.channelName || '请选择平台' }} · 渠道内容 · AI 对话</h4>
                 <p>用于修改当前选中的平台渠道内容，不影响母稿，也不影响其他平台。</p>
               </div>
               <span class="badge">修改协商</span>
-            </div>
-            <div class="current-edit-target">
-              <span>当前修改对象</span>
-              <strong>{{ activeChannelNode?.channelName || '请选择平台' }} · 渠道内容</strong>
             </div>
             <div class="ai-tools channel-edit-prompts">
               <button class="btn small ghost" @click="channelEditPrompt = '降低营销感，语气更自然，保留 GEO 关键词'">降低营销感</button>

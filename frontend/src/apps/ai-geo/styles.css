@@ -555,9 +555,7 @@
 .geo-growth-page .readonly-article ol { margin: 0; padding-left: 1.2em; display: grid; gap: 8px; }
 .geo-growth-page .readonly-article li { line-height: 1.75; }
 .geo-growth-page .source-record-grid.compact { flex-shrink: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 12px; border-top: 1px solid var(--line); }
-.geo-growth-page .current-edit-target { margin: 14px 16px 10px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: #f8fafc; }
-.geo-growth-page .current-edit-target span { display: block; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
-.geo-growth-page .channel-edit-prompts { flex-shrink: 0; padding: 0 16px 10px; display: flex; gap: 8px; flex-wrap: wrap; }
+.geo-growth-page .channel-edit-prompts { flex-shrink: 0; padding: 12px 16px 10px; display: flex; gap: 8px; flex-wrap: wrap; }
 .geo-growth-page .channel-ai-log { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 10px; padding: 12px 16px; }
 .geo-growth-page .channel-ai-input { flex-shrink: 0; display: grid; gap: 10px; padding: 12px 16px 16px; border-top: 1px solid var(--line); }
 .geo-growth-page .channel-ai-input textarea { min-height: 92px; resize: none; line-height: 1.6; }
