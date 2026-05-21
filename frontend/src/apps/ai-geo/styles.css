@@ -111,6 +111,15 @@
 .geo-growth-page .channel-table .col-actions.row-actions-inline { justify-content: flex-end; }
 .geo-growth-page .channel-cell { display: flex; gap: 12px; align-items: center; }
 .geo-growth-page .channel-logo { width: 40px; height: 40px; border-radius: 12px; background: #f8fafc; border: 1px solid var(--line); display: grid; place-items: center; font-size: 18px; flex-shrink: 0; }
+.geo-growth-page .channel-logo img,
+.geo-growth-page .channel-logo svg { width: 22px; height: 22px; display: block; }
+.geo-growth-page .channel-logo--xiaohongshu { background: #fff1f3; border-color: rgba(255, 36, 66, .22); }
+.geo-growth-page .channel-logo--douyin { background: #f8fafc; border-color: rgba(17, 24, 39, .16); }
+.geo-growth-page .channel-logo--wechat { background: #ecfdf3; border-color: rgba(7, 193, 96, .22); }
+.geo-growth-page .channel-logo--zhihu { background: #eff6ff; border-color: rgba(0, 102, 255, .22); }
+.geo-growth-page .channel-logo--weibo { background: #fff1f2; border-color: rgba(230, 22, 45, .22); }
+.geo-growth-page .channel-logo--baijiahao { background: #eef2ff; border-color: rgba(41, 56, 230, .22); }
+.geo-growth-page .channel-logo--website { color: #0f766e; background: #ecfeff; border-color: rgba(15, 118, 110, .22); }
 .geo-growth-page .channel-cell strong { display: block; margin-bottom: 4px; }
 .geo-growth-page .channel-cell p { margin: 0; color: var(--muted); font-size: 12px; }
 .geo-growth-page .channel-links { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 6px; min-height: 40px; }

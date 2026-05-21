@@ -1,0 +1,3 @@
+-- Data seed is intentionally retained.
+-- Channel profiles are business-maintained tenant data and may already be referenced
+-- by channel accounts, channel contents, publish plans, and audit records.

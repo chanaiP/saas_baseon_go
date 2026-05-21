@@ -25,6 +25,26 @@ const (
 	quotaMonthlyPublishTasks     = "ai_geo_monthly_publish_tasks"
 )
 
+type defaultChannelSeed struct {
+	code        string
+	name        string
+	channelType string
+	entryURL    string
+	forms       []string
+	modes       []string
+	publishMode string
+}
+
+var defaultChannelSeeds = []defaultChannelSeed{
+	{code: "website", name: "独立站", channelType: "自有站点", entryURL: "", forms: []string{"SEO文章", "商品详情页", "落地页"}, modes: []string{"渠道 API", "人工发布"}, publishMode: "api_auto"},
+	{code: "xiaohongshu", name: "小红书", channelType: "社交种草平台", entryURL: "https://www.xiaohongshu.com", forms: []string{"图文笔记", "视频笔记"}, modes: []string{"渠道 API", "Agent 执行", "人工发布"}, publishMode: "api_draft_manual_confirm"},
+	{code: "douyin", name: "抖音", channelType: "短视频平台", entryURL: "https://www.douyin.com", forms: []string{"短视频", "图文", "直播预告"}, modes: []string{"渠道 API", "Agent 执行", "人工发布"}, publishMode: "agent_manual_confirm"},
+	{code: "wechat_official_account", name: "微信公众号", channelType: "内容平台", entryURL: "https://mp.weixin.qq.com", forms: []string{"长图文", "多图文", "草稿"}, modes: []string{"渠道 API", "人工发布"}, publishMode: "api_draft_manual_confirm"},
+	{code: "weibo", name: "微博", channelType: "社交媒体平台", entryURL: "https://weibo.com", forms: []string{"短图文", "话题", "长文"}, modes: []string{"渠道 API", "人工发布"}, publishMode: "api_draft_manual_confirm"},
+	{code: "baijiahao", name: "百家号", channelType: "内容平台", entryURL: "https://baijiahao.baidu.com", forms: []string{"图文文章", "动态", "视频"}, modes: []string{"渠道 API", "人工发布"}, publishMode: "api_draft_manual_confirm"},
+	{code: "zhihu", name: "知乎", channelType: "问答平台", entryURL: "https://www.zhihu.com", forms: []string{"回答", "文章", "想法"}, modes: []string{"渠道 API", "Agent 执行", "人工发布"}, publishMode: "agent_manual_confirm"},
+}
+
 var (
 	ErrNotFound      = errors.New("not found")
 	ErrInvalidInput  = errors.New("请求参数错误")
@@ -150,6 +170,9 @@ func (s *Service) RecordAudit(ctx context.Context, viewer dto.Viewer, meta dto.R
 func (s *Service) Overview(ctx context.Context, viewer dto.Viewer) (dto.Overview, error) {
 	if viewer.TenantID == 0 {
 		return dto.Overview{}, ErrInvalidInput
+	}
+	if err := s.ensureDefaultChannels(ctx, viewer); err != nil {
+		return dto.Overview{}, err
 	}
 	tenantID := viewer.TenantID
 	brandCount, err := s.repo.CountBrands(ctx, tenantID)
@@ -938,8 +961,45 @@ func (s *Service) ArchiveHotspot(ctx context.Context, viewer dto.Viewer, id uint
 }
 
 func (s *Service) Channels(ctx context.Context, viewer dto.Viewer, req dto.PageRequest) (dto.PageResponse[models.AiGeoChannelProfile], error) {
+	if err := s.ensureDefaultChannels(ctx, viewer); err != nil {
+		return dto.PageResponse[models.AiGeoChannelProfile]{}, err
+	}
 	rows, total, err := s.repo.ListChannels(ctx, viewer.TenantID, req)
 	return page(rows, total, req), err
+}
+
+func (s *Service) ensureDefaultChannels(ctx context.Context, viewer dto.Viewer) error {
+	if viewer.TenantID == 0 {
+		return ErrInvalidInput
+	}
+	existing, err := s.repo.CountChannels(ctx, viewer.TenantID)
+	if err != nil {
+		return err
+	}
+	if existing > 0 {
+		return nil
+	}
+	now := time.Now()
+	userID := viewer.UserID
+	rows := make([]models.AiGeoChannelProfile, 0, len(defaultChannelSeeds))
+	for _, seed := range defaultChannelSeeds {
+		rows = append(rows, models.AiGeoChannelProfile{
+			TenantID:           viewer.TenantID,
+			ChannelCode:        seed.code,
+			ChannelName:        seed.name,
+			ChannelType:        seed.channelType,
+			EntryURL:           stringPtr(seed.entryURL),
+			ContentForms:       jsonString(seed.forms, []string{}),
+			SupportModes:       jsonString(seed.modes, []string{}),
+			DefaultPublishMode: seed.publishMode,
+			Status:             "active",
+			CreatedBy:          &userID,
+			UpdatedBy:          &userID,
+			CreatedAt:          now,
+			UpdatedAt:          now,
+		})
+	}
+	return s.repo.EnsureChannels(ctx, rows)
 }
 
 func (s *Service) CreateChannel(ctx context.Context, viewer dto.Viewer, payload dto.ChannelPayload) (models.AiGeoChannelProfile, error) {

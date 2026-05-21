@@ -288,7 +288,7 @@
                     <div class="channel-list-label">渠道内容</div>
                     <div v-for="channel in draft.channels" :key="channel.id" class="channel-row">
                       <div class="channel-row-leading">
-                        <span class="channel-logo" :class="`channel-${channel.channel}`">{{ planChannelIcon(channel.channel) }}</span>
+                        <ChannelLogo :name="channel.channel" />
                         <div class="channel-row-text">
                           <span class="channel-name">{{ channel.channel }}</span>
                           <span class="channel-title">{{ channel.title }}</span>
@@ -381,7 +381,7 @@
                       <td class="queue-time">{{ plan.time }}</td>
                       <td>
                         <div class="channel-cell compact">
-                          <span class="channel-logo">{{ planChannelIcon(plan.channel) }}</span>
+                          <ChannelLogo :name="plan.channel" />
                           <strong>{{ plan.channel }}</strong>
                         </div>
                       </td>
@@ -431,10 +431,13 @@
                 <tr><th>渠道</th><th>账号名称</th><th>登录标识</th><th>状态</th><th>最近更新</th><th>操作</th></tr>
               </thead>
               <tbody>
+                <tr v-if="!channelAccounts.length">
+                  <td colspan="6" class="timeline-empty muted">暂无渠道账号。请通过“新增账号”接入真实授权账号。</td>
+                </tr>
                 <tr v-for="account in channelAccounts" :key="account.id">
                   <td>
                     <div class="channel-cell compact">
-                      <span class="channel-logo" :class="`channel-${account.channel}`">{{ planChannelIcon(account.channel) }}</span>
+                      <ChannelLogo :name="account.channel" :code="account.channelCode" />
                       <strong>{{ account.channel }}</strong>
                     </div>
                   </td>
@@ -874,6 +877,7 @@ import { computed, defineComponent, h, onMounted, reactive, ref, watch } from 'v
 import { useRoute, useRouter } from 'vue-router'
 import { usePermissionStore } from '@/stores/permission'
 import ChannelManagementPanel from '../components/ChannelManagementPanel.vue'
+import ChannelLogo from '../components/ChannelLogo.vue'
 import {
   approveAiGeoChannelContent,
   approveAiGeoDraft,
@@ -884,6 +888,7 @@ import {
   createAiGeoPublishPlan,
   fetchAiGeoBrands,
   fetchAiGeoChannels,
+  fetchAiGeoChannelAccounts,
   fetchAiGeoChannelContents,
   fetchAiGeoChannelContentAuditSuggestions,
   fetchAiGeoCompetitors,
@@ -1237,15 +1242,7 @@ const modeConfig = reactive({
   channelAuditMode: 'AI审核'
 })
 
-const channelProfiles = reactive([
-  { name: '独立站', icon: '🌐', desc: '品牌独立站', type: '自有站点', siteUrl: 'https://mardiladin.com', adminUrl: 'https://admin.mardiladin.com', contentTypes: 'SEO 长文 / 商品详情', supportMethods: '渠道 API / 人工', defaultMethod: 'API 自动发布', accountCount: 1, status: '可发布', method: '渠道 API', level: '全自动', skill: '', risk: '接口校验 + Sitemap 更新', enabled: true },
-  { name: '小红书', icon: '📕', desc: '图文种草平台', type: '社交平台', siteUrl: 'https://www.xiaohongshu.com', adminUrl: 'https://creator.xiaohongshu.com', contentTypes: '图文笔记', supportMethods: '渠道 API / Agent / 人工', defaultMethod: 'API 草稿 + 人工确认', accountCount: 1, status: '可发布', method: 'Agent 执行', level: '半自动', skill: '小红书图文发布 Skill', risk: '随机停顿 / 频率限制 / 人工确认', enabled: true },
-  { name: '抖音', icon: '🎵', desc: '短视频平台', type: '视频平台', siteUrl: 'https://www.douyin.com', adminUrl: 'https://creator.douyin.com', contentTypes: '短视频 / 图文', supportMethods: '渠道 API / Agent / 人工', defaultMethod: 'API 草稿 + 人工确认', accountCount: 0, status: '待授权', method: 'Agent 执行', level: '半自动', skill: '抖音短视频发布 Skill', risk: '频率限制 + 人工确认', enabled: true },
-  { name: '微信公众号', icon: '💬', desc: '微信内容平台', type: '内容平台', siteUrl: 'https://mp.weixin.qq.com', adminUrl: 'https://mp.weixin.qq.com', contentTypes: '长图文', supportMethods: '渠道 API / 人工', defaultMethod: 'API 草稿 + 人工确认', accountCount: 1, status: '可发布', method: '渠道 API', level: '半自动', skill: '', risk: '草稿箱接口 + 发布前确认', enabled: true },
-  { name: '微博', icon: '📢', desc: '社交媒体平台', type: '社交平台', siteUrl: 'https://weibo.com', adminUrl: 'https://weibo.com', contentTypes: '短图文 / 话题', supportMethods: '渠道 API / 人工', defaultMethod: 'API 自动发布', accountCount: 0, status: '待授权', method: '渠道 API', level: '半自动', skill: '', risk: '敏感词检查 + 发布前确认', enabled: true },
-  { name: '百家号', icon: '📰', desc: '百度内容平台', type: '内容平台', siteUrl: 'https://baijiahao.baidu.com', adminUrl: 'https://baijiahao.baidu.com', contentTypes: '资讯 / 图文', supportMethods: '渠道 API / 人工', defaultMethod: 'API 自动发布', accountCount: 0, status: '未配置', method: '渠道 API', level: '半自动', skill: '', risk: '原创检测 + 接口校验', enabled: true },
-  { name: '知乎', icon: '💡', desc: '问答与专栏', type: '问答平台', siteUrl: 'https://www.zhihu.com', adminUrl: 'https://www.zhihu.com/creator', contentTypes: '回答 / 文章', supportMethods: '渠道 API / Agent / 人工', defaultMethod: 'API 自动发布', accountCount: 1, status: '待授权', method: 'Agent 执行', level: '人工', skill: '知乎回答发布 Skill', risk: '人工接管 / 敏感词检查', enabled: true }
-])
+const channelProfiles = reactive([])
 const channelGenerationOrder = ['小红书', '知乎', '微信公众号', '抖音', '微博', '百家号', '独立站']
 const channelGeneration = reactive({
   selectedChannels: ['小红书', '知乎', '微信公众号'],
@@ -1324,15 +1321,7 @@ watch(
   { immediate: true }
 )
 
-const channelAccounts = reactive([
-  { id: 1, channel: '独立站', accountName: 'Mardi 官网主站', login: 'admin@mardi.com', status: '已授权', updatedAt: '2026-05-18' },
-  { id: 2, channel: '小红书', accountName: 'Mardi 小红书官方', login: 'xhs_mardi_official', status: '已授权', updatedAt: '2026-05-19' },
-  { id: 3, channel: '微信公众号', accountName: 'Mardi 品牌公众号', login: 'mardi_wechat', status: '已授权', updatedAt: '2026-05-17' },
-  { id: 4, channel: '知乎', accountName: 'Mardi 品牌知乎', login: '—', status: '待授权', updatedAt: '2026-05-15' },
-  { id: 5, channel: '抖音', accountName: 'Mardi 抖音官方', login: '—', status: '待授权', updatedAt: '2026-05-16' },
-  { id: 6, channel: '微博', accountName: 'Mardi 官方微博', login: '—', status: '待授权', updatedAt: '2026-05-14' },
-  { id: 7, channel: '百家号', accountName: 'Mardi 百家号', login: '—', status: '未配置', updatedAt: '2026-05-13' }
-])
+const channelAccounts = reactive([])
 
 const planCalendarDays = ref([])
 
@@ -1508,10 +1497,6 @@ const planQueueSummary = computed(() => {
   }
 })
 
-function planChannelIcon(channel) {
-  return channelProfiles.find(c => c.name === channel)?.icon || '📣'
-}
-
 function queueStatusClass(status) {
   if (['已通过', '可发布', '完整'].includes(status)) return 'success'
   if (status === '阻断') return 'danger'
@@ -1595,7 +1580,7 @@ async function loadAiGeoData() {
   loading.page = true
   try {
     const calendarRange = publishCalendarRange()
-    const [overviewData, brandPage, productPage, skuPage, competitorPage, keywordPage, assetPage, hotspotPage, channelPage, draftPage, channelContentPage, planPage, planCalendar] = await Promise.all([
+    const [overviewData, brandPage, productPage, skuPage, competitorPage, keywordPage, assetPage, hotspotPage, channelPage, channelAccountPage, draftPage, channelContentPage, planPage, planCalendar] = await Promise.all([
       fetchAiGeoOverview(),
       fetchAiGeoBrands({ limit: 200 }),
       fetchAiGeoProducts({ limit: 200 }),
@@ -1605,6 +1590,7 @@ async function loadAiGeoData() {
       fetchAiGeoMaterialAssets({ limit: 500 }),
       fetchAiGeoHotspots({ limit: 200, status: 'active' }),
       fetchAiGeoChannels({ limit: 200 }),
+      fetchAiGeoChannelAccounts({ limit: 500 }),
       fetchAiGeoDrafts({ limit: 200 }),
       fetchAiGeoChannelContents({ limit: 500 }),
       fetchAiGeoPublishPlans({ limit: 200 }),
@@ -1614,6 +1600,7 @@ async function loadAiGeoData() {
     hydrateBrands(brandPage.items || [], productPage.items || [], skuPage.items || [], competitorPage.items || [], assetPage.items || [], keywordPage.items || [])
     hydrateHotspots(hotspotPage.items || [])
     hydrateChannels(channelPage.items || [])
+    hydrateChannelAccounts(channelAccountPage.items || [])
     hydrateDrafts(draftPage.items || [], channelContentPage.items || [])
     restoreWorkbenchDraftAfterLoad()
     restoreChannelGenerationAfterLoad()
@@ -1726,23 +1713,49 @@ function keywordGroupsForBrand(brand, apiKeywords = []) {
 function hydrateChannels(apiChannels) {
   channelProfiles.splice(0, channelProfiles.length, ...apiChannels.map(channel => ({
     id: apiField(channel, 'id', 'ID'),
+    code: apiField(channel, 'channel_code', 'ChannelCode') || '',
     name: apiField(channel, 'channel_name', 'ChannelName') || '',
-    icon: channelIcon(apiField(channel, 'channel_name', 'ChannelName')),
-    desc: apiField(channel, 'channel_type', 'ChannelType') || '',
+    desc: channelDescription(apiField(channel, 'channel_code', 'ChannelCode'), apiField(channel, 'channel_name', 'ChannelName')),
     type: apiField(channel, 'channel_type', 'ChannelType') || '',
     siteUrl: apiField(channel, 'entry_url', 'EntryURL') || '',
-    adminUrl: apiField(channel, 'entry_url', 'EntryURL') || '',
+    adminUrl: channelAdminUrl(apiField(channel, 'channel_code', 'ChannelCode'), apiField(channel, 'entry_url', 'EntryURL')),
     contentTypes: parseJsonArray(apiField(channel, 'content_forms', 'ContentForms')).join(' / '),
     supportMethods: parseJsonArray(apiField(channel, 'support_modes', 'SupportModes')).join(' / '),
-    defaultMethod: apiField(channel, 'default_publish_mode', 'DefaultPublishMode'),
+    defaultMethod: publishModeLabel(apiField(channel, 'default_publish_mode', 'DefaultPublishMode')),
     accountCount: 0,
-    status: apiField(channel, 'status', 'Status') === 'active' ? '可发布' : '未配置',
+    status: channelAccessStatus(apiField(channel, 'status', 'Status')),
     method: apiField(channel, 'default_publish_mode', 'DefaultPublishMode'),
     level: apiField(channel, 'default_publish_mode', 'DefaultPublishMode') === 'manual' ? '人工' : '半自动',
-    skill: '',
-    risk: '发布前校验 + 异常人工接管',
+    skill: channelSkill(apiField(channel, 'channel_code', 'ChannelCode'), apiField(channel, 'channel_name', 'ChannelName')),
+    risk: channelRisk(apiField(channel, 'channel_code', 'ChannelCode'), apiField(channel, 'channel_name', 'ChannelName')),
     enabled: apiField(channel, 'status', 'Status') === 'active',
   })))
+}
+
+function hydrateChannelAccounts(apiAccounts) {
+  channelAccounts.splice(0, channelAccounts.length, ...apiAccounts.map(account => {
+    const channelID = Number(apiField(account, 'channel_id', 'ChannelID'))
+    const channel = channelProfiles.find(item => Number(item.id) === channelID)
+    return {
+      id: apiField(account, 'id', 'ID'),
+      channelId: channelID,
+      channel: channel?.name || `渠道 ${channelID}`,
+      channelCode: channel?.code || '',
+      accountName: apiField(account, 'account_name', 'AccountName') || '',
+      login: apiField(account, 'external_account_id', 'ExternalAccountID') || '未绑定',
+      status: accountAuthLabel(apiField(account, 'auth_status', 'AuthStatus'), apiField(account, 'publish_status', 'PublishStatus')),
+      updatedAt: formatGeneratedTime(apiField(account, 'updated_at', 'UpdatedAt')),
+      raw: account,
+    }
+  }))
+  const accountCountByChannel = channelAccounts.reduce((map, account) => {
+    map.set(account.channelId, (map.get(account.channelId) || 0) + 1)
+    return map
+  }, new Map())
+  channelProfiles.forEach(channel => {
+    channel.accountCount = accountCountByChannel.get(Number(channel.id)) || 0
+    if (channel.accountCount === 0 && channel.status === '可发布') channel.status = '待授权'
+  })
 }
 
 function skuFromApi(sku) {
@@ -3696,15 +3709,86 @@ function skuStatusLabel(status) {
   return map[status] || status || '未知'
 }
 
-function channelIcon(name) {
-  if (name?.includes('小红书')) return '📕'
-  if (name?.includes('抖音')) return '🎵'
-  if (name?.includes('微信')) return '💬'
-  if (name?.includes('知乎')) return '💡'
-  if (name?.includes('微博')) return '📢'
-  if (name?.includes('百家')) return '📰'
-  if (name?.includes('站')) return '🌐'
-  return '📣'
+function channelKey(code, name) {
+  const raw = `${code || ''} ${name || ''}`.toLowerCase()
+  if (raw.includes('xiaohongshu') || raw.includes('小红书')) return 'xiaohongshu'
+  if (raw.includes('douyin') || raw.includes('tiktok') || raw.includes('抖音')) return 'douyin'
+  if (raw.includes('wechat') || raw.includes('weixin') || raw.includes('微信')) return 'wechat'
+  if (raw.includes('zhihu') || raw.includes('知乎')) return 'zhihu'
+  if (raw.includes('weibo') || raw.includes('微博')) return 'weibo'
+  if (raw.includes('baijia') || raw.includes('baidu') || raw.includes('百家') || raw.includes('百度')) return 'baijiahao'
+  return 'website'
+}
+
+function channelDescription(code, name) {
+  return {
+    website: '品牌自有站点 / SEO 内容入口',
+    xiaohongshu: '生活方式与种草图文平台',
+    douyin: '短视频与图文内容平台',
+    wechat: '公众号长图文内容平台',
+    zhihu: '问答与专栏内容平台',
+    weibo: '开放社交媒体平台',
+    baijiahao: '百度内容生态平台',
+  }[channelKey(code, name)] || '渠道资料'
+}
+
+function channelAdminUrl(code, fallback) {
+  return {
+    website: fallback || '',
+    xiaohongshu: 'https://creator.xiaohongshu.com',
+    douyin: 'https://creator.douyin.com',
+    wechat: 'https://mp.weixin.qq.com',
+    zhihu: 'https://www.zhihu.com/creator',
+    weibo: 'https://weibo.com',
+    baijiahao: 'https://baijiahao.baidu.com',
+  }[channelKey(code, '')] || fallback || ''
+}
+
+function publishModeLabel(mode) {
+  return {
+    api_auto: 'API 自动发布',
+    api_draft_manual_confirm: 'API 草稿 + 人工确认',
+    agent_manual_confirm: 'Agent 执行 + 人工确认',
+    manual: '人工发布',
+  }[mode] || mode || '人工发布'
+}
+
+function channelAccessStatus(status) {
+  if (status === 'active') return '可发布'
+  if (status === 'pending_auth') return '待授权'
+  if (status === 'inactive') return '未启用'
+  return status || '未配置'
+}
+
+function accountAuthLabel(authStatus, publishStatus) {
+  if (authStatus === 'authorized' && publishStatus === 'available') return '已授权'
+  if (authStatus === 'authorized') return '已授权'
+  if (authStatus === 'pending') return '待授权'
+  return '未授权'
+}
+
+function channelSkill(code, name) {
+  return {
+    xiaohongshu: '小红书图文发布 Skill',
+    douyin: '抖音短视频发布 Skill',
+    wechat: '微信公众号图文发布 Skill',
+    zhihu: '知乎回答发布 Skill',
+    weibo: '微博短帖发布 Skill',
+    baijiahao: '百家号图文发布 Skill',
+    website: '独立站 SEO 发布 Skill',
+  }[channelKey(code, name)] || ''
+}
+
+function channelRisk(code, name) {
+  return {
+    xiaohongshu: '平台节奏控制 / 草稿人工确认',
+    douyin: '视频素材校验 / 发布频率控制',
+    wechat: '草稿箱接口 / 发布前确认',
+    zhihu: '问答语境审核 / 敏感词检查',
+    weibo: '话题与敏感词检查',
+    baijiahao: '原创检测 / 接口校验',
+    website: 'Sitemap 更新 / SEO 字段校验',
+  }[channelKey(code, name)] || '发布前校验 + 异常人工接管'
 }
 
 function sourceLabel(source) {

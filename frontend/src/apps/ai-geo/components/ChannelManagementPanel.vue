@@ -36,10 +36,13 @@
             </tr>
           </thead>
           <tbody>
+            <tr v-if="!channels.length">
+              <td :colspan="compact ? 8 : 9" class="timeline-empty muted">暂无渠道资料。请先在渠道管理中维护真实平台资料。</td>
+            </tr>
             <tr v-for="channel in channels" :key="channel.name">
               <td class="col-channel">
                 <div class="channel-cell">
-                  <span class="channel-logo">{{ channel.icon }}</span>
+                  <ChannelLogo :name="channel.name" :code="channel.code" />
                   <div>
                     <strong>{{ channel.name }}</strong>
                     <p>{{ channel.desc }}</p>
@@ -72,6 +75,7 @@
 </template>
 
 <script setup>
+import ChannelLogo from './ChannelLogo.vue'
 
 defineProps({
   channels: { type: Array, required: true },

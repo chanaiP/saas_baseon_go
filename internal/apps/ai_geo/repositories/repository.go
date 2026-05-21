@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"saas_baseon_go/internal/apps/ai_geo/dto"
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
@@ -382,6 +383,16 @@ func (r *Repository) Channel(ctx context.Context, tenantID, id uint64) (models.A
 
 func (r *Repository) SaveChannel(ctx context.Context, channel *models.AiGeoChannelProfile) error {
 	return r.db.WithContext(ctx).Save(channel).Error
+}
+
+func (r *Repository) EnsureChannels(ctx context.Context, channels []models.AiGeoChannelProfile) error {
+	if len(channels) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "tenant_id"}, {Name: "channel_code"}},
+		DoNothing: true,
+	}).Create(&channels).Error
 }
 
 func (r *Repository) ListChannelAccounts(ctx context.Context, tenantID uint64, req dto.PageRequest) ([]models.AiGeoChannelAccount, int64, error) {
