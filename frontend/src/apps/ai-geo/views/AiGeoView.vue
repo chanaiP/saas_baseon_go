@@ -886,12 +886,12 @@
       </div>
     </aside>
 
-    <div v-if="toast.show" class="toast">{{ toast.text }}</div>
   </div>
 </template>
 
 <script setup>
 import { computed, defineComponent, h, onMounted, reactive, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { usePermissionStore } from '@/stores/permission'
 import ChannelManagementPanel from '../components/ChannelManagementPanel.vue'
@@ -1523,7 +1523,6 @@ function queueStatusClass(status) {
 
 const modal = reactive({ type: '', title: '', wide: false })
 const drawer = reactive({ type: '', title: '' })
-const toast = reactive({ show: false, text: '' })
 const selectedChannel = reactive({})
 const selectedDraft = ref(null)
 const draftViewParagraphs = computed(() => String(selectedDraft.value?.body || '').split(/\n+/).map(item => item.trim()).filter(Boolean))
@@ -2119,9 +2118,10 @@ function hydratePlans(apiPlans) {
 }
 
 function showToast(text) {
-  toast.text = text
-  toast.show = true
-  setTimeout(() => { toast.show = false }, 1800)
+  const message = String(text || '').trim()
+  if (!message) return
+  const type = /失败|错误|异常|无法|阻断/.test(message) ? 'error' : /请先|请填写|未找到|不能|需要|告警|风险/.test(message) ? 'warning' : 'success'
+  ElMessage({ message, type, grouping: true, showClose: true })
 }
 function closeModal() { modal.type = ''; modal.title = ''; modal.wide = false }
 function closeDrawer() { drawer.type = ''; drawer.title = '' }
