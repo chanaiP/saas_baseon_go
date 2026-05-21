@@ -271,9 +271,11 @@
                     <div>
                       <h3>{{ draft.title }}</h3>
                       <p>{{ draft.summary }}</p>
+                      <p class="draft-generated-at">生成时间：{{ draft.generatedAtLabel }}</p>
                       <div class="tagline"><span class="tag">{{ draft.source }}</span><span class="tag">{{ draft.status }}</span><span class="tag">{{ draft.audit }}</span></div>
                     </div>
                     <div class="row-actions">
+                      <button class="btn small ghost" @click="viewDraft(draft)">查看</button>
                       <button class="btn small" @click="editDraftInWorkbench(draft)">进入编辑器</button>
                       <button v-if="canManageDraft" class="btn small ghost" @click="generateDraftAudit(draft)">审核建议</button>
                       <button v-if="canManageDraft" class="btn small ghost" @click="approveDraft(draft)">审核通过</button>
@@ -612,6 +614,23 @@
           <label>自动化级别<select v-model="newPlanLevel"><option>全自动</option><option>半自动</option><option>人工</option></select></label>
           <label>计划时间<input type="datetime-local" v-model="newPlanTime" /></label>
           <button v-if="canManagePublishPlan" class="btn primary full" @click="createPlan">生成发布任务</button>
+        </div>
+
+        <div v-if="modal.type === 'draftView'" class="modal-body draft-view-modal">
+          <div class="draft-view-meta">
+            <span>生成时间：{{ selectedDraft?.generatedAtLabel || '-' }}</span>
+            <span>状态：{{ selectedDraft?.status || '-' }}</span>
+            <span>来源：{{ selectedDraft?.source || '-' }}</span>
+          </div>
+          <h2>{{ selectedDraft?.title }}</h2>
+          <p class="draft-view-summary">{{ selectedDraft?.summary }}</p>
+          <article class="draft-view-body">
+            <p v-for="(paragraph, paragraphIndex) in draftViewParagraphs" :key="paragraphIndex">{{ paragraph }}</p>
+          </article>
+          <div v-if="selectedDraft?.channels?.length" class="draft-view-channels">
+            <h4>已生成渠道内容</h4>
+            <span v-for="channel in selectedDraft.channels" :key="channel.id" class="tag">{{ channel.channel }} · {{ channel.status }}</span>
+          </div>
         </div>
       </div>
     </div>
@@ -1222,6 +1241,13 @@ function formatTimelineDay(dateStr) {
 function formatTimelineWeekday(dateStr) {
   return timelineWeekdays[new Date(`${dateStr}T12:00:00`).getDay()]
 }
+function formatGeneratedTime(value) {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
+  const pad = number => String(number).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
 const filteredPlans = computed(() => plans.filter(p => p.date === planDate.value))
 
 const planQueueSummary = computed(() => {
@@ -1250,6 +1276,7 @@ const drawer = reactive({ type: '', title: '' })
 const toast = reactive({ show: false, text: '' })
 const selectedChannel = reactive({})
 const selectedDraft = ref(null)
+const draftViewParagraphs = computed(() => String(selectedDraft.value?.body || '').split(/\n+/).map(item => item.trim()).filter(Boolean))
 const selectedProduct = reactive({})
 const brandForm = reactive({
   id: 0,
@@ -1514,7 +1541,10 @@ function priceRangeFromSkus(skus) {
 
 function hydrateDrafts(apiDrafts, apiChannelContents = []) {
   drafts.splice(0, drafts.length, ...apiDrafts.map(draft => ({
+    raw: draft,
     id: apiField(draft, 'id', 'ID'),
+    generatedAt: apiField(draft, 'created_at', 'CreatedAt') || '',
+    generatedAtLabel: formatGeneratedTime(apiField(draft, 'created_at', 'CreatedAt')),
     date: String(apiField(draft, 'created_at', 'CreatedAt') || new Date().toISOString()).slice(0, 10),
     title: apiField(draft, 'title', 'Title') || '',
     summary: apiField(draft, 'summary', 'Summary') || '',
@@ -1613,6 +1643,12 @@ function openBrandModal(brand = null) {
   modal.wide = false
 }
 function openNewPlanModal() { modal.type = 'newPlan'; modal.title = '新建发布计划' }
+function viewDraft(draft) {
+  selectedDraft.value = draft
+  modal.type = 'draftView'
+  modal.title = '查看母稿'
+  modal.wide = true
+}
 function normalizeBrandCode(name) {
   const raw = String(name || '').trim().toLowerCase()
   const ascii = raw
