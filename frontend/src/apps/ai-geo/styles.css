@@ -242,23 +242,11 @@
 .geo-growth-page .segmented button.active { background: white; color: var(--text); box-shadow: 0 2px 10px rgba(15,23,42,.08); }
 .geo-growth-page .segmented.full-width { width: 100%; display: grid; grid-template-columns: repeat(3,1fr); margin-bottom: 14px; }
 .geo-growth-page .draft-editor { display: grid; gap: 10px; }
-.geo-growth-page .draft-hero { display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: 14px; align-items: start; }
-.geo-growth-page .draft-cover-col { width: 132px; }
+.geo-growth-page .draft-hero { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }
 .geo-growth-page .draft-meta-col { display: grid; gap: 10px; min-width: 0; }
 .geo-growth-page .summary-editor { min-height: 52px; max-height: 72px; resize: vertical; line-height: 1.5; }
 .geo-growth-page .body-editor { min-height: 260px; line-height: 1.7; }
-.geo-growth-page .cover-frame { position: relative; width: 100%; aspect-ratio: 3 / 4; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: #f8fafc; padding: 0; }
-.geo-growth-page .cover-frame.has-image img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.geo-growth-page .cover-frame.empty { display: grid; place-content: center; gap: 8px; cursor: pointer; border-style: dashed; border-color: #93c5fd; background: #f8fbff; color: var(--muted); }
-.geo-growth-page .cover-frame-actions { position: absolute; right: 6px; bottom: 6px; display: flex; gap: 6px; }
-.geo-growth-page .cover-icon-btn { width: 28px; height: 28px; border: 0; border-radius: 8px; background: rgba(255, 255, 255, .94); color: #1d4ed8; box-shadow: 0 2px 10px rgba(15, 23, 42, .14); font-size: 18px; font-weight: 700; line-height: 1; cursor: pointer; }
-.geo-growth-page .cover-icon-btn.solo { position: static; box-shadow: none; background: #eff6ff; }
-.geo-growth-page .cover-icon-btn.danger { color: var(--danger); font-size: 20px; }
-.geo-growth-page .cover-empty-hint { font-size: 12px; line-height: 1.4; }
-.geo-growth-page .cover-empty-hint em { font-style: normal; color: #94a3b8; }
 .geo-growth-page .field-optional { font-style: normal; font-weight: 400; color: #94a3b8; font-size: 12px; }
-.geo-growth-page .preview-cover { width: 100%; max-height: 320px; object-fit: cover; border-radius: 16px; margin-bottom: 18px; display: block; }
-.geo-growth-page .mobile-frame .preview-cover { max-height: 220px; border-radius: 18px; }
 .geo-growth-page .editor-actions, .geo-growth-page .drawer-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
 .geo-growth-page .preview-pane, .geo-growth-page .channel-preview { background: #fff; border: 1px solid var(--line); line-height: 1.8; }
 .geo-growth-page .pc-frame { width: 100%; min-height: 430px; padding: 36px; border-radius: 18px; }
@@ -593,8 +581,6 @@
   .geo-growth-page .chat-input { grid-template-columns: 1fr; }
   .geo-growth-page .chat-input-actions { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
   .geo-growth-page .chat-input-actions .btn { width: 100%; }
-  .geo-growth-page .draft-hero { grid-template-columns: 1fr; }
-  .geo-growth-page .draft-cover-col { width: 100%; max-width: 160px; }
   .geo-growth-page .context-strip { grid-template-columns: 1fr; }
   .geo-growth-page .loaders { grid-template-columns: 1fr; }
   .geo-growth-page .evidence-list { grid-template-columns: 1fr; }
@@ -665,7 +651,6 @@ html.dark .geo-growth-page .modal,
 html.dark .geo-growth-page .drawer,
 html.dark .geo-growth-page .preview-pane,
 html.dark .geo-growth-page .channel-preview,
-html.dark .geo-growth-page .cover-frame,
 html.dark .geo-growth-page .chat-log,
 html.dark .geo-growth-page .bubble.ai,
 html.dark .geo-growth-page .timeline-empty,
@@ -695,7 +680,6 @@ html.dark .geo-growth-page .conversation-context-bar span,
 .admin-shell.dark .geo-growth-page .drawer,
 .admin-shell.dark .geo-growth-page .preview-pane,
 .admin-shell.dark .geo-growth-page .channel-preview,
-.admin-shell.dark .geo-growth-page .cover-frame,
 .admin-shell.dark .geo-growth-page .chat-log,
 .admin-shell.dark .geo-growth-page .bubble.ai,
 .admin-shell.dark .geo-growth-page .timeline-empty,
@@ -784,9 +768,7 @@ html.dark .geo-growth-page .btn.text,
 }
 
 html.dark .geo-growth-page .segmented button.active,
-html.dark .geo-growth-page .cover-icon-btn,
-.admin-shell.dark .geo-growth-page .segmented button.active,
-.admin-shell.dark .geo-growth-page .cover-icon-btn {
+.admin-shell.dark .geo-growth-page .segmented button.active {
   background: rgba(38, 244, 223, .16);
   color: var(--primary);
   box-shadow: 0 0 0 1px rgba(38, 244, 223, .18);
@@ -828,8 +810,6 @@ html.dark .geo-growth-page .timeline-date,
 html.dark .geo-growth-page .time,
 html.dark .geo-growth-page .hotspot-chip,
 html.dark .geo-growth-page .upload-box,
-html.dark .geo-growth-page .cover-frame.empty,
-html.dark .geo-growth-page .cover-icon-btn.solo,
 html.dark .geo-growth-page .draft-view-meta span,
 .admin-shell.dark .geo-growth-page .tag,
 .admin-shell.dark .geo-growth-page .keyword,
@@ -837,8 +817,6 @@ html.dark .geo-growth-page .draft-view-meta span,
 .admin-shell.dark .geo-growth-page .time,
 .admin-shell.dark .geo-growth-page .hotspot-chip,
 .admin-shell.dark .geo-growth-page .upload-box,
-.admin-shell.dark .geo-growth-page .cover-frame.empty,
-.admin-shell.dark .geo-growth-page .cover-icon-btn.solo,
 .admin-shell.dark .geo-growth-page .draft-view-meta span {
   background: var(--primary-soft);
   border-color: var(--line);

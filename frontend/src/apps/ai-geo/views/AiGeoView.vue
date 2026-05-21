@@ -200,19 +200,6 @@
             </div>
             <div v-if="previewMode === 'edit'" class="draft-editor">
               <div class="draft-hero">
-                <div class="draft-cover-col">
-                  <div v-if="editingDraft.coverImage" class="cover-frame has-image">
-                    <img :src="editingDraft.coverImage" alt="封面预览" />
-                    <div class="cover-frame-actions">
-                      <button type="button" class="cover-icon-btn" title="更换封面" @click="pickCoverImage">+</button>
-                      <button type="button" class="cover-icon-btn danger" title="移除封面" @click="editingDraft.coverImage = ''">×</button>
-                    </div>
-                  </div>
-                  <button v-else type="button" class="cover-frame empty" title="上传封面" @click="pickCoverImage">
-                    <span class="cover-icon-btn solo">+</span>
-                    <span class="cover-empty-hint">封面图 <em>选填</em></span>
-                  </button>
-                </div>
                 <div class="draft-meta-col">
                   <label>标题<input v-model="editingDraft.title" /></label>
                   <label>摘要<textarea v-model="editingDraft.summary" class="summary-editor" rows="2"></textarea></label>
@@ -221,7 +208,7 @@
               </div>
               <label>正文<textarea class="body-editor" v-model="editingDraft.body"></textarea></label>
             </div>
-            <PreviewPane v-else :mode="previewMode" :title="editingDraft.title" :summary="editingDraft.summary" :body="editingDraft.body" :cover-image="editingDraft.coverImage" />
+            <PreviewPane v-else :mode="previewMode" :title="editingDraft.title" :summary="editingDraft.summary" :body="editingDraft.body" />
             <div class="editor-actions">
               <button v-if="canManageDraft" class="btn ghost" @click="saveDraft">保存草稿</button>
               <button v-if="canManageDraft" class="btn ghost" @click="generateDraftAudit(editingDraft)">AI审核建议</button>
@@ -810,10 +797,9 @@ function renderIphoneShell(children, label = 'GEO 预览') {
 }
 
 const PreviewPane = defineComponent({
-  props: ['mode', 'title', 'summary', 'body', 'coverImage'],
+  props: ['mode', 'title', 'summary', 'body'],
   setup(props) {
     const renderContent = () => [
-      props.coverImage ? h('img', { class: 'preview-cover', src: props.coverImage, alt: '封面' }) : null,
       h('h1', props.title),
       h('p', { class: 'summary' }, props.summary),
       ...String(props.body || '').split('\n').map(p => h('p', p))
@@ -1208,7 +1194,6 @@ const editingDraft = reactive({
   summary: '',
   body: '',
   keywordsText: '',
-  coverImage: '',
   status: '草稿',
   source: '人工创作'
 })
@@ -1794,9 +1779,6 @@ async function mockImport() {
   }
 }
 function generateBrandKeywords() { showToast('已基于品牌、商品、竞品信息生成关键词') }
-function pickCoverImage() {
-  showToast('封面上传能力待接入，当前母稿可不配置封面')
-}
 function openHotspotDrawer() { drawer.type = 'hotspot'; drawer.title = '引用热点' }
 async function addManualHotspot() {
   try {
@@ -2334,7 +2316,6 @@ function applyDraftToEditor(draft, fallback) {
     summary,
     body,
     keywordsText: keywords.length ? keywords.join(', ') : fallback.keywordsText,
-    coverImage: '',
     status: draftStatusLabel(draft?.audit_status || 'draft'),
     source: sourceLabel(draft?.source || 'ai_workbench'),
   })
@@ -2351,7 +2332,6 @@ function restoreDraftToWorkbench(draft, options = {}) {
   workbench.productId = draft.productId ? String(draft.productId) : ''
   Object.assign(editingDraft, {
     ...draft,
-    coverImage: draft.coverImage || '',
     keywordsText: rawKeywords.length ? rawKeywords.join(', ') : String(draft.keywordsText || ''),
   })
   chatMessages.splice(0, chatMessages.length, ...(draft.conversation || []).map((message, index) => ({
