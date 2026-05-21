@@ -1145,15 +1145,14 @@ const skillProfiles = {
   '知乎问答改写 Skill': { name: '知乎问答改写 Skill', goal: '生成可信回答', output: '知乎问答文', desc: '适合把母稿改成解释充分、逻辑清晰、可信度更高的回答。', tags: ['问题拆解', '理性表达', '可信证据'] },
 }
 const defaultSkillProfile = { name: '未选择 Skill', goal: '自由创作', output: '通用 GEO 母稿', desc: '选择 Skill 后，AI 会按固定任务框架组织标题、摘要、正文和关键词。', tags: ['自由提示', '资料驱动', '人工确认'] }
-const sampleCoverImage = 'https://images.unsplash.com/photo-1595777457583-95e059d581b8?auto=format&fit=crop&w=800&q=80'
 
 const editingDraft = reactive({
   id: 0,
-  title: '小个子女生怎么选通勤连衣裙？',
-  summary: '围绕小个子、通勤场景和轻法式穿搭，生成一篇可改写到多渠道的母稿。',
-  body: '很多小个子女生选通勤连衣裙时，最怕压身高、显拖沓。\n选择收腰线清晰、裙长不过分压低比例的款式，会更容易穿出利落感。\n法式通勤连衣裙的优势，是在正式感和松弛感之间取得平衡。',
-  keywordsText: '小个子连衣裙, 通勤穿搭, 法式通勤',
-  coverImage: sampleCoverImage,
+  title: '',
+  summary: '',
+  body: '',
+  keywordsText: '',
+  coverImage: '',
   status: '草稿',
   source: '人工创作'
 })
@@ -1185,67 +1184,9 @@ watch(() => workbench.brandId, () => {
   workbench.productId = ''
 })
 
-const drafts = reactive([
-  {
-    id: 201,
-    date: '2026-05-20',
-    title: '小个子女生怎么选通勤连衣裙？',
-    summary: '基于法式通勤连衣裙生成的选购建议母稿。',
-    body: editingDraft.body,
-    source: '人工创作',
-    status: '已通过',
-    audit: 'AI审核 + 人工确认',
-    channels: [
-      { id: 301, channel: '独立站', title: '小个子女生怎么选通勤连衣裙？', body: editingDraft.body, tags: '', seoTitle: '小个子通勤连衣裙选购指南', script: '', status: '已确认' },
-      { id: 302, channel: '小红书', title: '小个子通勤裙别乱买！', body: '小个子选通勤裙，重点看腰线、长度和版型。\n这条轻法式连衣裙属于不夸张但很显比例的类型。', tags: '#小个子穿搭 #通勤穿搭 #法式穿搭', seoTitle: '', script: '', status: '已编辑' }
-    ]
-  },
-  {
-    id: 203,
-    date: '2026-05-19',
-    title: '梨形身材春夏怎么选半身裙？',
-    summary: '围绕 A 字半身裙与收腰版型生成的穿搭建议母稿。',
-    body: '梨形身材选裙时，重点看腰臀过渡与裙摆垂感，避免胯部膨胀感。',
-    source: '人工创作',
-    status: '草稿',
-    audit: '人工审核',
-    channels: [
-      { id: 303, channel: '小红书', title: '梨形身材半身裙避雷', body: 'A 字版型更友好，面料要有垂感。', tags: '#梨形身材 #半身裙', seoTitle: '', script: '', status: '已编辑' }
-    ]
-  },
-  {
-    id: 202,
-    date: '2026-05-20',
-    title: '春夏通勤衬衫怎么穿不普通？',
-    summary: '围绕飘带法式衬衫生成通勤穿搭母稿。',
-    body: '春夏通勤衬衫不一定要很正式。飘带领、轻薄面料和干净剪裁，可以让基础款更有细节。',
-    source: '智能生成',
-    status: '待审核',
-    audit: 'AI审核 + 人工确认',
-    channels: []
-  }
-])
+const drafts = reactive([])
 
-const plans = reactive([
-  {
-    id: 401, date: '2026-05-20', time: '10:00', title: '小个子通勤裙别乱买！', channel: '小红书',
-    accountName: 'Mardi 官方号', method: 'Agent 执行', level: '半自动', skill: '小红书图文发布 Skill',
-    risk: '随机停顿 + 人工确认', owner: '运营A', status: '待发布', link: '',
-    channelAudit: '待审核', accountStatus: '待人工确认', materialStatus: '凭证异常', publishStatus: '可发布'
-  },
-  {
-    id: 402, date: '2026-05-20', time: '14:00', title: '小个子女生怎么选通勤连衣裙？', channel: '独立站',
-    accountName: 'Mardi 官网主站', method: '渠道 API', level: '全自动', skill: '', risk: '接口校验',
-    owner: '系统', status: '已排期', link: '',
-    channelAudit: '已通过', accountStatus: '可发布', materialStatus: '完整', publishStatus: '可发布'
-  },
-  {
-    id: 404, date: '2026-05-20', time: '17:00', title: '春夏通勤衬衫怎么穿不普通？', channel: '微信公众号',
-    accountName: 'Mardi 公众号', method: '渠道 API', level: '半自动', skill: '', risk: '草稿箱接口 + 发布前确认',
-    owner: '运营A', status: '待发布', link: '',
-    channelAudit: '已通过', accountStatus: '阻断', materialStatus: '缺封面', publishStatus: '阻断'
-  }
-])
+const plans = reactive([])
 
 const activeTitle = computed(() => menus.find(m => m.key === activeMenu.value)?.label || '')
 const activeSubtitle = computed(() => ({
@@ -1732,8 +1673,7 @@ async function mockImport() {
 }
 function generateBrandKeywords() { showToast('已基于品牌、商品、竞品信息生成关键词') }
 function pickCoverImage() {
-  editingDraft.coverImage = sampleCoverImage
-  showToast('已选择封面图（原型演示）')
+  showToast('封面上传能力待接入，当前母稿可不配置封面')
 }
 function openHotspotDrawer() { drawer.type = 'hotspot'; drawer.title = '引用热点' }
 async function addManualHotspot() {
@@ -2186,6 +2126,48 @@ function formatChatMessage(text) {
     return rendered.join('')
   }).join('')
 }
+
+function stripMarkdownForDraft(text) {
+  return String(text || '')
+    .replace(/\*\*/g, '')
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/`([^`]+)`/g, '$1')
+    .trim()
+}
+
+function latestAiWorkbenchText() {
+  return [...chatMessages].reverse().find(msg => msg.role === 'ai' && String(msg.text || '').trim())?.text || ''
+}
+
+function draftFallbackFromChat(prompt) {
+  const text = stripMarkdownForDraft(latestAiWorkbenchText())
+  const source = text || prompt
+  const explicitTitle = source.match(/(?:标题|---标题)[:：]\s*([^\n。]+)/)?.[1]?.trim()
+  const title = explicitTitle || ideaSession.searchProblem || prompt || 'AI GEO 母稿'
+  const summary = ideaSession.brief || source.split(/[。！？\n]/).find(Boolean) || '基于当前资料和对话生成的 GEO 母稿。'
+  return {
+    title: String(title).slice(0, 42),
+    summary: String(summary).slice(0, 160),
+    body: source,
+    keywordsText: workbenchKeywords.value.slice(0, 6).join(', '),
+  }
+}
+
+function applyDraftToEditor(draft, fallback) {
+  const keywords = parseJsonArray(draft?.keywords)
+  Object.assign(editingDraft, {
+    id: Number(draft?.id || editingDraft.id || 0),
+    title: draft?.title || fallback.title,
+    summary: draft?.summary || fallback.summary,
+    body: draft?.body || fallback.body,
+    keywordsText: keywords.length ? keywords.join(', ') : fallback.keywordsText,
+    coverImage: '',
+    status: draftStatusLabel(draft?.audit_status || 'draft'),
+    source: sourceLabel(draft?.source || 'ai_workbench'),
+  })
+  previewMode.value = 'edit'
+}
+
 async function generateDraftFromChat() {
   if (!workbenchReadiness.value.ready) {
     await streamAiMessage(buildWorkbenchReply(), null)
@@ -2201,6 +2183,8 @@ async function generateDraftFromChat() {
     chatMessages.push({ id: Date.now(), role: 'user', text: prompt })
   }
   try {
+    const fallbackDraft = draftFallbackFromChat(prompt)
+    applyDraftToEditor({ source: 'ai_workbench', audit_status: 'draft' }, fallbackDraft)
     const draft = await generateAiGeoDraft({
       brand_id: workbench.brandId ? Number(workbench.brandId) : undefined,
       product_id: workbench.productId ? Number(workbench.productId) : undefined,
@@ -2223,15 +2207,7 @@ async function generateDraftFromChat() {
         '输出要求：标题明确、摘要可发布、正文有问题拆解/选择理由/场景建议/结论，关键词可供渠道改写复用。',
       ].filter(Boolean).join('\n'),
     })
-    Object.assign(editingDraft, {
-      id: draft.id,
-      title: draft.title,
-      summary: draft.summary || '',
-      body: draft.body,
-      keywordsText: parseJsonArray(draft.keywords).join(', '),
-      status: draftStatusLabel(draft.audit_status),
-      source: sourceLabel(draft.source),
-    })
+    applyDraftToEditor(draft, fallbackDraft)
     await loadAiGeoData()
     chatMessages.push({ id: Date.now() + 1, role: 'ai', text: `已按「${selectedSkillProfile.value.name}」生成母稿，并写入右侧编辑器。你可以继续要求我强化人群、卖点、FAQ 或渠道语气。` })
     workbench.prompt = ''
