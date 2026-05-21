@@ -1146,6 +1146,8 @@ const skills = ['品牌介绍母稿 Skill', '商品种草母稿 Skill', '场景�
 const workbench = reactive({ brandId: '', productId: '', skill: '', hotspot: null, prompt: '' })
 const chatMessages = reactive([])
 const chatStreaming = ref(false)
+const WORKBENCH_DRAFT_STORAGE_KEY = 'ai_geo_workbench_draft_id'
+let restoringWorkbenchContext = false
 const ideaSession = reactive({
   stage: 'collecting',
   intent: '等待想法',
@@ -1202,6 +1204,7 @@ const hasStartedWorkbenchChat = computed(() => workbenchUserMessages.value.lengt
 const latestWorkbenchUserPrompt = computed(() => [...chatMessages].reverse().find(msg => msg.role === 'user')?.text || '')
 const workbenchReadiness = computed(() => evaluateWorkbenchReadiness(String(workbench.prompt || '').trim()))
 watch(() => workbench.brandId, () => {
+  if (restoringWorkbenchContext) return
   workbench.productId = ''
 })
 
@@ -1363,6 +1366,7 @@ async function loadAiGeoData() {
     hydrateHotspots(hotspotPage.items || [])
     hydrateChannels(channelPage.items || [])
     hydrateDrafts(draftPage.items || [], channelContentPage.items || [])
+    restoreWorkbenchDraftAfterLoad()
     hydratePlans(planPage.items || [])
     planCalendarDays.value = planCalendar.days || []
   } catch (error) {
@@ -1545,12 +1549,15 @@ function hydrateDrafts(apiDrafts, apiChannelContents = []) {
   drafts.splice(0, drafts.length, ...apiDrafts.map(draft => ({
     raw: draft,
     id: apiField(draft, 'id', 'ID'),
+    brandId: apiField(draft, 'brand_id', 'BrandID') || '',
+    productId: apiField(draft, 'product_id', 'ProductID') || '',
     generatedAt: apiField(draft, 'created_at', 'CreatedAt') || '',
     generatedAtLabel: formatGeneratedTime(apiField(draft, 'created_at', 'CreatedAt')),
     date: String(apiField(draft, 'created_at', 'CreatedAt') || new Date().toISOString()).slice(0, 10),
     title: apiField(draft, 'title', 'Title') || '',
     summary: apiField(draft, 'summary', 'Summary') || '',
     body: apiField(draft, 'body', 'Body') || '',
+    keywords: apiField(draft, 'keywords', 'Keywords') || '[]',
     conversation: parseJsonArray(apiField(draft, 'conversation', 'Conversation')),
     source: sourceLabel(apiField(draft, 'source', 'Source')),
     status: draftStatusLabel(apiField(draft, 'audit_status', 'AuditStatus')),
@@ -1560,6 +1567,49 @@ function hydrateDrafts(apiDrafts, apiChannelContents = []) {
       .map(channelContentFromApi),
     rawStatus: apiField(draft, 'audit_status', 'AuditStatus'),
   })))
+}
+
+function rememberWorkbenchDraft(draftId) {
+  const id = Number(draftId || editingDraft.id || 0)
+  if (!id) return
+  window.localStorage?.setItem(WORKBENCH_DRAFT_STORAGE_KEY, String(id))
+  if (activeMenu.value !== 'workbench') return
+  const currentId = String(route.query.draft_id || '')
+  if (currentId === String(id)) return
+  router.replace({
+    path: menuRouteMap.workbench,
+    query: { ...route.query, draft_id: String(id) },
+  }).catch(() => {})
+}
+
+function findDraftById(draftId) {
+  const id = Number(draftId || 0)
+  if (!id) return null
+  return drafts.find(draft => Number(draft.id) === id) || null
+}
+
+function hasWorkbenchDraftState() {
+  return Boolean(
+    editingDraft.id ||
+    String(editingDraft.title || editingDraft.summary || editingDraft.body || '').trim() ||
+    chatMessages.some(message => String(message.text || '').trim())
+  )
+}
+
+function latestRecoverableDraft() {
+  return [...drafts]
+    .filter(draft => ['draft', 'rejected', '草稿', '已驳回'].includes(draft.rawStatus || draft.status))
+    .sort((a, b) => String(b.generatedAt || '').localeCompare(String(a.generatedAt || '')))
+    .find(draft => draft.conversation?.length || draft.body || draft.title) || null
+}
+
+function restoreWorkbenchDraftAfterLoad() {
+  if (activeMenu.value !== 'workbench' || hasWorkbenchDraftState()) return
+  const routeDraft = findDraftById(route.query.draft_id)
+  const cachedDraft = findDraftById(window.localStorage?.getItem(WORKBENCH_DRAFT_STORAGE_KEY))
+  const target = routeDraft || cachedDraft || latestRecoverableDraft()
+  if (!target) return
+  restoreDraftToWorkbench(target, { navigate: false })
 }
 
 function channelContentFromApi(content) {
@@ -2258,6 +2308,38 @@ function applyDraftToEditor(draft, fallback) {
   previewMode.value = 'edit'
 }
 
+function restoreDraftToWorkbench(draft, options = {}) {
+  const rawKeywords = parseJsonArray(draft.raw?.keywords || draft.raw?.Keywords || draft.keywords)
+  restoringWorkbenchContext = true
+  if (draft.brandId) {
+    workbench.brandId = String(draft.brandId)
+    selectedBrandId.value = Number(draft.brandId)
+  }
+  workbench.productId = draft.productId ? String(draft.productId) : ''
+  Object.assign(editingDraft, {
+    ...draft,
+    coverImage: draft.coverImage || '',
+    keywordsText: rawKeywords.length ? rawKeywords.join(', ') : String(draft.keywordsText || ''),
+  })
+  chatMessages.splice(0, chatMessages.length, ...(draft.conversation || []).map((message, index) => ({
+    id: Date.now() + index,
+    role: message.role === 'assistant' ? 'ai' : message.role,
+    text: message.text || '',
+    createdAt: message.created_at || message.createdAt || '',
+  })).filter(message => message.text))
+  window.setTimeout(() => {
+    restoringWorkbenchContext = false
+  }, 0)
+  previewMode.value = 'edit'
+  if (options.navigate !== false) {
+    const id = Number(draft.id || 0)
+    if (id) window.localStorage?.setItem(WORKBENCH_DRAFT_STORAGE_KEY, String(id))
+    router.push({ path: menuRouteMap.workbench, query: id ? { draft_id: String(id) } : {} }).catch(() => {})
+  } else {
+    rememberWorkbenchDraft(draft.id)
+  }
+}
+
 function draftConversationPayload(extraMessages = []) {
   return [...chatMessages, ...extraMessages]
     .filter(message => message && ['user', 'ai', 'assistant'].includes(message.role) && String(message.text || '').trim())
@@ -2293,6 +2375,7 @@ async function persistCurrentDraft(source = 'manual') {
     body: payload.body,
     keywordsText: String(editingDraft.keywordsText || ''),
   })
+  rememberWorkbenchDraft(draft.id)
   return draft
 }
 
@@ -2339,6 +2422,7 @@ async function generateDraftFromChat() {
       ].filter(Boolean).join('\n'),
     })
     applyDraftToEditor(draft, fallbackDraft)
+    rememberWorkbenchDraft(draft.id)
     const savedMessage = { id: Date.now() + 1, role: 'ai', text: `已自动保存为草稿。你可以继续修改，或点击“提交”进入当前审核流程。` }
     chatMessages.push(savedMessage)
     await updateAiGeoDraft(Number(draft.id), draftPayload('ai_workbench'))
@@ -2405,19 +2489,7 @@ async function submitDraftFlow() {
   }
 }
 function editDraftInWorkbench(draft) {
-  const rawKeywords = parseJsonArray(draft.raw?.keywords || draft.raw?.Keywords || draft.keywords)
-  Object.assign(editingDraft, {
-    ...draft,
-    keywordsText: rawKeywords.length ? rawKeywords.join(', ') : String(draft.keywordsText || ''),
-  })
-  chatMessages.splice(0, chatMessages.length, ...(draft.conversation || []).map((message, index) => ({
-    id: Date.now() + index,
-    role: message.role === 'assistant' ? 'ai' : message.role,
-    text: message.text || '',
-    createdAt: message.created_at || message.createdAt || '',
-  })).filter(message => message.text))
-  activeMenu.value = 'workbench'
-  previewMode.value = 'edit'
+  restoreDraftToWorkbench(draft)
 }
 async function approveDraft(draft) {
   loading.action = true
