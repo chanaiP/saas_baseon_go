@@ -263,6 +263,7 @@ func operationPermissionByRoute() map[string]string {
 		"POST /api/ai-geo/materials/imports":                              "ai_geo:data:import",
 		"POST /api/ai-geo/workbench/drafts/generate":                      "ai_geo:workbench:generate",
 		"POST /api/ai-geo/drafts":                                         "ai_geo:draft:manage",
+		"PUT /api/ai-geo/drafts/:id":                                      "ai_geo:draft:manage",
 		"DELETE /api/ai-geo/drafts/:id":                                   "ai_geo:draft:manage",
 		"POST /api/ai-geo/drafts/:id/submit":                              "ai_geo:draft:manage",
 		"POST /api/ai-geo/drafts/:id/approve":                             "ai_geo:draft:manage",

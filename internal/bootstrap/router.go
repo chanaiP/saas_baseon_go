@@ -303,7 +303,7 @@ func openAPISpec() gin.H {
 			"/api/ai-geo/materials/imports/{id}/errors":                  gin.H{"get": api("ai-geo", "导入错误明细")},
 			"/api/ai-geo/workbench/drafts/generate":                      gin.H{"post": api("ai-geo", "生成母稿")},
 			"/api/ai-geo/drafts":                                         gin.H{"get": api("ai-geo", "母稿列表"), "post": api("ai-geo", "创建母稿")},
-			"/api/ai-geo/drafts/{id}":                                    gin.H{"get": api("ai-geo", "母稿详情"), "delete": api("ai-geo", "归档母稿")},
+			"/api/ai-geo/drafts/{id}":                                    gin.H{"get": api("ai-geo", "母稿详情"), "put": api("ai-geo", "更新母稿草稿"), "delete": api("ai-geo", "归档母稿")},
 			"/api/ai-geo/drafts/{id}/submit":                             gin.H{"post": api("ai-geo", "提交母稿审核")},
 			"/api/ai-geo/drafts/{id}/approve":                            gin.H{"post": api("ai-geo", "审核通过母稿")},
 			"/api/ai-geo/drafts/{id}/reject":                             gin.H{"post": api("ai-geo", "驳回母稿")},

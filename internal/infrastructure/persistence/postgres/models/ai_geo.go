@@ -162,6 +162,7 @@ type AiGeoDraft struct {
 	Summary       *string    `gorm:"column:summary;type:text"`
 	Body          string     `gorm:"column:body;type:text;not null"`
 	Keywords      string     `gorm:"column:keywords;type:jsonb;not null;default:'[]'"`
+	Conversation  string     `gorm:"column:conversation;type:jsonb;not null;default:'[]'"`
 	Source        string     `gorm:"column:source;type:varchar(80);not null;default:'manual'"`
 	AuditStatus   string     `gorm:"column:audit_status;type:varchar(32);not null;default:'draft';index"`
 	ChannelStatus string     `gorm:"column:channel_status;type:varchar(32);not null;default:'not_generated';index"`

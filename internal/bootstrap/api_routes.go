@@ -383,6 +383,7 @@ func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHan
 			aiGeo.GET("/drafts", aiGeoHandler.Drafts)
 			aiGeo.GET("/drafts/:id", aiGeoHandler.Draft)
 			aiGeo.POST("/drafts", aiGeoHandler.CreateDraft)
+			aiGeo.PUT("/drafts/:id", aiGeoHandler.UpdateDraft)
 			aiGeo.DELETE("/drafts/:id", aiGeoHandler.ArchiveDraft)
 			aiGeo.POST("/drafts/:id/submit", aiGeoHandler.SubmitDraft)
 			aiGeo.POST("/drafts/:id/approve", aiGeoHandler.ApproveDraft)

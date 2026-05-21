@@ -137,6 +137,7 @@ export interface AiGeoDraft {
   summary?: string | null
   body: string
   keywords: string
+  conversation?: string
   source: string
   audit_status: string
   channel_status: string
@@ -380,6 +381,10 @@ export async function fetchAiGeoDrafts(params: AiGeoListParams = {}) {
 
 export async function createAiGeoDraft(payload: Record<string, unknown>) {
   return unwrap(http.post<ApiResponse<AiGeoDraft>>('/api/ai-geo/drafts', payload))
+}
+
+export async function updateAiGeoDraft(id: number, payload: Record<string, unknown>) {
+  return unwrap(http.put<ApiResponse<AiGeoDraft>>(`/api/ai-geo/drafts/${id}`, payload))
 }
 
 export async function submitAiGeoDraft(id: number) {

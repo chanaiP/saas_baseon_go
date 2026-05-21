@@ -136,21 +136,29 @@ type ChannelAccountPayload struct {
 }
 
 type DraftPayload struct {
-	BrandID   *uint64  `json:"brand_id"`
-	ProductID *uint64  `json:"product_id"`
-	Title     string   `json:"title"`
-	Summary   string   `json:"summary"`
-	Body      string   `json:"body"`
-	Keywords  []string `json:"keywords"`
-	Source    string   `json:"source"`
+	BrandID      *uint64                    `json:"brand_id"`
+	ProductID    *uint64                    `json:"product_id"`
+	Title        string                     `json:"title"`
+	Summary      string                     `json:"summary"`
+	Body         string                     `json:"body"`
+	Keywords     []string                   `json:"keywords"`
+	Conversation []DraftConversationMessage `json:"conversation"`
+	Source       string                     `json:"source"`
 }
 
 type GenerateDraftPayload struct {
-	BrandID   *uint64 `json:"brand_id"`
-	ProductID *uint64 `json:"product_id"`
-	Skill     string  `json:"skill"`
-	HotspotID *uint64 `json:"hotspot_id"`
-	Prompt    string  `json:"prompt"`
+	BrandID      *uint64                    `json:"brand_id"`
+	ProductID    *uint64                    `json:"product_id"`
+	Skill        string                     `json:"skill"`
+	HotspotID    *uint64                    `json:"hotspot_id"`
+	Prompt       string                     `json:"prompt"`
+	Conversation []DraftConversationMessage `json:"conversation"`
+}
+
+type DraftConversationMessage struct {
+	Role      string `json:"role"`
+	Text      string `json:"text"`
+	CreatedAt string `json:"created_at,omitempty"`
 }
 
 type ChannelContentPayload struct {

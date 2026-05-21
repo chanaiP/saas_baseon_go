@@ -1041,6 +1041,7 @@ func (s *Service) CreateDraft(ctx context.Context, viewer dto.Viewer, payload dt
 		Summary:       stringPtr(payload.Summary),
 		Body:          strings.TrimSpace(payload.Body),
 		Keywords:      jsonString(payload.Keywords, []string{}),
+		Conversation:  jsonString(sanitizeDraftConversation(payload.Conversation), []dto.DraftConversationMessage{}),
 		Source:        defaultString(payload.Source, "manual"),
 		AuditStatus:   "draft",
 		ChannelStatus: "not_generated",
@@ -1051,6 +1052,38 @@ func (s *Service) CreateDraft(ctx context.Context, viewer dto.Viewer, payload dt
 		UpdatedAt:     now,
 	}
 	err := s.repo.SaveDraft(ctx, &row)
+	return row, err
+}
+
+func (s *Service) UpdateDraft(ctx context.Context, viewer dto.Viewer, id uint64, payload dto.DraftPayload) (models.AiGeoDraft, error) {
+	if viewer.TenantID == 0 || id == 0 || strings.TrimSpace(payload.Title) == "" || strings.TrimSpace(payload.Body) == "" {
+		return models.AiGeoDraft{}, ErrInvalidInput
+	}
+	row, err := s.repo.Draft(ctx, viewer.TenantID, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, ErrNotFound
+	}
+	if err != nil {
+		return row, err
+	}
+	if row.AuditStatus == "approved" {
+		return row, ErrInvalidStatus
+	}
+	userID := viewer.UserID
+	row.BrandID = payload.BrandID
+	row.ProductID = payload.ProductID
+	row.Title = strings.TrimSpace(payload.Title)
+	row.Summary = stringPtr(payload.Summary)
+	row.Body = strings.TrimSpace(payload.Body)
+	row.Keywords = jsonString(payload.Keywords, []string{})
+	row.Conversation = jsonString(sanitizeDraftConversation(payload.Conversation), []dto.DraftConversationMessage{})
+	row.Source = defaultString(payload.Source, row.Source)
+	row.UpdatedBy = &userID
+	row.UpdatedAt = time.Now()
+	if row.AuditStatus != "draft" {
+		row.AuditStatus = "draft"
+	}
+	err = s.repo.SaveDraft(ctx, &row)
 	return row, err
 }
 
@@ -1130,13 +1163,14 @@ func (s *Service) GenerateDraft(ctx context.Context, viewer dto.Viewer, payload 
 		return models.AiGeoDraft{}, err
 	}
 	return s.CreateDraft(ctx, viewer, dto.DraftPayload{
-		BrandID:   payload.BrandID,
-		ProductID: payload.ProductID,
-		Title:     generated.Title,
-		Summary:   generated.Summary,
-		Body:      generated.Body,
-		Keywords:  generated.Keywords,
-		Source:    defaultString(generated.Source, "ai_workbench"),
+		BrandID:      payload.BrandID,
+		ProductID:    payload.ProductID,
+		Title:        generated.Title,
+		Summary:      generated.Summary,
+		Body:         generated.Body,
+		Keywords:     generated.Keywords,
+		Conversation: payload.Conversation,
+		Source:       defaultString(generated.Source, "ai_workbench"),
 	})
 }
 
@@ -2352,6 +2386,29 @@ func jsonString(value interface{}, fallback interface{}) string {
 		raw, _ = json.Marshal(fallback)
 	}
 	return string(raw)
+}
+
+func sanitizeDraftConversation(items []dto.DraftConversationMessage) []dto.DraftConversationMessage {
+	cleaned := make([]dto.DraftConversationMessage, 0, len(items))
+	for _, item := range items {
+		role := strings.TrimSpace(item.Role)
+		text := strings.TrimSpace(item.Text)
+		if role == "" || text == "" {
+			continue
+		}
+		if role != "user" && role != "ai" && role != "assistant" {
+			role = "assistant"
+		}
+		if role == "assistant" {
+			role = "ai"
+		}
+		cleaned = append(cleaned, dto.DraftConversationMessage{
+			Role:      role,
+			Text:      text,
+			CreatedAt: strings.TrimSpace(item.CreatedAt),
+		})
+	}
+	return cleaned
 }
 
 func stringPtr(value string) *string {

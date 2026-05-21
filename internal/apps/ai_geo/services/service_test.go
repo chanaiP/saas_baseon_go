@@ -57,6 +57,38 @@ func TestDraftReviewStateMachine(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalidStatus)
 }
 
+func TestUpdateDraftPersistsConversationAndResetsReview(t *testing.T) {
+	db := newAiGeoTestDB(t)
+	service := NewService(repositories.NewRepository(db))
+	viewer := dto.Viewer{TenantID: 1, UserID: 10}
+
+	draft, err := service.CreateDraft(context.Background(), viewer, dto.DraftPayload{
+		Title: "初稿",
+		Body:  "正文",
+		Conversation: []dto.DraftConversationMessage{
+			{Role: "user", Text: "我想写通勤场景"},
+		},
+	})
+	require.NoError(t, err)
+	submitted, err := service.SubmitDraft(context.Background(), viewer, draft.ID)
+	require.NoError(t, err)
+	require.Equal(t, "pending", submitted.AuditStatus)
+
+	updated, err := service.UpdateDraft(context.Background(), viewer, draft.ID, dto.DraftPayload{
+		Title: "更新初稿",
+		Body:  "更新正文",
+		Conversation: []dto.DraftConversationMessage{
+			{Role: "user", Text: "我想写通勤场景"},
+			{Role: "ai", Text: "建议聚焦选择理由"},
+		},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, "draft", updated.AuditStatus)
+	require.Contains(t, updated.Conversation, "我想写通勤场景")
+	require.Contains(t, updated.Conversation, "建议聚焦选择理由")
+}
+
 func TestDraftCannotCrossTenant(t *testing.T) {
 	db := newAiGeoTestDB(t)
 	service := NewService(repositories.NewRepository(db))

@@ -277,10 +277,11 @@
                     <div class="row-actions">
                       <button class="btn small ghost" @click="viewDraft(draft)">查看</button>
                       <button class="btn small" @click="editDraftInWorkbench(draft)">进入编辑器</button>
-                      <button v-if="canManageDraft" class="btn small ghost" @click="generateDraftAudit(draft)">审核建议</button>
-                      <button v-if="canManageDraft" class="btn small ghost" @click="approveDraft(draft)">审核通过</button>
-                      <button v-if="canManageDraft" class="btn small ghost danger-text" @click="rejectDraft(draft)">驳回</button>
-                      <button v-if="canManageChannelContent" class="btn small dark" @click="generateChannelsForDraft(draft)">生成渠道</button>
+                      <button v-if="canManageDraft && canSubmitDraft(draft)" class="btn small primary" @click="submitDraftFromList(draft)">提交</button>
+                      <button v-if="canManageDraft && canAuditDraft(draft)" class="btn small ghost" @click="generateDraftAudit(draft)">审核建议</button>
+                      <button v-if="canManageDraft && canAuditDraft(draft)" class="btn small ghost" @click="approveDraft(draft)">审核通过</button>
+                      <button v-if="canManageDraft && canAuditDraft(draft)" class="btn small ghost danger-text" @click="rejectDraft(draft)">驳回</button>
+                      <button v-if="canManageChannelContent && canGenerateChannelFromDraft(draft)" class="btn small dark" @click="generateChannelsForDraft(draft)">生成渠道</button>
                     </div>
                   </div>
                   <div v-if="draft.channels.length" class="channel-list">
@@ -762,6 +763,7 @@ import {
   submitAiGeoDraft,
   updateAiGeoChannelContent,
   updateAiGeoBrand,
+  updateAiGeoDraft,
   updateAiGeoPublishPlan,
   updateAiGeoPublishPlanStatus,
 } from '../api'
@@ -1549,6 +1551,7 @@ function hydrateDrafts(apiDrafts, apiChannelContents = []) {
     title: apiField(draft, 'title', 'Title') || '',
     summary: apiField(draft, 'summary', 'Summary') || '',
     body: apiField(draft, 'body', 'Body') || '',
+    conversation: parseJsonArray(apiField(draft, 'conversation', 'Conversation')),
     source: sourceLabel(apiField(draft, 'source', 'Source')),
     status: draftStatusLabel(apiField(draft, 'audit_status', 'AuditStatus')),
     audit: modeConfig.draftAuditMode,
@@ -2255,6 +2258,44 @@ function applyDraftToEditor(draft, fallback) {
   previewMode.value = 'edit'
 }
 
+function draftConversationPayload(extraMessages = []) {
+  return [...chatMessages, ...extraMessages]
+    .filter(message => message && ['user', 'ai', 'assistant'].includes(message.role) && String(message.text || '').trim())
+    .map(message => ({
+      role: message.role === 'assistant' ? 'ai' : message.role,
+      text: String(message.text || '').trim(),
+      created_at: message.createdAt || new Date().toISOString(),
+    }))
+}
+
+function draftPayload(source = 'manual', extraMessages = []) {
+  return {
+    brand_id: workbench.brandId ? Number(workbench.brandId) : undefined,
+    product_id: workbench.productId ? Number(workbench.productId) : undefined,
+    title: editingDraft.title,
+    summary: editingDraft.summary,
+    body: editingDraft.body,
+    keywords: String(editingDraft.keywordsText || '').split(',').map(s => s.trim()).filter(Boolean),
+    conversation: draftConversationPayload(extraMessages),
+    source,
+  }
+}
+
+async function persistCurrentDraft(source = 'manual') {
+  const id = Number(editingDraft.id || 0)
+  const payload = draftPayload(source)
+  const draft = id > 0
+    ? await updateAiGeoDraft(id, payload)
+    : await createAiGeoDraft(payload)
+  applyDraftToEditor(draft, {
+    title: payload.title,
+    summary: payload.summary,
+    body: payload.body,
+    keywordsText: String(editingDraft.keywordsText || ''),
+  })
+  return draft
+}
+
 async function generateDraftFromChat() {
   if (!workbenchReadiness.value.ready) {
     await streamAiMessage(buildWorkbenchReply(), null)
@@ -2277,6 +2318,7 @@ async function generateDraftFromChat() {
       product_id: workbench.productId ? Number(workbench.productId) : undefined,
       skill,
       hotspot_id: workbench.hotspot?.id,
+      conversation: draftConversationPayload(),
       prompt: [
         '你是 AI GEO 母稿协作编辑。请根据用户选择的资料、Skill 和聊天中收敛出的 brief 生成一篇可作为多渠道源稿的 GEO 母稿。',
         '生成目标：先回答用户真实搜索/AI 问答问题，再自然带出品牌与商品资料；避免空泛品牌介绍和硬广。',
@@ -2297,8 +2339,10 @@ async function generateDraftFromChat() {
       ].filter(Boolean).join('\n'),
     })
     applyDraftToEditor(draft, fallbackDraft)
+    const savedMessage = { id: Date.now() + 1, role: 'ai', text: `已自动保存为草稿。你可以继续修改，或点击“提交”进入当前审核流程。` }
+    chatMessages.push(savedMessage)
+    await updateAiGeoDraft(Number(draft.id), draftPayload('ai_workbench'))
     await loadAiGeoData()
-    chatMessages.push({ id: Date.now() + 1, role: 'ai', text: `已按「${selectedSkillProfile.value.name}」生成母稿，并写入右侧编辑器。你可以继续要求我强化人群、卖点、FAQ 或渠道语气。` })
     workbench.prompt = ''
   } catch (error) {
     showToast(error?.message || '母稿生成失败')
@@ -2309,16 +2353,7 @@ async function generateDraftFromChat() {
 async function saveDraft() {
   loading.action = true
   try {
-    const draft = await createAiGeoDraft({
-      brand_id: workbench.brandId ? Number(workbench.brandId) : undefined,
-      product_id: workbench.productId ? Number(workbench.productId) : undefined,
-      title: editingDraft.title,
-      summary: editingDraft.summary,
-      body: editingDraft.body,
-      keywords: String(editingDraft.keywordsText || '').split(',').map(s => s.trim()).filter(Boolean),
-      source: 'manual',
-    })
-    editingDraft.id = draft.id
+    await persistCurrentDraft(editingDraft.source === '智能生成' ? 'ai_workbench' : 'manual')
     await loadAiGeoData()
     showToast('母稿草稿已保存')
   } catch (error) {
@@ -2328,9 +2363,7 @@ async function saveDraft() {
   }
 }
 async function submitDraftFlow() {
-  if (!editingDraft.id) {
-    await saveDraft()
-  }
+  await persistCurrentDraft(editingDraft.source === '智能生成' ? 'ai_workbench' : 'manual')
   if (!editingDraft.id) return
   loading.action = true
   try {
@@ -2371,7 +2404,21 @@ async function submitDraftFlow() {
     loading.action = false
   }
 }
-function editDraftInWorkbench(draft) { Object.assign(editingDraft, { ...draft, keywordsText: '通勤穿搭, 商品种草' }); activeMenu.value = 'workbench'; previewMode.value = 'edit' }
+function editDraftInWorkbench(draft) {
+  const rawKeywords = parseJsonArray(draft.raw?.keywords || draft.raw?.Keywords || draft.keywords)
+  Object.assign(editingDraft, {
+    ...draft,
+    keywordsText: rawKeywords.length ? rawKeywords.join(', ') : String(draft.keywordsText || ''),
+  })
+  chatMessages.splice(0, chatMessages.length, ...(draft.conversation || []).map((message, index) => ({
+    id: Date.now() + index,
+    role: message.role === 'assistant' ? 'ai' : message.role,
+    text: message.text || '',
+    createdAt: message.created_at || message.createdAt || '',
+  })).filter(message => message.text))
+  activeMenu.value = 'workbench'
+  previewMode.value = 'edit'
+}
 async function approveDraft(draft) {
   loading.action = true
   try {
@@ -2433,6 +2480,64 @@ async function submitDraftIfNeeded(targetId, draft) {
     draft.status = draftStatusLabel(submitted.audit_status)
   }
   return submitted
+}
+function canSubmitDraft(draft) {
+  return ['draft', 'rejected', '草稿', '已驳回'].includes(draft?.rawStatus || draft?.status)
+}
+
+function canAuditDraft(draft) {
+  return ['pending', '待审核'].includes(draft?.rawStatus || draft?.status)
+}
+
+function canGenerateChannelFromDraft(draft) {
+  return ['approved', '已通过'].includes(draft?.rawStatus || draft?.status)
+}
+
+async function submitDraftFromList(draft) {
+  loading.action = true
+  try {
+    const draftId = Number(draft.id)
+    const mode = modeConfig.draftAuditMode
+    if (mode === 'AI审核 + 人工确认') {
+      await runDraftAudit(draftId)
+      const submitted = await submitAiGeoDraft(draftId)
+      draft.rawStatus = submitted.audit_status
+      draft.status = draftStatusLabel(submitted.audit_status)
+      showToast('AI审核报告已生成，待人工确认')
+    } else if (mode === 'AI审核') {
+      const suggestion = await runDraftAudit(draftId)
+      await submitAiGeoDraft(draftId)
+      if (Boolean(suggestion.passed ?? suggestion.Passed)) {
+        const approved = await approveAiGeoDraft(draftId, { opinion: `AI审核通过：${auditOpinion(suggestion)}` })
+        draft.rawStatus = approved.audit_status
+        draft.status = draftStatusLabel(approved.audit_status)
+        await generateChannelsForDraft({ ...draft, id: draftId, channels: [] }, { silent: true, throwOnError: true })
+        showToast('AI审核通过，已自动生成渠道内容')
+      } else {
+        const rejected = await rejectAiGeoDraft(draftId, { opinion: `AI审核未通过：${auditOpinion(suggestion)}` })
+        draft.rawStatus = rejected.audit_status
+        draft.status = draftStatusLabel(rejected.audit_status)
+        showToast('AI审核未通过，已留下审核意见')
+      }
+    } else if (mode === '人工审核') {
+      const submitted = await submitAiGeoDraft(draftId)
+      draft.rawStatus = submitted.audit_status
+      draft.status = draftStatusLabel(submitted.audit_status)
+      showToast('母稿已提交，等待人工审核')
+    } else {
+      await submitAiGeoDraft(draftId)
+      const approved = await approveAiGeoDraft(draftId, { opinion: '无需审核，提交后自动通过。' })
+      draft.rawStatus = approved.audit_status
+      draft.status = draftStatusLabel(approved.audit_status)
+      await generateChannelsForDraft({ ...draft, id: draftId, channels: [] }, { silent: true, throwOnError: true })
+      showToast('已提交并跳过审核，渠道内容已生成')
+    }
+    await loadAiGeoData()
+  } catch (error) {
+    showToast(error?.message || '提交失败')
+  } finally {
+    loading.action = false
+  }
 }
 function auditOpinion(suggestion) {
   return suggestion?.summary || suggestion?.Summary || '审核报告已生成'

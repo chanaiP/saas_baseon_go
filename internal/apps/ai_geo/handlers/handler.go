@@ -449,6 +449,21 @@ func (h *Handler) CreateDraft(c *gin.Context) {
 	}
 }
 
+func (h *Handler) UpdateDraft(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	var payload dto.DraftPayload
+	if bind(c, &payload) {
+		data, err := h.service.UpdateDraft(c.Request.Context(), viewer(c), id, payload)
+		if err == nil {
+			err = h.auditWrite(c, "draft_update", data.DraftCode, "更新母稿草稿", gin.H{"draft_id": data.ID, "title": data.Title})
+		}
+		h.ok(c, data, err)
+	}
+}
+
 func (h *Handler) ArchiveDraft(c *gin.Context) {
 	id, ok := parseID(c)
 	if !ok {
