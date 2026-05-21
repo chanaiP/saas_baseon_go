@@ -164,7 +164,8 @@
 
             <div v-if="hasStartedWorkbenchChat" class="chat-log geo-dialogue">
               <div v-for="msg in chatMessages" :key="msg.id" :class="['bubble', msg.role]">
-                <p>{{ msg.text }}</p>
+                <div v-if="msg.role === 'ai'" class="message-rich" v-html="formatChatMessage(msg.text)"></div>
+                <p v-else>{{ msg.text }}</p>
                 <span v-if="msg.streaming" class="stream-cursor"></span>
               </div>
             </div>
@@ -2046,6 +2047,7 @@ function buildGatewayMentorMessages(prompt, idea) {
         '用户打招呼时要自然回应，并主动询问要写什么，或基于资料猜测可写方向。',
         '不要重复机械追问；如果用户已经给了目标人群或场景，要承认并继续推进。',
         '回复要像专家：给具体文章入口、搜索/AI 问答问题、结构建议、资料如何使用。不要输出 JSON，不要说自己基于规则。',
+        '回复必须有清晰格式：短段落、加粗小标题、编号或项目符号列表；每个要点独立换行，不要把所有内容挤成一整段。',
         '如果信息足够，明确告诉用户可以生成母稿；如果不足，只问一个最关键的澄清点。',
       ].join('\n'),
     },
@@ -2108,6 +2110,43 @@ async function sendWorkbenchMessage() {
 }
 function useClarifyQuestion(question) {
   workbench.prompt = question.replace(/^补充/, '')
+}
+
+function escapeHtml(text) {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function inlineMarkdown(text) {
+  return escapeHtml(text)
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+}
+
+function formatChatMessage(text) {
+  const source = String(text || '').trim()
+  if (!source) return '<p></p>'
+  const blocks = source
+    .replace(/([。！？])\s*(?=(?:\d+[.、]|[-•])\s*)/g, '$1\n')
+    .replace(/\s+(?=(?:\d+[.、]|[-•])\s*[^\n])/g, '\n')
+    .split(/\n{2,}/)
+    .map(block => block.trim())
+    .filter(Boolean)
+  return blocks.map(block => {
+    const lines = block.split('\n').map(line => line.trim()).filter(Boolean)
+    const numbered = lines.every(line => /^\d+[.、]\s*/.test(line))
+    const bulleted = lines.every(line => /^[-•]\s*/.test(line))
+    if (numbered || bulleted) {
+      const tag = numbered ? 'ol' : 'ul'
+      const items = lines.map(line => `<li>${inlineMarkdown(line.replace(/^(?:\d+[.、]|[-•])\s*/, ''))}</li>`).join('')
+      return `<${tag}>${items}</${tag}>`
+    }
+    return `<p>${inlineMarkdown(lines.join('\n')).replace(/\n/g, '<br>')}</p>`
+  }).join('')
 }
 async function generateDraftFromChat() {
   if (!workbenchReadiness.value.ready) {
