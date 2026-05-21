@@ -143,6 +143,17 @@ func TestCreateBrandRespectsPackageQuota(t *testing.T) {
 	require.Equal(t, "品牌资料卡数量", quotaErr.QuotaName)
 }
 
+func createApprovedDraftForTest(t *testing.T, service *Service, viewer dto.Viewer, payload dto.DraftPayload) models.AiGeoDraft {
+	t.Helper()
+	draft, err := service.CreateDraft(context.Background(), viewer, payload)
+	require.NoError(t, err)
+	_, err = service.SubmitDraft(context.Background(), viewer, draft.ID)
+	require.NoError(t, err)
+	approved, err := service.ReviewDraft(context.Background(), viewer, draft.ID, true, "测试通过")
+	require.NoError(t, err)
+	return approved
+}
+
 func TestGenerateDraftConsumesMonthlyQuota(t *testing.T) {
 	db := newAiGeoTestDB(t)
 	seedAiGeoQuotaPlan(t, db, 1, quotaMonthlyDraftGenerations, "月度母稿生成次数", ptr("MONTH"), 1)
@@ -265,14 +276,17 @@ func TestGenerateChannelContentInvokesAICapabilityCenterScenario(t *testing.T) {
 	viewer := dto.Viewer{TenantID: 1, UserID: 10}
 	channel, err := service.CreateChannel(context.Background(), viewer, dto.ChannelPayload{ChannelCode: "xiaohongshu", ChannelName: "小红书"})
 	require.NoError(t, err)
-	draft, err := service.CreateDraft(context.Background(), viewer, dto.DraftPayload{Title: "母稿标题", Body: "母稿正文"})
-	require.NoError(t, err)
+	draft := createApprovedDraftForTest(t, service, viewer, dto.DraftPayload{Title: "母稿标题", Body: "母稿正文"})
 	gateway := &fakeAIGatewayInvoker{response: aiccservices.InvokeResponse{
 		Status: "success",
 		Data: map[string]interface{}{
-			"channel_content": map[string]interface{}{
+			"channel":     "小红书",
+			"status":      "generated",
+			"contentType": "图文笔记",
+			"contentPayload": map[string]interface{}{
 				"title": "小红书渠道标题",
 				"body":  "小红书渠道正文",
+				"tags":  []interface{}{"通勤", "小个子"},
 			},
 		},
 	}}
@@ -281,12 +295,13 @@ func TestGenerateChannelContentInvokesAICapabilityCenterScenario(t *testing.T) {
 	content, err := service.GenerateChannelContent(context.Background(), viewer, draft.ID, dto.ChannelContentPayload{ChannelID: channel.ID})
 
 	require.NoError(t, err)
-	require.Equal(t, channelRewriteScenarioCode, gateway.lastRequest.AIScenarioCode)
+	require.Equal(t, channelContentStandardScenarioCode, gateway.lastRequest.AIScenarioCode)
 	require.Equal(t, "ai-geo", gateway.lastRequest.AppCode)
 	require.Equal(t, "1", gateway.lastRequest.TenantID)
 	require.Equal(t, "10", gateway.lastRequest.UserID)
 	require.Equal(t, "小红书渠道标题", content.Title)
-	require.Equal(t, "小红书渠道正文", content.Body)
+	require.Contains(t, content.Body, "contentPayload")
+	require.Contains(t, content.Body, "小红书渠道正文")
 }
 
 func TestChannelContentEditReviewAndTenantScope(t *testing.T) {
@@ -295,8 +310,7 @@ func TestChannelContentEditReviewAndTenantScope(t *testing.T) {
 	viewer := dto.Viewer{TenantID: 1, UserID: 10}
 	channel, err := service.CreateChannel(context.Background(), viewer, dto.ChannelPayload{ChannelCode: "xhs", ChannelName: "小红书"})
 	require.NoError(t, err)
-	draft, err := service.CreateDraft(context.Background(), viewer, dto.DraftPayload{Title: "母稿", Body: "正文"})
-	require.NoError(t, err)
+	draft := createApprovedDraftForTest(t, service, viewer, dto.DraftPayload{Title: "母稿", Body: "正文"})
 	content, err := service.GenerateChannelContent(context.Background(), viewer, draft.ID, dto.ChannelContentPayload{ChannelID: channel.ID})
 	require.NoError(t, err)
 
@@ -365,8 +379,7 @@ func TestChannelContentAuditSuggestionCannotCrossTenant(t *testing.T) {
 	viewer := dto.Viewer{TenantID: 1, UserID: 10}
 	channel, err := service.CreateChannel(context.Background(), viewer, dto.ChannelPayload{ChannelCode: "xhs", ChannelName: "小红书"})
 	require.NoError(t, err)
-	draft, err := service.CreateDraft(context.Background(), viewer, dto.DraftPayload{Title: "母稿", Body: "正文"})
-	require.NoError(t, err)
+	draft := createApprovedDraftForTest(t, service, viewer, dto.DraftPayload{Title: "母稿", Body: "正文"})
 	content, err := service.GenerateChannelContent(context.Background(), viewer, draft.ID, dto.ChannelContentPayload{ChannelID: channel.ID})
 	require.NoError(t, err)
 
@@ -690,8 +703,7 @@ func TestPublishPlanSyncsChannelContentStatusAndStateMachine(t *testing.T) {
 	viewer := dto.Viewer{TenantID: 1, UserID: 10}
 	channel, err := service.CreateChannel(context.Background(), viewer, dto.ChannelPayload{ChannelCode: "xiaohongshu", ChannelName: "小红书"})
 	require.NoError(t, err)
-	draft, err := service.CreateDraft(context.Background(), viewer, dto.DraftPayload{Title: "母稿", Body: "正文"})
-	require.NoError(t, err)
+	draft := createApprovedDraftForTest(t, service, viewer, dto.DraftPayload{Title: "母稿", Body: "正文"})
 	content, err := service.GenerateChannelContent(context.Background(), viewer, draft.ID, dto.ChannelContentPayload{ChannelID: channel.ID})
 	require.NoError(t, err)
 
@@ -740,8 +752,7 @@ func TestPublishPlanCalendarAggregatesByTenantDateAndStatus(t *testing.T) {
 	viewer := dto.Viewer{TenantID: 1, UserID: 10}
 	channel, err := service.CreateChannel(context.Background(), viewer, dto.ChannelPayload{ChannelCode: "zhihu", ChannelName: "知乎"})
 	require.NoError(t, err)
-	draft, err := service.CreateDraft(context.Background(), viewer, dto.DraftPayload{Title: "母稿", Body: "正文"})
-	require.NoError(t, err)
+	draft := createApprovedDraftForTest(t, service, viewer, dto.DraftPayload{Title: "母稿", Body: "正文"})
 	content, err := service.GenerateChannelContent(context.Background(), viewer, draft.ID, dto.ChannelContentPayload{ChannelID: channel.ID})
 	require.NoError(t, err)
 	scheduledAt := time.Date(2026, 5, 20, 9, 30, 0, 0, time.UTC)

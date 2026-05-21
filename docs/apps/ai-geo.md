@@ -105,10 +105,11 @@ AI GEO 通过 `internal/apps/ai_geo/services` 下的 Gateway adapter 接入 AI �
 当前已接入场景：
 
 - `ai_geo_draft_generation`：工作台母稿生成。输入包含用户提示、Skill、品牌资料、商品资料、SKU 明细和热点资料；输出解析为 `title`、`summary`、`body`、`keywords` 并落库为母稿。
-- `ai_geo_channel_rewrite`：渠道内容改写。输入包含母稿、渠道资料和人工覆盖字段；输出解析为 `title`、`body` 并落库为渠道内容。
+- `channel_content_standard_generate`：渠道内容标准生成 Skill。输入包含已审核母稿、目标渠道、品牌/商品/素材资料和渠道规范；输出解析为结构化 `channel_content_package` 并落库为渠道内容。
+- `ai_geo_channel_content_editor`：渠道内容 AI 编辑。输入包含当前选中平台内容包和用户修改要求；只修改当前平台渠道内容，不影响母稿和其他平台。
 - `ai_geo_audit_suggestion`：母稿和渠道内容审核建议。输入包含待审内容、渠道上下文；输出解析为风险等级、通过建议、摘要和结构化建议，并写入 `ai_geo_audit_suggestions` 保留历史。
 
-`000089_ai_geo_ai_scenarios` 会把三条场景幂等登记到 AI 能力中心，默认绑定 `chat-default` 基础路由；启动 seed 也会修复新环境中的场景缺失。上线前仍需确认 `chat-default` 已绑定可用模型、供应商账号/API、租户策略和限流/配额规则。Gateway 成功调用会写入 `ai_usage_records`。
+`000089_ai_geo_ai_scenarios` 和 `000094_ai_geo_channel_generation_scenarios` 会把 AI GEO 场景幂等登记到 AI 能力中心，默认绑定 `chat-default` 基础路由；启动 seed 也会修复新环境中的场景缺失。上线前仍需确认 `chat-default` 已绑定可用模型、供应商账号/API、租户策略和限流/配额规则。Gateway 成功调用会写入 `ai_usage_records`。
 
 ## 数据模型
 
@@ -200,7 +201,7 @@ select ai_scenario_code, status from ai_scenarios where app_code = 'ai-geo' and 
 ## 上线检查清单
 
 1. 执行 `go run ./cmd/migrate`，确认 AI GEO 表、Manifest、API 权限、套餐功能点、配额和 AI 场景均已落库。
-2. 确认 AI 能力中心 `chat-default` 或租户策略已绑定可用模型供应商，且 `ai_geo_draft_generation`、`ai_geo_channel_rewrite`、`ai_geo_audit_suggestion` 均可调用。
-3. 使用演示租户完成资料导入、工作台对话生成、母稿提交审核、AI 审核建议、渠道改写、发布计划创建和发布状态更新。
+2. 确认 AI 能力中心 `chat-default` 或租户策略已绑定可用模型供应商，且 `ai_geo_draft_generation`、`channel_content_standard_generate`、`ai_geo_channel_content_editor`、`ai_geo_audit_suggestion` 均可调用。
+3. 使用演示租户完成资料导入、工作台对话生成、母稿提交审核、AI 审核建议、渠道链式生成、渠道 AI 编辑、发布计划创建和发布状态更新。
 4. 核对租户套餐、租户菜单覆盖、角色权限变更后，页面入口和 API 写操作即时生效。
 5. 生产环境禁止使用开发默认数据库密码、默认 `JWT_SECRET` 和 `CORS_ORIGINS=*`。

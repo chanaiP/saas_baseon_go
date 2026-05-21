@@ -1331,6 +1331,9 @@ func (s *Service) GenerateChannelContent(ctx context.Context, viewer dto.Viewer,
 	if err != nil {
 		return models.AiGeoChannelContent{}, err
 	}
+	if draft.AuditStatus != "approved" {
+		return models.AiGeoChannelContent{}, ErrInvalidStatus
+	}
 	channel, err := s.repo.Channel(ctx, viewer.TenantID, payload.ChannelID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

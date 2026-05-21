@@ -550,6 +550,149 @@
           <button @click="closeModal">×</button>
         </div>
 
+        <div v-if="modal.type === 'channelGenerator'" class="modal-body channel-generation-console">
+          <section class="channel-console-col master-readonly">
+            <div class="console-panel-head">
+              <div>
+                <h4>母稿输入</h4>
+                <p>已审核通过，作为渠道内容生成的唯一主输入</p>
+              </div>
+              <span class="badge success">{{ selectedDraft?.status || '已通过' }}</span>
+            </div>
+            <div class="readonly-draft">
+              <span>母稿标题</span>
+              <h2>{{ selectedDraft?.title }}</h2>
+              <span>摘要</span>
+              <p>{{ selectedDraft?.summary || '未填写摘要' }}</p>
+              <span>正文</span>
+              <article>{{ selectedDraft?.body }}</article>
+            </div>
+            <div class="source-record-grid compact">
+              <div class="source-record-item">
+                <span>关联品牌</span>
+                <strong>{{ channelGenerationMaster.brandName }}</strong>
+              </div>
+              <div class="source-record-item">
+                <span>关联商品</span>
+                <strong>{{ channelGenerationMaster.productName }}</strong>
+              </div>
+              <div class="source-record-item">
+                <span>关键词</span>
+                <strong>{{ channelGenerationMaster.keywords.join(' / ') || '未记录' }}</strong>
+              </div>
+              <div class="source-record-item">
+                <span>生成来源</span>
+                <strong>{{ selectedDraft?.source || '母稿' }}</strong>
+              </div>
+            </div>
+          </section>
+
+          <section class="channel-console-col channel-ai-editor">
+            <div class="console-panel-head">
+              <div>
+                <h4>AI 对话</h4>
+                <p>用于修改当前选中的平台渠道内容，不影响母稿，也不影响其他平台。</p>
+              </div>
+              <span class="badge">修改协商</span>
+            </div>
+            <div class="current-edit-target">
+              <span>当前修改对象</span>
+              <strong>{{ activeChannelNode?.channelName || '请选择平台' }} · 渠道内容</strong>
+            </div>
+            <div class="ai-tools channel-edit-prompts">
+              <button class="btn small ghost" @click="channelEditPrompt = '降低营销感，语气更自然，保留 GEO 关键词'">降低营销感</button>
+              <button class="btn small ghost" @click="channelEditPrompt = '强化 GEO 表达，补充问题词、人群词和场景词'">强化 GEO 表达</button>
+              <button class="btn small ghost" @click="channelEditPrompt = '优化标题，让标题更像平台用户会点击的问题或入口'">优化标题</button>
+              <button class="btn small ghost" @click="channelEditPrompt = '优化素材说明，明确需要哪些真实商品图、场景图或视频素材'">优化素材说明</button>
+              <button class="btn small ghost" @click="channelEditPrompt = '调整内容结构，让层次更清晰，先回答问题再自然带出品牌商品'">调整内容结构</button>
+            </div>
+            <div class="channel-ai-log">
+              <div v-for="message in channelEditorMessages" :key="message.id" :class="['bubble', message.role === 'user' ? 'user' : 'ai']">
+                <p>{{ message.text }}</p>
+                <span v-if="message.streaming" class="stream-cursor"></span>
+              </div>
+            </div>
+            <div class="channel-ai-input">
+              <textarea v-model="channelEditPrompt" placeholder="输入修改要求，例如：标题不要太营销、正文更自然、补充 GEO 关键词、图片需求更明确"></textarea>
+              <button class="btn primary" :disabled="loading.action || !activeChannelNode || !channelEditPrompt.trim()" @click="applyChannelAiEdit">
+                应用到当前平台
+              </button>
+            </div>
+          </section>
+
+          <section class="channel-console-col channel-chain">
+            <div class="console-panel-head">
+              <div>
+                <h4>渠道内容链式生成</h4>
+                <p>按选中平台顺序逐个生成，一个平台一个节点</p>
+              </div>
+              <span :class="['badge', channelGenerationStatus === 'completed' ? 'success' : 'warning']">{{ channelGenerationStatusLabel }}</span>
+            </div>
+            <div class="channel-picker-row">
+              <button
+                v-for="platform in channelGenerationPlatforms"
+                :key="platform.name"
+                :class="['channel-pill', { active: channelGeneration.selectedChannels.includes(platform.name) }]"
+                @click="toggleGenerationChannel(platform.name)"
+              >{{ platform.name }}</button>
+              <button class="btn small primary" :disabled="loading.action || !channelGeneration.selectedChannels.length" @click="startChannelGeneration">开始自动生成</button>
+              <button class="btn small ghost" :disabled="loading.action" @click="resetChannelGeneration">重置</button>
+            </div>
+            <div class="channel-chain-layout">
+              <ol class="chain-node-list">
+                <li
+                  v-for="(node, index) in channelGeneration.nodes"
+                  :key="node.channelName"
+                  :class="['chain-node', { active: node.channelName === channelGeneration.activeChannel }]"
+                  @click="selectChannelNode(node.channelName)"
+                >
+                  <span class="chain-dot"></span>
+                  <strong>{{ index + 1 }}. {{ node.channelName }}</strong>
+                  <small>{{ generationNodeStatusLabel(node.status) }} · {{ node.contentType }}</small>
+                  <em>{{ node.updatedLabel || '等待中' }}</em>
+                </li>
+              </ol>
+              <div class="current-platform-pane">
+                <div class="platform-pane-head">
+                  <div>
+                    <span>当前平台</span>
+                    <h4>{{ activeChannelNode?.channelName || '请选择平台' }}</h4>
+                  </div>
+                  <div class="segmented">
+                    <button :class="{ active: channelGeneration.previewMode === 'source' }" @click="channelGeneration.previewMode = 'source'">原文</button>
+                    <button :class="{ active: channelGeneration.previewMode === 'pc' }" @click="channelGeneration.previewMode = 'pc'">PC预览</button>
+                    <button :class="{ active: channelGeneration.previewMode === 'mobile' }" @click="channelGeneration.previewMode = 'mobile'">手机预览</button>
+                  </div>
+                </div>
+                <div v-if="!activeChannelNode?.contentPayload?.body" class="channel-empty-state">当前平台还没有生成渠道内容。</div>
+                <div v-else-if="channelGeneration.previewMode === 'source'" class="channel-source-editor">
+                  <label>标题<input v-model="activeChannelNode.contentPayload.title" /></label>
+                  <label>正文<textarea v-model="activeChannelNode.contentPayload.body"></textarea></label>
+                  <div class="structured-fields">
+                    <InfoBlock v-for="field in activeChannelExtraFields" :key="field.label" :title="field.label" :value="field.value" />
+                  </div>
+                  <div class="asset-brief">
+                    <strong>素材需求</strong>
+                    <p>{{ activeChannelAssetSummary }}</p>
+                  </div>
+                </div>
+                <ChannelPreview v-else :mode="channelGeneration.previewMode" :channel="activeChannelPreview" />
+                <div class="platform-actions">
+                  <button class="btn ghost" :disabled="loading.action || !activeChannelNode" @click="regenerateActiveChannel">重新生成当前平台</button>
+                  <button class="btn ghost" @click="showToast('选择资料库素材功能稍后接入资料中心素材弹窗')">选择资料库素材</button>
+                  <button class="btn ghost" :disabled="loading.action || !activeChannelNode?.contentId" @click="saveActiveChannel">保存当前平台</button>
+                  <button class="btn primary" :disabled="loading.action || !activeChannelNode?.contentId" @click="submitActiveChannelAudit">提交审核</button>
+                </div>
+                <div v-if="channelGenerationStatus === 'completed'" class="generation-complete-actions">
+                  <button class="btn ghost" @click="saveAllGeneratedChannels">保存全部渠道内容</button>
+                  <button class="btn primary" @click="enterChannelAudit">进入渠道审核</button>
+                  <button class="btn ghost" @click="closeModal">返回母稿</button>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
         <div v-if="modal.type === 'mode'" class="modal-body">
           <p class="mode-intro">两层审核相互独立：<strong>母稿</strong> → <strong>渠道内容</strong>。选择「AI 审核」时，系统按对应 Skill 自动检查合规性；「AI 审核 + 人工确认」用于高风险场景。</p>
           <label>工作模式<select v-model="modeConfig.workMode"><option>人工创作</option><option>智能生成</option></select></label>
@@ -1099,6 +1242,67 @@ const channelProfiles = reactive([
   { name: '百家号', icon: '📰', desc: '百度内容平台', type: '内容平台', siteUrl: 'https://baijiahao.baidu.com', adminUrl: 'https://baijiahao.baidu.com', contentTypes: '资讯 / 图文', supportMethods: '渠道 API / 人工', defaultMethod: 'API 自动发布', accountCount: 0, status: '未配置', method: '渠道 API', level: '半自动', skill: '', risk: '原创检测 + 接口校验', enabled: true },
   { name: '知乎', icon: '💡', desc: '问答与专栏', type: '问答平台', siteUrl: 'https://www.zhihu.com', adminUrl: 'https://www.zhihu.com/creator', contentTypes: '回答 / 文章', supportMethods: '渠道 API / Agent / 人工', defaultMethod: 'API 自动发布', accountCount: 1, status: '待授权', method: 'Agent 执行', level: '人工', skill: '知乎回答发布 Skill', risk: '人工接管 / 敏感词检查', enabled: true }
 ])
+const channelGenerationOrder = ['小红书', '知乎', '微信公众号', '抖音', '微博', '百家号', '独立站']
+const channelGeneration = reactive({
+  selectedChannels: ['小红书', '知乎', '微信公众号'],
+  activeChannel: '小红书',
+  previewMode: 'source',
+  status: 'not_started',
+  nodes: [],
+})
+const channelEditorMessages = reactive([])
+const channelEditPrompt = ref('')
+const channelGenerationPlatforms = computed(() => channelGenerationOrder.map(name => channelProfiles.find(channel => channel.name === name)).filter(Boolean))
+const activeChannelNode = computed(() => channelGeneration.nodes.find(node => node.channelName === channelGeneration.activeChannel) || channelGeneration.nodes[0] || null)
+const channelGenerationStatus = computed(() => channelGeneration.status)
+const channelGenerationStatusLabel = computed(() => ({
+  not_started: '未开始',
+  generating: '生成中',
+  partial_completed: '部分完成',
+  completed: '全部完成',
+  failed: '生成失败',
+  cancelled: '已取消',
+}[channelGeneration.status] || '未开始'))
+const channelGenerationMaster = computed(() => {
+  const snapshot = parseJsonObject(selectedDraft.value?.sourceSnapshot || selectedDraft.value?.raw?.source_snapshot || selectedDraft.value?.raw?.SourceSnapshot)
+  const brand = parseJsonObject(snapshot.brand)
+  const product = parseJsonObject(snapshot.product)
+  return {
+    brandName: brand.name || brand.brand_name || brand.BrandName || currentBrand.value.name || '未记录',
+    productName: product.name || product.product_name || product.ProductName || '未指定',
+    keywords: parseJsonArray(selectedDraft.value?.keywords).concat(Array.isArray(snapshot.keywords) ? snapshot.keywords : []).filter(Boolean).slice(0, 8),
+  }
+})
+const activeChannelExtraFields = computed(() => {
+  const payload = activeChannelNode.value?.contentPayload || {}
+  const extra = payload.extraFields || {}
+  const rows = []
+  Object.entries(extra).forEach(([key, value]) => rows.push({ label: channelFieldLabel(key), value: arrayOrObjectText(value) }))
+  ;['tags', 'hashtags', 'key_points', 'section_titles', 'faq', 'keywords'].forEach(key => {
+    if (payload[key]) rows.push({ label: channelFieldLabel(key), value: arrayOrObjectText(payload[key]) })
+  })
+  return rows.slice(0, 8)
+})
+const activeChannelAssetSummary = computed(() => {
+  const asset = activeChannelNode.value?.assetPayload || {}
+  const required = (asset.requiredAssets || []).map(item => item.slot || item.requirement).filter(Boolean)
+  const missing = (asset.missingAssets || []).map(item => item.slot || item.requirement).filter(Boolean)
+  if (missing.length) return `缺失：${missing.join('、')}。请从资料中心补充或进入渠道图片生成。`
+  if (required.length) return `需要：${required.join('、')}。`
+  return '当前平台无强制素材，可按渠道需要补充。'
+})
+const activeChannelPreview = computed(() => {
+  const node = activeChannelNode.value || {}
+  const payload = node.contentPayload || {}
+  return {
+    channel: node.channelName || '',
+    title: payload.title || payload.question_title || payload.answer_title || payload.video_title || payload.seo_title || payload.page_title || '',
+    body: payload.body || payload.answer_body || payload.script || payload.post_text || '',
+    tags: arrayOrObjectText(payload.tags || payload.hashtags || payload.keywords || node.geoPayload?.keywords || []),
+    seoTitle: payload.seo_title || payload.meta_description || '',
+    script: payload.storyboard || payload.subtitles ? [arrayOrObjectText(payload.storyboard), arrayOrObjectText(payload.subtitles)].filter(Boolean).join('\n\n') : '',
+  }
+})
 
 const planTabs = ['发布日历', '发布队列']
 const planTab = ref('发布队列')
@@ -1649,19 +1853,156 @@ function restoreWorkbenchDraftAfterLoad() {
 function channelContentFromApi(content) {
   const channelId = apiField(content, 'channel_id', 'ChannelID')
   const channel = channelProfiles.find(item => Number(item.id) === Number(channelId))
+  const body = apiField(content, 'body', 'Body') || ''
+  const pkg = parseChannelPackage(body, channel?.name || `渠道 ${channelId}`)
   return {
     id: apiField(content, 'id', 'ID'),
     channel: channel?.name || `渠道 ${channelId}`,
     channelId,
-    title: apiField(content, 'title', 'Title') || '',
-    body: apiField(content, 'body', 'Body') || '',
-    tags: '',
+    title: apiField(content, 'title', 'Title') || pkg.contentPayload.title || '',
+    body: pkg.contentPayload.body || body,
+    package: pkg,
+    tags: arrayOrObjectText(pkg.contentPayload.tags || pkg.contentPayload.hashtags || pkg.geoPayload.keywords || []),
     seoTitle: '',
     script: '',
     status: channelContentStatusLabel(apiField(content, 'audit_status', 'AuditStatus')),
     rawAuditStatus: apiField(content, 'audit_status', 'AuditStatus'),
     publishStatus: apiField(content, 'publish_status', 'PublishStatus'),
   }
+}
+
+function parseChannelPackage(body, channelName = '') {
+  const fallback = {
+    channel: channelName,
+    status: 'generated',
+    contentType: channelContentTypeForName(channelName),
+    contentPayload: { title: '', body: String(body || ''), tags: [], extraFields: {} },
+    assetPayload: { requiredAssets: [], matchedAssets: [], missingAssets: [], aiGenerateSuggestions: [] },
+    geoPayload: { keywords: [], geoSuggestions: [] },
+    riskNotes: [],
+    nextAction: '待编辑',
+  }
+  const parsed = parseJsonObject(body)
+  if (!Object.keys(parsed).length) return fallback
+  const contentPayload = parseJsonObject(parsed.contentPayload || parsed.content_payload)
+  const assetPayload = parseJsonObject(parsed.assetPayload || parsed.asset_payload)
+  const geoPayload = parseJsonObject(parsed.geoPayload || parsed.geo_payload)
+  return {
+    channel: parsed.channel || channelName,
+    status: parsed.status || 'generated',
+    contentType: parsed.contentType || parsed.content_type || channelContentTypeForName(channelName),
+    contentPayload: {
+      title: firstText(contentPayload, ['title', 'question_title', 'answer_title', 'video_title', 'seo_title', 'page_title', 'post_text']),
+      summary: firstText(contentPayload, ['summary', 'meta_description', 'intro']),
+      body: firstText(contentPayload, ['body', 'answer_body', 'script', 'post_text']) || String(body || ''),
+      tags: contentPayload.tags || contentPayload.hashtags || contentPayload.keywords || [],
+      extraFields: contentPayload.extraFields || contentPayload.extra_fields || Object.fromEntries(Object.entries(contentPayload).filter(([key]) => !['title', 'question_title', 'answer_title', 'video_title', 'seo_title', 'page_title', 'summary', 'meta_description', 'intro', 'body', 'answer_body', 'script', 'post_text', 'tags', 'hashtags', 'keywords'].includes(key))),
+      ...contentPayload,
+    },
+    assetPayload: {
+      requiredAssets: assetPayload.requiredAssets || assetPayload.required_assets || [],
+      matchedAssets: assetPayload.matchedAssets || assetPayload.matched_assets || [],
+      missingAssets: assetPayload.missingAssets || assetPayload.missing_assets || [],
+      aiGenerateSuggestions: assetPayload.aiGenerateSuggestions || assetPayload.ai_generate_suggestions || [],
+    },
+    geoPayload: {
+      brandEntityIncluded: Boolean(geoPayload.brandEntityIncluded ?? geoPayload.brand_entity_included),
+      productEntityIncluded: Boolean(geoPayload.productEntityIncluded ?? geoPayload.product_entity_included),
+      keywords: geoPayload.keywords || [],
+      geoSuggestions: geoPayload.geoSuggestions || geoPayload.geo_suggestions || [],
+    },
+    riskNotes: parsed.riskNotes || parsed.risk_notes || [],
+    nextAction: parsed.nextAction || parsed.next_action || '待编辑',
+  }
+}
+
+function channelNodeFromContent(content) {
+  const item = channelContentFromApi(content)
+  return {
+    channelName: item.channel,
+    channelId: item.channelId,
+    contentId: item.id,
+    contentType: item.package.contentType,
+    status: item.package.assetPayload.missingAssets?.length ? 'need_assets' : 'completed',
+    startedAt: '',
+    completedAt: apiField(content, 'updated_at', 'UpdatedAt') || new Date().toISOString(),
+    updatedLabel: formatGeneratedTime(apiField(content, 'updated_at', 'UpdatedAt') || new Date().toISOString()),
+    contentPayload: item.package.contentPayload,
+    assetPayload: item.package.assetPayload,
+    geoPayload: item.package.geoPayload,
+    riskNotes: item.package.riskNotes,
+    raw: content,
+  }
+}
+
+function serializeChannelNode(node) {
+  return JSON.stringify({
+    channel: node.channelName,
+    status: 'generated',
+    contentType: node.contentType,
+    contentPayload: node.contentPayload,
+    assetPayload: node.assetPayload,
+    geoPayload: node.geoPayload,
+    riskNotes: node.riskNotes,
+    nextAction: node.status === 'need_assets' ? '待补充素材' : '待编辑',
+  }, null, 2)
+}
+
+function channelContentTypeForName(name) {
+  return {
+    小红书: '图文笔记',
+    知乎: '问答回答',
+    微信公众号: '图文文章',
+    抖音: '视频脚本',
+    微博: '短帖',
+    百家号: '图文文章',
+    独立站: 'SEO文章',
+  }[name] || '渠道内容'
+}
+
+function firstText(obj, keys) {
+  for (const key of keys) {
+    const value = obj?.[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return ''
+}
+
+function arrayOrObjectText(value) {
+  if (Array.isArray(value)) return value.map(item => arrayOrObjectText(item)).filter(Boolean).join('、')
+  if (value && typeof value === 'object') return Object.entries(value).map(([key, item]) => `${channelFieldLabel(key)}：${arrayOrObjectText(item)}`).join('；')
+  return String(value || '').trim()
+}
+
+function channelFieldLabel(key) {
+  return {
+    cover_title: '封面标题',
+    publish_notes: '发布备注',
+    question_title: '问题标题',
+    answer_title: '回答标题',
+    key_points: '核心观点',
+    argument_structure: '论证结构',
+    product_mention_strategy: '商品露出方式',
+    section_titles: '小标题结构',
+    intro: '引导语',
+    ending_cta: '结尾 CTA',
+    original_link_suggestion: '原文链接建议',
+    hook: '开头钩子',
+    storyboard: '分镜脚本',
+    subtitles: '字幕文案',
+    shooting_notes: '拍摄建议',
+    publish_caption: '发布文案',
+    image_plan: '配图需求',
+    seo_title: 'SEO 标题',
+    meta_description: 'Meta 描述',
+    url_slug: 'URL Slug',
+    faq: 'FAQ',
+    internal_links: '内链建议',
+    schema_json: 'Schema 结构化数据',
+    tags: '话题标签',
+    hashtags: '话题标签',
+    keywords: '关键词',
+  }[key] || key
 }
 
 function apiPlanToPlan(plan) {
@@ -2742,6 +3083,10 @@ function auditOpinion(suggestion) {
   return suggestion?.summary || suggestion?.Summary || '审核报告已生成'
 }
 async function generateChannelsForDraft(draft, options = {}) {
+  if (!options.silent) {
+    openChannelGenerationConsole(draft)
+    return
+  }
   const target = draft.id ? draft : drafts[0]
   const channel = channelProfiles[0]
   if (!target?.id || !channel?.id) {
@@ -2765,6 +3110,251 @@ async function generateChannelsForDraft(draft, options = {}) {
   } finally {
     loading.action = false
   }
+}
+
+function openChannelGenerationConsole(draft) {
+  const target = draft?.id ? draft : drafts.find(item => Number(item.id) === Number(editingDraft.id)) || drafts[0]
+  if (!target?.id) {
+    showToast('请先保存并通过母稿')
+    return
+  }
+  if (!canGenerateChannelFromDraft(target)) {
+    showToast('母稿通过后才能生成渠道内容')
+    return
+  }
+  selectedDraft.value = target
+  setupChannelGenerationNodes(target)
+  modal.type = 'channelGenerator'
+  modal.title = '渠道内容生成'
+  modal.wide = true
+}
+
+function setupChannelGenerationNodes(draft) {
+  const generatedByName = new Map((draft.channels || []).map(content => [content.channel, content]))
+  channelGeneration.nodes.splice(0, channelGeneration.nodes.length, ...channelGeneration.selectedChannels.map(name => {
+    const existing = generatedByName.get(name)
+    if (existing?.id) {
+      const pkg = existing.package || parseChannelPackage(existing.raw?.body || existing.raw?.Body || existing.body, name)
+      return {
+        channelName: name,
+        channelId: existing.channelId || channelProfiles.find(channel => channel.name === name)?.id,
+        contentId: existing.id,
+        contentType: pkg.contentType,
+        status: existing.status === '已通过' ? 'completed' : 'edited',
+        startedAt: '',
+        completedAt: existing.raw?.updated_at || existing.raw?.UpdatedAt || '',
+        updatedLabel: existing.raw?.updated_at ? formatGeneratedTime(existing.raw.updated_at) : '已保存',
+        contentPayload: pkg.contentPayload,
+        assetPayload: pkg.assetPayload,
+        geoPayload: pkg.geoPayload,
+        riskNotes: pkg.riskNotes,
+        raw: existing.raw,
+      }
+    }
+    const channel = channelProfiles.find(item => item.name === name)
+    return emptyChannelNode(name, channel?.id)
+  }))
+  channelGeneration.activeChannel = channelGeneration.nodes[0]?.channelName || ''
+  channelGeneration.previewMode = 'source'
+  channelGeneration.status = channelGeneration.nodes.some(node => node.contentId) ? 'partial_completed' : 'not_started'
+  channelEditorMessages.splice(0, channelEditorMessages.length, {
+    id: Date.now(),
+    role: 'ai',
+    text: '先在右侧选择平台并点击“开始自动生成”。初次生成由系统按渠道内容标准生成 Skill 完成；这里的 AI 对话只修改当前选中的平台内容。',
+  })
+}
+
+function emptyChannelNode(channelName, channelId) {
+  return {
+    channelName,
+    channelId,
+    contentId: 0,
+    contentType: channelContentTypeForName(channelName),
+    status: 'waiting',
+    startedAt: '',
+    completedAt: '',
+    updatedLabel: '',
+    errorMessage: '',
+    contentPayload: { title: '', summary: '', body: '', tags: [], extraFields: {} },
+    assetPayload: { requiredAssets: [], matchedAssets: [], missingAssets: [], aiGenerateSuggestions: [] },
+    geoPayload: { keywords: [], geoSuggestions: [] },
+    riskNotes: [],
+    raw: null,
+  }
+}
+
+function toggleGenerationChannel(name) {
+  if (channelGeneration.status === 'generating') return
+  const index = channelGeneration.selectedChannels.indexOf(name)
+  if (index >= 0) {
+    channelGeneration.selectedChannels.splice(index, 1)
+  } else {
+    channelGeneration.selectedChannels.push(name)
+    channelGeneration.selectedChannels.sort((a, b) => channelGenerationOrder.indexOf(a) - channelGenerationOrder.indexOf(b))
+  }
+  setupChannelGenerationNodes(selectedDraft.value)
+}
+
+function selectChannelNode(name) {
+  channelGeneration.activeChannel = name
+}
+
+function generationNodeStatusLabel(status) {
+  return {
+    waiting: '等待中',
+    generating: '生成中',
+    completed: '已完成',
+    edited: '已编辑',
+    need_assets: '需补充素材',
+    failed: '生成失败',
+    skipped: '已跳过',
+  }[status] || '等待中'
+}
+
+async function startChannelGeneration() {
+  if (!selectedDraft.value?.id) return
+  channelGeneration.status = 'generating'
+  loading.action = true
+  try {
+    for (const node of channelGeneration.nodes) {
+      if (node.contentId && ['completed', 'edited', 'need_assets'].includes(node.status)) continue
+      channelGeneration.activeChannel = node.channelName
+      node.status = 'generating'
+      node.startedAt = new Date().toISOString()
+      const content = await generateAiGeoChannelContent(Number(selectedDraft.value.id), {
+        channel_id: Number(node.channelId),
+      })
+      Object.assign(node, channelNodeFromContent(content))
+      if (!Array.isArray(selectedDraft.value.channels)) selectedDraft.value.channels = []
+      const listIndex = selectedDraft.value.channels.findIndex(item => Number(item.id) === Number(node.contentId))
+      const listItem = channelContentFromApi(content)
+      if (listIndex >= 0) selectedDraft.value.channels.splice(listIndex, 1, listItem)
+      else selectedDraft.value.channels.push(listItem)
+      await wait(160)
+    }
+    channelGeneration.status = 'completed'
+    showToast('本次渠道内容生成完成')
+    await loadAiGeoData()
+  } catch (error) {
+    const node = activeChannelNode.value
+    if (node) {
+      node.status = 'failed'
+      node.errorMessage = error?.message || '生成失败'
+    }
+    channelGeneration.status = 'failed'
+    showToast(error?.message || '渠道内容生成失败')
+  } finally {
+    loading.action = false
+  }
+}
+
+function resetChannelGeneration() {
+  setupChannelGenerationNodes(selectedDraft.value)
+  channelGeneration.status = 'not_started'
+}
+
+async function regenerateActiveChannel() {
+  const node = activeChannelNode.value
+  if (!node) return
+  node.contentId = 0
+  node.status = 'waiting'
+  await startChannelGeneration()
+}
+
+async function saveActiveChannel() {
+  const node = activeChannelNode.value
+  if (!node?.contentId) return
+  loading.action = true
+  try {
+    const saved = await updateAiGeoChannelContent(Number(node.contentId), {
+      channel_id: Number(node.channelId),
+      title: node.contentPayload.title || activeChannelPreview.value.title,
+      body: serializeChannelNode(node),
+    })
+    Object.assign(node, channelNodeFromContent(saved))
+    showToast('当前平台内容已保存')
+  } catch (error) {
+    showToast(error?.message || '保存当前平台失败')
+  } finally {
+    loading.action = false
+  }
+}
+
+async function saveAllGeneratedChannels() {
+  for (const node of channelGeneration.nodes.filter(item => item.contentId)) {
+    channelGeneration.activeChannel = node.channelName
+    await saveActiveChannel()
+  }
+  showToast('全部渠道内容已保存')
+}
+
+async function submitActiveChannelAudit() {
+  const node = activeChannelNode.value
+  if (!node?.contentId) return
+  await saveActiveChannel()
+  showToast('已提交渠道内容审核')
+}
+
+function enterChannelAudit() {
+  showToast('渠道内容已进入审核列表，可在母稿列表中查看并确认')
+  closeModal()
+}
+
+async function applyChannelAiEdit() {
+  const node = activeChannelNode.value
+  const prompt = String(channelEditPrompt.value || '').trim()
+  if (!node || !prompt) return
+  const userMessage = { id: Date.now(), role: 'user', text: prompt }
+  const aiMessage = reactive({ id: Date.now() + 1, role: 'ai', text: '', streaming: true })
+  channelEditorMessages.push(userMessage, aiMessage)
+  loading.action = true
+  try {
+    await streamAiGeoGatewayInvoke({
+      app_code: 'ai-geo',
+      app_name: 'AI GEO',
+      ai_scenario_code: 'ai_geo_channel_content_editor',
+      params: { usage_amount: 1, usage_unit: 'calls', temperature: 0.35, max_tokens: 1400 },
+      input: {
+        messages: [
+          { role: 'system', content: '你是渠道内容 AI 编辑。只修改当前平台渠道内容，不修改母稿和其他平台。返回 JSON：{"contentPayload":{...},"assetPayload":{...},"geoPayload":{...},"riskNotes":[],"editorNote":"修改说明"}。' },
+          { role: 'user', content: JSON.stringify({ request: prompt, channel: node.channelName, currentPackage: serializeChannelNode(node), masterDraft: selectedDraft.value }, null, 2) },
+        ],
+      },
+    }, {
+      onDelta(delta) { aiMessage.text += delta },
+      onFinal(event) { if (!aiMessage.text && event.text) aiMessage.text = event.text },
+      onError(event) { throw new Error(event.error_message || 'AI 编辑失败') },
+    })
+    applyChannelEditorResult(node, aiMessage.text, prompt)
+    node.status = 'edited'
+    node.updatedLabel = '刚刚编辑'
+    channelEditPrompt.value = ''
+    await saveActiveChannel()
+  } catch (error) {
+    aiMessage.text = `AI 编辑失败：${error?.message || '请稍后重试'}`
+    showToast(error?.message || 'AI 编辑失败')
+  } finally {
+    aiMessage.streaming = false
+    loading.action = false
+  }
+}
+
+function applyChannelEditorResult(node, text, prompt) {
+  const parsed = parseJsonObject(normalizeJsonText(text))
+  const contentPayload = parseJsonObject(parsed.contentPayload || parsed.content_payload)
+  const assetPayload = parseJsonObject(parsed.assetPayload || parsed.asset_payload)
+  const geoPayload = parseJsonObject(parsed.geoPayload || parsed.geo_payload)
+  if (Object.keys(contentPayload).length) Object.assign(node.contentPayload, contentPayload)
+  else node.contentPayload.body = `${node.contentPayload.body}\n\n${text}`.trim()
+  if (Object.keys(assetPayload).length) Object.assign(node.assetPayload, assetPayload)
+  if (Object.keys(geoPayload).length) Object.assign(node.geoPayload, geoPayload)
+  if (Array.isArray(parsed.riskNotes || parsed.risk_notes)) node.riskNotes = parsed.riskNotes || parsed.risk_notes
+  const note = parsed.editorNote || parsed.editor_note || `已按「${prompt}」更新当前平台内容。`
+  channelEditorMessages.push({ id: Date.now() + 2, role: 'ai', text: note })
+}
+
+function normalizeJsonText(text) {
+  return String(text || '').trim().replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim()
 }
 function openChannelEditor(draft, channel) {
   selectedDraft.value = draft

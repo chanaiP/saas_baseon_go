@@ -13,9 +13,10 @@ import (
 )
 
 const (
-	draftGenerationScenarioCode = "ai_geo_draft_generation"
-	channelRewriteScenarioCode  = "ai_geo_channel_rewrite"
-	auditSuggestionScenarioCode = "ai_geo_audit_suggestion"
+	draftGenerationScenarioCode        = "ai_geo_draft_generation"
+	channelContentStandardScenarioCode = "channel_content_standard_generate"
+	channelContentEditorScenarioCode   = "ai_geo_channel_content_editor"
+	auditSuggestionScenarioCode        = "ai_geo_audit_suggestion"
 )
 
 type aiGatewayInvoker interface {
@@ -76,9 +77,15 @@ func (localDraftGenerator) GenerateDraft(_ context.Context, req DraftGenerationR
 }
 
 func (localChannelContentGenerator) GenerateChannelContent(_ context.Context, req ChannelContentGenerationRequest) (ChannelContentGenerationResult, error) {
+	packageBody := channelPackageJSON(req, map[string]interface{}{
+		"title":   defaultString(req.Payload.Title, channelDefaultTitle(req)),
+		"summary": stringValueFromPtr(req.Draft.Summary),
+		"body":    defaultString(req.Payload.Body, req.Draft.Body),
+		"tags":    defaultChannelTags(req.Channel.ChannelName),
+	})
 	return ChannelContentGenerationResult{
-		Title: defaultString(req.Payload.Title, req.Draft.Title),
-		Body:  defaultString(req.Payload.Body, req.Draft.Body),
+		Title: defaultString(req.Payload.Title, channelDefaultTitle(req)),
+		Body:  packageBody,
 	}, nil
 }
 
@@ -147,14 +154,14 @@ func (g gatewayChannelContentGenerator) GenerateChannelContent(ctx context.Conte
 		TenantID:       fmt.Sprintf("%d", req.Viewer.TenantID),
 		AppCode:        "ai-geo",
 		AppName:        "AI GEO",
-		AIScenarioCode: channelRewriteScenarioCode,
+		AIScenarioCode: channelContentStandardScenarioCode,
 		UserID:         fmt.Sprintf("%d", req.Viewer.UserID),
 		RequestID:      fmt.Sprintf("ai_geo_channel_%d_%d", req.Viewer.TenantID, time.Now().UnixNano()),
 		Params: map[string]interface{}{
 			"usage_amount": 1,
 			"usage_unit":   "calls",
 			"temperature":  0.6,
-			"max_tokens":   1600,
+			"max_tokens":   2600,
 		},
 		Input: channelRewriteMessages(req),
 	})
@@ -237,11 +244,12 @@ func draftGenerationMessages(req DraftGenerationRequest) map[string]interface{} 
 func channelRewriteMessages(req ChannelContentGenerationRequest) map[string]interface{} {
 	context := map[string]interface{}{
 		"draft": map[string]interface{}{
-			"draft_code": req.Draft.DraftCode,
-			"title":      req.Draft.Title,
-			"summary":    stringValueFromPtr(req.Draft.Summary),
-			"body":       req.Draft.Body,
-			"keywords":   req.Draft.Keywords,
+			"draft_code":      req.Draft.DraftCode,
+			"title":           req.Draft.Title,
+			"summary":         stringValueFromPtr(req.Draft.Summary),
+			"body":            req.Draft.Body,
+			"keywords":        req.Draft.Keywords,
+			"source_snapshot": req.Draft.SourceSnapshot,
 		},
 		"channel": map[string]interface{}{
 			"channel_code":         req.Channel.ChannelCode,
@@ -255,6 +263,7 @@ func channelRewriteMessages(req ChannelContentGenerationRequest) map[string]inte
 			"title": req.Payload.Title,
 			"body":  req.Payload.Body,
 		},
+		"skill": "channel_content_standard_generate",
 	}
 	raw, _ := json.Marshal(context)
 	return map[string]interface{}{
@@ -262,17 +271,42 @@ func channelRewriteMessages(req ChannelContentGenerationRequest) map[string]inte
 			{
 				"role": "system",
 				"content": strings.Join([]string{
-					"你是 GEO 多渠道内容改写专家。",
-					"你必须基于母稿和渠道资料输出适合该渠道的内容版本。",
+					"你是渠道内容标准生成 Skill。",
+					"你只负责“已审核母稿 -> 当前平台渠道内容包”。",
+					"必须基于母稿、品牌/商品基础资料、渠道规范和素材规则生成，不得新增未确认事实。",
+					"不同平台必须输出不同结构：小红书图文笔记、知乎问答回答、微信公众号图文文章、抖音视频脚本、微博短帖、百家号图文文章、独立站 SEO/FAQ 内容。",
+					"生成完成不等于可发布，nextAction 必须体现待编辑、待补充素材或待审核。",
 					"只返回合法 JSON，不要 Markdown，不要解释性前后缀。",
 				}, "\n"),
 			},
 			{
 				"role": "user",
-				"content": fmt.Sprintf(`请将母稿改写成渠道内容，并严格返回 JSON：
+				"content": fmt.Sprintf(`请为当前平台生成结构化渠道内容包，并严格返回 JSON：
 {
-  "title": "渠道标题",
-  "body": "渠道正文"
+  "channel": "平台名称",
+  "status": "generated",
+  "contentType": "图文笔记|问答回答|图文文章|视频脚本|短帖|SEO文章",
+  "contentPayload": {
+    "title": "",
+    "summary": "",
+    "body": "",
+    "tags": [],
+    "extraFields": {}
+  },
+  "assetPayload": {
+    "requiredAssets": [],
+    "matchedAssets": [],
+    "missingAssets": [],
+    "aiGenerateSuggestions": []
+  },
+  "geoPayload": {
+    "brandEntityIncluded": true,
+    "productEntityIncluded": true,
+    "keywords": [],
+    "geoSuggestions": []
+  },
+  "riskNotes": [],
+  "nextAction": "待编辑|待补充素材|可进入渠道审核"
 }
 
 输入上下文：
@@ -350,6 +384,107 @@ func localDraftGeneratorResult(req DraftGenerationRequest) DraftGenerationResult
 func localChannelContentGeneratorResult(req ChannelContentGenerationRequest) ChannelContentGenerationResult {
 	result, _ := localChannelContentGenerator{}.GenerateChannelContent(context.Background(), req)
 	return result
+}
+
+func channelPackageJSON(req ChannelContentGenerationRequest, contentPayload map[string]interface{}) string {
+	contentType := channelContentType(req.Channel.ChannelName)
+	packageBody := map[string]interface{}{
+		"channel":        req.Channel.ChannelName,
+		"status":         "generated",
+		"contentType":    contentType,
+		"contentPayload": contentPayload,
+		"assetPayload": map[string]interface{}{
+			"requiredAssets":        requiredAssetsForChannel(req.Channel.ChannelName),
+			"matchedAssets":         []map[string]interface{}{},
+			"missingAssets":         missingAssetsForChannel(req.Channel.ChannelName),
+			"aiGenerateSuggestions": aiAssetSuggestionsForChannel(req.Channel.ChannelName),
+		},
+		"geoPayload": map[string]interface{}{
+			"brandEntityIncluded":   true,
+			"productEntityIncluded": req.Draft.ProductID != nil,
+			"keywords":              parseStringSliceJSON(req.Draft.Keywords),
+			"geoSuggestions":        []string{"保留品牌实体、商品实体、人群词、场景词和问题词。"},
+		},
+		"riskNotes":  []string{"渠道内容生成完成不等于可发布，需继续进入渠道内容审核。"},
+		"nextAction": "待编辑",
+	}
+	raw, _ := json.MarshalIndent(packageBody, "", "  ")
+	return string(raw)
+}
+
+func channelDefaultTitle(req ChannelContentGenerationRequest) string {
+	if req.Channel.ChannelName == "" {
+		return req.Draft.Title
+	}
+	return fmt.Sprintf("%s｜%s", req.Draft.Title, req.Channel.ChannelName)
+}
+
+func channelContentType(channelName string) string {
+	switch channelName {
+	case "小红书":
+		return "图文笔记"
+	case "知乎":
+		return "问答回答"
+	case "微信公众号", "百家号":
+		return "图文文章"
+	case "抖音":
+		return "视频脚本"
+	case "微博":
+		return "短帖"
+	case "独立站":
+		return "SEO文章"
+	default:
+		return "渠道内容"
+	}
+}
+
+func defaultChannelTags(channelName string) []string {
+	switch channelName {
+	case "小红书":
+		return []string{"GEO", "种草", "穿搭建议"}
+	case "微博":
+		return []string{"GEO", "品牌内容"}
+	default:
+		return []string{"GEO"}
+	}
+}
+
+func requiredAssetsForChannel(channelName string) []map[string]string {
+	switch channelName {
+	case "小红书":
+		return []map[string]string{{"slot": "封面图", "requirement": "商品图或模特图，3-6 张优先", "type": "image"}}
+	case "微信公众号", "百家号":
+		return []map[string]string{{"slot": "封面图", "requirement": "适合图文文章封面的品牌/商品图", "type": "image"}}
+	case "抖音":
+		return []map[string]string{{"slot": "商品视频", "requirement": "商品或模特视频素材，缺失时输出拍摄建议", "type": "video"}}
+	case "独立站":
+		return []map[string]string{{"slot": "商品图", "requirement": "可用于 SEO 页面或商品详情的真实商品图", "type": "image"}}
+	default:
+		return []map[string]string{}
+	}
+}
+
+func missingAssetsForChannel(channelName string) []map[string]string {
+	required := requiredAssetsForChannel(channelName)
+	items := make([]map[string]string, 0, len(required))
+	for _, item := range required {
+		items = append(items, map[string]string{
+			"slot":        item["slot"],
+			"requirement": item["requirement"],
+			"suggestion":  "从资料中心选择已授权素材；若为氛围图或分镜参考，可进入渠道图片生成。",
+		})
+	}
+	return items
+}
+
+func aiAssetSuggestionsForChannel(channelName string) []string {
+	if channelName == "抖音" {
+		return []string{"可生成分镜参考图，但不能替代真实商品视频。"}
+	}
+	if len(requiredAssetsForChannel(channelName)) > 0 {
+		return []string{"可生成封面背景或氛围图；商品主图、SKU 图必须来自资料中心。"}
+	}
+	return []string{}
 }
 
 func localAuditAdvisorResult(req AuditAdviceRequest) AuditAdviceResult {
@@ -606,6 +741,20 @@ func channelContentFromMap(data map[string]interface{}, fallback ChannelContentG
 	if nested, ok := mapValue(data, "channel_content"); ok {
 		data = nested
 	}
+	if _, hasPackage := data["contentPayload"]; hasPackage {
+		result := fallback
+		if contentPayload, ok := mapValue(data, "contentPayload"); ok {
+			if title := firstStringValue(contentPayload, "title", "question_title", "answer_title", "video_title", "post_text", "seo_title", "page_title"); title != "" {
+				result.Title = trimRunes(title, 80)
+			}
+		}
+		if result.Title == "" {
+			result.Title = fallback.Title
+		}
+		raw, _ := json.MarshalIndent(data, "", "  ")
+		result.Body = string(raw)
+		return result, true
+	}
 	result := fallback
 	matched := false
 	if title := stringValue(data, "title", ""); title != "" {
@@ -617,6 +766,15 @@ func channelContentFromMap(data map[string]interface{}, fallback ChannelContentG
 		matched = true
 	}
 	return result, matched
+}
+
+func firstStringValue(data map[string]interface{}, keys ...string) string {
+	for _, key := range keys {
+		if value := stringValue(data, key, ""); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func auditAdviceFromMap(data map[string]interface{}, fallback AuditAdviceResult) (AuditAdviceResult, bool) {
@@ -710,6 +868,25 @@ func stringSliceValue(data map[string]interface{}, key string) ([]string, bool) 
 		}
 	}
 	return items, true
+}
+
+func parseStringSliceJSON(raw string) []string {
+	var items []string
+	if err := json.Unmarshal([]byte(raw), &items); err == nil {
+		return items
+	}
+	var loose []interface{}
+	if err := json.Unmarshal([]byte(raw), &loose); err != nil {
+		return []string{}
+	}
+	result := make([]string, 0, len(loose))
+	for _, item := range loose {
+		value := strings.TrimSpace(fmt.Sprint(item))
+		if value != "" && value != "<nil>" {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 func mapSliceValue(data map[string]interface{}, key string) ([]map[string]interface{}, bool) {
