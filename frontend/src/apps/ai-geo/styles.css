@@ -545,6 +545,15 @@
 .geo-growth-page .readonly-draft h2 { margin: 0; font-size: 19px; line-height: 1.4; }
 .geo-growth-page .readonly-draft p { margin: 0; color: var(--text); line-height: 1.7; }
 .geo-growth-page .readonly-draft article { white-space: pre-wrap; min-height: 360px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: #fbfcff; line-height: 1.8; overflow: auto; }
+.geo-growth-page .readonly-draft .readonly-article { white-space: normal; display: grid; gap: 12px; align-content: start; }
+.geo-growth-page .readonly-article h2,
+.geo-growth-page .readonly-article h3 { margin: 4px 0 0; color: var(--text); line-height: 1.45; font-weight: 800; }
+.geo-growth-page .readonly-article h2 { font-size: 18px; }
+.geo-growth-page .readonly-article h3 { font-size: 16px; }
+.geo-growth-page .readonly-article p { margin: 0; line-height: 1.8; color: var(--text); }
+.geo-growth-page .readonly-article ul,
+.geo-growth-page .readonly-article ol { margin: 0; padding-left: 1.2em; display: grid; gap: 8px; }
+.geo-growth-page .readonly-article li { line-height: 1.75; }
 .geo-growth-page .source-record-grid.compact { flex-shrink: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 12px; border-top: 1px solid var(--line); }
 .geo-growth-page .current-edit-target { margin: 14px 16px 10px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: #f8fafc; }
 .geo-growth-page .current-edit-target span { display: block; color: var(--muted); font-size: 12px; margin-bottom: 6px; }

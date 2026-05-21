@@ -561,7 +561,7 @@
               <span>摘要</span>
               <p>{{ selectedDraft?.summary || '未填写摘要' }}</p>
               <span>正文</span>
-              <article>{{ selectedDraft?.body }}</article>
+              <article class="readonly-article" v-html="formatArticlePreview(selectedDraft?.body)"></article>
             </div>
             <div class="source-record-grid compact">
               <div class="source-record-item">
@@ -2621,6 +2621,51 @@ function formatChatMessage(text) {
       }
       flushList()
       rendered.push(renderChatLine(line))
+    }
+    flushList()
+    return rendered.join('')
+  }).join('')
+}
+
+function renderArticleLine(line) {
+  const heading = line.match(/^(#{1,4})\s+(.+)$/)
+  if (heading) {
+    const level = heading[1].length >= 3 ? 'h3' : 'h2'
+    return `<${level}>${inlineMarkdown(heading[2].trim())}</${level}>`
+  }
+  return `<p>${inlineMarkdown(line)}</p>`
+}
+
+function formatArticlePreview(text) {
+  const source = String(text || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  if (!source) return '<p>暂无正文</p>'
+  const blocks = source.split(/\n{2,}/).map(block => block.trim()).filter(Boolean)
+  return blocks.map(block => {
+    const lines = block.split('\n').map(line => line.trim()).filter(Boolean)
+    const rendered = []
+    let listTag = ''
+    let listItems = []
+    const flushList = () => {
+      if (!listTag) return
+      rendered.push(`<${listTag}>${listItems.join('')}</${listTag}>`)
+      listTag = ''
+      listItems = []
+    }
+    for (const line of lines) {
+      const numbered = line.match(/^(\d+)[.、]\s*(.+)$/)
+      const bulleted = line.match(/^[-*•]\s*(.+)$/)
+      if (numbered || bulleted) {
+        const tag = numbered ? 'ol' : 'ul'
+        if (listTag && listTag !== tag) flushList()
+        listTag = tag
+        listItems.push(`<li>${inlineMarkdown((numbered?.[2] || bulleted?.[1] || '').trim())}</li>`)
+        continue
+      }
+      flushList()
+      rendered.push(renderArticleLine(line))
     }
     flushList()
     return rendered.join('')
