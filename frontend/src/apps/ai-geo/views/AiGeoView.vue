@@ -613,7 +613,11 @@
               </div>
             </div>
             <div class="channel-ai-input">
-              <textarea v-model="channelEditPrompt" placeholder="输入修改要求，例如：标题不要太营销、正文更自然、补充 GEO 关键词、图片需求更明确"></textarea>
+              <textarea
+                v-model="channelEditPrompt"
+                placeholder="输入修改要求，例如：标题不要太营销、正文更自然、补充 GEO 关键词、图片需求更明确"
+                @keydown.enter.exact="submitChannelEditPrompt"
+              ></textarea>
               <button class="btn primary" :disabled="loading.action || !activeChannelNode || !channelEditPrompt.trim()" @click="applyChannelAiEdit">
                 发送修改要求
               </button>
@@ -3515,6 +3519,13 @@ async function submitActiveChannelAudit() {
 function enterChannelAudit() {
   showToast('渠道内容已进入审核列表，可在母稿列表中查看并确认')
   returnToDrafts()
+}
+
+function submitChannelEditPrompt(event) {
+  if (event?.isComposing) return
+  event?.preventDefault()
+  if (loading.action || !activeChannelNode.value || !String(channelEditPrompt.value || '').trim()) return
+  applyChannelAiEdit()
 }
 
 async function applyChannelAiEdit() {
