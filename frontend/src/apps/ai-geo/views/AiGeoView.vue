@@ -604,14 +604,21 @@
             </div>
             <div class="channel-ai-log">
               <div v-for="message in channelEditorMessages" :key="message.id" :class="['bubble', message.role === 'user' ? 'user' : 'ai']">
-                <p>{{ message.text }}</p>
+                <div class="message-rich">
+                  <p v-for="(paragraph, paragraphIndex) in messageParagraphs(message)" :key="`${message.id}-${paragraphIndex}`">{{ paragraph }}</p>
+                </div>
+                <div v-if="message.pendingEdit" class="channel-edit-proposal">
+                  <strong>可应用的修改</strong>
+                  <span>将只更新「{{ message.pendingEdit.channelName }}」当前平台内容，不影响母稿和其他平台。</span>
+                  <button class="btn small primary" :disabled="loading.action" @click="applyPendingChannelEdit(message)">应用到当前平台</button>
+                </div>
                 <span v-if="message.streaming" class="stream-cursor"></span>
               </div>
             </div>
             <div class="channel-ai-input">
               <textarea v-model="channelEditPrompt" placeholder="输入修改要求，例如：标题不要太营销、正文更自然、补充 GEO 关键词、图片需求更明确"></textarea>
               <button class="btn primary" :disabled="loading.action || !activeChannelNode || !channelEditPrompt.trim()" @click="applyChannelAiEdit">
-                应用到当前平台
+                发送修改要求
               </button>
             </div>
           </section>
@@ -3428,7 +3435,14 @@ async function applyChannelAiEdit() {
   const prompt = String(channelEditPrompt.value || '').trim()
   if (!node || !prompt) return
   const userMessage = { id: Date.now(), role: 'user', text: prompt }
-  const aiMessage = reactive({ id: Date.now() + 1, role: 'ai', text: '', streaming: true })
+  const aiMessage = reactive({
+    id: Date.now() + 1,
+    role: 'ai',
+    text: '正在根据当前平台内容生成修改方案...',
+    rawText: '',
+    streaming: true,
+    pendingEdit: null,
+  })
   channelEditorMessages.push(userMessage, aiMessage)
   loading.action = true
   try {
@@ -3439,20 +3453,23 @@ async function applyChannelAiEdit() {
       params: { usage_amount: 1, usage_unit: 'calls', temperature: 0.35, max_tokens: 1400 },
       input: {
         messages: [
-          { role: 'system', content: '你是渠道内容 AI 编辑。只修改当前平台渠道内容，不修改母稿和其他平台。返回 JSON：{"contentPayload":{...},"assetPayload":{...},"geoPayload":{...},"riskNotes":[],"editorNote":"修改说明"}。' },
+          { role: 'system', content: '你是渠道内容 AI 编辑。只修改当前平台渠道内容，不修改母稿和其他平台。必须返回纯 JSON，不要 Markdown，不要解释文本。结构：{"contentPayload":{"title":"...","summary":"...","body":"...","tags":[]},"assetPayload":{},"geoPayload":{},"riskNotes":[],"editorNote":"用中文说明本次改了什么","preview":"用中文给运营看的改稿预览，说明标题、摘要、正文和素材会怎么变"}。' },
           { role: 'user', content: JSON.stringify({ request: prompt, channel: node.channelName, currentPackage: serializeChannelNode(node), masterDraft: selectedDraft.value }, null, 2) },
         ],
       },
     }, {
-      onDelta(delta) { aiMessage.text += delta },
-      onFinal(event) { if (!aiMessage.text && event.text) aiMessage.text = event.text },
+      onDelta(delta) { aiMessage.rawText += delta },
+      onFinal(event) { if (!aiMessage.rawText && event.text) aiMessage.rawText = event.text },
       onError(event) { throw new Error(event.error_message || 'AI 编辑失败') },
     })
-    applyChannelEditorResult(node, aiMessage.text, prompt)
-    node.status = 'edited'
-    node.updatedLabel = '刚刚编辑'
+    const proposal = buildChannelEditorProposal(node, aiMessage.rawText, prompt)
+    if (proposal) {
+      aiMessage.text = proposal.previewText
+      aiMessage.pendingEdit = proposal
+    } else {
+      aiMessage.text = `这次没有形成可直接应用的修改包。\n\n${cleanAssistantText(aiMessage.rawText) || '请换一种说法再发送一次。'}`
+    }
     channelEditPrompt.value = ''
-    await saveActiveChannel()
   } catch (error) {
     aiMessage.text = `AI 编辑失败：${error?.message || '请稍后重试'}`
     showToast(error?.message || 'AI 编辑失败')
@@ -3462,13 +3479,55 @@ async function applyChannelAiEdit() {
   }
 }
 
-function applyChannelEditorResult(node, text, prompt) {
-  const parsed = parseJsonObject(normalizeJsonText(text))
+async function applyPendingChannelEdit(message) {
+  const node = activeChannelNode.value
+  const proposal = message?.pendingEdit
+  if (!node || !proposal) return
+  loading.action = true
+  try {
+    applyChannelEditorResult(node, proposal.parsed, proposal.prompt)
+    node.status = 'edited'
+    node.updatedLabel = '刚刚编辑'
+    message.pendingEdit = null
+    message.text = `${proposal.previewText}\n\n已应用到「${node.channelName}」。`
+    await saveActiveChannel()
+  } catch (error) {
+    showToast(error?.message || '应用修改失败')
+  } finally {
+    loading.action = false
+  }
+}
+
+function buildChannelEditorProposal(node, text, prompt) {
+  const parsed = parseJsonObject(extractJsonText(text))
+  const contentPayload = parseJsonObject(parsed.contentPayload || parsed.content_payload)
+  const assetPayload = parseJsonObject(parsed.assetPayload || parsed.asset_payload)
+  const geoPayload = parseJsonObject(parsed.geoPayload || parsed.geo_payload)
+  const hasPatch = [contentPayload, assetPayload, geoPayload].some(item => Object.keys(item).length)
+  if (!hasPatch) return null
+  const preview = parsed.preview || parsed.editorPreview || parsed.editor_preview || parsed.editorNote || parsed.editor_note || `已按「${prompt}」形成修改方案。`
+  const parts = [
+    '已生成当前平台的修改方案，先不自动应用。',
+    preview,
+  ]
+  if (contentPayload.title) parts.push(`标题：${contentPayload.title}`)
+  if (contentPayload.summary) parts.push(`摘要：${contentPayload.summary}`)
+  if (contentPayload.tags || contentPayload.hashtags) parts.push(`话题/关键词：${arrayOrObjectText(contentPayload.tags || contentPayload.hashtags)}`)
+  const riskNotes = parsed.riskNotes || parsed.risk_notes
+  if (Array.isArray(riskNotes) && riskNotes.length) parts.push(`风险提示：${arrayOrObjectText(riskNotes)}`)
+  return {
+    channelName: node.channelName,
+    prompt,
+    parsed,
+    previewText: parts.filter(Boolean).join('\n\n'),
+  }
+}
+
+function applyChannelEditorResult(node, parsed, prompt) {
   const contentPayload = parseJsonObject(parsed.contentPayload || parsed.content_payload)
   const assetPayload = parseJsonObject(parsed.assetPayload || parsed.asset_payload)
   const geoPayload = parseJsonObject(parsed.geoPayload || parsed.geo_payload)
   if (Object.keys(contentPayload).length) Object.assign(node.contentPayload, contentPayload)
-  else node.contentPayload.body = `${node.contentPayload.body}\n\n${text}`.trim()
   if (Object.keys(assetPayload).length) Object.assign(node.assetPayload, assetPayload)
   if (Object.keys(geoPayload).length) Object.assign(node.geoPayload, geoPayload)
   if (Array.isArray(parsed.riskNotes || parsed.risk_notes)) node.riskNotes = parsed.riskNotes || parsed.risk_notes
@@ -3478,6 +3537,27 @@ function applyChannelEditorResult(node, text, prompt) {
 
 function normalizeJsonText(text) {
   return String(text || '').trim().replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim()
+}
+
+function extractJsonText(text) {
+  const normalized = normalizeJsonText(text)
+  if (!normalized) return ''
+  const start = normalized.indexOf('{')
+  const end = normalized.lastIndexOf('}')
+  if (start >= 0 && end > start) return normalized.slice(start, end + 1)
+  return normalized
+}
+
+function cleanAssistantText(text) {
+  const parsed = parseJsonObject(extractJsonText(text))
+  if (parsed.preview || parsed.editorNote || parsed.editor_note) return [parsed.preview, parsed.editorNote || parsed.editor_note].filter(Boolean).join('\n\n')
+  return normalizeJsonText(text).replace(/\\n/g, '\n').replace(/[{}"]/g, '').trim()
+}
+
+function messageParagraphs(message) {
+  const text = String(message?.text || '').trim()
+  if (!text) return []
+  return text.split(/\n{2,}|\n/).map(item => item.trim()).filter(Boolean)
 }
 function openChannelEditor(draft, channel) {
   selectedDraft.value = draft

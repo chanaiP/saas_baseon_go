@@ -561,6 +561,11 @@
 .geo-growth-page .channel-ai-log { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 10px; padding: 12px 16px; }
 .geo-growth-page .channel-ai-input { flex-shrink: 0; display: grid; gap: 10px; padding: 12px 16px 16px; border-top: 1px solid var(--line); }
 .geo-growth-page .channel-ai-input textarea { min-height: 92px; resize: none; line-height: 1.6; }
+.geo-growth-page .channel-ai-log .bubble.ai { display: grid; gap: 10px; }
+.geo-growth-page .channel-edit-proposal { display: grid; gap: 6px; padding: 10px; border: 1px solid rgba(37, 99, 235, .18); border-radius: 12px; background: #f8fbff; }
+.geo-growth-page .channel-edit-proposal strong { font-size: 13px; color: var(--text); }
+.geo-growth-page .channel-edit-proposal span { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.geo-growth-page .channel-edit-proposal .btn { justify-self: start; margin-top: 2px; }
 .geo-growth-page .channel-picker-row { flex-shrink: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); overflow: hidden; }
 .geo-growth-page .channel-picker-scroll { min-width: 0; display: flex; gap: 6px; align-items: center; overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; scrollbar-width: thin; }
 .geo-growth-page .channel-picker-actions { display: flex; gap: 8px; align-items: center; justify-content: flex-end; padding-left: 12px; border-left: 1px solid var(--line); white-space: nowrap; }
@@ -762,6 +767,7 @@ html.dark .geo-growth-page .channel-console-col,
 html.dark .geo-growth-page .current-edit-target,
 html.dark .geo-growth-page .chain-node,
 html.dark .geo-growth-page .asset-brief,
+html.dark .geo-growth-page .channel-edit-proposal,
 .admin-shell.dark .geo-growth-page .panel,
 .admin-shell.dark .geo-growth-page .metric-card,
 .admin-shell.dark .geo-growth-page .status-card,
@@ -795,7 +801,8 @@ html.dark .geo-growth-page .asset-brief,
 .admin-shell.dark .geo-growth-page .channel-console-col,
 .admin-shell.dark .geo-growth-page .current-edit-target,
 .admin-shell.dark .geo-growth-page .chain-node,
-.admin-shell.dark .geo-growth-page .asset-brief {
+.admin-shell.dark .geo-growth-page .asset-brief,
+.admin-shell.dark .geo-growth-page .channel-edit-proposal {
   background: var(--surface);
   border-color: var(--line);
   color: var(--text);
