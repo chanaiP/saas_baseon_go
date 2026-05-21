@@ -3534,6 +3534,15 @@ async function applyChannelAiEdit() {
   if (!node || !prompt) return
   removeChannelEditorIntro()
   const userMessage = { id: Date.now(), role: 'user', text: prompt }
+  if (!hasChannelEditIntent(prompt)) {
+    channelEditorMessages.push(userMessage, {
+      id: Date.now() + 1,
+      role: 'ai',
+      text: buildChannelEditGuidance(prompt, node),
+    })
+    channelEditPrompt.value = ''
+    return
+  }
   const aiMessage = reactive({
     id: Date.now() + 1,
     role: 'ai',
@@ -3576,6 +3585,22 @@ async function applyChannelAiEdit() {
     aiMessage.streaming = false
     loading.action = false
   }
+}
+
+function hasChannelEditIntent(text) {
+  const compact = String(text || '').replace(/\s/g, '').toLowerCase()
+  if (!compact || isGreetingMessage(compact)) return false
+  if (compact.length <= 6 && !/(改|调|换|删|加|补|降|升|优|标题|正文|摘要|图|标签|关键词)/.test(compact)) return false
+  return /(修改|改成|改为|调整|优化|替换|删除|增加|新增|补充|强化|弱化|降低|提高|重写|换个|更自然|更柔和|更专业|更短|更长|标题|正文|摘要|关键词|话题|标签|素材|图片|封面|营销感|口吻|语气|结构|表达|平台|小红书|知乎|公众号|抖音|微博|百家号|独立站)/.test(compact)
+}
+
+function buildChannelEditGuidance(prompt, node) {
+  const channel = node?.channelName || '当前平台'
+  const title = node?.contentPayload?.title || '当前渠道内容'
+  if (isGreetingMessage(prompt)) {
+    return `你好，我在。现在选中的是「${channel}」的渠道内容：${title}。\n\n你可以直接告诉我想怎么改，比如：\n1. 标题更柔和，不要太营销；\n2. 正文更像真实分享，减少品牌自夸；\n3. 补充适合人群、使用场景或 GEO 关键词。\n\n我会先生成修改建议，确认后再应用到当前平台。`
+  }
+  return `我还没有拿到明确的修改方向，所以先不进入改稿流程。\n\n请补一句具体目标，例如「把标题改得更柔和」「正文增加通勤场景」「降低营销感」「补充小红书话题标签」。我会基于「${channel}」当前内容生成可确认的修改方案。`
 }
 
 function removeChannelEditorIntro() {
