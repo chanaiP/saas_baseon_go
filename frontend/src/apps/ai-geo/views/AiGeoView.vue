@@ -2175,27 +2175,78 @@ function latestAiWorkbenchText() {
   return [...chatMessages].reverse().find(msg => msg.role === 'ai' && String(msg.text || '').trim())?.text || ''
 }
 
+function isMentorTalkLine(line) {
+  const value = String(line || '').trim()
+  if (!value) return false
+  return /^(好的|明白|收到|我会先|我先|我建议|建议先|现在可以|现在，我可以|你可以|请确认|在生成前|如果你|这决定了|我不会)/.test(value)
+    || value.includes('补充这篇文章要回答')
+    || value.includes('继续帮你放大和收敛')
+    || value.includes('生成出来不是品牌介绍')
+}
+
+function isDraftMetaLine(line) {
+  return /(母稿结构|母稿使用说明|替换占位符|补充细节|调整语气|生成方向|输出要求|输入上下文|收敛 brief|用户原始想法|本轮对话|请根据|严格返回 JSON)/.test(String(line || ''))
+}
+
+function extractArticleBody(text) {
+  let value = stripMarkdownForDraft(text)
+  const markerMatch = value.match(/(?:正文(?:（[^）]*）)?|文章正文|完整母稿正文)[:：]?\s*([\s\S]*)/i)
+  if (markerMatch?.[1]) value = markerMatch[1]
+  return value
+    .split('\n')
+    .map(line => line.trim().replace(/^[-#\s]+/, '').trim())
+    .filter(line => line && !isMentorTalkLine(line) && !isDraftMetaLine(line))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+function extractArticleTitle(text, fallback = '') {
+  const source = stripMarkdownForDraft(text)
+  const explicit = source.match(/(?:^|\n)\s*(?:标题|文章标题)[:：]\s*([^\n]+)/)?.[1]
+  const firstLine = extractArticleBody(source).split('\n').find(line => line.trim() && !/^\d+[.、]/.test(line.trim()))
+  const value = String(explicit || fallback || firstLine || 'AI GEO 母稿')
+    .split(/[>\n]/)[0]
+    .replace(/^(标题|文章标题)[:：]/, '')
+    .trim()
+  return value.slice(0, 42)
+}
+
+function extractArticleSummary(summary, body) {
+  const raw = stripMarkdownForDraft(summary)
+  if (raw && !isMentorTalkLine(raw) && !isDraftMetaLine(raw)) return raw.slice(0, 160)
+  const sentence = String(body || '').replace(/\n/g, ' ').match(/^(.+?[。！？])/)
+  return (sentence?.[1] || String(body || '').slice(0, 120) || '基于当前资料和对话生成的 GEO 母稿。').slice(0, 160)
+}
+
 function draftFallbackFromChat(prompt) {
-  const text = stripMarkdownForDraft(latestAiWorkbenchText())
-  const source = text || prompt
-  const explicitTitle = source.match(/(?:标题|---标题)[:：]\s*([^\n。]+)/)?.[1]?.trim()
-  const title = explicitTitle || ideaSession.searchProblem || prompt || 'AI GEO 母稿'
-  const summary = ideaSession.brief || source.split(/[。！？\n]/).find(Boolean) || '基于当前资料和对话生成的 GEO 母稿。'
+  const source = [
+    ideaSession.brief,
+    latestAiWorkbenchText(),
+    prompt,
+    selectedMaterialSummary(),
+  ].filter(Boolean).join('\n')
+  const body = extractArticleBody(source) || `围绕「${ideaSession.searchProblem || prompt}」，结合「${selectedWorkbenchBrand.value.name}」的资料，输出一篇先回答用户问题、再给出选择理由和场景建议的 GEO 母稿。`
+  const title = extractArticleTitle(source, ideaSession.searchProblem || prompt || 'AI GEO 母稿')
+  const summary = extractArticleSummary(ideaSession.brief, body)
   return {
     title: String(title).slice(0, 42),
     summary: String(summary).slice(0, 160),
-    body: source,
+    body,
     keywordsText: workbenchKeywords.value.slice(0, 6).join(', '),
   }
 }
 
 function applyDraftToEditor(draft, fallback) {
   const keywords = parseJsonArray(draft?.keywords)
+  const body = extractArticleBody(draft?.body || fallback.body) || fallback.body
+  const title = extractArticleTitle(draft?.title || body, fallback.title)
+  const summary = extractArticleSummary(draft?.summary || fallback.summary, body)
   Object.assign(editingDraft, {
     id: Number(draft?.id || editingDraft.id || 0),
-    title: draft?.title || fallback.title,
-    summary: draft?.summary || fallback.summary,
-    body: draft?.body || fallback.body,
+    title,
+    summary,
+    body,
     keywordsText: keywords.length ? keywords.join(', ') : fallback.keywordsText,
     coverImage: '',
     status: draftStatusLabel(draft?.audit_status || 'draft'),
@@ -2229,6 +2280,8 @@ async function generateDraftFromChat() {
       prompt: [
         '你是 AI GEO 母稿协作编辑。请根据用户选择的资料、Skill 和聊天中收敛出的 brief 生成一篇可作为多渠道源稿的 GEO 母稿。',
         '生成目标：先回答用户真实搜索/AI 问答问题，再自然带出品牌与商品资料；避免空泛品牌介绍和硬广。',
+        '重要边界：这是写入右侧母稿编辑器的文章资产，不是聊天回复。禁止出现“好的、明白、我建议、请确认、现在可以生成、母稿使用说明、替换占位符”等沟通过程或操作说明。',
+        '正文必须是一篇完整文章：标题、摘要、正文分别返回；正文只写可发布内容，不要写创作过程。',
         `收敛 brief：${ideaSession.brief || prompt}`,
         `用户原始想法：${prompt}`,
         `本轮对话：${workbenchUserMessages.value.map(msg => msg.text).join(' / ') || prompt}`,
@@ -2240,7 +2293,7 @@ async function generateDraftFromChat() {
         ideaSession.tone ? `口吻：${ideaSession.tone}` : '',
         `关键词：${workbenchKeywords.value.join('、') || '未维护'}`,
         workbench.hotspot ? `引用热点：${workbench.hotspot.title}` : '',
-        '输出要求：标题明确、摘要可发布、正文有问题拆解/选择理由/场景建议/结论，关键词可供渠道改写复用。',
+        '输出要求：标题明确、摘要可发布、正文有问题拆解/选择理由/场景建议/结论，关键词可供渠道改写复用。只输出文章本身。',
       ].filter(Boolean).join('\n'),
     })
     applyDraftToEditor(draft, fallbackDraft)

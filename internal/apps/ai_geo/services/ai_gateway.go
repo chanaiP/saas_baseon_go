@@ -211,7 +211,9 @@ func draftGenerationMessages(req DraftGenerationRequest) map[string]interface{} 
 				"role": "system",
 				"content": strings.Join([]string{
 					"你是一个熟悉 GEO 内容增长、品牌种草和渠道改写的内容策略专家。",
-					"你必须基于输入的品牌、商品、技能和用户提示生成可审核的中文母稿。",
+					"你必须基于输入的品牌、商品、技能、用户提示和对话收敛结果，生成可审核的中文母稿。",
+					"母稿是可发布正文资产，不是聊天回复；严禁输出“好的、明白、我建议、请确认、现在可以生成、母稿使用说明”等沟通过程话术。",
+					"body 只能包含文章正文：开头、观点/方案、场景建议、选择理由、结论；不要包含生成说明、替换占位符、导师分析或确认问题。",
 					"只返回合法 JSON，不要 Markdown，不要解释性前后缀。",
 				}, "\n"),
 			},
@@ -220,8 +222,8 @@ func draftGenerationMessages(req DraftGenerationRequest) map[string]interface{} 
 				"content": fmt.Sprintf(`请生成一篇 AI GEO 母稿，并严格返回 JSON：
 {
   "title": "不超过 42 个中文字符的标题",
-  "summary": "一句话说明内容方向",
-  "body": "完整母稿正文，包含开头、核心卖点、场景表达和收束",
+  "summary": "一句可直接展示给用户的文章摘要，不要写生成过程",
+  "body": "完整可发布文章正文，只写文章内容，不写聊天确认、不写创作说明、不写使用说明",
   "keywords": ["关键词1", "关键词2"]
 }
 
@@ -357,7 +359,7 @@ func localAuditAdvisorResult(req AuditAdviceRequest) AuditAdviceResult {
 
 func draftGenerationFromGatewayData(data map[string]interface{}, fallback DraftGenerationResult) DraftGenerationResult {
 	if parsed, ok := draftGenerationFromMap(data, fallback); ok {
-		return parsed
+		return sanitizeDraftGenerationResult(parsed, fallback)
 	}
 	content := gatewayTextContent(data)
 	if content == "" {
@@ -366,11 +368,10 @@ func draftGenerationFromGatewayData(data map[string]interface{}, fallback DraftG
 	var decoded map[string]interface{}
 	if err := json.Unmarshal([]byte(normalizeGatewayJSONContent(content)), &decoded); err == nil {
 		if parsed, ok := draftGenerationFromMap(decoded, fallback); ok {
-			return parsed
+			return sanitizeDraftGenerationResult(parsed, fallback)
 		}
 	}
-	fallback.Body = content
-	return fallback
+	return draftGenerationFromArticleText(content, fallback)
 }
 
 func channelContentFromGatewayData(data map[string]interface{}, fallback ChannelContentGenerationResult) ChannelContentGenerationResult {
@@ -433,6 +434,172 @@ func draftGenerationFromMap(data map[string]interface{}, fallback DraftGeneratio
 	}
 	result.Source = "ai_workbench"
 	return result, matched
+}
+
+func draftGenerationFromArticleText(content string, fallback DraftGenerationResult) DraftGenerationResult {
+	body := cleanDraftBody(content)
+	if body == "" {
+		body = cleanDraftBody(fallback.Body)
+	}
+	result := fallback
+	result.Body = defaultString(body, fallback.Body)
+	result.Title = cleanDraftTitle(result.Title, result.Body, fallback.Title)
+	result.Summary = cleanDraftSummary(result.Summary, result.Body)
+	result.Source = "ai_workbench"
+	return result
+}
+
+func sanitizeDraftGenerationResult(result DraftGenerationResult, fallback DraftGenerationResult) DraftGenerationResult {
+	result.Body = defaultString(cleanDraftBody(result.Body), cleanDraftBody(fallback.Body))
+	result.Title = cleanDraftTitle(defaultString(result.Title, fallback.Title), result.Body, fallback.Title)
+	result.Summary = cleanDraftSummary(defaultString(result.Summary, fallback.Summary), result.Body)
+	if len(result.Keywords) == 0 {
+		result.Keywords = fallback.Keywords
+	}
+	result.Source = defaultString(result.Source, "ai_workbench")
+	return result
+}
+
+func cleanDraftTitle(title string, body string, fallback string) string {
+	value := strings.TrimSpace(stripMarkdownTokens(title))
+	for _, marker := range []string{"\n", ">", "：>", "正文", "摘要", "好的", "明白", "收到", "我会", "请确认"} {
+		if idx := strings.Index(value, marker); idx > 0 {
+			value = strings.TrimSpace(value[:idx])
+		}
+	}
+	if value == "" || isMentorTalk(value) {
+		if fallbackValue := strings.TrimSpace(stripMarkdownTokens(fallback)); fallbackValue != "" && !isMentorTalk(fallbackValue) {
+			value = fallbackValue
+		}
+	}
+	if value == "" || isMentorTalk(value) {
+		value = firstArticleHeading(body)
+	}
+	if value == "" {
+		value = "AI GEO 母稿"
+	}
+	return trimRunes(value, 42)
+}
+
+func cleanDraftSummary(summary string, body string) string {
+	value := strings.TrimSpace(stripMarkdownTokens(summary))
+	if value == "" || isMentorTalk(value) {
+		value = firstSentence(body)
+	}
+	return trimRunes(value, 120)
+}
+
+func cleanDraftBody(content string) string {
+	value := stripMarkdownFence(strings.TrimSpace(content))
+	if value == "" {
+		return ""
+	}
+	if extracted := extractMarkedArticleBody(value); extracted != "" {
+		value = extracted
+	}
+	lines := strings.Split(value, "\n")
+	cleaned := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(stripMarkdownTokens(line))
+		line = strings.Trim(line, "- ")
+		if line == "" {
+			if len(cleaned) > 0 && cleaned[len(cleaned)-1] != "" {
+				cleaned = append(cleaned, "")
+			}
+			continue
+		}
+		if isMentorTalk(line) || isDraftInstructionLine(line) {
+			continue
+		}
+		cleaned = append(cleaned, line)
+	}
+	value = strings.TrimSpace(strings.Join(cleaned, "\n"))
+	value = strings.ReplaceAll(value, "\n\n\n", "\n\n")
+	return value
+}
+
+func extractMarkedArticleBody(content string) string {
+	markers := []string{"正文（", "正文:", "正文：", "正文\n", "完整母稿正文", "文章正文"}
+	for _, marker := range markers {
+		if idx := strings.Index(content, marker); idx >= 0 {
+			rest := content[idx+len(marker):]
+			if marker == "正文（" {
+				if end := strings.Index(rest, "）："); end >= 0 {
+					rest = rest[end+len("）："):]
+				} else if end := strings.Index(rest, "):"); end >= 0 {
+					rest = rest[end+len("):"):]
+				}
+			}
+			return strings.TrimSpace(rest)
+		}
+	}
+	return ""
+}
+
+func isMentorTalk(line string) bool {
+	prefixes := []string{"好的", "明白", "收到", "我会先", "我先", "建议先", "现在可以", "现在，我可以", "你可以", "请确认", "在生成前", "如果你", "这决定了", "我不会", "我建议"}
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(line, prefix) {
+			return true
+		}
+	}
+	return strings.Contains(line, "补充这篇文章要回答") || strings.Contains(line, "继续帮你放大和收敛")
+}
+
+func isDraftInstructionLine(line string) bool {
+	markers := []string{"母稿结构", "母稿使用说明", "替换占位符", "补充细节", "调整语气", "生成方向", "输出要求", "输入上下文", "收敛 brief", "用户原始想法", "本轮对话"}
+	for _, marker := range markers {
+		if strings.Contains(line, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func firstArticleHeading(body string) string {
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(stripMarkdownTokens(line))
+		line = strings.Trim(line, "#- ")
+		if line == "" || isMentorTalk(line) || isDraftInstructionLine(line) {
+			continue
+		}
+		if strings.HasPrefix(line, "标题") {
+			parts := strings.SplitN(line, "：", 2)
+			if len(parts) == 2 {
+				return strings.TrimSpace(parts[1])
+			}
+		}
+		return line
+	}
+	return ""
+}
+
+func firstSentence(body string) string {
+	body = strings.ReplaceAll(strings.TrimSpace(body), "\n", " ")
+	for _, sep := range []string{"。", "！", "？"} {
+		if idx := strings.Index(body, sep); idx > 0 {
+			return strings.TrimSpace(body[:idx+len(sep)])
+		}
+	}
+	return body
+}
+
+func stripMarkdownFence(content string) string {
+	value := strings.TrimSpace(content)
+	value = strings.TrimPrefix(value, "```json")
+	value = strings.TrimPrefix(value, "```JSON")
+	value = strings.TrimPrefix(value, "```")
+	value = strings.TrimSuffix(value, "```")
+	return strings.TrimSpace(value)
+}
+
+func stripMarkdownTokens(content string) string {
+	value := strings.ReplaceAll(content, "**", "")
+	value = strings.ReplaceAll(value, "###", "")
+	value = strings.ReplaceAll(value, "##", "")
+	value = strings.ReplaceAll(value, "#", "")
+	value = strings.ReplaceAll(value, "`", "")
+	return strings.TrimSpace(value)
 }
 
 func channelContentFromMap(data map[string]interface{}, fallback ChannelContentGenerationResult) (ChannelContentGenerationResult, bool) {

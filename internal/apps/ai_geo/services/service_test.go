@@ -182,6 +182,33 @@ func TestGatewayDraftGeneratorParsesProviderTextJSON(t *testing.T) {
 	require.Equal(t, []string{"文本", "解析"}, result.Keywords)
 }
 
+func TestGatewayDraftGeneratorStripsMentorTalkFromDraft(t *testing.T) {
+	gateway := &fakeAIGatewayInvoker{response: aiccservices.InvokeResponse{
+		Status: "success",
+		Data: map[string]interface{}{
+			"draft": map[string]interface{}{
+				"title":    "好的，明白，我建议先写一个方向",
+				"summary":  "我会先帮你把想法拆开，再生成母稿。",
+				"body":     "好的，明白。现在可以生成母稿。\n\n###母稿结构\n标题：25岁女生如何选一件有质感的通勤单品\n\n正文（建立可信度）：\n1.先看场景：通勤不是越正式越好，而是要在会议、地铁和下班约会之间保持得体。\n2.再看质感：低饱和色、稳定版型和细节剪裁，能让日常穿搭更耐看。\n结论：如果你想减少选择成本，就优先选择能覆盖多个场景的基础款。",
+				"keywords": []interface{}{"通勤", "质感"},
+			},
+		},
+	}}
+
+	result, err := NewGatewayDraftGenerator(gateway).GenerateDraft(context.Background(), DraftGenerationRequest{
+		Viewer:  dto.Viewer{TenantID: 1, UserID: 10},
+		Payload: dto.GenerateDraftPayload{Prompt: "我想写小个子的文章"},
+	})
+
+	require.NoError(t, err)
+	require.NotContains(t, result.Title, "好的")
+	require.NotContains(t, result.Summary, "我会先")
+	require.NotContains(t, result.Body, "好的")
+	require.NotContains(t, result.Body, "母稿结构")
+	require.Contains(t, result.Body, "先看场景")
+	require.Contains(t, result.Body, "结论")
+}
+
 func TestGenerateChannelContentInvokesAICapabilityCenterScenario(t *testing.T) {
 	db := newAiGeoTestDB(t)
 	service := NewService(repositories.NewRepository(db))
