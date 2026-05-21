@@ -132,12 +132,23 @@
 .geo-growth-page .queue-summary { margin-bottom: 0; }
 .geo-growth-page .publish-queue .table-wrap { width: 100%; }
 .geo-growth-page .publish-queue .queue-table { width: 100%; table-layout: fixed; }
+.geo-growth-page .queue-col-time { width: 6%; }
+.geo-growth-page .queue-col-channel { width: 9%; }
+.geo-growth-page .queue-col-account { width: 10%; }
+.geo-growth-page .queue-col-content { width: 24%; }
+.geo-growth-page .queue-col-method { width: 12%; }
+.geo-growth-page .queue-col-audit { width: 8%; }
+.geo-growth-page .queue-col-account-status { width: 8%; }
+.geo-growth-page .queue-col-material { width: 7%; }
+.geo-growth-page .queue-col-publish { width: 8%; }
+.geo-growth-page .queue-col-actions { width: 8%; }
 .geo-growth-page .queue-table .channel-cell.compact { gap: 8px; }
 .geo-growth-page .queue-table .channel-cell.compact .channel-logo { width: 32px; height: 32px; font-size: 15px; }
 .geo-growth-page .queue-table .channel-cell.compact strong { margin: 0; font-size: 14px; }
 .geo-growth-page .queue-time { font-weight: 600; white-space: nowrap; }
-.geo-growth-page .queue-content strong { display: block; margin-bottom: 4px; font-size: 14px; }
+.geo-growth-page .queue-content strong { display: block; margin-bottom: 4px; font-size: 14px; line-height: 1.45; }
 .geo-growth-page .queue-content p { margin: 0; color: var(--muted); font-size: 12px; }
+.geo-growth-page .queue-method { color: var(--text); font-size: 13px; line-height: 1.4; word-break: keep-all; }
 .geo-growth-page .queue-table .badge { white-space: nowrap; }
 .geo-growth-page .publish-calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; }
 .geo-growth-page .calendar-day { border: 1px solid var(--line); border-radius: 16px; padding: 12px; background: #fcfdff; min-height: 140px; }

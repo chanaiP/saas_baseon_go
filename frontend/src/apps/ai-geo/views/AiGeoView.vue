@@ -363,6 +363,18 @@
               </div>
               <div class="table-wrap">
                 <table class="table queue-table">
+                  <colgroup>
+                    <col class="queue-col-time" />
+                    <col class="queue-col-channel" />
+                    <col class="queue-col-account" />
+                    <col class="queue-col-content" />
+                    <col class="queue-col-method" />
+                    <col class="queue-col-audit" />
+                    <col class="queue-col-account-status" />
+                    <col class="queue-col-material" />
+                    <col class="queue-col-publish" />
+                    <col class="queue-col-actions" />
+                  </colgroup>
                   <thead>
                     <tr>
                       <th>时间</th>
@@ -391,7 +403,7 @@
                         <strong>{{ plan.title }}</strong>
                         <p>负责人：{{ plan.owner }}</p>
                       </td>
-                      <td>{{ plan.method }}</td>
+                      <td class="queue-method">{{ publishModeLabel(plan.method) }}</td>
                       <td><span :class="['badge', queueStatusClass(plan.channelAudit)]">{{ plan.channelAudit }}</span></td>
                       <td><span :class="['badge', queueStatusClass(plan.accountStatus)]">{{ plan.accountStatus }}</span></td>
                       <td><span :class="['badge', queueStatusClass(plan.materialStatus)]">{{ plan.materialStatus }}</span></td>
