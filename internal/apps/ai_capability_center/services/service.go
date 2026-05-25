@@ -40,7 +40,6 @@ var demoProviderCatalogCodes = map[string]struct{}{
 	"openai":            {},
 	"azure-openai":      {},
 	"anthropic":         {},
-	"dashscope":         {},
 	"volcengine":        {},
 	"zhipu":             {},
 	"moonshot":          {},
@@ -2867,7 +2866,7 @@ func (s *Service) InvokeStream(ctx context.Context, req InvokeRequest, emit func
 	}
 	var scenario models.AIScenario
 	if err := s.db.WithContext(ctx).Where("app_code = ? AND ai_scenario_code = ? AND status = ? AND deleted_at IS NULL", req.AppCode, req.AIScenarioCode, "active").First(&scenario).Error; err != nil {
-		return ErrNotFound
+		return fmt.Errorf("AI Gateway 场景不存在或未启用：app=%s scenario=%s: %w", req.AppCode, req.AIScenarioCode, ErrNotFound)
 	}
 	strategy, strategyFound, err := s.matchTenantStrategy(ctx, req, scenario)
 	if err != nil {
@@ -2879,15 +2878,15 @@ func (s *Service) InvokeStream(ctx context.Context, req InvokeRequest, emit func
 	}
 	var route models.AIBaseRoute
 	if err := s.db.WithContext(ctx).Where("id = ? AND status = ? AND deleted_at IS NULL", routeID, "active").First(&route).Error; err != nil {
-		return ErrNotFound
+		return fmt.Errorf("AI Gateway 基础路由不存在或未启用：route_id=%s scenario=%s: %w", routeID, scenario.AIScenarioCode, ErrNotFound)
 	}
 	routeModel, model, endpoint, err := s.selectRouteExecutionPlan(ctx, route, scenario)
 	if err != nil {
-		return err
+		return fmt.Errorf("AI Gateway 路由没有可执行模型或端点：route=%s scenario=%s: %w", route.RouteCode, scenario.AIScenarioCode, err)
 	}
 	provider, account, api, err := s.loadProviderExecutionConfig(ctx, endpoint)
 	if err != nil {
-		return err
+		return fmt.Errorf("AI Gateway 供应商端点配置不存在或未启用：provider_id=%s account_id=%s api_id=%s: %w", endpoint.ProviderID, endpoint.AccountID, endpoint.APIID, err)
 	}
 	requestKind := openAICompatibleRequestKind(providerExecutionRequest{InvokeRequest: req, Scenario: scenario, Route: route, RouteModel: routeModel, Model: model, Provider: provider, Account: account, API: api})
 	if requestKind != "chat" && requestKind != "responses" {
@@ -3588,7 +3587,7 @@ func (s *Service) resolveRouteEndpoint(ctx context.Context, routeModel models.AI
 		if !apiEndpointExecutable(provider, account, api, capabilityCode) {
 			return routeEndpoint{}, false
 		}
-		return routeEndpoint{ProviderID: model.ProviderID, AccountID: api.AccountID, APIID: api.ID, Score: endpointHealthScore(api)}, true
+		return routeEndpoint{ProviderID: model.ProviderID, AccountID: api.AccountID, APIID: api.ID, Score: endpointHealthScore(api) + endpointCredentialScore(account)}, true
 	}
 
 	accountQuery := s.db.WithContext(ctx).
@@ -3616,7 +3615,7 @@ func (s *Service) resolveRouteEndpoint(ctx context.Context, routeModel models.AI
 			if !apiEndpointExecutable(provider, account, api, capabilityCode) {
 				continue
 			}
-			score := endpointHealthScore(api)
+			score := endpointHealthScore(api) + endpointCredentialScore(account)
 			if score > bestScore {
 				bestScore = score
 				best = routeEndpoint{ProviderID: model.ProviderID, AccountID: account.ID, APIID: api.ID, Score: score}
@@ -3687,6 +3686,16 @@ func endpointHealthScore(api models.AIProviderAPI) float64 {
 		score += float64(api.QPSLimit) / 100
 	}
 	return score
+}
+
+func endpointCredentialScore(account models.AIProviderAccount) float64 {
+	if strings.TrimSpace(account.EncryptedAPIKey) != "" {
+		return 20000
+	}
+	if value, _ := resolveProviderAPIKeyWithSource(account.EncryptedAPIKey, account.KeyAlias); strings.TrimSpace(value) != "" {
+		return 20000
+	}
+	return 0
 }
 
 func (s *Service) matchPricing(ctx context.Context, model models.AIModel, scenario models.AIScenario, req InvokeRequest) (pricingResult, error) {

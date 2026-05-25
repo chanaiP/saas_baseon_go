@@ -472,6 +472,28 @@ apis:
     permission_code: ai_geo:data:import
     audit: true
   - method: POST
+    path: /api/ai-geo/external-sources/extract
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: GET
+    path: /api/ai-geo/style-templates
+    permission_code: /ai-geo/data/products
+  - method: GET
+    path: /api/ai-geo/style-templates/:id
+    permission_code: /ai-geo/data/products
+  - method: POST
+    path: /api/ai-geo/style-templates
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: PUT
+    path: /api/ai-geo/style-templates/:id
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: DELETE
+    path: /api/ai-geo/style-templates/:id
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: POST
     path: /api/ai-geo/materials/imports
     permission_code: ai_geo:data:import
     audit: true
@@ -480,6 +502,10 @@ apis:
     permission_code: /ai-geo/data/products
   - method: POST
     path: /api/ai-geo/workbench/drafts/generate
+    permission_code: ai_geo:workbench:generate
+    audit: true
+  - method: POST
+    path: /api/ai-geo/workbench/ai-stream
     permission_code: ai_geo:workbench:generate
     audit: true
   - method: GET
@@ -497,25 +523,6 @@ apis:
     permission_code: ai_geo:draft:manage
     audit: true
   - method: POST
-    path: /api/ai-geo/drafts/:id/submit
-    permission_code: ai_geo:draft:manage
-    audit: true
-  - method: POST
-    path: /api/ai-geo/drafts/:id/approve
-    permission_code: ai_geo:draft:manage
-    audit: true
-  - method: POST
-    path: /api/ai-geo/drafts/:id/reject
-    permission_code: ai_geo:draft:manage
-    audit: true
-  - method: GET
-    path: /api/ai-geo/drafts/:id/audit-suggestions
-    permission_code: /ai-geo/drafts
-  - method: POST
-    path: /api/ai-geo/drafts/:id/audit-suggestions
-    permission_code: ai_geo:draft:manage
-    audit: true
-  - method: POST
     path: /api/ai-geo/drafts/:id/channel-contents
     permission_code: ai_geo:channel_content:manage
     audit: true
@@ -530,18 +537,7 @@ apis:
     permission_code: ai_geo:channel_content:manage
     audit: true
   - method: POST
-    path: /api/ai-geo/channel-contents/:id/approve
-    permission_code: ai_geo:channel_content:manage
-    audit: true
-  - method: POST
-    path: /api/ai-geo/channel-contents/:id/reject
-    permission_code: ai_geo:channel_content:manage
-    audit: true
-  - method: GET
-    path: /api/ai-geo/channel-contents/:id/audit-suggestions
-    permission_code: /ai-geo/drafts
-  - method: POST
-    path: /api/ai-geo/channel-contents/:id/audit-suggestions
+    path: /api/ai-geo/channel-contents/ai-editor-stream
     permission_code: ai_geo:channel_content:manage
     audit: true
   - method: GET
@@ -567,6 +563,14 @@ apis:
     permission_code: /ai-geo/channels/profiles
   - method: POST
     path: /api/ai-geo/channels
+    permission_code: ai_geo:channel:manage
+    audit: true
+  - method: PUT
+    path: /api/ai-geo/channels/:id
+    permission_code: ai_geo:channel:manage
+    audit: true
+  - method: POST
+    path: /api/ai-geo/channels/:id/test
     permission_code: ai_geo:channel:manage
     audit: true
   - method: GET
@@ -596,7 +600,7 @@ package_features:
     feature_name: 母稿与渠道内容
     feature_type: MENU
     menu_code: ai_geo_drafts
-    description: 管理母稿资产、渠道版本、审核和预览
+    description: 管理母稿资产、渠道版本和预览
   - feature_code: ai_geo_plans
     feature_name: 发布计划
     feature_type: MENU

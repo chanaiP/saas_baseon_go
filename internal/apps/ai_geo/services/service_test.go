@@ -33,32 +33,23 @@ func TestBrandsAreTenantScoped(t *testing.T) {
 	require.Equal(t, "B1", result.Items[0].BrandCode)
 }
 
-func TestDraftReviewStateMachine(t *testing.T) {
+func TestDraftSkipsReviewAndCanGenerateChannelContent(t *testing.T) {
 	db := newAiGeoTestDB(t)
 	service := NewService(repositories.NewRepository(db))
 	viewer := dto.Viewer{TenantID: 1, UserID: 10}
+	channel, err := service.CreateChannel(context.Background(), viewer, dto.ChannelPayload{ChannelCode: "xhs", ChannelName: "小红书"})
+	require.NoError(t, err)
 
 	draft, err := service.CreateDraft(context.Background(), viewer, dto.DraftPayload{Title: "新品种草", Body: "正文"})
 	require.NoError(t, err)
-	require.Equal(t, "draft", draft.AuditStatus)
+	require.Equal(t, "approved", draft.AuditStatus)
 
-	submitted, err := service.SubmitDraft(context.Background(), viewer, draft.ID)
+	content, err := service.GenerateChannelContent(context.Background(), viewer, draft.ID, dto.ChannelContentPayload{ChannelID: channel.ID})
 	require.NoError(t, err)
-	require.Equal(t, "pending", submitted.AuditStatus)
-
-	approved, err := service.ReviewDraft(context.Background(), viewer, draft.ID, true, "内容已确认，可以进入渠道生成")
-	require.NoError(t, err)
-	require.Equal(t, "approved", approved.AuditStatus)
-	history, err := service.DraftAuditSuggestions(context.Background(), viewer, draft.ID, dto.PageRequest{Limit: 20})
-	require.NoError(t, err)
-	require.Equal(t, int64(1), history.Total)
-	require.Contains(t, *history.Items[0].Summary, "内容已确认")
-
-	_, err = service.ReviewDraft(context.Background(), viewer, draft.ID, false, "不应允许二次审核")
-	require.ErrorIs(t, err, ErrInvalidStatus)
+	require.Equal(t, "approved", content.AuditStatus)
 }
 
-func TestUpdateDraftPersistsConversationAndResetsReview(t *testing.T) {
+func TestUpdateDraftPersistsConversationAndStaysApproved(t *testing.T) {
 	db := newAiGeoTestDB(t)
 	service := NewService(repositories.NewRepository(db))
 	viewer := dto.Viewer{TenantID: 1, UserID: 10}
@@ -75,9 +66,7 @@ func TestUpdateDraftPersistsConversationAndResetsReview(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	submitted, err := service.SubmitDraft(context.Background(), viewer, draft.ID)
-	require.NoError(t, err)
-	require.Equal(t, "pending", submitted.AuditStatus)
+	require.Equal(t, "approved", draft.AuditStatus)
 
 	updated, err := service.UpdateDraft(context.Background(), viewer, draft.ID, dto.DraftPayload{
 		Title: "更新初稿",
@@ -94,7 +83,7 @@ func TestUpdateDraftPersistsConversationAndResetsReview(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	require.Equal(t, "draft", updated.AuditStatus)
+	require.Equal(t, "approved", updated.AuditStatus)
 	require.Contains(t, updated.Conversation, "我想写通勤场景")
 	require.Contains(t, updated.Conversation, "建议聚焦选择理由")
 	require.Contains(t, updated.SourceSnapshot, "更新品牌")
@@ -107,7 +96,7 @@ func TestDraftCannotCrossTenant(t *testing.T) {
 	draft, err := service.CreateDraft(context.Background(), dto.Viewer{TenantID: 2, UserID: 20}, dto.DraftPayload{Title: "其他租户", Body: "正文"})
 	require.NoError(t, err)
 
-	_, err = service.SubmitDraft(context.Background(), dto.Viewer{TenantID: 1, UserID: 10}, draft.ID)
+	_, err = service.Draft(context.Background(), dto.Viewer{TenantID: 1, UserID: 10}, draft.ID)
 
 	require.ErrorIs(t, err, ErrNotFound)
 }
@@ -147,11 +136,8 @@ func createApprovedDraftForTest(t *testing.T, service *Service, viewer dto.Viewe
 	t.Helper()
 	draft, err := service.CreateDraft(context.Background(), viewer, payload)
 	require.NoError(t, err)
-	_, err = service.SubmitDraft(context.Background(), viewer, draft.ID)
-	require.NoError(t, err)
-	approved, err := service.ReviewDraft(context.Background(), viewer, draft.ID, true, "测试通过")
-	require.NoError(t, err)
-	return approved
+	require.Equal(t, "approved", draft.AuditStatus)
+	return draft
 }
 
 func TestGenerateDraftConsumesMonthlyQuota(t *testing.T) {
@@ -172,6 +158,20 @@ func TestGenerateDraftConsumesMonthlyQuota(t *testing.T) {
 	require.Equal(t, 1, usage.UsedValue)
 }
 
+func TestGenerateDraftDoesNotConsumeQuotaWhenGatewayFails(t *testing.T) {
+	db := newAiGeoTestDB(t)
+	seedAiGeoQuotaPlan(t, db, 1, quotaMonthlyDraftGenerations, "月度母稿生成次数", ptr("MONTH"), 1)
+	service := NewService(repositories.NewRepository(db))
+	service.SetDraftGenerator(NewGatewayDraftGenerator(&fakeAIGatewayInvoker{err: errors.New("gateway unavailable")}))
+
+	_, err := service.GenerateDraft(context.Background(), dto.Viewer{TenantID: 1, UserID: 10}, dto.GenerateDraftPayload{Prompt: "新品上市"})
+
+	require.Error(t, err)
+	var count int64
+	require.NoError(t, db.Model(&models.TenantQuotaUsage{}).Where("tenant_id = ? AND quota_code = ?", 1, quotaMonthlyDraftGenerations).Count(&count).Error)
+	require.Equal(t, int64(0), count)
+}
+
 func TestGenerateDraftInvokesAICapabilityCenterScenario(t *testing.T) {
 	db := newAiGeoTestDB(t)
 	seedAiGeoQuotaPlan(t, db, 1, quotaMonthlyDraftGenerations, "月度母稿生成次数", ptr("MONTH"), 5)
@@ -184,6 +184,18 @@ func TestGenerateDraftInvokesAICapabilityCenterScenario(t *testing.T) {
 	_, err = service.CreateSKU(context.Background(), viewer, dto.SKUPayload{ProductID: product.ID, SKUCode: "SKU1", SKUName: "红色 M", Attributes: map[string]interface{}{"color": "red"}, Price: 399})
 	require.NoError(t, err)
 	hotspot, err := service.CreateHotspot(context.Background(), viewer, dto.HotspotPayload{Platform: "xiaohongshu", Title: "小个子通勤穿搭", HeatScore: 88})
+	require.NoError(t, err)
+	style, err := service.CreateStyleTemplate(context.Background(), viewer, dto.StyleTemplatePayload{
+		TemplateName:     "对话感种草风格",
+		Platform:         "小红书",
+		ContentType:      "通用母稿",
+		ToneProfile:      map[string]interface{}{"voice": "朋友式建议", "sentence_density": "短句密集"},
+		StructureProfile: map[string]interface{}{"opening": "观点先行", "flow": []interface{}{"问题", "判断", "建议"}},
+		TechniqueProfile: map[string]interface{}{"techniques": []interface{}{"对比", "设问"}},
+		StyleKeywords:    []string{"对话感", "建议感"},
+		PromptFragment:   "先给判断，再解释理由，句子保持短而具体。",
+		NegativeRules:    []string{"不得复制原文句子", "不得引用外部事实"},
+	})
 	require.NoError(t, err)
 	gateway := &fakeAIGatewayInvoker{response: aiccservices.InvokeResponse{
 		Status: "success",
@@ -198,7 +210,7 @@ func TestGenerateDraftInvokesAICapabilityCenterScenario(t *testing.T) {
 	}}
 	service.SetDraftGenerator(NewGatewayDraftGenerator(gateway))
 
-	draft, err := service.GenerateDraft(context.Background(), viewer, dto.GenerateDraftPayload{BrandID: &brand.ID, ProductID: &product.ID, HotspotID: &hotspot.ID, Prompt: "春季新品上市"})
+	draft, err := service.GenerateDraft(context.Background(), viewer, dto.GenerateDraftPayload{BrandID: &brand.ID, ProductID: &product.ID, HotspotID: &hotspot.ID, StyleTemplateID: &style.ID, Prompt: "春季新品上市"})
 
 	require.NoError(t, err)
 	require.Equal(t, draftGenerationScenarioCode, gateway.lastRequest.AIScenarioCode)
@@ -214,8 +226,106 @@ func TestGenerateDraftInvokesAICapabilityCenterScenario(t *testing.T) {
 	require.Equal(t, "Mardi Ladin", snapshot["brand"].(map[string]interface{})["name"])
 	require.Equal(t, "通勤连衣裙", snapshot["product"].(map[string]interface{})["name"])
 	require.Equal(t, "小个子通勤穿搭", snapshot["hotspot"].(map[string]interface{})["title"])
+	require.Equal(t, "对话感种草风格", snapshot["style_template"].(map[string]interface{})["template_name"])
 	require.Contains(t, gatewayPrompt(t, gateway.lastRequest.Input), "红色 M")
 	require.Contains(t, gatewayPrompt(t, gateway.lastRequest.Input), "小个子通勤穿搭")
+	require.Contains(t, gatewayPrompt(t, gateway.lastRequest.Input), "对话感种草风格")
+	require.Contains(t, gatewayPrompt(t, gateway.lastRequest.Input), "不得复制原文句子")
+}
+
+func TestGenerateDraftRejectsCrossTenantStyleTemplate(t *testing.T) {
+	db := newAiGeoTestDB(t)
+	service := NewService(repositories.NewRepository(db))
+	otherViewer := dto.Viewer{TenantID: 2, UserID: 20}
+	style, err := service.CreateStyleTemplate(context.Background(), otherViewer, dto.StyleTemplatePayload{TemplateName: "其他租户风格"})
+	require.NoError(t, err)
+
+	_, err = service.GenerateDraft(context.Background(), dto.Viewer{TenantID: 1, UserID: 10}, dto.GenerateDraftPayload{
+		StyleTemplateID: &style.ID,
+		Prompt:          "新品上市",
+	})
+
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestGenerateDraftAvoidsDuplicateBrandSkillTitles(t *testing.T) {
+	db := newAiGeoTestDB(t)
+	seedAiGeoQuotaPlan(t, db, 1, quotaMonthlyDraftGenerations, "月度母稿生成次数", ptr("MONTH"), 5)
+	service := NewService(repositories.NewRepository(db))
+	viewer := dto.Viewer{TenantID: 1, UserID: 10}
+	brand, err := service.CreateBrand(context.Background(), viewer, dto.BrandPayload{BrandCode: "B1", BrandName: "Mardi Ladin"})
+	require.NoError(t, err)
+	_, err = service.CreateDraft(context.Background(), viewer, dto.DraftPayload{
+		BrandID: &brand.ID,
+		Title:   "Mardi Ladin适合哪些人？一篇看懂选择思路",
+		Body:    "历史正文",
+		SourceSnapshot: map[string]interface{}{
+			"skill": "brand_audience",
+		},
+		Source: "ai_workbench",
+	})
+	require.NoError(t, err)
+	gateway := &fakeAIGatewayInvoker{response: aiccservices.InvokeResponse{
+		Status: "success",
+		Data: map[string]interface{}{
+			"draft": map[string]interface{}{
+				"title":    "Mardi Ladin适合哪些人？一篇看懂选择思路",
+				"summary":  "摘要",
+				"body":     "新的正文",
+				"keywords": []interface{}{"Mardi Ladin"},
+			},
+		},
+	}}
+	service.SetDraftGenerator(NewGatewayDraftGenerator(gateway))
+
+	draft, err := service.GenerateDraft(context.Background(), viewer, dto.GenerateDraftPayload{
+		BrandID: &brand.ID,
+		Skill:   "brand_audience",
+		Prompt:  "适合哪些人，突出法式文艺和都市通勤",
+	})
+
+	require.NoError(t, err)
+	require.NotEqual(t, "Mardi Ladin适合哪些人？一篇看懂选择思路", draft.Title)
+	require.Contains(t, gatewayPrompt(t, gateway.lastRequest.Input), "recent_titles")
+	require.Contains(t, gatewayPrompt(t, gateway.lastRequest.Input), "Mardi Ladin适合哪些人？一篇看懂选择思路")
+}
+
+func TestGenerateDraftUsesSelectedDirectionTitle(t *testing.T) {
+	db := newAiGeoTestDB(t)
+	seedAiGeoQuotaPlan(t, db, 1, quotaMonthlyDraftGenerations, "月度母稿生成次数", ptr("MONTH"), 5)
+	service := NewService(repositories.NewRepository(db))
+	viewer := dto.Viewer{TenantID: 1, UserID: 10}
+	brand, err := service.CreateBrand(context.Background(), viewer, dto.BrandPayload{BrandCode: "B1", BrandName: "Mardi Ladin1"})
+	require.NoError(t, err)
+	gateway := &fakeAIGatewayInvoker{response: aiccservices.InvokeResponse{
+		Status: "success",
+		Data: map[string]interface{}{
+			"draft": map[string]interface{}{
+				"title":    "Mardi Ladin1适合哪些人？一篇看懂选择思路",
+				"summary":  "摘要",
+				"body":     "正文",
+				"keywords": []interface{}{"Mardi Ladin1"},
+			},
+		},
+	}}
+	service.SetDraftGenerator(NewGatewayDraftGenerator(gateway))
+
+	selectedTitle := "法式通勤连衣裙1 适合什么场景，怎么判断值不值得买？"
+	draft, err := service.GenerateDraft(context.Background(), viewer, dto.GenerateDraftPayload{
+		BrandID: &brand.ID,
+		Skill:   "product_compare",
+		Prompt:  selectedTitle,
+		SourceSnapshot: map[string]interface{}{
+			"selected_direction_option": map[string]interface{}{
+				"index": 1,
+				"label": "方向一",
+				"title": selectedTitle,
+			},
+		},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, selectedTitle, draft.Title)
 }
 
 func TestGatewayDraftGeneratorParsesProviderTextJSON(t *testing.T) {
@@ -304,7 +414,7 @@ func TestGenerateChannelContentInvokesAICapabilityCenterScenario(t *testing.T) {
 	require.Contains(t, content.Body, "小红书渠道正文")
 }
 
-func TestChannelContentEditReviewAndTenantScope(t *testing.T) {
+func TestChannelContentEditStaysApprovedAndTenantScope(t *testing.T) {
 	db := newAiGeoTestDB(t)
 	service := NewService(repositories.NewRepository(db))
 	viewer := dto.Viewer{TenantID: 1, UserID: 10}
@@ -313,78 +423,15 @@ func TestChannelContentEditReviewAndTenantScope(t *testing.T) {
 	draft := createApprovedDraftForTest(t, service, viewer, dto.DraftPayload{Title: "母稿", Body: "正文"})
 	content, err := service.GenerateChannelContent(context.Background(), viewer, draft.ID, dto.ChannelContentPayload{ChannelID: channel.ID})
 	require.NoError(t, err)
+	require.Equal(t, "approved", content.AuditStatus)
 
 	updated, err := service.UpdateChannelContent(context.Background(), viewer, content.ID, dto.ChannelContentPayload{Title: "渠道标题更新", Body: "渠道正文更新"})
 	require.NoError(t, err)
 	require.Equal(t, "渠道标题更新", updated.Title)
 	require.Equal(t, "渠道正文更新", updated.Body)
-	require.Equal(t, "pending", updated.AuditStatus)
+	require.Equal(t, "approved", updated.AuditStatus)
 
-	approved, err := service.ReviewChannelContent(context.Background(), viewer, content.ID, true, "渠道表达已确认")
-	require.NoError(t, err)
-	require.Equal(t, "approved", approved.AuditStatus)
-	history, err := service.ChannelContentAuditSuggestions(context.Background(), viewer, content.ID, dto.PageRequest{Limit: 20})
-	require.NoError(t, err)
-	require.Equal(t, int64(1), history.Total)
-	require.Equal(t, "manual_channel_content_review", history.Items[0].ScenarioCode)
-	require.Contains(t, *history.Items[0].Summary, "渠道表达已确认")
-
-	_, err = service.ReviewChannelContent(context.Background(), viewer, content.ID, false, "不允许二次审核")
-	require.ErrorIs(t, err, ErrInvalidStatus)
 	_, err = service.UpdateChannelContent(context.Background(), dto.Viewer{TenantID: 2, UserID: 20}, content.ID, dto.ChannelContentPayload{Title: "跨租户"})
-	require.ErrorIs(t, err, ErrNotFound)
-	_, err = service.ReviewChannelContent(context.Background(), dto.Viewer{TenantID: 2, UserID: 20}, content.ID, true, "跨租户")
-	require.ErrorIs(t, err, ErrNotFound)
-}
-
-func TestDraftAuditSuggestionInvokesAIGatewayAndStoresHistory(t *testing.T) {
-	db := newAiGeoTestDB(t)
-	service := NewService(repositories.NewRepository(db))
-	viewer := dto.Viewer{TenantID: 1, UserID: 10}
-	draft, err := service.CreateDraft(context.Background(), viewer, dto.DraftPayload{Title: "母稿标题", Body: "母稿正文"})
-	require.NoError(t, err)
-	gateway := &fakeAIGatewayInvoker{response: aiccservices.InvokeResponse{
-		Status: "success",
-		Data: map[string]interface{}{
-			"audit": map[string]interface{}{
-				"risk_level": "medium",
-				"passed":     true,
-				"summary":    "整体可通过，建议弱化绝对化表达。",
-				"suggestions": []interface{}{
-					map[string]interface{}{"type": "risk", "content": "避免绝对化措辞"},
-				},
-				"model_code": "audit-test-model",
-			},
-		},
-	}}
-	service.SetAuditAdvisor(NewGatewayAuditAdvisor(gateway))
-
-	record, err := service.GenerateDraftAuditSuggestion(context.Background(), viewer, draft.ID)
-
-	require.NoError(t, err)
-	require.Equal(t, auditSuggestionScenarioCode, gateway.lastRequest.AIScenarioCode)
-	require.Equal(t, "medium", record.RiskLevel)
-	require.True(t, record.Passed)
-	require.NotNil(t, record.Summary)
-	require.Contains(t, *record.Summary, "整体可通过")
-	require.Contains(t, record.SuggestionJSON, "避免绝对化措辞")
-	history, err := service.DraftAuditSuggestions(context.Background(), viewer, draft.ID, dto.PageRequest{Limit: 20})
-	require.NoError(t, err)
-	require.Equal(t, int64(1), history.Total)
-}
-
-func TestChannelContentAuditSuggestionCannotCrossTenant(t *testing.T) {
-	db := newAiGeoTestDB(t)
-	service := NewService(repositories.NewRepository(db))
-	viewer := dto.Viewer{TenantID: 1, UserID: 10}
-	channel, err := service.CreateChannel(context.Background(), viewer, dto.ChannelPayload{ChannelCode: "xhs", ChannelName: "小红书"})
-	require.NoError(t, err)
-	draft := createApprovedDraftForTest(t, service, viewer, dto.DraftPayload{Title: "母稿", Body: "正文"})
-	content, err := service.GenerateChannelContent(context.Background(), viewer, draft.ID, dto.ChannelContentPayload{ChannelID: channel.ID})
-	require.NoError(t, err)
-
-	_, err = service.GenerateChannelContentAuditSuggestion(context.Background(), dto.Viewer{TenantID: 2, UserID: 20}, content.ID)
-
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
@@ -538,6 +585,10 @@ func TestMaterialAssetsAndHotspotsKeepTenantScope(t *testing.T) {
 	require.NotNil(t, asset.BrandID)
 	require.NotNil(t, asset.ProductID)
 	require.Contains(t, asset.Metadata, "通勤")
+	otherBrand, err := service.CreateBrand(context.Background(), viewer, dto.BrandPayload{BrandCode: "B2", BrandName: "品牌二"})
+	require.NoError(t, err)
+	_, err = service.CreateMaterialAsset(context.Background(), viewer, dto.MaterialAssetPayload{BrandID: &otherBrand.ID, ProductID: &product.ID, AssetType: "image", AssetName: "错链素材"})
+	require.ErrorIs(t, err, ErrInvalidInput)
 
 	hotspot, err := service.CreateHotspot(context.Background(), viewer, dto.HotspotPayload{Platform: "zhihu", Title: "小个子怎么穿", HeatScore: 91})
 	require.NoError(t, err)
@@ -588,6 +639,54 @@ func TestMaterialAssetsAndHotspotsKeepTenantScope(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "archived", archivedHotspot.Status)
 	require.NotNil(t, archivedHotspot.DeletedAt)
+}
+
+func TestExternalURLSafetyRejectsLocalTargets(t *testing.T) {
+	_, err := validateExternalURL("http://localhost:8080/article")
+	require.Error(t, err)
+
+	_, err = validateExternalURL("file:///tmp/article.html")
+	require.Error(t, err)
+}
+
+func TestStyleCardFromExtractedHTML(t *testing.T) {
+	page, err := extractHTMLText("https://example.com/post", `<html><head><title>你的风格是甜酷还是工装？</title><meta name="description" content="风格测试"></head><body><nav>导航</nav><h1>你的风格是甜酷还是工装？</h1><p>如果你喜欢利落线条和低饱和色，工装会更适合你。</p><p>如果你想保留甜感，又不想太乖，甜酷会更像你的答案。</p></body></html>`)
+	require.NoError(t, err)
+	require.Contains(t, page.Text, "工装")
+	require.NotContains(t, page.Text, "导航")
+
+	source := models.AiGeoExternalSource{SourceTitle: ptr("你的风格是甜酷还是工装？"), CleanText: page.Text}
+	card := styleCardFromText(source, dto.ExternalSourceExtractPayload{ContentType: "商品种草文", Platform: "小红书"})
+	require.Contains(t, card["prompt_fragment"], "不复制原文句子")
+	require.Contains(t, card["style_keywords"], "甜酷")
+}
+
+func TestExtractHTMLTextUsesStructuredArticleFallbacks(t *testing.T) {
+	page, err := extractHTMLText("https://example.com/post", `<html><head><script type="application/ld+json">{"@type":"NewsArticle","headline":"结构化文章标题","articleBody":"第一段正文说明趋势变化。第二段正文说明用户搜索意图和借势角度。","description":"结构化摘要"}</script></head><body><div>相关推荐</div></body></html>`)
+	require.NoError(t, err)
+	require.Equal(t, "结构化文章标题", page.Title)
+	require.Contains(t, page.Text, "用户搜索意图")
+}
+
+func TestExtractHTMLTextRejectsVerificationPage(t *testing.T) {
+	_, err := extractHTMLText("https://baijiahao.baidu.com/s?id=1", `<html><head><title>百度安全验证</title></head><body><div>网络不给力，请稍后重试</div></body></html>`)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "安全验证")
+}
+
+func TestArchiveReleasesUniqueMaterialCodes(t *testing.T) {
+	db := newAiGeoTestDB(t)
+	service := NewService(repositories.NewRepository(db))
+	viewer := dto.Viewer{TenantID: 1, UserID: 10}
+
+	brand, err := service.CreateBrand(context.Background(), viewer, dto.BrandPayload{BrandCode: "B1", BrandName: "品牌一"})
+	require.NoError(t, err)
+	archived, err := service.ArchiveBrand(context.Background(), viewer, brand.ID)
+	require.NoError(t, err)
+	require.NotEqual(t, "B1", archived.BrandCode)
+	createdAgain, err := service.CreateBrand(context.Background(), viewer, dto.BrandPayload{BrandCode: "B1", BrandName: "品牌一重建"})
+	require.NoError(t, err)
+	require.Equal(t, "B1", createdAgain.BrandCode)
 }
 
 func TestMaterialUpdateAndArchiveKeepTenantScope(t *testing.T) {
@@ -695,6 +794,48 @@ func TestDraftDetailAndArchiveKeepTenantScope(t *testing.T) {
 	require.NotNil(t, archived.DeletedAt)
 	_, err = service.Draft(context.Background(), viewer, draft.ID)
 	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestDraftValidatesBrandProductScope(t *testing.T) {
+	db := newAiGeoTestDB(t)
+	service := NewService(repositories.NewRepository(db))
+	viewer := dto.Viewer{TenantID: 1, UserID: 10}
+	brand, err := service.CreateBrand(context.Background(), viewer, dto.BrandPayload{BrandCode: "B1", BrandName: "品牌一"})
+	require.NoError(t, err)
+	otherBrand, err := service.CreateBrand(context.Background(), viewer, dto.BrandPayload{BrandCode: "B2", BrandName: "品牌二"})
+	require.NoError(t, err)
+	product, err := service.CreateProduct(context.Background(), viewer, dto.ProductPayload{BrandID: brand.ID, ProductCode: "P1", ProductName: "商品一"})
+	require.NoError(t, err)
+
+	_, err = service.CreateDraft(context.Background(), viewer, dto.DraftPayload{BrandID: &otherBrand.ID, ProductID: &product.ID, Title: "错链母稿", Body: "正文"})
+	require.ErrorIs(t, err, ErrInvalidInput)
+	_, err = service.GenerateDraft(context.Background(), viewer, dto.GenerateDraftPayload{BrandID: &otherBrand.ID, ProductID: &product.ID, Prompt: "生成错链母稿"})
+	require.ErrorIs(t, err, ErrInvalidInput)
+}
+
+func TestStreamGatewayScenarioIsScopedToAiGeoAndAllowedScenario(t *testing.T) {
+	service := NewService(repositories.NewRepository(newAiGeoTestDB(t)))
+	gateway := &fakeAIGatewayInvoker{}
+	service.SetStreamGateway(gateway)
+	viewer := dto.Viewer{TenantID: 1, UserID: 10}
+
+	err := service.StreamGatewayScenario(context.Background(), viewer, GatewayInvokeRequest{
+		TenantID:       "999",
+		UserID:         "999",
+		AppCode:        "other-app",
+		AppName:        "Other",
+		AIScenarioCode: "ai_geo_draft_generation",
+		Input:          map[string]interface{}{"messages": []interface{}{}},
+	}, "ai_geo_draft_generation", func(event GatewayStreamEvent) error { return nil })
+
+	require.NoError(t, err)
+	require.Equal(t, "1", gateway.lastStreamRequest.TenantID)
+	require.Equal(t, "10", gateway.lastStreamRequest.UserID)
+	require.Equal(t, "ai-geo", gateway.lastStreamRequest.AppCode)
+	require.Equal(t, "AI GEO", gateway.lastStreamRequest.AppName)
+
+	err = service.StreamGatewayScenario(context.Background(), viewer, GatewayInvokeRequest{AIScenarioCode: "ai_geo_channel_content_editor"}, "ai_geo_draft_generation", func(event GatewayStreamEvent) error { return nil })
+	require.ErrorIs(t, err, ErrInvalidInput)
 }
 
 func TestPublishPlanSyncsChannelContentStatusAndStateMachine(t *testing.T) {
@@ -811,6 +952,8 @@ func newAiGeoTestDB(t *testing.T) *gorm.DB {
 		&models.AiGeoAuditSuggestion{},
 		&models.AiGeoMaterialAsset{},
 		&models.AiGeoHotspot{},
+		&models.AiGeoExternalSource{},
+		&models.AiGeoStyleTemplate{},
 		&models.SaasPlan{},
 		&models.SaasQuota{},
 		&models.SaasPlanQuota{},
@@ -838,14 +981,23 @@ func ptr(value string) *string {
 }
 
 type fakeAIGatewayInvoker struct {
-	response    aiccservices.InvokeResponse
-	err         error
-	lastRequest aiccservices.InvokeRequest
+	response          aiccservices.InvokeResponse
+	err               error
+	lastRequest       aiccservices.InvokeRequest
+	lastStreamRequest aiccservices.InvokeRequest
 }
 
 func (f *fakeAIGatewayInvoker) Invoke(_ context.Context, req aiccservices.InvokeRequest) (aiccservices.InvokeResponse, error) {
 	f.lastRequest = req
 	return f.response, f.err
+}
+
+func (f *fakeAIGatewayInvoker) InvokeStream(_ context.Context, req aiccservices.InvokeRequest, emit func(aiccservices.InvokeStreamEvent) error) error {
+	f.lastStreamRequest = req
+	if f.err != nil {
+		return f.err
+	}
+	return emit(aiccservices.InvokeStreamEvent{Type: "final", Text: "ok", Status: "success"})
 }
 
 func gatewayPrompt(t *testing.T, input map[string]interface{}) string {

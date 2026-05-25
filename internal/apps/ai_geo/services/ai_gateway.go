@@ -9,6 +9,7 @@ import (
 	"time"
 
 	aiccservices "saas_baseon_go/internal/apps/ai_capability_center/services"
+	"saas_baseon_go/internal/apps/ai_geo/dto"
 	"saas_baseon_go/internal/infrastructure/persistence/postgres/models"
 )
 
@@ -21,6 +22,13 @@ const (
 
 type aiGatewayInvoker interface {
 	Invoke(ctx context.Context, req aiccservices.InvokeRequest) (aiccservices.InvokeResponse, error)
+}
+
+type GatewayInvokeRequest = aiccservices.InvokeRequest
+type GatewayStreamEvent = aiccservices.InvokeStreamEvent
+
+type GatewayStreamInvoker interface {
+	InvokeStream(ctx context.Context, req aiccservices.InvokeRequest, emit func(aiccservices.InvokeStreamEvent) error) error
 }
 
 type gatewayDraftGenerator struct {
@@ -60,16 +68,40 @@ func NewGatewayAuditAdvisor(gateway aiGatewayInvoker) AuditAdvisor {
 	return gatewayAuditAdvisor{gateway: gateway}
 }
 
+func (s *Service) StreamGatewayScenario(ctx context.Context, viewer dto.Viewer, req GatewayInvokeRequest, allowedScenario string, emit func(GatewayStreamEvent) error) error {
+	if s.streamGateway == nil {
+		return errors.New("AI Gateway 流式服务未配置")
+	}
+	if viewer.TenantID == 0 || strings.TrimSpace(allowedScenario) == "" {
+		return ErrInvalidInput
+	}
+	if strings.TrimSpace(req.AIScenarioCode) != allowedScenario {
+		return ErrInvalidInput
+	}
+	req.TenantID = fmt.Sprintf("%d", viewer.TenantID)
+	req.UserID = fmt.Sprintf("%d", viewer.UserID)
+	req.AppCode = "ai-geo"
+	req.AppName = "AI GEO"
+	if strings.TrimSpace(req.RequestID) == "" {
+		req.RequestID = fmt.Sprintf("ai_geo_stream_%d_%d", viewer.TenantID, time.Now().UnixNano())
+	}
+	return s.streamGateway.InvokeStream(ctx, req, emit)
+}
+
 func (localDraftGenerator) GenerateDraft(_ context.Context, req DraftGenerationRequest) (DraftGenerationResult, error) {
 	prompt := strings.TrimSpace(req.Payload.Prompt)
 	title := prompt
 	if len([]rune(title)) > 42 {
 		title = string([]rune(title)[:42])
 	}
-	body := fmt.Sprintf("围绕“%s”生成一篇可进入审核的母稿。\n\n创作要求：结合品牌资料、商品卖点、渠道语境和热点素材，输出结构化内容，后续可生成小红书、知乎、独立站等渠道版本。", prompt)
+	styleRule := ""
+	if req.StyleTemplate != nil {
+		styleRule = fmt.Sprintf("\n\n参考写作风格：学习“%s”的结构、语气和表达手法，但不得复制原文句子或引用外部文章事实。", req.StyleTemplate.TemplateName)
+	}
+	body := fmt.Sprintf("围绕“%s”生成一篇可直接生成渠道内容的母稿。\n\n创作要求：结合品牌资料、商品卖点、渠道语境和热点素材，输出结构化内容，后续可生成小红书、知乎、独立站等渠道版本。%s", prompt, styleRule)
 	return DraftGenerationResult{
 		Title:    title,
-		Summary:  "AI 工作台生成母稿，待人工审核确认。",
+		Summary:  "AI 工作台生成母稿，可继续精修或直接生成渠道内容。",
 		Body:     body,
 		Keywords: []string{"AI生成", "母稿"},
 		Source:   "ai_workbench",
@@ -105,7 +137,7 @@ func (localAuditAdvisor) Advise(_ context.Context, req AuditAdviceRequest) (Audi
 	summary := "内容基础字段完整，建议人工复核渠道口径和禁用词。"
 	if !passed {
 		risk = "high"
-		summary = "标题或正文缺失，建议补齐后再提交审核。"
+		summary = "标题或正文缺失，建议补齐后再继续流转。"
 	}
 	return AuditAdviceResult{
 		RiskLevel: risk,
@@ -204,12 +236,15 @@ func (g gatewayAuditAdvisor) Advise(ctx context.Context, req AuditAdviceRequest)
 
 func draftGenerationMessages(req DraftGenerationRequest) map[string]interface{} {
 	context := map[string]interface{}{
-		"prompt":  req.Payload.Prompt,
-		"skill":   req.Payload.Skill,
-		"brand":   brandContext(req.Brand),
-		"product": productContext(req.Product),
-		"skus":    skuContext(req.SKUs),
-		"hotspot": hotspotContext(req.Hotspot),
+		"prompt":          req.Payload.Prompt,
+		"skill":           req.Payload.Skill,
+		"brand":           brandContext(req.Brand),
+		"product":         productContext(req.Product),
+		"skus":            skuContext(req.SKUs),
+		"hotspot":         hotspotContext(req.Hotspot),
+		"style_template":  styleTemplateSnapshot(req.StyleTemplate),
+		"recent_titles":   req.RecentTitles,
+		"source_snapshot": req.Payload.SourceSnapshot,
 	}
 	raw, _ := json.Marshal(context)
 	return map[string]interface{}{
@@ -217,10 +252,13 @@ func draftGenerationMessages(req DraftGenerationRequest) map[string]interface{} 
 			{
 				"role": "system",
 				"content": strings.Join([]string{
-					"你是一个熟悉 GEO 内容增长、品牌种草和渠道改写的内容策略专家。",
-					"你必须基于输入的品牌、商品、技能、用户提示和对话收敛结果，生成可审核的中文母稿。",
-					"母稿是可发布正文资产，不是聊天回复；严禁输出“好的、明白、我建议、请确认、现在可以生成、母稿使用说明”等沟通过程话术。",
-					"body 只能包含文章正文：开头、观点/方案、场景建议、选择理由、结论；不要包含生成说明、替换占位符、导师分析或确认问题。",
+					"你是 GEO 母稿共创专家，不是普通文章生成器。",
+					"你必须基于输入的品牌、商品、技能、用户提示和对话收敛结果，生成可拆分、可被 AI 搜索和问答引擎引用的中文内容母版。",
+					"母稿是多渠道内容源文件，不是聊天回复；严禁输出“好的、明白、我建议、请确认、现在可以生成、母稿使用说明”等沟通过程话术。",
+					"如果 recent_titles 非空，title 必须避开这些历史标题，换一个具体内容角度，不得复用同一句标题或只做标点改写。",
+					"body 必须按内容母版写作，包含核心问题、可被 AI 引用的核心答案、目标用户、品牌/产品定位、使用场景、用户痛点、选择理由、对比逻辑、证据与论点、FAQ、GEO 关键词结构、渠道改写建议。",
+					"FAQ 至少 6 个问题，渠道改写建议至少包含小红书、知乎、抖音、公众号；不要包含生成说明、替换占位符、导师分析或确认问题。",
+					"如果 style_template 存在，必须学习其结构路径、语气人设、句式手法和 prompt_fragment；只迁移写法，不复制原文句子，不把外部来源事实当作当前品牌或商品事实。",
 					"只返回合法 JSON，不要 Markdown，不要解释性前后缀。",
 				}, "\n"),
 			},
@@ -229,8 +267,8 @@ func draftGenerationMessages(req DraftGenerationRequest) map[string]interface{} 
 				"content": fmt.Sprintf(`请生成一篇 AI GEO 母稿，并严格返回 JSON：
 {
   "title": "不超过 42 个中文字符的标题",
-  "summary": "一句可直接展示给用户的文章摘要，不要写生成过程",
-  "body": "完整可发布文章正文，只写文章内容，不写聊天确认、不写创作说明、不写使用说明",
+  "summary": "一句可直接展示给用户的内容母版摘要，不要写生成过程",
+  "body": "完整可发布 GEO 内容母版，只写内容本身，不写聊天确认、不写创作说明、不写使用说明",
   "keywords": ["关键词1", "关键词2"]
 }
 
@@ -272,10 +310,10 @@ func channelRewriteMessages(req ChannelContentGenerationRequest) map[string]inte
 				"role": "system",
 				"content": strings.Join([]string{
 					"你是渠道内容标准生成 Skill。",
-					"你只负责“已审核母稿 -> 当前平台渠道内容包”。",
+					"你只负责“母稿 -> 当前平台渠道内容包”。",
 					"必须基于母稿、品牌/商品基础资料、渠道规范和素材规则生成，不得新增未确认事实。",
 					"不同平台必须输出不同结构：小红书图文笔记、知乎问答回答、微信公众号图文文章、抖音视频脚本、微博短帖、百家号图文文章、独立站 SEO/FAQ 内容。",
-					"生成完成不等于可发布，nextAction 必须体现待编辑、待补充素材或待审核。",
+					"生成完成不等于可发布，nextAction 必须体现待编辑、待补充素材或可加入发布计划。",
 					"只返回合法 JSON，不要 Markdown，不要解释性前后缀。",
 				}, "\n"),
 			},
@@ -306,7 +344,7 @@ func channelRewriteMessages(req ChannelContentGenerationRequest) map[string]inte
     "geoSuggestions": []
   },
   "riskNotes": [],
-  "nextAction": "待编辑|待补充素材|可进入渠道审核"
+  "nextAction": "待编辑|待补充素材|可加入发布计划"
 }
 
 输入上下文：
@@ -352,17 +390,17 @@ func auditSuggestionMessages(req AuditAdviceRequest) map[string]interface{} {
 			{
 				"role": "system",
 				"content": strings.Join([]string{
-					"你是品牌内容审核专家，负责检查 GEO 内容的事实一致性、平台合规、口径风险和内容质量。",
+					"你是品牌内容质量检查专家，负责检查 GEO 内容的事实一致性、平台合规、口径风险和内容质量。",
 					"只返回合法 JSON，不要 Markdown，不要解释性前后缀。",
 				}, "\n"),
 			},
 			{
 				"role": "user",
-				"content": fmt.Sprintf(`请审核以下内容，并严格返回 JSON：
+				"content": fmt.Sprintf(`请检查以下内容，并严格返回 JSON：
 {
   "risk_level": "low|medium|high|critical",
   "passed": true,
-  "summary": "审核结论摘要",
+  "summary": "检查结论摘要",
   "suggestions": [
     {"type": "risk|quality|compliance", "content": "具体建议"}
   ],
@@ -405,7 +443,7 @@ func channelPackageJSON(req ChannelContentGenerationRequest, contentPayload map[
 			"keywords":              parseStringSliceJSON(req.Draft.Keywords),
 			"geoSuggestions":        []string{"保留品牌实体、商品实体、人群词、场景词和问题词。"},
 		},
-		"riskNotes":  []string{"渠道内容生成完成不等于可发布，需继续进入渠道内容审核。"},
+		"riskNotes":  []string{"渠道内容生成完成后仍需补齐素材、账号和发布时间。"},
 		"nextAction": "待编辑",
 	}
 	raw, _ := json.MarshalIndent(packageBody, "", "  ")
@@ -836,6 +874,14 @@ func mapValue(data map[string]interface{}, key string) (map[string]interface{}, 
 	return value, ok
 }
 
+func parseJSONMap(raw string) map[string]interface{} {
+	var value map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &value); err != nil || value == nil {
+		return map[string]interface{}{}
+	}
+	return value
+}
+
 func normalizeGatewayJSONContent(content string) string {
 	value := strings.TrimSpace(content)
 	value = strings.TrimPrefix(value, "```json")
@@ -960,6 +1006,7 @@ func hotspotContext(hotspot *models.AiGeoHotspot) map[string]interface{} {
 		"heat_score":  hotspot.HeatScore,
 		"source_url":  stringValueFromPtr(hotspot.SourceURL),
 		"captured_at": hotspot.CapturedAt.Format(time.RFC3339),
+		"metadata":    parseJSONMap(hotspot.Metadata),
 	}
 }
 

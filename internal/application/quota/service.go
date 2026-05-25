@@ -68,47 +68,59 @@ func (s *Service) Consume(ctx context.Context, tenantID uint64, quotaCode string
 		increment = 1
 	}
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var quota models.SaasQuota
-		if err := tx.Where("quota_code = ? AND status = ?", quotaCode, 1).First(&quota).Error; err != nil {
-			return nil
-		}
-		now := time.Now()
-		periodKey := quotaPeriodKey(quota.PeriodType, now)
-		limit := currentQuotaLimit(tx, tenantID, quota.ID)
-		if limit >= 0 && increment > limit {
-			return &ExceededError{QuotaName: quota.QuotaName, Limit: limit, Used: 0}
-		}
-		usage := models.TenantQuotaUsage{
-			TenantID:        tenantID,
-			QuotaCode:       quotaCode,
-			UsedValue:       increment,
-			LimitValue:      limit,
-			PeriodType:      quota.PeriodType,
-			PeriodKey:       periodKey,
-			LastRefreshTime: &now,
-			CreatedAt:       now,
-			UpdatedAt:       now,
-		}
-		result := tx.Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "tenant_id"}, {Name: "quota_code"}, {Name: "period_key"}},
-			DoUpdates: clause.Assignments(map[string]interface{}{
-				"used_value":        gorm.Expr("tenant_quota_usage.used_value + ?", increment),
-				"limit_value":       limit,
-				"last_refresh_time": now,
-				"updated_at":        now,
-			}),
-			Where: clause.Where{Exprs: []clause.Expression{
-				gorm.Expr("? < 0 OR tenant_quota_usage.used_value + ? <= ?", limit, increment, limit),
-			}},
-		}).Create(&usage)
-		if result.Error != nil {
-			return result.Error
-		}
-		if result.RowsAffected == 0 {
-			return &ExceededError{QuotaName: quota.QuotaName, Limit: limit, Used: currentQuotaUsage(tx, tenantID, quotaCode, periodKey)}
-		}
-		return recordAudit(tx, tenantID, quotaCode, increment, limit, periodKey, now)
+		return s.consumeWithDB(ctx, tx, tenantID, quotaCode, increment)
 	})
+}
+
+func (s *Service) ConsumeWithDB(ctx context.Context, db *gorm.DB, tenantID uint64, quotaCode string, increment int) error {
+	if increment <= 0 {
+		increment = 1
+	}
+	return s.consumeWithDB(ctx, db, tenantID, quotaCode, increment)
+}
+
+func (s *Service) consumeWithDB(ctx context.Context, db *gorm.DB, tenantID uint64, quotaCode string, increment int) error {
+	tx := db.WithContext(ctx)
+	var quota models.SaasQuota
+	if err := tx.Where("quota_code = ? AND status = ?", quotaCode, 1).First(&quota).Error; err != nil {
+		return nil
+	}
+	now := time.Now()
+	periodKey := quotaPeriodKey(quota.PeriodType, now)
+	limit := currentQuotaLimit(tx, tenantID, quota.ID)
+	if limit >= 0 && increment > limit {
+		return &ExceededError{QuotaName: quota.QuotaName, Limit: limit, Used: 0}
+	}
+	usage := models.TenantQuotaUsage{
+		TenantID:        tenantID,
+		QuotaCode:       quotaCode,
+		UsedValue:       increment,
+		LimitValue:      limit,
+		PeriodType:      quota.PeriodType,
+		PeriodKey:       periodKey,
+		LastRefreshTime: &now,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	result := tx.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "tenant_id"}, {Name: "quota_code"}, {Name: "period_key"}},
+		DoUpdates: clause.Assignments(map[string]interface{}{
+			"used_value":        gorm.Expr("tenant_quota_usage.used_value + ?", increment),
+			"limit_value":       limit,
+			"last_refresh_time": now,
+			"updated_at":        now,
+		}),
+		Where: clause.Where{Exprs: []clause.Expression{
+			gorm.Expr("? < 0 OR tenant_quota_usage.used_value + ? <= ?", limit, increment, limit),
+		}},
+	}).Create(&usage)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return &ExceededError{QuotaName: quota.QuotaName, Limit: limit, Used: currentQuotaUsage(tx, tenantID, quotaCode, periodKey)}
+	}
+	return recordAudit(tx, tenantID, quotaCode, increment, limit, periodKey, now)
 }
 
 func (s *Service) CurrentLimitByCode(ctx context.Context, tenantID uint64, quotaCode string) (int, models.SaasQuota, bool, error) {

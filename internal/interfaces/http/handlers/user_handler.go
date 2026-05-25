@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -230,6 +232,10 @@ func safeUserErrorMessage(err error) string {
 	if err == nil {
 		return ""
 	}
+	var quotaErr *quotaExceededError
+	if errors.As(err, &quotaErr) {
+		return userQuotaExceededMessage(quotaErr.QuotaName, quotaErr.Used, quotaErr.Limit)
+	}
 	raw := strings.TrimSpace(err.Error())
 	lower := strings.ToLower(raw)
 	if strings.Contains(lower, "duplicate key") || strings.Contains(lower, "unique constraint") {
@@ -256,5 +262,19 @@ func safeUserErrorMessage(err error) string {
 			return raw
 		}
 	}
+	if strings.Contains(raw, "已超出套餐配额") {
+		return userQuotaExceededMessage(strings.TrimSuffix(raw, "已超出套餐配额"), 0, 0)
+	}
 	return safeDBErrorMessage(err)
+}
+
+func userQuotaExceededMessage(quotaName string, used int, limit int) string {
+	name := strings.TrimSpace(quotaName)
+	if name == "" {
+		name = "用户数"
+	}
+	if used > 0 || limit > 0 {
+		return fmt.Sprintf("%s已达到平台配额上限（当前已用 %d / 上限 %d），请调整主体套餐配额或停用不需要的用户后再新增", name, used, limit)
+	}
+	return name + "已达到平台配额上限，请调整主体套餐配额或停用不需要的用户后再新增"
 }

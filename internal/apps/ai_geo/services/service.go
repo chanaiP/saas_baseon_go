@@ -57,6 +57,7 @@ type Service struct {
 	draftGenerator          DraftGenerator
 	channelContentGenerator ChannelContentGenerator
 	auditAdvisor            AuditAdvisor
+	streamGateway           GatewayStreamInvoker
 }
 
 func NewService(repo *repositories.Repository) *Service {
@@ -64,12 +65,14 @@ func NewService(repo *repositories.Repository) *Service {
 }
 
 type DraftGenerationRequest struct {
-	Viewer  dto.Viewer
-	Payload dto.GenerateDraftPayload
-	Brand   *models.AiGeoBrandCard
-	Product *models.AiGeoProductCard
-	SKUs    []models.AiGeoSKU
-	Hotspot *models.AiGeoHotspot
+	Viewer        dto.Viewer
+	Payload       dto.GenerateDraftPayload
+	Brand         *models.AiGeoBrandCard
+	Product       *models.AiGeoProductCard
+	SKUs          []models.AiGeoSKU
+	Hotspot       *models.AiGeoHotspot
+	StyleTemplate *models.AiGeoStyleTemplate
+	RecentTitles  []string
 }
 
 type DraftGenerationResult struct {
@@ -145,6 +148,10 @@ func (s *Service) SetAuditAdvisor(advisor AuditAdvisor) {
 	s.auditAdvisor = advisor
 }
 
+func (s *Service) SetStreamGateway(gateway GatewayStreamInvoker) {
+	s.streamGateway = gateway
+}
+
 func (s *Service) RecordAudit(ctx context.Context, viewer dto.Viewer, meta dto.RequestMeta, action string, objectCode string, summary string, detail interface{}) error {
 	appCode := "ai-geo"
 	tenantID := viewer.TenantID
@@ -199,10 +206,6 @@ func (s *Service) Overview(ctx context.Context, viewer dto.Viewer) (dto.Overview
 	if err != nil {
 		return dto.Overview{}, err
 	}
-	pendingDrafts, err := s.repo.CountPendingDrafts(ctx, tenantID)
-	if err != nil {
-		return dto.Overview{}, err
-	}
 	channelContents, err := s.repo.CountChannelContents(ctx, tenantID)
 	if err != nil {
 		return dto.Overview{}, err
@@ -216,9 +219,6 @@ func (s *Service) Overview(ctx context.Context, viewer dto.Viewer) (dto.Overview
 		return dto.Overview{}, err
 	}
 	tasks := []map[string]string{}
-	if pendingDrafts > 0 {
-		tasks = append(tasks, map[string]string{"tag": "母稿审核", "title": fmt.Sprintf("%d 篇母稿待审核", pendingDrafts)})
-	}
 	if accountCount == 0 {
 		tasks = append(tasks, map[string]string{"tag": "渠道账号", "title": "至少接入 1 个可发布账号"})
 	}
@@ -232,7 +232,7 @@ func (s *Service) Overview(ctx context.Context, viewer dto.Viewer) (dto.Overview
 		ChannelCount:        channelCount,
 		ChannelAccountCount: accountCount,
 		DraftCountToday:     draftsToday,
-		PendingDraftCount:   pendingDrafts,
+		PendingDraftCount:   0,
 		ChannelContentCount: channelContents,
 		PublishPlanToday:    plansToday,
 		AverageCompleteness: completeness,
@@ -330,6 +330,7 @@ func (s *Service) ArchiveBrand(ctx context.Context, viewer dto.Viewer, id uint64
 	userID := viewer.UserID
 	row.Status = "archived"
 	row.DeletedAt = &now
+	row.BrandCode = tombstoneUniqueValue(row.BrandCode, row.ID, 80)
 	row.UpdatedAt = now
 	row.UpdatedBy = &userID
 	err = s.repo.SaveBrand(ctx, &row)
@@ -431,6 +432,7 @@ func (s *Service) ArchiveProduct(ctx context.Context, viewer dto.Viewer, id uint
 	userID := viewer.UserID
 	row.Status = "archived"
 	row.DeletedAt = &now
+	row.ProductCode = tombstoneUniqueValue(row.ProductCode, row.ID, 100)
 	row.UpdatedAt = now
 	row.UpdatedBy = &userID
 	err = s.repo.SaveProduct(ctx, &row)
@@ -522,6 +524,7 @@ func (s *Service) ArchiveSKU(ctx context.Context, viewer dto.Viewer, id uint64) 
 	userID := viewer.UserID
 	row.Status = "archived"
 	row.DeletedAt = &now
+	row.SKUCode = tombstoneUniqueValue(row.SKUCode, row.ID, 100)
 	row.UpdatedAt = now
 	row.UpdatedBy = &userID
 	err = s.repo.SaveSKU(ctx, &row)
@@ -759,21 +762,8 @@ func (s *Service) CreateMaterialAsset(ctx context.Context, viewer dto.Viewer, pa
 	if viewer.TenantID == 0 || payload.AssetType == "" || payload.AssetName == "" {
 		return models.AiGeoMaterialAsset{}, ErrInvalidInput
 	}
-	if payload.BrandID != nil && *payload.BrandID > 0 {
-		if _, err := s.repo.Brand(ctx, viewer.TenantID, *payload.BrandID); err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return models.AiGeoMaterialAsset{}, ErrNotFound
-			}
-			return models.AiGeoMaterialAsset{}, err
-		}
-	}
-	if payload.ProductID != nil && *payload.ProductID > 0 {
-		if _, err := s.repo.Product(ctx, viewer.TenantID, *payload.ProductID); err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return models.AiGeoMaterialAsset{}, ErrNotFound
-			}
-			return models.AiGeoMaterialAsset{}, err
-		}
+	if err := s.validateDraftMaterialScope(ctx, viewer, payload.BrandID, payload.ProductID); err != nil {
+		return models.AiGeoMaterialAsset{}, err
 	}
 	now := time.Now()
 	userID := viewer.UserID
@@ -803,23 +793,20 @@ func (s *Service) UpdateMaterialAsset(ctx context.Context, viewer dto.Viewer, id
 	if err != nil {
 		return row, err
 	}
-	if payload.BrandID != nil && *payload.BrandID > 0 {
-		if _, err := s.repo.Brand(ctx, viewer.TenantID, *payload.BrandID); err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return row, ErrNotFound
-			}
+	if payload.BrandID != nil || payload.ProductID != nil {
+		nextBrandID := row.BrandID
+		nextProductID := row.ProductID
+		if payload.BrandID != nil {
+			nextBrandID = positiveUint64Ptr(payload.BrandID)
+		}
+		if payload.ProductID != nil {
+			nextProductID = positiveUint64Ptr(payload.ProductID)
+		}
+		if err := s.validateDraftMaterialScope(ctx, viewer, nextBrandID, nextProductID); err != nil {
 			return row, err
 		}
-		row.BrandID = payload.BrandID
-	}
-	if payload.ProductID != nil && *payload.ProductID > 0 {
-		if _, err := s.repo.Product(ctx, viewer.TenantID, *payload.ProductID); err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return row, ErrNotFound
-			}
-			return row, err
-		}
-		row.ProductID = payload.ProductID
+		row.BrandID = nextBrandID
+		row.ProductID = nextProductID
 	}
 	if strings.TrimSpace(payload.AssetType) != "" {
 		row.AssetType = strings.TrimSpace(payload.AssetType)
@@ -879,6 +866,14 @@ func (s *Service) CreateHotspot(ctx context.Context, viewer dto.Viewer, payload 
 	if viewer.TenantID == 0 || platform == "" || title == "" {
 		return models.AiGeoHotspot{}, ErrInvalidInput
 	}
+	if payload.SourceID != nil && *payload.SourceID > 0 {
+		if _, err := s.repo.ExternalSource(ctx, viewer.TenantID, *payload.SourceID); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return models.AiGeoHotspot{}, ErrNotFound
+			}
+			return models.AiGeoHotspot{}, err
+		}
+	}
 	capturedAt := time.Now()
 	if payload.CapturedAt != "" {
 		parsed, err := time.Parse(time.RFC3339, payload.CapturedAt)
@@ -891,11 +886,13 @@ func (s *Service) CreateHotspot(ctx context.Context, viewer dto.Viewer, payload 
 	userID := viewer.UserID
 	row := models.AiGeoHotspot{
 		TenantID:   viewer.TenantID,
+		SourceID:   payload.SourceID,
 		Platform:   platform,
 		Title:      title,
 		HeatScore:  payload.HeatScore,
 		SourceURL:  stringPtr(payload.SourceURL),
 		CapturedAt: capturedAt,
+		Metadata:   jsonString(payload.Metadata, map[string]interface{}{}),
 		Status:     defaultString(payload.Status, "active"),
 		CreatedBy:  &userID,
 		UpdatedBy:  &userID,
@@ -923,7 +920,19 @@ func (s *Service) UpdateHotspot(ctx context.Context, viewer dto.Viewer, id uint6
 	if payload.HeatScore > 0 {
 		row.HeatScore = payload.HeatScore
 	}
+	if payload.SourceID != nil && *payload.SourceID > 0 {
+		if _, err := s.repo.ExternalSource(ctx, viewer.TenantID, *payload.SourceID); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return row, ErrNotFound
+			}
+			return row, err
+		}
+	}
+	row.SourceID = payload.SourceID
 	row.SourceURL = stringPtr(payload.SourceURL)
+	if payload.Metadata != nil {
+		row.Metadata = jsonString(payload.Metadata, map[string]interface{}{})
+	}
 	if payload.CapturedAt != "" {
 		parsed, err := time.Parse(time.RFC3339, payload.CapturedAt)
 		if err != nil {
@@ -1027,6 +1036,78 @@ func (s *Service) CreateChannel(ctx context.Context, viewer dto.Viewer, payload 
 	return row, err
 }
 
+func (s *Service) UpdateChannel(ctx context.Context, viewer dto.Viewer, id uint64, payload dto.ChannelPayload) (models.AiGeoChannelProfile, error) {
+	if viewer.TenantID == 0 || id == 0 {
+		return models.AiGeoChannelProfile{}, ErrInvalidInput
+	}
+	row, err := s.repo.Channel(ctx, viewer.TenantID, id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return row, ErrNotFound
+		}
+		return row, err
+	}
+	if value := strings.TrimSpace(payload.ChannelName); value != "" {
+		row.ChannelName = value
+	}
+	if value := strings.TrimSpace(payload.ChannelCode); value != "" {
+		row.ChannelCode = value
+	}
+	if value := strings.TrimSpace(payload.ChannelType); value != "" {
+		row.ChannelType = value
+	}
+	if strings.TrimSpace(payload.EntryURL) != "" {
+		row.EntryURL = stringPtr(payload.EntryURL)
+	}
+	if len(payload.ContentForms) > 0 {
+		row.ContentForms = jsonString(cleanStringList(payload.ContentForms), []string{})
+	}
+	if len(payload.SupportModes) > 0 {
+		row.SupportModes = jsonString(cleanStringList(payload.SupportModes), []string{})
+	}
+	if value := strings.TrimSpace(payload.DefaultPublishMode); value != "" {
+		row.DefaultPublishMode = value
+	}
+	if value := strings.TrimSpace(payload.Status); value != "" {
+		row.Status = value
+	}
+	userID := viewer.UserID
+	row.UpdatedBy = &userID
+	row.UpdatedAt = time.Now()
+	return row, s.repo.SaveChannel(ctx, &row)
+}
+
+func (s *Service) TestChannel(ctx context.Context, viewer dto.Viewer, id uint64) (dto.ChannelTestResult, error) {
+	if viewer.TenantID == 0 || id == 0 {
+		return dto.ChannelTestResult{}, ErrInvalidInput
+	}
+	row, err := s.repo.Channel(ctx, viewer.TenantID, id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return dto.ChannelTestResult{}, ErrNotFound
+		}
+		return dto.ChannelTestResult{}, err
+	}
+	hasCoreProfile := strings.TrimSpace(row.ChannelCode) != "" && strings.TrimSpace(row.ChannelName) != "" && strings.TrimSpace(row.ChannelType) != ""
+	hasGenerationRules := strings.TrimSpace(row.ContentForms) != "" && strings.TrimSpace(row.SupportModes) != "" && strings.TrimSpace(row.DefaultPublishMode) != ""
+	reachable := row.Status == "active" && hasCoreProfile && hasGenerationRules
+	status := "pass"
+	message := "渠道资料可用于内容生成；真实发布仍需账号授权状态通过"
+	if !reachable {
+		status = "warning"
+		message = "渠道资料未完整，请先补齐渠道名称、类型、内容形态和默认发布方式"
+	}
+	return dto.ChannelTestResult{
+		ChannelID:   row.ID,
+		ChannelCode: row.ChannelCode,
+		ChannelName: row.ChannelName,
+		Status:      status,
+		Reachable:   reachable,
+		Message:     message,
+		CheckedAt:   time.Now().Format(time.RFC3339),
+	}, nil
+}
+
 func (s *Service) ChannelAccounts(ctx context.Context, viewer dto.Viewer, req dto.PageRequest) (dto.PageResponse[models.AiGeoChannelAccount], error) {
 	rows, total, err := s.repo.ListChannelAccounts(ctx, viewer.TenantID, req)
 	return page(rows, total, req), err
@@ -1090,6 +1171,13 @@ func (s *Service) CreateDraft(ctx context.Context, viewer dto.Viewer, payload dt
 	if viewer.TenantID == 0 || strings.TrimSpace(payload.Title) == "" || strings.TrimSpace(payload.Body) == "" {
 		return models.AiGeoDraft{}, ErrInvalidInput
 	}
+	if err := s.validateDraftMaterialScope(ctx, viewer, payload.BrandID, payload.ProductID); err != nil {
+		return models.AiGeoDraft{}, err
+	}
+	return s.createDraftWithDB(ctx, s.repo.DB(), viewer, payload)
+}
+
+func (s *Service) createDraftWithDB(ctx context.Context, db *gorm.DB, viewer dto.Viewer, payload dto.DraftPayload) (models.AiGeoDraft, error) {
 	now := time.Now()
 	userID := viewer.UserID
 	row := models.AiGeoDraft{
@@ -1104,7 +1192,7 @@ func (s *Service) CreateDraft(ctx context.Context, viewer dto.Viewer, payload dt
 		Conversation:   jsonString(sanitizeDraftConversation(payload.Conversation), []dto.DraftConversationMessage{}),
 		SourceSnapshot: jsonString(payload.SourceSnapshot, map[string]interface{}{}),
 		Source:         defaultString(payload.Source, "manual"),
-		AuditStatus:    "draft",
+		AuditStatus:    "approved",
 		ChannelStatus:  "not_generated",
 		Status:         "active",
 		CreatedBy:      &userID,
@@ -1112,7 +1200,7 @@ func (s *Service) CreateDraft(ctx context.Context, viewer dto.Viewer, payload dt
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
-	err := s.repo.SaveDraft(ctx, &row)
+	err := db.WithContext(ctx).Save(&row).Error
 	return row, err
 }
 
@@ -1127,8 +1215,8 @@ func (s *Service) UpdateDraft(ctx context.Context, viewer dto.Viewer, id uint64,
 	if err != nil {
 		return row, err
 	}
-	if row.AuditStatus == "approved" {
-		return row, ErrInvalidStatus
+	if err := s.validateDraftMaterialScope(ctx, viewer, payload.BrandID, payload.ProductID); err != nil {
+		return row, err
 	}
 	userID := viewer.UserID
 	row.BrandID = payload.BrandID
@@ -1142,11 +1230,33 @@ func (s *Service) UpdateDraft(ctx context.Context, viewer dto.Viewer, id uint64,
 	row.Source = defaultString(payload.Source, row.Source)
 	row.UpdatedBy = &userID
 	row.UpdatedAt = time.Now()
-	if row.AuditStatus != "draft" {
-		row.AuditStatus = "draft"
-	}
+	row.AuditStatus = "approved"
 	err = s.repo.SaveDraft(ctx, &row)
 	return row, err
+}
+
+func (s *Service) validateDraftMaterialScope(ctx context.Context, viewer dto.Viewer, brandID *uint64, productID *uint64) error {
+	if brandID != nil && *brandID > 0 {
+		if _, err := s.repo.Brand(ctx, viewer.TenantID, *brandID); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrNotFound
+			}
+			return err
+		}
+	}
+	if productID != nil && *productID > 0 {
+		product, err := s.repo.Product(ctx, viewer.TenantID, *productID)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if brandID != nil && *brandID > 0 && product.BrandID != *brandID {
+			return ErrInvalidInput
+		}
+	}
+	return nil
 }
 
 func (s *Service) ArchiveDraft(ctx context.Context, viewer dto.Viewer, id uint64) (models.AiGeoDraft, error) {
@@ -1161,6 +1271,7 @@ func (s *Service) ArchiveDraft(ctx context.Context, viewer dto.Viewer, id uint64
 	userID := viewer.UserID
 	row.Status = "archived"
 	row.DeletedAt = &now
+	row.DraftCode = tombstoneUniqueValue(row.DraftCode, row.ID, 100)
 	row.UpdatedAt = now
 	row.UpdatedBy = &userID
 	err = s.repo.SaveDraft(ctx, &row)
@@ -1213,18 +1324,41 @@ func (s *Service) GenerateDraft(ctx context.Context, viewer dto.Viewer, payload 
 		}
 		hotspot = &row
 	}
-	if err := s.consumeQuota(ctx, viewer.TenantID, quotaMonthlyDraftGenerations); err != nil {
+	var styleTemplate *models.AiGeoStyleTemplate
+	if payload.StyleTemplateID != nil && *payload.StyleTemplateID > 0 {
+		row, err := s.repo.StyleTemplate(ctx, viewer.TenantID, *payload.StyleTemplateID)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return models.AiGeoDraft{}, ErrNotFound
+		}
+		if err != nil {
+			return models.AiGeoDraft{}, err
+		}
+		if row.Status != "" && row.Status != "active" {
+			return models.AiGeoDraft{}, ErrInvalidStatus
+		}
+		styleTemplate = &row
+	}
+	if err := s.validateDraftMaterialScope(ctx, viewer, payload.BrandID, payload.ProductID); err != nil {
+		return models.AiGeoDraft{}, err
+	}
+	recentTitles, err := s.recentDraftTitlesForGeneration(ctx, viewer.TenantID, payload)
+	if err != nil {
 		return models.AiGeoDraft{}, err
 	}
 	generator := s.draftGenerator
 	if generator == nil {
 		generator = localDraftGenerator{}
 	}
-	generated, err := generator.GenerateDraft(ctx, DraftGenerationRequest{Viewer: viewer, Payload: payload, Brand: brand, Product: product, SKUs: skus, Hotspot: hotspot})
+	generated, err := generator.GenerateDraft(ctx, DraftGenerationRequest{Viewer: viewer, Payload: payload, Brand: brand, Product: product, SKUs: skus, Hotspot: hotspot, StyleTemplate: styleTemplate, RecentTitles: recentTitles})
 	if err != nil {
 		return models.AiGeoDraft{}, err
 	}
-	return s.CreateDraft(ctx, viewer, dto.DraftPayload{
+	if preferredTitle := preferredDraftTitleFromSourceSnapshot(payload.SourceSnapshot); preferredTitle != "" {
+		generated.Title = trimRunes(preferredTitle, 42)
+	} else {
+		generated.Title = uniqueDraftTitle(generated.Title, recentTitles, payload, brand, product, hotspot)
+	}
+	draftPayload := dto.DraftPayload{
 		BrandID:        payload.BrandID,
 		ProductID:      payload.ProductID,
 		Title:          generated.Title,
@@ -1232,12 +1366,167 @@ func (s *Service) GenerateDraft(ctx context.Context, viewer dto.Viewer, payload 
 		Body:           generated.Body,
 		Keywords:       generated.Keywords,
 		Conversation:   payload.Conversation,
-		SourceSnapshot: draftSourceSnapshot(payload, brand, product, skus, hotspot),
+		SourceSnapshot: draftSourceSnapshot(payload, brand, product, skus, hotspot, styleTemplate),
 		Source:         defaultString(generated.Source, "ai_workbench"),
+	}
+	var row models.AiGeoDraft
+	err = s.repo.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := s.consumeQuotaWithDB(ctx, tx, viewer.TenantID, quotaMonthlyDraftGenerations); err != nil {
+			return err
+		}
+		created, err := s.createDraftWithDB(ctx, tx, viewer, draftPayload)
+		row = created
+		return err
 	})
+	return row, err
 }
 
-func draftSourceSnapshot(payload dto.GenerateDraftPayload, brand *models.AiGeoBrandCard, product *models.AiGeoProductCard, skus []models.AiGeoSKU, hotspot *models.AiGeoHotspot) map[string]interface{} {
+func preferredDraftTitleFromSourceSnapshot(snapshot map[string]interface{}) string {
+	if len(snapshot) == 0 {
+		return ""
+	}
+	if referenceArticle, ok := snapshot["reference_article"].(map[string]interface{}); ok {
+		if title := firstStringValue(referenceArticle, "title", "Title"); title != "" {
+			return strings.TrimSpace(title)
+		}
+	}
+	selectedDirection, ok := snapshot["selected_direction_option"].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(firstStringValue(selectedDirection, "title", "title_direction", "Title"))
+}
+
+func (s *Service) recentDraftTitlesForGeneration(ctx context.Context, tenantID uint64, payload dto.GenerateDraftPayload) ([]string, error) {
+	if tenantID == 0 || payload.BrandID == nil || *payload.BrandID == 0 {
+		return nil, nil
+	}
+	rows, _, err := s.repo.ListDrafts(ctx, tenantID, dto.PageRequest{BrandID: *payload.BrandID, Limit: 30})
+	if err != nil {
+		return nil, err
+	}
+	skill := strings.TrimSpace(payload.Skill)
+	titles := make([]string, 0, 8)
+	seen := make(map[string]struct{})
+	for _, row := range rows {
+		if skill != "" && draftSnapshotSkill(row.SourceSnapshot) != skill {
+			continue
+		}
+		title := strings.TrimSpace(row.Title)
+		if title == "" {
+			continue
+		}
+		key := normalizeDraftTitleKey(title)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		titles = append(titles, title)
+		if len(titles) >= 8 {
+			break
+		}
+	}
+	return titles, nil
+}
+
+func draftSnapshotSkill(raw string) string {
+	var snapshot map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &snapshot); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(stringValue(snapshot, "skill", ""))
+}
+
+func uniqueDraftTitle(title string, recentTitles []string, payload dto.GenerateDraftPayload, brand *models.AiGeoBrandCard, product *models.AiGeoProductCard, hotspot *models.AiGeoHotspot) string {
+	base := strings.TrimSpace(title)
+	if base == "" {
+		base = strings.TrimSpace(payload.Prompt)
+	}
+	if !draftTitleExists(base, recentTitles) {
+		return trimRunes(base, 42)
+	}
+	candidates := draftTitleCandidates(base, payload, brand, product, hotspot)
+	for _, candidate := range candidates {
+		candidate = trimRunes(strings.TrimSpace(candidate), 42)
+		if candidate != "" && !draftTitleExists(candidate, recentTitles) {
+			return candidate
+		}
+	}
+	angles := []string{"场景版", "选购版", "风格版", "通勤版", "质感版", "避坑版", "搭配版", "人群版"}
+	for _, angle := range angles {
+		candidate := trimRunes(fmt.Sprintf("%s｜%s", base, angle), 42)
+		if !draftTitleExists(candidate, recentTitles) {
+			return candidate
+		}
+	}
+	return trimRunes(fmt.Sprintf("%s｜%d", base, time.Now().Unix()%10000), 42)
+}
+
+func draftTitleCandidates(base string, payload dto.GenerateDraftPayload, brand *models.AiGeoBrandCard, product *models.AiGeoProductCard, hotspot *models.AiGeoHotspot) []string {
+	brandName := ""
+	if brand != nil {
+		brandName = strings.TrimSpace(brand.BrandName)
+	}
+	productName := ""
+	if product != nil {
+		productName = strings.TrimSpace(product.ProductName)
+	}
+	hotspotTitle := ""
+	if hotspot != nil {
+		hotspotTitle = strings.TrimSpace(hotspot.Title)
+	}
+	prompt := strings.TrimSpace(payload.Prompt)
+	candidates := []string{}
+	if productName != "" {
+		candidates = append(candidates, fmt.Sprintf("%s怎么选？%s", productName, titleAngleFromText(prompt, "选购思路")))
+	}
+	if hotspotTitle != "" {
+		candidates = append(candidates, fmt.Sprintf("%s：%s", hotspotTitle, titleAngleFromText(prompt, "穿搭灵感")))
+	}
+	if brandName != "" && prompt != "" {
+		candidates = append(candidates, fmt.Sprintf("%s%s", brandName, titleAngleFromText(prompt, "内容指南")))
+	}
+	if base != "" {
+		candidates = append(candidates, fmt.Sprintf("%s｜%s", base, titleAngleFromText(prompt, "新角度")))
+	}
+	return candidates
+}
+
+func titleAngleFromText(text string, fallback string) string {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return fallback
+	}
+	for _, sep := range []string{"，", "。", "？", "?", "、", "\n"} {
+		if idx := strings.Index(trimmed, sep); idx > 0 {
+			trimmed = strings.TrimSpace(trimmed[:idx])
+			break
+		}
+	}
+	if len([]rune(trimmed)) > 12 {
+		trimmed = string([]rune(trimmed)[:12])
+	}
+	if trimmed == "" {
+		return fallback
+	}
+	return trimmed
+}
+
+func draftTitleExists(title string, recentTitles []string) bool {
+	key := normalizeDraftTitleKey(title)
+	for _, existing := range recentTitles {
+		if normalizeDraftTitleKey(existing) == key {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeDraftTitleKey(title string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(title)), ""))
+}
+
+func draftSourceSnapshot(payload dto.GenerateDraftPayload, brand *models.AiGeoBrandCard, product *models.AiGeoProductCard, skus []models.AiGeoSKU, hotspot *models.AiGeoHotspot, styleTemplate *models.AiGeoStyleTemplate) map[string]interface{} {
 	snapshot := make(map[string]interface{})
 	for key, value := range payload.SourceSnapshot {
 		snapshot[key] = value
@@ -1297,7 +1586,31 @@ func draftSourceSnapshot(payload dto.GenerateDraftPayload, brand *models.AiGeoBr
 			"source_url": stringValueFromPtr(hotspot.SourceURL),
 		}
 	}
+	if styleTemplate != nil {
+		snapshot["style_template"] = styleTemplateSnapshot(styleTemplate)
+	}
 	return snapshot
+}
+
+func styleTemplateSnapshot(style *models.AiGeoStyleTemplate) map[string]interface{} {
+	if style == nil {
+		return map[string]interface{}{}
+	}
+	return map[string]interface{}{
+		"id":                style.ID,
+		"template_code":     style.TemplateCode,
+		"template_name":     style.TemplateName,
+		"description":       stringValueFromPtr(style.Description),
+		"platform":          stringValueFromPtr(style.Platform),
+		"content_type":      stringValueFromPtr(style.ContentType),
+		"tone_profile":      parseJSONMap(style.ToneProfile),
+		"structure_profile": parseJSONMap(style.StructureProfile),
+		"technique_profile": parseJSONMap(style.TechniqueProfile),
+		"style_keywords":    parseStringSliceJSON(style.StyleKeywords),
+		"prompt_fragment":   style.PromptFragment,
+		"negative_rules":    parseStringSliceJSON(style.NegativeRules),
+		"source_id":         style.SourceID,
+	}
 }
 
 func (s *Service) SubmitDraft(ctx context.Context, viewer dto.Viewer, id uint64) (models.AiGeoDraft, error) {
@@ -1391,9 +1704,6 @@ func (s *Service) GenerateChannelContent(ctx context.Context, viewer dto.Viewer,
 	if err != nil {
 		return models.AiGeoChannelContent{}, err
 	}
-	if draft.AuditStatus != "approved" {
-		return models.AiGeoChannelContent{}, ErrInvalidStatus
-	}
 	channel, err := s.repo.Channel(ctx, viewer.TenantID, payload.ChannelID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -1417,7 +1727,7 @@ func (s *Service) GenerateChannelContent(ctx context.Context, viewer dto.Viewer,
 		ChannelID:     payload.ChannelID,
 		Title:         generated.Title,
 		Body:          generated.Body,
-		AuditStatus:   "pending",
+		AuditStatus:   "approved",
 		PublishStatus: "not_planned",
 		Status:        "active",
 		CreatedBy:     &userID,
@@ -1474,7 +1784,7 @@ func (s *Service) UpdateChannelContent(ctx context.Context, viewer dto.Viewer, i
 		}
 		row.ChannelID = payload.ChannelID
 	}
-	row.AuditStatus = "pending"
+	row.AuditStatus = "approved"
 	row.UpdatedAt = time.Now()
 	userID := viewer.UserID
 	row.UpdatedBy = &userID
@@ -1638,9 +1948,6 @@ func (s *Service) CreatePublishPlan(ctx context.Context, viewer dto.Viewer, payl
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return models.AiGeoPublishPlan{}, err
 	}
-	if err := s.consumeQuota(ctx, viewer.TenantID, quotaMonthlyPublishTasks); err != nil {
-		return models.AiGeoPublishPlan{}, err
-	}
 	now := time.Now()
 	userID := viewer.UserID
 	row := models.AiGeoPublishPlan{
@@ -1658,6 +1965,9 @@ func (s *Service) CreatePublishPlan(ctx context.Context, viewer dto.Viewer, payl
 		UpdatedAt:        now,
 	}
 	err = s.repo.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := s.consumeQuotaWithDB(ctx, tx, viewer.TenantID, quotaMonthlyPublishTasks); err != nil {
+			return err
+		}
 		if err := tx.Save(&row).Error; err != nil {
 			return err
 		}
@@ -2107,6 +2417,13 @@ func (s *Service) consumeQuota(ctx context.Context, tenantID uint64, quotaCode s
 	return s.quota.Consume(ctx, tenantID, quotaCode, 1)
 }
 
+func (s *Service) consumeQuotaWithDB(ctx context.Context, db *gorm.DB, tenantID uint64, quotaCode string) error {
+	if s.quota == nil {
+		return nil
+	}
+	return s.quota.ConsumeWithDB(ctx, db, tenantID, quotaCode, 1)
+}
+
 func validateImportRecords(tenantID uint64, records []map[string]interface{}, importType string, now time.Time) []models.AiGeoImportError {
 	importType = normalizeImportType(importType)
 	required := []string{}
@@ -2423,7 +2740,7 @@ func draftReviewSuggestionRow(viewer dto.Viewer, draft models.AiGeoDraft, approv
 		if approved {
 			opinion = "人工确认通过，未填写额外意见。"
 		} else {
-			opinion = "人工确认驳回，未填写额外意见。"
+			opinion = "人工确认不通过，未填写额外意见。"
 		}
 	}
 	riskLevel := "low"
@@ -2457,7 +2774,7 @@ func channelContentReviewSuggestionRow(viewer dto.Viewer, content models.AiGeoCh
 		if approved {
 			opinion = "人工确认渠道内容通过，未填写额外意见。"
 		} else {
-			opinion = "人工确认渠道内容驳回，未填写额外意见。"
+			opinion = "人工确认渠道内容不通过，未填写额外意见。"
 		}
 	}
 	riskLevel := "low"
@@ -2489,11 +2806,11 @@ func safeAIError(err error) string {
 	lower := strings.ToLower(msg)
 	for _, token := range []string{"secret", "token", "authorization", "password", "select ", "insert ", "update ", "delete ", "panic", "stack"} {
 		if strings.Contains(lower, token) {
-			return "AI 审核建议生成失败，请稍后重试"
+			return "AI 内容检查生成失败，请稍后重试"
 		}
 	}
 	if msg == "" {
-		return "AI 审核建议生成失败"
+		return "AI 内容检查生成失败"
 	}
 	if len([]rune(msg)) > 160 {
 		msg = string([]rune(msg)[:160])
@@ -2568,6 +2885,37 @@ func defaultString(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func tombstoneUniqueValue(value string, id uint64, maxLen int) string {
+	suffix := fmt.Sprintf("__deleted_%d", id)
+	base := strings.TrimSpace(value)
+	if maxLen <= 0 {
+		return base + suffix
+	}
+	maxBase := maxLen - len(suffix)
+	if maxBase < 0 {
+		maxBase = 0
+	}
+	runes := []rune(base)
+	if len(runes) > maxBase {
+		base = string(runes[:maxBase])
+	}
+	return base + suffix
+}
+
+func cleanStringList(values []string) []string {
+	cleaned := make([]string, 0, len(values))
+	seen := make(map[string]bool, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		cleaned = append(cleaned, value)
+	}
+	return cleaned
 }
 
 func dateOnly(value time.Time) time.Time {

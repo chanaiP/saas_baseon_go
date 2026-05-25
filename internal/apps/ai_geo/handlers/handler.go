@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -392,6 +393,69 @@ func (h *Handler) ArchiveHotspot(c *gin.Context) {
 	h.ok(c, data, err)
 }
 
+func (h *Handler) ExtractExternalSource(c *gin.Context) {
+	var payload dto.ExternalSourceExtractPayload
+	if bind(c, &payload) {
+		data, err := h.service.ExtractExternalSource(c.Request.Context(), viewer(c), payload)
+		if err == nil {
+			err = h.auditWrite(c, "external_source_extract", fmt.Sprintf("%d", data.Source.ID), "提炼外部来源", gin.H{"source_url": data.Source.SourceURL, "extract_type": payload.ExtractType})
+		}
+		h.ok(c, data, err)
+	}
+}
+
+func (h *Handler) StyleTemplates(c *gin.Context) {
+	data, err := h.service.StyleTemplates(c.Request.Context(), viewer(c), pageRequest(c))
+	h.ok(c, data, err)
+}
+
+func (h *Handler) StyleTemplate(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	data, err := h.service.StyleTemplate(c.Request.Context(), viewer(c), id)
+	h.ok(c, data, err)
+}
+
+func (h *Handler) CreateStyleTemplate(c *gin.Context) {
+	var payload dto.StyleTemplatePayload
+	if bind(c, &payload) {
+		data, err := h.service.CreateStyleTemplate(c.Request.Context(), viewer(c), payload)
+		if err == nil {
+			err = h.auditWrite(c, "style_template_create", fmt.Sprintf("%d", data.ID), "创建写作风格模板", gin.H{"template_name": data.TemplateName})
+		}
+		h.ok(c, data, err)
+	}
+}
+
+func (h *Handler) UpdateStyleTemplate(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	var payload dto.StyleTemplatePayload
+	if bind(c, &payload) {
+		data, err := h.service.UpdateStyleTemplate(c.Request.Context(), viewer(c), id, payload)
+		if err == nil {
+			err = h.auditWrite(c, "style_template_update", fmt.Sprintf("%d", data.ID), "更新写作风格模板", gin.H{"template_name": data.TemplateName})
+		}
+		h.ok(c, data, err)
+	}
+}
+
+func (h *Handler) ArchiveStyleTemplate(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	data, err := h.service.ArchiveStyleTemplate(c.Request.Context(), viewer(c), id)
+	if err == nil {
+		err = h.auditWrite(c, "style_template_archive", fmt.Sprintf("%d", data.ID), "归档写作风格模板", gin.H{"template_id": data.ID})
+	}
+	h.ok(c, data, err)
+}
+
 func (h *Handler) Channels(c *gin.Context) {
 	data, err := h.service.Channels(c.Request.Context(), viewer(c), pageRequest(c))
 	h.ok(c, data, err)
@@ -406,6 +470,33 @@ func (h *Handler) CreateChannel(c *gin.Context) {
 		}
 		h.ok(c, data, err)
 	}
+}
+
+func (h *Handler) UpdateChannel(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	var payload dto.ChannelPayload
+	if bind(c, &payload) {
+		data, err := h.service.UpdateChannel(c.Request.Context(), viewer(c), id, payload)
+		if err == nil {
+			err = h.auditWrite(c, "channel_update", data.ChannelCode, "更新渠道资料", gin.H{"channel_name": data.ChannelName})
+		}
+		h.ok(c, data, err)
+	}
+}
+
+func (h *Handler) TestChannel(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	data, err := h.service.TestChannel(c.Request.Context(), viewer(c), id)
+	if err == nil {
+		err = h.auditWrite(c, "channel_test", data.ChannelCode, "测试渠道连通性", gin.H{"status": data.Status, "message": data.Message})
+	}
+	h.ok(c, data, err)
 }
 
 func (h *Handler) ChannelAccounts(c *gin.Context) {
@@ -487,60 +578,12 @@ func (h *Handler) GenerateDraft(c *gin.Context) {
 	}
 }
 
-func (h *Handler) SubmitDraft(c *gin.Context) {
-	id, ok := parseID(c)
-	if !ok {
-		return
-	}
-	data, err := h.service.SubmitDraft(c.Request.Context(), viewer(c), id)
-	if err == nil {
-		err = h.auditWrite(c, "draft_submit", data.DraftCode, "提交母稿", gin.H{"draft_id": data.ID})
-	}
-	h.ok(c, data, err)
+func (h *Handler) StreamWorkbenchAI(c *gin.Context) {
+	h.streamGatewayScenario(c, "ai_geo_draft_generation")
 }
 
-func (h *Handler) ApproveDraft(c *gin.Context) { h.reviewDraft(c, true) }
-func (h *Handler) RejectDraft(c *gin.Context)  { h.reviewDraft(c, false) }
-
-func (h *Handler) reviewDraft(c *gin.Context, approved bool) {
-	id, ok := parseID(c)
-	if !ok {
-		return
-	}
-	var payload dto.ReviewDraftPayload
-	_ = c.ShouldBindJSON(&payload)
-	data, err := h.service.ReviewDraft(c.Request.Context(), viewer(c), id, approved, payload.Opinion)
-	if err == nil {
-		action := "draft_reject"
-		summary := "驳回母稿"
-		if approved {
-			action = "draft_approve"
-			summary = "审核通过母稿"
-		}
-		err = h.auditWrite(c, action, data.DraftCode, summary, gin.H{"draft_id": data.ID, "opinion": payload.Opinion})
-	}
-	h.ok(c, data, err)
-}
-
-func (h *Handler) GenerateDraftAuditSuggestion(c *gin.Context) {
-	id, ok := parseID(c)
-	if !ok {
-		return
-	}
-	data, err := h.service.GenerateDraftAuditSuggestion(c.Request.Context(), viewer(c), id)
-	if err == nil {
-		err = h.auditWrite(c, "draft_audit_suggestion", fmt.Sprintf("%d", data.ID), "生成母稿审核建议", gin.H{"draft_id": id, "risk_level": data.RiskLevel, "passed": data.Passed})
-	}
-	h.ok(c, data, err)
-}
-
-func (h *Handler) DraftAuditSuggestions(c *gin.Context) {
-	id, ok := parseID(c)
-	if !ok {
-		return
-	}
-	data, err := h.service.DraftAuditSuggestions(c.Request.Context(), viewer(c), id, pageRequest(c))
-	h.ok(c, data, err)
+func (h *Handler) StreamChannelContentEditorAI(c *gin.Context) {
+	h.streamGatewayScenario(c, "ai_geo_channel_content_editor")
 }
 
 func (h *Handler) GenerateChannelContent(c *gin.Context) {
@@ -585,50 +628,6 @@ func (h *Handler) UpdateChannelContent(c *gin.Context) {
 		}
 		h.ok(c, data, err)
 	}
-}
-
-func (h *Handler) ApproveChannelContent(c *gin.Context) { h.reviewChannelContent(c, true) }
-func (h *Handler) RejectChannelContent(c *gin.Context)  { h.reviewChannelContent(c, false) }
-
-func (h *Handler) reviewChannelContent(c *gin.Context, approved bool) {
-	id, ok := parseID(c)
-	if !ok {
-		return
-	}
-	var payload dto.ChannelContentReviewPayload
-	_ = c.ShouldBindJSON(&payload)
-	data, err := h.service.ReviewChannelContent(c.Request.Context(), viewer(c), id, approved, payload.Opinion)
-	if err == nil {
-		action := "channel_content_reject"
-		summary := "驳回渠道内容"
-		if approved {
-			action = "channel_content_approve"
-			summary = "审核通过渠道内容"
-		}
-		err = h.auditWrite(c, action, fmt.Sprintf("%d", data.ID), summary, gin.H{"channel_content_id": data.ID, "opinion": payload.Opinion})
-	}
-	h.ok(c, data, err)
-}
-
-func (h *Handler) GenerateChannelContentAuditSuggestion(c *gin.Context) {
-	id, ok := parseID(c)
-	if !ok {
-		return
-	}
-	data, err := h.service.GenerateChannelContentAuditSuggestion(c.Request.Context(), viewer(c), id)
-	if err == nil {
-		err = h.auditWrite(c, "channel_content_audit_suggestion", fmt.Sprintf("%d", data.ID), "生成渠道内容审核建议", gin.H{"channel_content_id": id, "risk_level": data.RiskLevel, "passed": data.Passed})
-	}
-	h.ok(c, data, err)
-}
-
-func (h *Handler) ChannelContentAuditSuggestions(c *gin.Context) {
-	id, ok := parseID(c)
-	if !ok {
-		return
-	}
-	data, err := h.service.ChannelContentAuditSuggestions(c.Request.Context(), viewer(c), id, pageRequest(c))
-	h.ok(c, data, err)
 }
 
 func (h *Handler) PublishPlans(c *gin.Context) {
@@ -717,7 +716,37 @@ func (h *Handler) ok(c *gin.Context, values ...interface{}) {
 		writeError(c, err)
 		return
 	}
-	response.OK(c, data)
+	response.OK(c, dto.PublicData(data))
+}
+
+func (h *Handler) streamGatewayScenario(c *gin.Context, scenarioCode string) {
+	var req services.GatewayInvokeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeBadRequest, "请求参数错误")
+		return
+	}
+	c.Header("Content-Type", "text/event-stream; charset=utf-8")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	c.Status(http.StatusOK)
+	flusher, _ := c.Writer.(http.Flusher)
+	emit := func(event services.GatewayStreamEvent) error {
+		payload, err := json.Marshal(event)
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event.Type, payload); err != nil {
+			return err
+		}
+		if flusher != nil {
+			flusher.Flush()
+		}
+		return nil
+	}
+	if err := h.service.StreamGatewayScenario(c.Request.Context(), viewer(c), req, scenarioCode, emit); err != nil {
+		_ = emit(services.GatewayStreamEvent{Type: "error", ErrorCode: "ai_geo_stream_failed", ErrorMessage: err.Error()})
+	}
 }
 
 func (h *Handler) auditWrite(c *gin.Context, action string, objectCode string, summary string, detail interface{}) error {

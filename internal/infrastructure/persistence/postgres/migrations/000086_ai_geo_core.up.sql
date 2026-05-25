@@ -16,8 +16,7 @@ CREATE TABLE IF NOT EXISTS ai_geo_brand_cards (
     updated_by BIGINT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    deleted_at TIMESTAMPTZ,
-    CONSTRAINT uq_ai_geo_brand_tenant_code UNIQUE (tenant_id, brand_code)
+    deleted_at TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS ai_geo_product_cards (
@@ -38,8 +37,7 @@ CREATE TABLE IF NOT EXISTS ai_geo_product_cards (
     updated_by BIGINT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    deleted_at TIMESTAMPTZ,
-    CONSTRAINT uq_ai_geo_product_tenant_code UNIQUE (tenant_id, product_code)
+    deleted_at TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS ai_geo_skus (
@@ -57,8 +55,7 @@ CREATE TABLE IF NOT EXISTS ai_geo_skus (
     updated_by BIGINT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    deleted_at TIMESTAMPTZ,
-    CONSTRAINT uq_ai_geo_sku_tenant_code UNIQUE (tenant_id, sku_code)
+    deleted_at TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS ai_geo_competitors (
@@ -97,8 +94,7 @@ CREATE TABLE IF NOT EXISTS ai_geo_channel_profiles (
     updated_by BIGINT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    deleted_at TIMESTAMPTZ,
-    CONSTRAINT uq_ai_geo_channel_tenant_code UNIQUE (tenant_id, channel_code)
+    deleted_at TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS ai_geo_channel_accounts (
@@ -115,8 +111,7 @@ CREATE TABLE IF NOT EXISTS ai_geo_channel_accounts (
     updated_by BIGINT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    deleted_at TIMESTAMPTZ,
-    CONSTRAINT uq_ai_geo_account_tenant_name UNIQUE (tenant_id, account_name)
+    deleted_at TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS ai_geo_drafts (
@@ -132,15 +127,14 @@ CREATE TABLE IF NOT EXISTS ai_geo_drafts (
     body TEXT NOT NULL,
     keywords JSONB NOT NULL DEFAULT '[]'::jsonb,
     source VARCHAR(80) NOT NULL DEFAULT 'manual',
-    audit_status VARCHAR(32) NOT NULL DEFAULT 'draft',
+    audit_status VARCHAR(32) NOT NULL DEFAULT 'approved',
     channel_status VARCHAR(32) NOT NULL DEFAULT 'not_generated',
     status VARCHAR(32) NOT NULL DEFAULT 'active',
     created_by BIGINT,
     updated_by BIGINT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    deleted_at TIMESTAMPTZ,
-    CONSTRAINT uq_ai_geo_draft_tenant_code UNIQUE (tenant_id, draft_code)
+    deleted_at TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS ai_geo_channel_contents (
@@ -150,7 +144,7 @@ CREATE TABLE IF NOT EXISTS ai_geo_channel_contents (
     channel_id BIGINT NOT NULL,
     title VARCHAR(240) NOT NULL,
     body TEXT NOT NULL,
-    audit_status VARCHAR(32) NOT NULL DEFAULT 'pending',
+    audit_status VARCHAR(32) NOT NULL DEFAULT 'approved',
     publish_status VARCHAR(32) NOT NULL DEFAULT 'not_planned',
     status VARCHAR(32) NOT NULL DEFAULT 'active',
     created_by BIGINT,
@@ -176,8 +170,7 @@ CREATE TABLE IF NOT EXISTS ai_geo_publish_plans (
     updated_by BIGINT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    deleted_at TIMESTAMPTZ,
-    CONSTRAINT uq_ai_geo_plan_tenant_code UNIQUE (tenant_id, plan_code)
+    deleted_at TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS ai_geo_import_batches (
@@ -195,9 +188,17 @@ CREATE TABLE IF NOT EXISTS ai_geo_import_batches (
     updated_by BIGINT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    deleted_at TIMESTAMPTZ,
-    CONSTRAINT uq_ai_geo_import_tenant_code UNIQUE (tenant_id, batch_code)
+    deleted_at TIMESTAMPTZ
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_geo_brand_tenant_code ON ai_geo_brand_cards (tenant_id, brand_code) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_geo_product_tenant_code ON ai_geo_product_cards (tenant_id, product_code) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_geo_sku_tenant_code ON ai_geo_skus (tenant_id, sku_code) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_geo_channel_tenant_code ON ai_geo_channel_profiles (tenant_id, channel_code) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_geo_account_tenant_name ON ai_geo_channel_accounts (tenant_id, account_name) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_geo_draft_tenant_code ON ai_geo_drafts (tenant_id, draft_code) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_geo_plan_tenant_code ON ai_geo_publish_plans (tenant_id, plan_code) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_geo_import_tenant_code ON ai_geo_import_batches (tenant_id, batch_code) WHERE deleted_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS ai_geo_material_assets (
     id BIGSERIAL PRIMARY KEY,
@@ -225,6 +226,7 @@ CREATE TABLE IF NOT EXISTS ai_geo_hotspots (
     heat_score INTEGER NOT NULL DEFAULT 0,
     source_url TEXT,
     captured_at TIMESTAMPTZ NOT NULL,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     status VARCHAR(32) NOT NULL DEFAULT 'active',
     created_by BIGINT,
     updated_by BIGINT,

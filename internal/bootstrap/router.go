@@ -65,7 +65,7 @@ func NewRouter(cfg Config, db *gorm.DB, redisClient *redis.Client) *gin.Engine {
 	aiGeoService := aigeoservices.NewService(aigeorepos.NewRepository(db))
 	aiGeoService.SetDraftGenerator(aigeoservices.NewGatewayDraftGenerator(aiCapabilityCenterService))
 	aiGeoService.SetChannelContentGenerator(aigeoservices.NewGatewayChannelContentGenerator(aiCapabilityCenterService))
-	aiGeoService.SetAuditAdvisor(aigeoservices.NewGatewayAuditAdvisor(aiCapabilityCenterService))
+	aiGeoService.SetStreamGateway(aiCapabilityCenterService)
 	aiGeoHandler := aigeohandlers.NewHandler(aiGeoService)
 
 	router.GET("/health", healthHandler.Check)
@@ -299,26 +299,26 @@ func openAPISpec() gin.H {
 			"/api/ai-geo/materials/assets/{id}":                          gin.H{"get": api("ai-geo", "素材资料详情"), "put": api("ai-geo", "更新素材资料"), "delete": api("ai-geo", "归档素材资料")},
 			"/api/ai-geo/materials/hotspots":                             gin.H{"get": api("ai-geo", "热点资料列表"), "post": api("ai-geo", "创建热点资料")},
 			"/api/ai-geo/materials/hotspots/{id}":                        gin.H{"get": api("ai-geo", "热点资料详情"), "put": api("ai-geo", "更新热点资料"), "delete": api("ai-geo", "归档热点资料")},
+			"/api/ai-geo/external-sources/extract":                       gin.H{"post": api("ai-geo", "外部来源抓取与提炼")},
+			"/api/ai-geo/style-templates":                                gin.H{"get": api("ai-geo", "写作风格模板列表"), "post": api("ai-geo", "创建写作风格模板")},
+			"/api/ai-geo/style-templates/{id}":                           gin.H{"get": api("ai-geo", "写作风格模板详情"), "put": api("ai-geo", "更新写作风格模板"), "delete": api("ai-geo", "归档写作风格模板")},
 			"/api/ai-geo/materials/imports":                              gin.H{"post": api("ai-geo", "导入资料")},
 			"/api/ai-geo/materials/imports/{id}/errors":                  gin.H{"get": api("ai-geo", "导入错误明细")},
 			"/api/ai-geo/workbench/drafts/generate":                      gin.H{"post": api("ai-geo", "生成母稿")},
+			"/api/ai-geo/workbench/ai-stream":                            gin.H{"post": api("ai-geo", "母稿生成 AI 流式调用")},
 			"/api/ai-geo/drafts":                                         gin.H{"get": api("ai-geo", "母稿列表"), "post": api("ai-geo", "创建母稿")},
 			"/api/ai-geo/drafts/{id}":                                    gin.H{"get": api("ai-geo", "母稿详情"), "put": api("ai-geo", "更新母稿草稿"), "delete": api("ai-geo", "归档母稿")},
-			"/api/ai-geo/drafts/{id}/submit":                             gin.H{"post": api("ai-geo", "提交母稿审核")},
-			"/api/ai-geo/drafts/{id}/approve":                            gin.H{"post": api("ai-geo", "审核通过母稿")},
-			"/api/ai-geo/drafts/{id}/reject":                             gin.H{"post": api("ai-geo", "驳回母稿")},
-			"/api/ai-geo/drafts/{id}/audit-suggestions":                  gin.H{"get": api("ai-geo", "母稿审核建议列表"), "post": api("ai-geo", "生成母稿审核建议")},
 			"/api/ai-geo/drafts/{id}/channel-contents":                   gin.H{"post": api("ai-geo", "生成渠道内容")},
 			"/api/ai-geo/channel-contents":                               gin.H{"get": api("ai-geo", "渠道内容列表")},
+			"/api/ai-geo/channel-contents/ai-editor-stream":              gin.H{"post": api("ai-geo", "渠道内容 AI 编辑流式调用")},
 			"/api/ai-geo/channel-contents/{id}":                          gin.H{"get": api("ai-geo", "渠道内容详情"), "put": api("ai-geo", "更新渠道内容")},
-			"/api/ai-geo/channel-contents/{id}/approve":                  gin.H{"post": api("ai-geo", "审核通过渠道内容")},
-			"/api/ai-geo/channel-contents/{id}/reject":                   gin.H{"post": api("ai-geo", "驳回渠道内容")},
-			"/api/ai-geo/channel-contents/{id}/audit-suggestions":        gin.H{"get": api("ai-geo", "渠道内容审核建议列表"), "post": api("ai-geo", "生成渠道内容审核建议")},
 			"/api/ai-geo/publish-plans":                                  gin.H{"get": api("ai-geo", "发布计划列表"), "post": api("ai-geo", "创建发布计划")},
 			"/api/ai-geo/publish-plans/calendar":                         gin.H{"get": api("ai-geo", "发布日历聚合")},
 			"/api/ai-geo/publish-plans/{id}":                             gin.H{"put": api("ai-geo", "更新发布计划")},
 			"/api/ai-geo/publish-plans/{id}/status":                      gin.H{"patch": api("ai-geo", "更新发布计划状态")},
 			"/api/ai-geo/channels":                                       gin.H{"get": api("ai-geo", "渠道资料列表"), "post": api("ai-geo", "创建渠道资料")},
+			"/api/ai-geo/channels/{id}":                                  gin.H{"put": api("ai-geo", "更新渠道资料")},
+			"/api/ai-geo/channels/{id}/test":                             gin.H{"post": api("ai-geo", "测试渠道资料")},
 			"/api/ai-geo/channel-accounts":                               gin.H{"get": api("ai-geo", "渠道账号列表"), "post": api("ai-geo", "创建渠道账号")},
 			"/api/batch/companies/export":                                gin.H{"get": api("batch", "公司导出")},
 			"/api/batch/departments/export":                              gin.H{"get": api("batch", "部门导出")},

@@ -357,6 +357,53 @@ func (r *Repository) SaveHotspot(ctx context.Context, hotspot *models.AiGeoHotsp
 	return r.db.WithContext(ctx).Save(hotspot).Error
 }
 
+func (r *Repository) ExternalSource(ctx context.Context, tenantID, id uint64) (models.AiGeoExternalSource, error) {
+	var row models.AiGeoExternalSource
+	err := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoExternalSource{}), tenantID)).Where("id = ?", id).First(&row).Error
+	return row, err
+}
+
+func (r *Repository) ExternalSourceByURL(ctx context.Context, tenantID uint64, sourceURL string) (models.AiGeoExternalSource, error) {
+	var row models.AiGeoExternalSource
+	err := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoExternalSource{}), tenantID)).
+		Where("source_url = ?", strings.TrimSpace(sourceURL)).
+		Order("id desc").
+		First(&row).Error
+	return row, err
+}
+
+func (r *Repository) SaveExternalSource(ctx context.Context, source *models.AiGeoExternalSource) error {
+	return r.db.WithContext(ctx).Save(source).Error
+}
+
+func (r *Repository) StyleTemplate(ctx context.Context, tenantID, id uint64) (models.AiGeoStyleTemplate, error) {
+	var row models.AiGeoStyleTemplate
+	err := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoStyleTemplate{}), tenantID)).Where("id = ?", id).First(&row).Error
+	return row, err
+}
+
+func (r *Repository) ListStyleTemplates(ctx context.Context, tenantID uint64, req dto.PageRequest) ([]models.AiGeoStyleTemplate, int64, error) {
+	db := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoStyleTemplate{}), tenantID))
+	if req.Status != "" {
+		db = db.Where("status = ?", req.Status)
+	}
+	if req.Keyword != "" {
+		k := likeKeyword(req.Keyword)
+		db = db.Where("lower(template_code) LIKE ? OR lower(template_name) LIKE ? OR lower(coalesce(prompt_fragment, '')) LIKE ?", k, k, k)
+	}
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []models.AiGeoStyleTemplate
+	err := paginate(db.Order("id desc"), req).Find(&rows).Error
+	return rows, total, err
+}
+
+func (r *Repository) SaveStyleTemplate(ctx context.Context, style *models.AiGeoStyleTemplate) error {
+	return r.db.WithContext(ctx).Save(style).Error
+}
+
 func (r *Repository) ListChannels(ctx context.Context, tenantID uint64, req dto.PageRequest) ([]models.AiGeoChannelProfile, int64, error) {
 	db := notDeleted(scopeTenant(r.db.WithContext(ctx).Model(&models.AiGeoChannelProfile{}), tenantID))
 	if req.Status != "" {
