@@ -200,13 +200,25 @@ async function saveTypeEdit() {
 
 async function removeType(row: PositionTypeRow) {
   await confirmArchiveAction({ name: row.name || row.code, title: '归档岗位类型', detail: '仅无岗位引用的类型可归档；历史配置仍会保留。' })
-  await deletePositionType(row.id)
-  if (selectedType.value === row.id) {
-    selectedType.value = null
-    selectedTypeMeta.value = null
+  try {
+    await deletePositionType(row.id)
+    types.value = types.value.filter((item) => item.id !== row.id)
+    typeOptions.value = typeOptions.value.filter((item) => item.id !== row.id)
+    totalT.value = Math.max(0, totalT.value - 1)
+    if (types.value.length === 0 && pageT.value > 1) {
+      pageT.value -= 1
+    }
+    if (selectedType.value === row.id) {
+      selectedType.value = null
+      selectedTypeMeta.value = null
+      posTypeFilter.value = ''
+      pageP.value = 1
+    }
+    ElMessage.success('已归档')
+    await Promise.all([loadTypeOptions(), loadTypes(), loadPos()])
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '归档失败')
   }
-  await loadTypes()
-  await loadPos()
 }
 
 async function openPosDlg() {
@@ -268,9 +280,18 @@ async function savePosEdit() {
 
 async function removePos(row: PositionRow) {
   await confirmArchiveAction({ name: row.name || row.code, title: '归档岗位' })
-  await deletePosition(row.id)
-  await loadPos()
-  await loadTypes()
+  try {
+    await deletePosition(row.id)
+    positions.value = positions.value.filter((item) => item.id !== row.id)
+    totalP.value = Math.max(0, totalP.value - 1)
+    if (positions.value.length === 0 && pageP.value > 1) {
+      pageP.value -= 1
+    }
+    ElMessage.success('已归档')
+    await Promise.all([loadPos(), loadTypes()])
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '归档失败')
+  }
 }
 
 const typeColumns: TableColumn[] = [

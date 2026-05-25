@@ -40,6 +40,10 @@ export function confirmStandardAction(options: StandardConfirmOptions): Promise<
     const DialogHost = defineComponent({
       setup() {
         const visible = ref(false)
+        const detailLines = (options.detail || '')
+          .split('\n')
+          .map(line => line.trim())
+          .filter(Boolean)
         void nextTick(() => {
           visible.value = true
         })
@@ -74,8 +78,34 @@ export function confirmStandardAction(options: StandardConfirmOptions): Promise<
               default: () =>
                 h('div', { style: { display: 'grid', gap: '12px', lineHeight: '1.75' } }, [
                   h('p', { style: { margin: '0', color: 'var(--nm-text, #f8fafc)', fontSize: '18px', fontWeight: '700' } }, options.message),
-                  options.detail
-                    ? h('p', { style: { margin: '0', color: 'var(--nm-text-secondary, #94a3b8)', fontSize: '15px' } }, options.detail)
+                  detailLines.length
+                    ? h(
+                        'div',
+                        { style: { display: 'grid', gap: '8px', color: 'var(--nm-text-secondary, #94a3b8)', fontSize: '15px' } },
+                        detailLines.map((line) => {
+                          const numbered = line.match(/^(\d+)[.、]\s*(.+)$/)
+                          if (!numbered) {
+                            return h('p', { style: { margin: '0' } }, line)
+                          }
+                          return h('div', { style: { display: 'grid', gridTemplateColumns: '26px minmax(0, 1fr)', gap: '8px', alignItems: 'start' } }, [
+                            h('span', {
+                              style: {
+                                display: 'inline-grid',
+                                placeItems: 'center',
+                                width: '22px',
+                                height: '22px',
+                                borderRadius: '999px',
+                                background: 'rgba(45, 212, 191, .14)',
+                                color: 'var(--nm-accent, #2dd4bf)',
+                                fontSize: '12px',
+                                fontWeight: '800',
+                                lineHeight: '1',
+                              },
+                            }, numbered[1]),
+                            h('span', { style: { minWidth: '0' } }, numbered[2]),
+                          ])
+                        }),
+                      )
                     : null,
                 ]),
             },

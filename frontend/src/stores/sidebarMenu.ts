@@ -656,7 +656,9 @@ function buildManifestAppMenus(nodes: MenuNode[], bundles: MenuBundle[]): MenuNo
     const childBundles = sorted.filter((bundle) => bundle.menu_permission_id !== rootPermissionId)
     const childrenByParent = new Map<number, MenuBundle[]>()
     for (const bundle of childBundles) {
-      const parentID = bundle.parent_menu_permission_id && bundleIDs.has(bundle.parent_menu_permission_id)
+      const parentID = bundle.parent_menu_permission_id &&
+        bundle.parent_menu_permission_id !== bundle.menu_permission_id &&
+        bundleIDs.has(bundle.parent_menu_permission_id)
         ? bundle.parent_menu_permission_id
         : rootPermissionId
       if (!childrenByParent.has(parentID)) childrenByParent.set(parentID, [])

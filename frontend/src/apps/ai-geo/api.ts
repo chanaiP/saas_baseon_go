@@ -106,12 +106,56 @@ export interface AiGeoMaterialAsset {
 export interface AiGeoHotspot {
   id: number
   tenant_id: number
+  source_id?: number | null
   platform: string
   title: string
   heat_score: number
   source_url?: string | null
   captured_at: string
+  metadata?: string | Record<string, unknown> | null
   status: string
+}
+
+export interface AiGeoExternalSource {
+  id: number
+  source_type: string
+  source_url: string
+  source_site?: string | null
+  source_title?: string | null
+  raw_text: string
+  clean_text: string
+  content_hash: string
+  extracted_meta?: string | Record<string, unknown> | null
+  extraction_status: string
+  extraction_error?: string | null
+  captured_at: string
+  status: string
+}
+
+export interface AiGeoStyleTemplate {
+  id: number
+  source_id?: number | null
+  template_code: string
+  template_name: string
+  description?: string | null
+  content_type?: string | null
+  platform?: string | null
+  tone_profile: string | Record<string, unknown>
+  structure_profile: string | Record<string, unknown>
+  technique_profile: string | Record<string, unknown>
+  style_keywords: string | string[]
+  prompt_fragment: string
+  negative_rules: string | string[]
+  extraction_summary: string | Record<string, unknown>
+  status: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface AiGeoExternalExtractResult {
+  source: AiGeoExternalSource
+  style_template?: AiGeoStyleTemplate
+  hotspot_draft?: Record<string, unknown>
 }
 
 export interface AiGeoChannel {
@@ -145,6 +189,18 @@ export interface AiGeoDraft {
   status: string
   created_at?: string
   updated_at?: string
+}
+
+export interface AiGeoGenerateDraftPayload {
+  brand_id?: number
+  product_id?: number
+  skill?: string
+  content_type?: string
+  hotspot_id?: number
+  style_template_id?: number
+  prompt: string
+  conversation?: Array<Record<string, unknown>>
+  source_snapshot?: Record<string, unknown>
 }
 
 export interface AiGeoChannelContent {
@@ -239,12 +295,24 @@ export async function updateAiGeoBrand(id: number, payload: Partial<AiGeoBrand> 
   return unwrap(http.put<ApiResponse<AiGeoBrand>>(`/api/ai-geo/materials/brands/${id}`, payload))
 }
 
+export async function archiveAiGeoBrand(id: number) {
+  return unwrap(http.delete<ApiResponse<AiGeoBrand>>(`/api/ai-geo/materials/brands/${id}`))
+}
+
 export async function fetchAiGeoProducts(params: AiGeoListParams = {}) {
   return unwrap(http.get<ApiResponse<AiGeoPage<AiGeoProduct>>>('/api/ai-geo/materials/products', { params }))
 }
 
 export async function createAiGeoProduct(payload: Record<string, unknown>) {
   return unwrap(http.post<ApiResponse<AiGeoProduct>>('/api/ai-geo/materials/products', payload))
+}
+
+export async function updateAiGeoProduct(id: number, payload: Record<string, unknown>) {
+  return unwrap(http.put<ApiResponse<AiGeoProduct>>(`/api/ai-geo/materials/products/${id}`, payload))
+}
+
+export async function archiveAiGeoProduct(id: number) {
+  return unwrap(http.delete<ApiResponse<AiGeoProduct>>(`/api/ai-geo/materials/products/${id}`))
 }
 
 export async function fetchAiGeoSKUs(params: AiGeoListParams = {}) {
@@ -255,12 +323,28 @@ export async function createAiGeoSKU(payload: Record<string, unknown>) {
   return unwrap(http.post<ApiResponse<AiGeoSKU>>('/api/ai-geo/materials/skus', payload))
 }
 
+export async function updateAiGeoSKU(id: number, payload: Record<string, unknown>) {
+  return unwrap(http.put<ApiResponse<AiGeoSKU>>(`/api/ai-geo/materials/skus/${id}`, payload))
+}
+
+export async function archiveAiGeoSKU(id: number) {
+  return unwrap(http.delete<ApiResponse<AiGeoSKU>>(`/api/ai-geo/materials/skus/${id}`))
+}
+
 export async function fetchAiGeoCompetitors(params: AiGeoListParams = {}) {
   return unwrap(http.get<ApiResponse<AiGeoPage<AiGeoCompetitor>>>('/api/ai-geo/materials/competitors', { params }))
 }
 
 export async function createAiGeoCompetitor(payload: Record<string, unknown>) {
   return unwrap(http.post<ApiResponse<AiGeoCompetitor>>('/api/ai-geo/materials/competitors', payload))
+}
+
+export async function updateAiGeoCompetitor(id: number, payload: Record<string, unknown>) {
+  return unwrap(http.put<ApiResponse<AiGeoCompetitor>>(`/api/ai-geo/materials/competitors/${id}`, payload))
+}
+
+export async function archiveAiGeoCompetitor(id: number) {
+  return unwrap(http.delete<ApiResponse<AiGeoCompetitor>>(`/api/ai-geo/materials/competitors/${id}`))
 }
 
 export async function fetchAiGeoKeywords(params: AiGeoListParams = {}) {
@@ -279,6 +363,10 @@ export async function updateAiGeoKeyword(id: number, payload: Record<string, unk
   return unwrap(http.put<ApiResponse<AiGeoKeyword>>(`/api/ai-geo/materials/keywords/${id}`, payload))
 }
 
+export async function archiveAiGeoKeyword(id: number) {
+  return unwrap(http.delete<ApiResponse<AiGeoKeyword>>(`/api/ai-geo/materials/keywords/${id}`))
+}
+
 export async function fetchAiGeoMaterialAssets(params: AiGeoListParams = {}) {
   return unwrap(http.get<ApiResponse<AiGeoPage<AiGeoMaterialAsset>>>('/api/ai-geo/materials/assets', { params }))
 }
@@ -293,6 +381,10 @@ export async function createAiGeoMaterialAsset(payload: Record<string, unknown>)
 
 export async function updateAiGeoMaterialAsset(id: number, payload: Record<string, unknown>) {
   return unwrap(http.put<ApiResponse<AiGeoMaterialAsset>>(`/api/ai-geo/materials/assets/${id}`, payload))
+}
+
+export async function archiveAiGeoMaterialAsset(id: number) {
+  return unwrap(http.delete<ApiResponse<AiGeoMaterialAsset>>(`/api/ai-geo/materials/assets/${id}`))
 }
 
 export async function fetchAiGeoHotspots(params: AiGeoListParams = {}) {
@@ -311,11 +403,43 @@ export async function updateAiGeoHotspot(id: number, payload: Record<string, unk
   return unwrap(http.put<ApiResponse<AiGeoHotspot>>(`/api/ai-geo/materials/hotspots/${id}`, payload))
 }
 
+export async function archiveAiGeoHotspot(id: number) {
+  return unwrap(http.delete<ApiResponse<AiGeoHotspot>>(`/api/ai-geo/materials/hotspots/${id}`))
+}
+
+export async function extractAiGeoExternalSource(payload: Record<string, unknown>) {
+  return unwrap(http.post<ApiResponse<AiGeoExternalExtractResult>>('/api/ai-geo/external-sources/extract', payload))
+}
+
+export async function fetchAiGeoStyleTemplates(params: AiGeoListParams = {}) {
+  return unwrap(http.get<ApiResponse<AiGeoPage<AiGeoStyleTemplate>>>('/api/ai-geo/style-templates', { params }))
+}
+
+export async function fetchAiGeoStyleTemplate(id: number) {
+  return unwrap(http.get<ApiResponse<AiGeoStyleTemplate>>(`/api/ai-geo/style-templates/${id}`))
+}
+
+export async function createAiGeoStyleTemplate(payload: Record<string, unknown>) {
+  return unwrap(http.post<ApiResponse<AiGeoStyleTemplate>>('/api/ai-geo/style-templates', payload))
+}
+
+export async function updateAiGeoStyleTemplate(id: number, payload: Record<string, unknown>) {
+  return unwrap(http.put<ApiResponse<AiGeoStyleTemplate>>(`/api/ai-geo/style-templates/${id}`, payload))
+}
+
+export async function archiveAiGeoStyleTemplate(id: number) {
+  return unwrap(http.delete<ApiResponse<AiGeoStyleTemplate>>(`/api/ai-geo/style-templates/${id}`))
+}
+
 export async function importAiGeoMaterials(payload: Record<string, unknown>) {
   return unwrap(http.post<ApiResponse<Record<string, unknown>>>('/api/ai-geo/materials/imports', payload))
 }
 
-export async function generateAiGeoDraft(payload: Record<string, unknown>) {
+export async function fetchAiGeoImportErrors(id: number, params: AiGeoListParams = {}) {
+  return unwrap(http.get<ApiResponse<AiGeoPage<Record<string, unknown>>>>(`/api/ai-geo/materials/imports/${id}/errors`, { params }))
+}
+
+export async function generateAiGeoDraft(payload: AiGeoGenerateDraftPayload) {
   return unwrap(http.post<ApiResponse<AiGeoDraft>>('/api/ai-geo/workbench/drafts/generate', payload))
 }
 
@@ -329,6 +453,14 @@ export type AiGatewayStreamEvent = {
   data?: Record<string, unknown>
 }
 
+function normalizeAiGatewayStreamError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || '')
+  if (/(load|fetch|network).{0,20}(fail|failed|failure|error)|(fail|failed|failure|error).{0,20}(load|fetch|network)|networkerror|aborterror/i.test(message)) {
+    return new Error('AI 专家服务连接失败，请检查网络或稍后重试')
+  }
+  return error instanceof Error ? error : new Error(message || 'AI Gateway 流式调用失败')
+}
+
 export async function streamAiGeoGatewayInvoke(
   payload: Record<string, unknown>,
   handlers: {
@@ -340,40 +472,63 @@ export async function streamAiGeoGatewayInvoke(
 ) {
   const baseURL = String(http.defaults.baseURL || '').replace(/\/$/, '')
   const token = localStorage.getItem('access_token')
-  const response = await fetch(`${baseURL}/api/ai-gateway/v1/invoke/stream`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(payload),
-  })
-  if (!response.ok || !response.body) {
-    throw new Error(`AI Gateway 流式调用失败（HTTP ${response.status}）`)
+  const scenarioCode = String(payload.ai_scenario_code || '')
+  const endpointByScenario: Record<string, string> = {
+    ai_geo_draft_generation: '/api/ai-geo/workbench/ai-stream',
+    ai_geo_channel_content_editor: '/api/ai-geo/channel-contents/ai-editor-stream',
   }
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder('utf-8')
-  let buffer = ''
-  const consumeEvent = (raw: string) => {
-    const dataLine = raw.split('\n').find(line => line.startsWith('data:'))
-    if (!dataLine) return
-    const data = dataLine.replace(/^data:\s*/, '').trim()
-    if (!data || data === '[DONE]') return
-    const event = JSON.parse(data) as AiGatewayStreamEvent
-    if (event.type === 'meta') handlers.onMeta?.(event)
-    if (event.type === 'delta' && event.delta) handlers.onDelta?.(event.delta, event)
-    if (event.type === 'final') handlers.onFinal?.(event)
-    if (event.type === 'error') handlers.onError?.(event)
+  const endpoint = endpointByScenario[scenarioCode]
+  if (!endpoint) {
+    throw new Error('AI GEO 场景未纳入应用权限边界')
   }
-  while (true) {
-    const { value, done } = await reader.read()
-    buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
-    const parts = buffer.split('\n\n')
-    buffer = parts.pop() || ''
-    parts.forEach(consumeEvent)
-    if (done) break
+  try {
+    const response = await fetch(`${baseURL}${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(payload),
+    })
+    if (!response.ok || !response.body) {
+      throw new Error(`AI Gateway 流式调用失败（HTTP ${response.status}）`)
+    }
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder('utf-8')
+    let buffer = ''
+    const consumeEvent = (raw: string) => {
+      const dataLine = raw.split('\n').find(line => line.startsWith('data:'))
+      if (!dataLine) return
+      const data = dataLine.replace(/^data:\s*/, '').trim()
+      if (!data || data === '[DONE]') return
+      let event: AiGatewayStreamEvent
+      try {
+        event = JSON.parse(data) as AiGatewayStreamEvent
+      } catch {
+        handlers.onError?.({
+          type: 'error',
+          error_code: 'STREAM_PARSE_ERROR',
+          error_message: 'AI 专家服务返回数据解析失败，请稍后重试',
+        })
+        return
+      }
+      if (event.type === 'meta') handlers.onMeta?.(event)
+      if (event.type === 'delta' && event.delta) handlers.onDelta?.(event.delta, event)
+      if (event.type === 'final') handlers.onFinal?.(event)
+      if (event.type === 'error') handlers.onError?.(event)
+    }
+    while (true) {
+      const { value, done } = await reader.read()
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
+      const parts = buffer.split('\n\n')
+      buffer = parts.pop() || ''
+      parts.forEach(consumeEvent)
+      if (done) break
+    }
+    if (buffer.trim()) consumeEvent(buffer)
+  } catch (error) {
+    throw normalizeAiGatewayStreamError(error)
   }
-  if (buffer.trim()) consumeEvent(buffer)
 }
 
 export async function fetchAiGeoDrafts(params: AiGeoListParams = {}) {
@@ -388,26 +543,6 @@ export async function updateAiGeoDraft(id: number, payload: Record<string, unkno
   return unwrap(http.put<ApiResponse<AiGeoDraft>>(`/api/ai-geo/drafts/${id}`, payload))
 }
 
-export async function submitAiGeoDraft(id: number) {
-	return unwrap(http.post<ApiResponse<AiGeoDraft>>(`/api/ai-geo/drafts/${id}/submit`))
-}
-
-export async function approveAiGeoDraft(id: number, payload: Record<string, unknown> = {}) {
-	return unwrap(http.post<ApiResponse<AiGeoDraft>>(`/api/ai-geo/drafts/${id}/approve`, payload))
-}
-
-export async function rejectAiGeoDraft(id: number, payload: Record<string, unknown> = {}) {
-	return unwrap(http.post<ApiResponse<AiGeoDraft>>(`/api/ai-geo/drafts/${id}/reject`, payload))
-}
-
-export async function fetchAiGeoDraftAuditSuggestions(id: number, params: AiGeoListParams = {}) {
-  return unwrap(http.get<ApiResponse<AiGeoPage<AiGeoAuditSuggestion>>>(`/api/ai-geo/drafts/${id}/audit-suggestions`, { params }))
-}
-
-export async function generateAiGeoDraftAuditSuggestion(id: number) {
-  return unwrap(http.post<ApiResponse<AiGeoAuditSuggestion>>(`/api/ai-geo/drafts/${id}/audit-suggestions`))
-}
-
 export async function generateAiGeoChannelContent(id: number, payload: Record<string, unknown>) {
   return unwrap(http.post<ApiResponse<AiGeoChannelContent>>(`/api/ai-geo/drafts/${id}/channel-contents`, payload))
 }
@@ -418,22 +553,6 @@ export async function fetchAiGeoChannelContents(params: AiGeoListParams = {}) {
 
 export async function updateAiGeoChannelContent(id: number, payload: Record<string, unknown>) {
   return unwrap(http.put<ApiResponse<AiGeoChannelContent>>(`/api/ai-geo/channel-contents/${id}`, payload))
-}
-
-export async function approveAiGeoChannelContent(id: number, payload: Record<string, unknown> = {}) {
-  return unwrap(http.post<ApiResponse<AiGeoChannelContent>>(`/api/ai-geo/channel-contents/${id}/approve`, payload))
-}
-
-export async function rejectAiGeoChannelContent(id: number, payload: Record<string, unknown> = {}) {
-  return unwrap(http.post<ApiResponse<AiGeoChannelContent>>(`/api/ai-geo/channel-contents/${id}/reject`, payload))
-}
-
-export async function fetchAiGeoChannelContentAuditSuggestions(id: number, params: AiGeoListParams = {}) {
-  return unwrap(http.get<ApiResponse<AiGeoPage<AiGeoAuditSuggestion>>>(`/api/ai-geo/channel-contents/${id}/audit-suggestions`, { params }))
-}
-
-export async function generateAiGeoChannelContentAuditSuggestion(id: number) {
-  return unwrap(http.post<ApiResponse<AiGeoAuditSuggestion>>(`/api/ai-geo/channel-contents/${id}/audit-suggestions`))
 }
 
 export async function fetchAiGeoPublishPlans(params: AiGeoListParams = {}) {
@@ -462,6 +581,14 @@ export async function fetchAiGeoChannels(params: AiGeoListParams = {}) {
 
 export async function createAiGeoChannel(payload: Record<string, unknown>) {
   return unwrap(http.post<ApiResponse<AiGeoChannel>>('/api/ai-geo/channels', payload))
+}
+
+export async function updateAiGeoChannel(id: number, payload: Record<string, unknown>) {
+  return unwrap(http.put<ApiResponse<AiGeoChannel>>(`/api/ai-geo/channels/${id}`, payload))
+}
+
+export async function testAiGeoChannel(id: number) {
+  return unwrap(http.post<ApiResponse<Record<string, unknown>>>(`/api/ai-geo/channels/${id}/test`, {}))
 }
 
 export async function fetchAiGeoChannelAccounts(params: AiGeoListParams = {}) {
