@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -39,7 +40,6 @@ var demoProviderCatalogCodes = map[string]struct{}{
 	"openai":            {},
 	"azure-openai":      {},
 	"anthropic":         {},
-	"dashscope":         {},
 	"volcengine":        {},
 	"zhipu":             {},
 	"moonshot":          {},
@@ -735,6 +735,25 @@ type InvokeResponse struct {
 	Data              map[string]interface{} `json:"data"`
 }
 
+type InvokeStreamEvent struct {
+	Type              string                 `json:"type"`
+	RequestID         string                 `json:"request_id,omitempty"`
+	TraceID           string                 `json:"trace_id,omitempty"`
+	ProviderRequestID string                 `json:"provider_request_id,omitempty"`
+	Delta             string                 `json:"delta,omitempty"`
+	Text              string                 `json:"text,omitempty"`
+	Status            string                 `json:"status,omitempty"`
+	ModelID           string                 `json:"model_id,omitempty"`
+	BaseRouteID       string                 `json:"base_route_id,omitempty"`
+	StrategyID        string                 `json:"tenant_strategy_id,omitempty"`
+	Usage             map[string]interface{} `json:"usage,omitempty"`
+	Billing           map[string]interface{} `json:"billing,omitempty"`
+	Controls          map[string]interface{} `json:"controls,omitempty"`
+	Data              map[string]interface{} `json:"data,omitempty"`
+	ErrorCode         string                 `json:"error_code,omitempty"`
+	ErrorMessage      string                 `json:"error_message,omitempty"`
+}
+
 type VideoTaskQueryResponse struct {
 	RequestID  string                 `json:"request_id"`
 	TaskID     string                 `json:"task_id"`
@@ -946,6 +965,185 @@ func executeOpenAICompatibleAttempt(ctx context.Context, client *http.Client, ra
 		FinishedAt:        finishedAt,
 		RetryCount:        attempt,
 	}, nil
+}
+
+func executeOpenAICompatibleStream(ctx context.Context, client *http.Client, rawURL, apiKey string, req providerExecutionRequest, requestKind string, timeout time.Duration, emit func(string) error) (providerExecutionResult, error) {
+	startedAt := time.Now()
+	if requestKind != "chat" && requestKind != "responses" {
+		return providerExecutionResult{
+			ErrorCode:    "unsupported_stream_protocol",
+			ErrorMessage: "当前流式调用仅支持 OpenAI-compatible chat_completion/text_generation 和 responses",
+			StartedAt:    startedAt,
+			FinishedAt:   time.Now(),
+		}, nil
+	}
+	payload := openAICompatiblePayload(requestKind, req.Model, req.InvokeRequest)
+	payload["stream"] = true
+	if requestKind == "chat" {
+		if _, ok := payload["stream_options"]; !ok {
+			payload["stream_options"] = map[string]interface{}{"include_usage": true}
+		}
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return providerExecutionResult{}, err
+	}
+	attemptCtx := ctx
+	cancel := func() {}
+	if timeout > 0 {
+		attemptCtx, cancel = context.WithTimeout(ctx, timeout)
+	}
+	defer cancel()
+	httpReq, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, rawURL, bytes.NewReader(body))
+	if err != nil {
+		return providerExecutionResult{}, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "text/event-stream")
+	applyProviderAuth(httpReq, req.Provider.Code, defaultString(req.API.AuthType, req.Provider.AuthType), apiKey, req.Account.EncryptedSecret)
+	if providerRequiresDashScopeStream(req.Provider.Code, defaultString(req.API.AuthType, req.Provider.AuthType)) {
+		httpReq.Header.Set("X-DashScope-SSE", "enable")
+	}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		finishedAt := time.Now()
+		code := "provider_request_failed"
+		message := err.Error()
+		if errors.Is(attemptCtx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
+			code = "provider_timeout"
+			message = "供应商调用超时"
+		}
+		return providerExecutionResult{ErrorCode: code, ErrorMessage: message, LatencyMS: int(finishedAt.Sub(startedAt).Milliseconds()), StartedAt: startedAt, FinishedAt: finishedAt}, nil
+	}
+	defer resp.Body.Close()
+	providerRequestID := providerRequestIDFromHeader(resp.Header)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		rawBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024))
+		var decoded map[string]interface{}
+		if len(rawBody) > 0 {
+			_ = json.Unmarshal(rawBody, &decoded)
+		}
+		finishedAt := time.Now()
+		return providerExecutionResult{
+			StatusCode:        resp.StatusCode,
+			ProviderRequestID: providerRequestID,
+			Data:              safeProviderResponse(decoded, rawBody),
+			ErrorCode:         fmt.Sprintf("provider_http_%d", resp.StatusCode),
+			ErrorMessage:      providerErrorMessage(decoded, rawBody),
+			LatencyMS:         int(finishedAt.Sub(startedAt).Milliseconds()),
+			StartedAt:         startedAt,
+			FinishedAt:        finishedAt,
+		}, nil
+	}
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	var text strings.Builder
+	var lastChunk map[string]interface{}
+	var usageBreakdown map[string]float64
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "[DONE]" {
+			break
+		}
+		var chunk map[string]interface{}
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			continue
+		}
+		lastChunk = chunk
+		if requestID := strings.TrimSpace(fmt.Sprint(chunk["id"])); requestID != "" && requestID != "<nil>" && providerRequestID == "" {
+			providerRequestID = requestID
+		}
+		if delta := openAIStreamDeltaText(requestKind, chunk); delta != "" {
+			text.WriteString(delta)
+			if err := emit(delta); err != nil {
+				return providerExecutionResult{}, err
+			}
+		}
+		if breakdown := openAIUsageBreakdown(chunk); len(breakdown) > 0 {
+			usageBreakdown = breakdown
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		finishedAt := time.Now()
+		return providerExecutionResult{ErrorCode: "provider_stream_failed", ErrorMessage: err.Error(), LatencyMS: int(finishedAt.Sub(startedAt).Milliseconds()), StartedAt: startedAt, FinishedAt: finishedAt}, nil
+	}
+	finishedAt := time.Now()
+	fullText := text.String()
+	return providerExecutionResult{
+		StatusCode:        resp.StatusCode,
+		ProviderRequestID: providerRequestID,
+		Data: map[string]interface{}{
+			"text":              fullText,
+			"provider_response": lastChunk,
+			"stream":            true,
+		},
+		UsageAmount:    streamUsageAmount(usageBreakdown),
+		UsageUnit:      "tokens",
+		UsageBreakdown: usageBreakdown,
+		LatencyMS:      int(finishedAt.Sub(startedAt).Milliseconds()),
+		StartedAt:      startedAt,
+		FinishedAt:     finishedAt,
+	}, nil
+}
+
+func providerRequiresDashScopeStream(providerCode, authType string) bool {
+	auth := strings.ToLower(strings.TrimSpace(authType))
+	code := strings.ToLower(strings.TrimSpace(providerCode))
+	return auth == "dashscope" || strings.Contains(code, "dashscope") || strings.Contains(code, "qwen") || strings.Contains(code, "aliyun")
+}
+
+func openAIStreamDeltaText(kind string, chunk map[string]interface{}) string {
+	if kind == "responses" {
+		for _, key := range []string{"delta", "text"} {
+			if text := strings.TrimSpace(fmt.Sprint(chunk[key])); text != "" && text != "<nil>" {
+				return text
+			}
+		}
+		output, _ := chunk["output"].([]interface{})
+		for _, item := range output {
+			row, _ := item.(map[string]interface{})
+			content, _ := row["content"].([]interface{})
+			for _, contentItem := range content {
+				contentRow, _ := contentItem.(map[string]interface{})
+				for _, key := range []string{"text", "delta"} {
+					if text := strings.TrimSpace(fmt.Sprint(contentRow[key])); text != "" && text != "<nil>" {
+						return text
+					}
+				}
+			}
+		}
+	}
+	choices, _ := chunk["choices"].([]interface{})
+	if len(choices) == 0 {
+		return ""
+	}
+	first, _ := choices[0].(map[string]interface{})
+	if first == nil {
+		return ""
+	}
+	if delta, ok := first["delta"].(map[string]interface{}); ok {
+		if content := strings.TrimSpace(fmt.Sprint(delta["content"])); content != "" && content != "<nil>" {
+			return content
+		}
+	}
+	if text := strings.TrimSpace(fmt.Sprint(first["text"])); text != "" && text != "<nil>" {
+		return text
+	}
+	return ""
+}
+
+func streamUsageAmount(usage map[string]float64) float64 {
+	if len(usage) == 0 {
+		return 0
+	}
+	if value := usage["total_tokens"]; value > 0 {
+		return value
+	}
+	return usage["prompt_tokens"] + usage["completion_tokens"]
 }
 
 func shouldRetryProviderResult(result providerExecutionResult) bool {
@@ -2650,6 +2848,283 @@ func (s *Service) Invoke(ctx context.Context, req InvokeRequest) (InvokeResponse
 	}, nil
 }
 
+func (s *Service) InvokeStream(ctx context.Context, req InvokeRequest, emit func(InvokeStreamEvent) error) error {
+	req.AppCode = strings.TrimSpace(req.AppCode)
+	req.AIScenarioCode = strings.TrimSpace(req.AIScenarioCode)
+	req.TenantID = strings.TrimSpace(req.TenantID)
+	if req.Params == nil {
+		req.Params = map[string]interface{}{}
+	}
+	if req.Input == nil {
+		req.Input = map[string]interface{}{}
+	}
+	if req.AppCode == "" || req.AIScenarioCode == "" || req.TenantID == "" {
+		return ErrInvalidInput
+	}
+	if req.RequestID == "" {
+		req.RequestID = fmt.Sprintf("ai_req_%d", time.Now().UnixNano())
+	}
+	var scenario models.AIScenario
+	if err := s.db.WithContext(ctx).Where("app_code = ? AND ai_scenario_code = ? AND status = ? AND deleted_at IS NULL", req.AppCode, req.AIScenarioCode, "active").First(&scenario).Error; err != nil {
+		return fmt.Errorf("AI Gateway 场景不存在或未启用：app=%s scenario=%s: %w", req.AppCode, req.AIScenarioCode, ErrNotFound)
+	}
+	strategy, strategyFound, err := s.matchTenantStrategy(ctx, req, scenario)
+	if err != nil {
+		return err
+	}
+	routeID := scenario.DefaultBaseRouteID
+	if strategyFound {
+		routeID = defaultString(strategy.OverrideBaseRouteID, strategy.DefaultBaseRouteID)
+	}
+	var route models.AIBaseRoute
+	if err := s.db.WithContext(ctx).Where("id = ? AND status = ? AND deleted_at IS NULL", routeID, "active").First(&route).Error; err != nil {
+		return fmt.Errorf("AI Gateway 基础路由不存在或未启用：route_id=%s scenario=%s: %w", routeID, scenario.AIScenarioCode, ErrNotFound)
+	}
+	routeModel, model, endpoint, err := s.selectRouteExecutionPlan(ctx, route, scenario)
+	if err != nil {
+		return fmt.Errorf("AI Gateway 路由没有可执行模型或端点：route=%s scenario=%s: %w", route.RouteCode, scenario.AIScenarioCode, err)
+	}
+	provider, account, api, err := s.loadProviderExecutionConfig(ctx, endpoint)
+	if err != nil {
+		return fmt.Errorf("AI Gateway 供应商端点配置不存在或未启用：provider_id=%s account_id=%s api_id=%s: %w", endpoint.ProviderID, endpoint.AccountID, endpoint.APIID, err)
+	}
+	requestKind := openAICompatibleRequestKind(providerExecutionRequest{InvokeRequest: req, Scenario: scenario, Route: route, RouteModel: routeModel, Model: model, Provider: provider, Account: account, API: api})
+	if requestKind != "chat" && requestKind != "responses" {
+		return ErrInvalidInput
+	}
+
+	paramsRaw, _ := json.Marshal(req.Params)
+	hash := sha256.Sum256(paramsRaw)
+	responseHash := sha256.Sum256([]byte("{}"))
+	now := time.Now()
+	contentRecordLevel := s.contentRecordLevel(ctx)
+	pricing, err := s.matchPricing(ctx, model, scenario, req)
+	if err != nil {
+		return err
+	}
+	quotaChecks, err := s.evaluateQuotaRules(ctx, req, scenario, strategy, strategyFound, routeModel, pricing, endpoint.AccountID, endpoint.APIID, now)
+	if err != nil {
+		return err
+	}
+	rateChecks, err := s.evaluateRateLimitRules(ctx, req, scenario, strategy, strategyFound, routeModel, pricing, endpoint.AccountID, endpoint.APIID, now)
+	if err != nil {
+		return err
+	}
+	status := "success"
+	errorCode := ""
+	errorMessage := ""
+	for _, check := range quotaChecks {
+		if check.Exceeded && check.Action == "reject" {
+			status = "rejected"
+			errorCode = "quota_exceeded"
+			errorMessage = "AI Gateway 配额超限"
+			break
+		}
+	}
+	if status == "success" {
+		for _, check := range rateChecks {
+			if check.Exceeded && check.Action == "reject" {
+				status = "rejected"
+				errorCode = "rate_limited"
+				errorMessage = "AI Gateway 限流超限"
+				break
+			}
+		}
+	}
+	providerResult := providerExecutionResult{Data: map[string]interface{}{}, StartedAt: now, FinishedAt: now}
+	fullText := ""
+	if err := emit(InvokeStreamEvent{
+		Type:        "meta",
+		RequestID:   req.RequestID,
+		TraceID:     req.RequestID,
+		Status:      status,
+		ModelID:     routeModel.ModelID,
+		BaseRouteID: route.ID,
+		StrategyID:  strategyID(strategy, strategyFound),
+		Controls: map[string]interface{}{
+			"quota_rules":      quotaChecks,
+			"rate_limit_rules": rateChecks,
+		},
+	}); err != nil {
+		return err
+	}
+	if status == "success" {
+		executor := s.executor
+		if executor == nil {
+			executor = httpProviderExecutor{client: providerHTTPClient(0)}
+		}
+		httpExecutor, ok := executor.(httpProviderExecutor)
+		if !ok {
+			providerResult, err = executor.Execute(ctx, providerExecutionRequest{
+				InvokeRequest: req,
+				Scenario:      scenario,
+				Route:         route,
+				RouteModel:    routeModel,
+				Model:         model,
+				Provider:      provider,
+				Account:       account,
+				API:           api,
+			})
+		} else {
+			rawURL := providerAPIProbeURL(provider.BaseURL, account.Endpoint, api.APIPath)
+			apiKey, keySource := resolveProviderAPIKeyWithSource(account.EncryptedAPIKey, account.KeyAlias)
+			if rawURL == "" {
+				providerResult = providerExecutionResult{ErrorCode: "invalid_endpoint", ErrorMessage: "供应商 Endpoint 或 API 路径不合法", StartedAt: now, FinishedAt: time.Now()}
+			} else if requiresAPIKey(provider.Code, defaultString(api.AuthType, provider.AuthType)) && apiKey == "" {
+				providerResult = providerExecutionResult{ErrorCode: "missing_api_key", ErrorMessage: providerAPIKeyMissingMessage(account.KeyAlias, keySource), StartedAt: now, FinishedAt: time.Now()}
+			} else {
+				client := httpExecutor.client
+				if client == nil {
+					client = providerHTTPClient(0)
+				}
+				providerResult, err = executeOpenAICompatibleStream(ctx, client, rawURL, apiKey, providerExecutionRequest{
+					InvokeRequest: req,
+					Scenario:      scenario,
+					Route:         route,
+					RouteModel:    routeModel,
+					Model:         model,
+					Provider:      provider,
+					Account:       account,
+					API:           api,
+				}, requestKind, gatewayRequestTimeout(route, routeModel, api), func(delta string) error {
+					fullText += delta
+					return emit(InvokeStreamEvent{Type: "delta", RequestID: req.RequestID, TraceID: req.RequestID, Delta: delta})
+				})
+			}
+		}
+		if err != nil {
+			status = "gateway_error"
+			errorCode = "gateway_execution_failed"
+			errorMessage = err.Error()
+		} else if providerResult.ErrorCode != "" {
+			if providerResult.ErrorCode == "provider_timeout" {
+				status = "timeout"
+			} else if providerResult.StatusCode >= 400 {
+				status = "provider_error"
+			} else {
+				status = "gateway_error"
+			}
+			errorCode = providerResult.ErrorCode
+			errorMessage = providerResult.ErrorMessage
+		} else {
+			if fullText == "" {
+				fullText = strings.TrimSpace(fmt.Sprint(providerResult.Data["text"]))
+			}
+			if providerResult.UsageAmount > 0 {
+				req.Params["usage_amount"] = providerResult.UsageAmount
+				if providerResult.UsageUnit != "" {
+					req.Params["usage_unit"] = providerResult.UsageUnit
+				}
+				for key, value := range providerResult.UsageBreakdown {
+					req.Params[key] = value
+				}
+				actualPricing, err := s.matchPricing(ctx, model, scenario, req)
+				if err != nil {
+					return err
+				}
+				pricing = actualPricing
+			}
+			responseRaw, _ := json.Marshal(providerResult.Data)
+			responseHash = sha256.Sum256(responseRaw)
+		}
+	}
+	requestParams := gatewayContentRecordJSON(contentRecordLevel, req.Params, req.Input, hash, responseHash)
+	record := models.AIUsageRecord{
+		RequestID:          req.RequestID,
+		TenantID:           req.TenantID,
+		TenantName:         req.TenantName,
+		AppCode:            scenario.AppCode,
+		AppName:            defaultString(req.AppName, scenario.AppName),
+		AIScenarioCode:     scenario.AIScenarioCode,
+		AIScenarioName:     scenario.AIScenarioName,
+		UserID:             req.UserID,
+		UserName:           req.UserName,
+		ProviderID:         endpoint.ProviderID,
+		ProviderAccountID:  endpoint.AccountID,
+		ProviderAPIID:      endpoint.APIID,
+		ModelID:            routeModel.ModelID,
+		BaseRouteID:        route.ID,
+		TenantStrategyID:   strategyID(strategy, strategyFound),
+		PricePolicyID:      pricing.PolicyID,
+		PriceTierID:        pricing.TierID,
+		UsageAmount:        pricing.UsageAmount,
+		UsageUnit:          pricing.UsageUnit,
+		UsageDetail:        usageDetailForInvokeStatus(status),
+		Calls:              1,
+		CostAmount:         pricing.CostAmount,
+		BillingAmount:      pricing.BillingAmount,
+		PlatformUnit:       pricing.PlatformUnit,
+		PlatformAmount:     pricing.PlatformAmount,
+		Status:             status,
+		ErrorCode:          errorCode,
+		ErrorMessage:       errorMessage,
+		LatencyMS:          providerResult.LatencyMS,
+		ProviderHTTPStatus: providerResult.StatusCode,
+		ProviderRequestID:  providerResult.ProviderRequestID,
+		StartedAt:          timePtrIfSet(providerResult.StartedAt),
+		FinishedAt:         timePtrIfSet(providerResult.FinishedAt),
+		RequestParams:      requestParams,
+		DataSource:         "gateway_stream",
+		IsDemo:             false,
+		PromptHash:         hex.EncodeToString(hash[:]),
+		ResponseHash:       hex.EncodeToString(responseHash[:]),
+		CalledAt:           now,
+		CreatedAt:          now,
+	}
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Omit(emptyAIUsageRecordUUIDFields(record)...).Create(&record).Error; err != nil {
+			return err
+		}
+		if status == "success" && strategyFound {
+			for _, check := range quotaChecks {
+				if check.RuleID == "" {
+					continue
+				}
+				if err := tx.Model(&models.AIStrategyQuotaRule{}).
+					Where("id = ? AND deleted_at IS NULL", check.RuleID).
+					Update("used_amount", gorm.Expr("used_amount + ?", pricing.UsageAmount)).Error; err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	finalEvent := InvokeStreamEvent{
+		Type:              "final",
+		RequestID:         req.RequestID,
+		TraceID:           req.RequestID,
+		ProviderRequestID: providerResult.ProviderRequestID,
+		Status:            status,
+		ModelID:           routeModel.ModelID,
+		BaseRouteID:       route.ID,
+		StrategyID:        record.TenantStrategyID,
+		Text:              fullText,
+		Usage:             map[string]interface{}{"amount": record.UsageAmount, "unit": record.UsageUnit},
+		Billing: map[string]interface{}{
+			"price_policy_id": record.PricePolicyID,
+			"price_tier_id":   record.PriceTierID,
+			"feature_key":     pricing.FeatureKey,
+			"cost_amount":     record.CostAmount,
+			"billing_amount":  record.BillingAmount,
+			"platform_unit":   record.PlatformUnit,
+			"platform_amount": record.PlatformAmount,
+		},
+		Controls: map[string]interface{}{
+			"quota_rules":      quotaChecks,
+			"rate_limit_rules": rateChecks,
+		},
+		Data: providerResult.Data,
+	}
+	if errorCode != "" {
+		finalEvent.Type = "error"
+		finalEvent.ErrorCode = errorCode
+		finalEvent.ErrorMessage = errorMessage
+	}
+	return emit(finalEvent)
+}
+
 func (s *Service) QueryVideoTask(ctx context.Context, tenantID, requestID, taskID string) (VideoTaskQueryResponse, error) {
 	tenantID = strings.TrimSpace(tenantID)
 	requestID = strings.TrimSpace(requestID)
@@ -3112,7 +3587,7 @@ func (s *Service) resolveRouteEndpoint(ctx context.Context, routeModel models.AI
 		if !apiEndpointExecutable(provider, account, api, capabilityCode) {
 			return routeEndpoint{}, false
 		}
-		return routeEndpoint{ProviderID: model.ProviderID, AccountID: api.AccountID, APIID: api.ID, Score: endpointHealthScore(api)}, true
+		return routeEndpoint{ProviderID: model.ProviderID, AccountID: api.AccountID, APIID: api.ID, Score: endpointHealthScore(api) + endpointCredentialScore(account)}, true
 	}
 
 	accountQuery := s.db.WithContext(ctx).
@@ -3140,7 +3615,7 @@ func (s *Service) resolveRouteEndpoint(ctx context.Context, routeModel models.AI
 			if !apiEndpointExecutable(provider, account, api, capabilityCode) {
 				continue
 			}
-			score := endpointHealthScore(api)
+			score := endpointHealthScore(api) + endpointCredentialScore(account)
 			if score > bestScore {
 				bestScore = score
 				best = routeEndpoint{ProviderID: model.ProviderID, AccountID: account.ID, APIID: api.ID, Score: score}
@@ -3211,6 +3686,16 @@ func endpointHealthScore(api models.AIProviderAPI) float64 {
 		score += float64(api.QPSLimit) / 100
 	}
 	return score
+}
+
+func endpointCredentialScore(account models.AIProviderAccount) float64 {
+	if strings.TrimSpace(account.EncryptedAPIKey) != "" {
+		return 20000
+	}
+	if value, _ := resolveProviderAPIKeyWithSource(account.EncryptedAPIKey, account.KeyAlias); strings.TrimSpace(value) != "" {
+		return 20000
+	}
+	return 0
 }
 
 func (s *Service) matchPricing(ctx context.Context, model models.AIModel, scenario models.AIScenario, req InvokeRequest) (pricingResult, error) {

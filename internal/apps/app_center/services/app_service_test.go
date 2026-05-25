@@ -376,6 +376,11 @@ func TestAppCenterLoadTenantManifestDefaultsConsumerScopes(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "SUCCESS", loaded.Status)
 
+	var app models.SysApp
+	require.NoError(t, db.Where("app_code = ?", "data-center").First(&app).Error)
+	require.Equal(t, "TENANT", app.VisibilityScope)
+	require.False(t, app.IsPlatformOnly)
+
 	var menu models.Permission
 	require.NoError(t, db.Where("app_code = ? AND path = ? AND deleted_at IS NULL", "data-center", "/data-center/dashboard").First(&menu).Error)
 	require.Equal(t, "enterprise_personal", menu.TenantScope)
@@ -763,6 +768,7 @@ quotas:
 	var permission models.Permission
 	require.NoError(t, db.Where("tenant_id = ? AND path = ?", uint64(1), "/ops/dashboard").First(&permission).Error)
 	require.Equal(t, "ops-console", permission.AppCode)
+	require.Nil(t, permission.ParentID)
 
 	var feature models.SaasFeature
 	require.NoError(t, db.Where("feature_code = ?", "ops_dashboard").First(&feature).Error)
@@ -796,6 +802,7 @@ func TestAppCenterDiffManifestMarksMissingAssetsAsDisable(t *testing.T) {
 	require.NoError(t, db.Create(&models.SysAppPermission{AppCode: "ops-console", PermissionCode: "old_perm", Name: "旧权限", ManagedByManifest: true, Status: "ACTIVE"}).Error)
 	require.NoError(t, db.Create(&models.SysAppPackageFeature{AppCode: "ops-console", FeatureCode: "old_feature", FeatureName: "旧功能", ManagedByManifest: true, Status: "ACTIVE"}).Error)
 	require.NoError(t, db.Create(&models.SysAppQuota{AppCode: "ops-console", QuotaCode: "old_quota", QuotaName: "旧配额", ManagedByManifest: true, Status: "ACTIVE"}).Error)
+	require.NoError(t, db.Create(&models.Permission{TenantID: 1, Name: "旧权限", Path: "old_perm", PermType: 2, Enabled: true, Visible: true, ShowInAdmin: true, AppCode: "ops-console"}).Error)
 	require.NoError(t, db.Create(&models.SaasFeature{FeatureCode: "old_feature", FeatureName: "旧功能", FeatureType: "MENU", AppCode: "ops-console", Status: 1}).Error)
 	require.NoError(t, db.Create(&models.SaasQuota{QuotaCode: "old_quota", QuotaName: "旧配额", QuotaType: "STATIC", Status: 1}).Error)
 
@@ -865,6 +872,12 @@ package_features:
 	var oldPermission models.SysAppPermission
 	require.NoError(t, db.Where("app_code = ? AND permission_code = ?", "ops-console", "old_perm").First(&oldPermission).Error)
 	require.Equal(t, "DISABLED", oldPermission.Status)
+
+	var oldBasePermission models.Permission
+	require.NoError(t, db.Where("app_code = ? AND path = ?", "ops-console", "old_perm").First(&oldBasePermission).Error)
+	require.False(t, oldBasePermission.Enabled)
+	require.False(t, oldBasePermission.Visible)
+	require.False(t, oldBasePermission.ShowInAdmin)
 
 	var oldFeature models.SysAppPackageFeature
 	require.NoError(t, db.Where("app_code = ? AND feature_code = ?", "ops-console", "old_feature").First(&oldFeature).Error)

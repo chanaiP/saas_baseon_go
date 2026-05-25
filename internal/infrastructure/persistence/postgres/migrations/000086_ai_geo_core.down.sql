@@ -1,0 +1,12 @@
+DROP TABLE IF EXISTS ai_geo_hotspots;
+DROP TABLE IF EXISTS ai_geo_material_assets;
+DROP TABLE IF EXISTS ai_geo_import_batches;
+DROP TABLE IF EXISTS ai_geo_publish_plans;
+DROP TABLE IF EXISTS ai_geo_channel_contents;
+DROP TABLE IF EXISTS ai_geo_drafts;
+DROP TABLE IF EXISTS ai_geo_channel_accounts;
+DROP TABLE IF EXISTS ai_geo_channel_profiles;
+DROP TABLE IF EXISTS ai_geo_competitors;
+DROP TABLE IF EXISTS ai_geo_skus;
+DROP TABLE IF EXISTS ai_geo_product_cards;
+DROP TABLE IF EXISTS ai_geo_brand_cards;

@@ -4,13 +4,14 @@ import (
 	"github.com/gin-gonic/gin"
 
 	aicchandlers "saas_baseon_go/internal/apps/ai_capability_center/handlers"
+	aigeohandlers "saas_baseon_go/internal/apps/ai_geo/handlers"
 	apphandlers "saas_baseon_go/internal/apps/app_center/handlers"
 	dchandlers "saas_baseon_go/internal/apps/data_center/handlers"
 	ichandlers "saas_baseon_go/internal/apps/integration_center/handlers"
 	"saas_baseon_go/internal/interfaces/http/handlers"
 )
 
-func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHandler, paramHandler *handlers.ParamHandler, appHandler *apphandlers.AppHandler, aiCapabilityCenterHandler *aicchandlers.Handler, integrationCenterHandler *ichandlers.Handler, dataCenterHandler *dchandlers.Handler) {
+func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHandler, paramHandler *handlers.ParamHandler, appHandler *apphandlers.AppHandler, aiCapabilityCenterHandler *aicchandlers.Handler, integrationCenterHandler *ichandlers.Handler, dataCenterHandler *dchandlers.Handler, aiGeoHandler *aigeohandlers.Handler) {
 	api := router.Group("/api")
 	{
 		api.GET("/auth/captcha", identityHandler.Captcha)
@@ -229,6 +230,7 @@ func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHan
 			ai.DELETE("/:resource/:id", aiCapabilityCenterHandler.Delete)
 		}
 		api.POST("/ai-gateway/v1/invoke", aiCapabilityCenterHandler.Invoke)
+		api.POST("/ai-gateway/v1/invoke/stream", aiCapabilityCenterHandler.InvokeStream)
 		api.GET("/ai-gateway/v1/video-tasks/:task_id", aiCapabilityCenterHandler.QueryVideoTask)
 
 		integration := api.Group("/integration-center")
@@ -336,6 +338,76 @@ func registerAPIRoutes(router *gin.Engine, identityHandler *handlers.IdentityHan
 			dataCenter.POST("/reviews/generate", dataCenterHandler.GenerateReview)
 			dataCenter.POST("/reviews/:id/confirm", dataCenterHandler.ConfirmReview)
 			dataCenter.PUT("/reviews/:id", dataCenterHandler.UpdateReview)
+		}
+		aiGeo := api.Group("/ai-geo")
+		{
+			aiGeo.GET("/overview", aiGeoHandler.Overview)
+			aiGeo.GET("/materials/brands", aiGeoHandler.Brands)
+			aiGeo.GET("/materials/brands/:id", aiGeoHandler.Brand)
+			aiGeo.POST("/materials/brands", aiGeoHandler.CreateBrand)
+			aiGeo.PUT("/materials/brands/:id", aiGeoHandler.UpdateBrand)
+			aiGeo.DELETE("/materials/brands/:id", aiGeoHandler.ArchiveBrand)
+			aiGeo.GET("/materials/products", aiGeoHandler.Products)
+			aiGeo.GET("/materials/products/:id", aiGeoHandler.Product)
+			aiGeo.POST("/materials/products", aiGeoHandler.CreateProduct)
+			aiGeo.PUT("/materials/products/:id", aiGeoHandler.UpdateProduct)
+			aiGeo.DELETE("/materials/products/:id", aiGeoHandler.ArchiveProduct)
+			aiGeo.GET("/materials/skus", aiGeoHandler.SKUs)
+			aiGeo.GET("/materials/skus/:id", aiGeoHandler.SKU)
+			aiGeo.POST("/materials/skus", aiGeoHandler.CreateSKU)
+			aiGeo.PUT("/materials/skus/:id", aiGeoHandler.UpdateSKU)
+			aiGeo.DELETE("/materials/skus/:id", aiGeoHandler.ArchiveSKU)
+			aiGeo.GET("/materials/competitors", aiGeoHandler.Competitors)
+			aiGeo.GET("/materials/competitors/:id", aiGeoHandler.Competitor)
+			aiGeo.POST("/materials/competitors", aiGeoHandler.CreateCompetitor)
+			aiGeo.PUT("/materials/competitors/:id", aiGeoHandler.UpdateCompetitor)
+			aiGeo.DELETE("/materials/competitors/:id", aiGeoHandler.ArchiveCompetitor)
+			aiGeo.GET("/materials/keywords", aiGeoHandler.Keywords)
+			aiGeo.GET("/materials/keywords/:id", aiGeoHandler.Keyword)
+			aiGeo.POST("/materials/keywords", aiGeoHandler.CreateKeyword)
+			aiGeo.PUT("/materials/keywords/:id", aiGeoHandler.UpdateKeyword)
+			aiGeo.DELETE("/materials/keywords/:id", aiGeoHandler.ArchiveKeyword)
+			aiGeo.GET("/materials/assets", aiGeoHandler.MaterialAssets)
+			aiGeo.GET("/materials/assets/:id", aiGeoHandler.MaterialAsset)
+			aiGeo.POST("/materials/assets", aiGeoHandler.CreateMaterialAsset)
+			aiGeo.PUT("/materials/assets/:id", aiGeoHandler.UpdateMaterialAsset)
+			aiGeo.DELETE("/materials/assets/:id", aiGeoHandler.ArchiveMaterialAsset)
+			aiGeo.GET("/materials/hotspots", aiGeoHandler.Hotspots)
+			aiGeo.GET("/materials/hotspots/:id", aiGeoHandler.Hotspot)
+			aiGeo.POST("/materials/hotspots", aiGeoHandler.CreateHotspot)
+			aiGeo.PUT("/materials/hotspots/:id", aiGeoHandler.UpdateHotspot)
+			aiGeo.DELETE("/materials/hotspots/:id", aiGeoHandler.ArchiveHotspot)
+			aiGeo.POST("/external-sources/extract", aiGeoHandler.ExtractExternalSource)
+			aiGeo.GET("/style-templates", aiGeoHandler.StyleTemplates)
+			aiGeo.GET("/style-templates/:id", aiGeoHandler.StyleTemplate)
+			aiGeo.POST("/style-templates", aiGeoHandler.CreateStyleTemplate)
+			aiGeo.PUT("/style-templates/:id", aiGeoHandler.UpdateStyleTemplate)
+			aiGeo.DELETE("/style-templates/:id", aiGeoHandler.ArchiveStyleTemplate)
+			aiGeo.POST("/materials/imports", aiGeoHandler.ImportMaterials)
+			aiGeo.GET("/materials/imports/:id/errors", aiGeoHandler.ImportErrors)
+			aiGeo.POST("/workbench/drafts/generate", aiGeoHandler.GenerateDraft)
+			aiGeo.POST("/workbench/ai-stream", aiGeoHandler.StreamWorkbenchAI)
+			aiGeo.GET("/drafts", aiGeoHandler.Drafts)
+			aiGeo.GET("/drafts/:id", aiGeoHandler.Draft)
+			aiGeo.POST("/drafts", aiGeoHandler.CreateDraft)
+			aiGeo.PUT("/drafts/:id", aiGeoHandler.UpdateDraft)
+			aiGeo.DELETE("/drafts/:id", aiGeoHandler.ArchiveDraft)
+			aiGeo.POST("/drafts/:id/channel-contents", aiGeoHandler.GenerateChannelContent)
+			aiGeo.GET("/channel-contents", aiGeoHandler.ChannelContents)
+			aiGeo.GET("/channel-contents/:id", aiGeoHandler.ChannelContent)
+			aiGeo.PUT("/channel-contents/:id", aiGeoHandler.UpdateChannelContent)
+			aiGeo.POST("/channel-contents/ai-editor-stream", aiGeoHandler.StreamChannelContentEditorAI)
+			aiGeo.GET("/publish-plans", aiGeoHandler.PublishPlans)
+			aiGeo.GET("/publish-plans/calendar", aiGeoHandler.PublishPlanCalendar)
+			aiGeo.POST("/publish-plans", aiGeoHandler.CreatePublishPlan)
+			aiGeo.PUT("/publish-plans/:id", aiGeoHandler.UpdatePublishPlan)
+			aiGeo.PATCH("/publish-plans/:id/status", aiGeoHandler.UpdatePublishStatus)
+			aiGeo.GET("/channels", aiGeoHandler.Channels)
+			aiGeo.POST("/channels", aiGeoHandler.CreateChannel)
+			aiGeo.PUT("/channels/:id", aiGeoHandler.UpdateChannel)
+			aiGeo.POST("/channels/:id/test", aiGeoHandler.TestChannel)
+			aiGeo.GET("/channel-accounts", aiGeoHandler.ChannelAccounts)
+			aiGeo.POST("/channel-accounts", aiGeoHandler.CreateChannelAccount)
 		}
 	}
 }

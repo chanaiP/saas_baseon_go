@@ -1,0 +1,681 @@
+manifest_version: "1.0"
+fragment_role: main
+app:
+  app_code: ai-geo
+  app_name: AI GEO
+  app_type: AI_APP
+  source: MANIFEST
+  status: INITIATED
+  icon: EditPen
+  deployment_mode: MERGED
+  communication_modes:
+    - PLATFORM_API
+  visibility_scope: TENANT
+  charge_policy: PAID
+  billing_mode: SUBSCRIPTION
+  package_policy: IN_PACKAGE
+  version: 0.2.0
+  description: 面向多租户、多品牌的 GEO 内容增长应用，覆盖资料中心、AI 工作台、母稿、渠道内容与发布计划闭环
+  backend_dir: internal/apps/ai_geo
+  frontend_dir: frontend/src/apps/ai-geo
+clients:
+  - PC_WEB
+  - API_ONLY
+menus:
+  - code: ai_geo_root
+    name: AI GEO
+    path: /ai-geo
+    sort_order: 110
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_geo_access
+    data_perm_mode: TENANT
+  - code: ai_geo_dashboard
+    name: 总览
+    path: /ai-geo/dashboard
+    parent_code: ai_geo_root
+    sort_order: 111
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_geo_dashboard
+    data_perm_mode: TENANT
+  - code: ai_geo_workbench
+    name: 工作台
+    path: /ai-geo/workbench
+    parent_code: ai_geo_root
+    sort_order: 112
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_geo_workbench
+    data_perm_mode: TENANT
+  - code: ai_geo_drafts
+    name: 母稿
+    path: /ai-geo/drafts
+    parent_code: ai_geo_root
+    sort_order: 113
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_geo_drafts
+    data_perm_mode: TENANT
+  - code: ai_geo_plans
+    name: 发布计划
+    path: /ai-geo/plans
+    parent_code: ai_geo_root
+    sort_order: 114
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_geo_plans
+    data_perm_mode: TENANT
+  - code: ai_geo_plan_calendar
+    name: 发布日历
+    path: /ai-geo/plans/calendar
+    parent_code: ai_geo_plans
+    sort_order: 115
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_geo_plan_calendar
+    data_perm_mode: TENANT
+  - code: ai_geo_plan_queue
+    name: 发布队列
+    path: /ai-geo/plans/queue
+    parent_code: ai_geo_plans
+    sort_order: 116
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_geo_plan_queue
+    data_perm_mode: TENANT
+  - code: ai_geo_channels
+    name: 渠道管理
+    path: /ai-geo/channels
+    parent_code: ai_geo_root
+    sort_order: 117
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_geo_channels
+    data_perm_mode: TENANT
+  - code: ai_geo_channel_profiles
+    name: 渠道管理
+    path: /ai-geo/channels/profiles
+    parent_code: ai_geo_channels
+    sort_order: 118
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_geo_channel_profiles
+    data_perm_mode: TENANT
+  - code: ai_geo_channel_accounts
+    name: 渠道账号
+    path: /ai-geo/channels/accounts
+    parent_code: ai_geo_channels
+    sort_order: 119
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_geo_channel_accounts
+    data_perm_mode: TENANT
+  - code: ai_geo_data
+    name: 资料中心
+    path: /ai-geo/data
+    parent_code: ai_geo_root
+    sort_order: 120
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_geo_data
+    data_perm_mode: TENANT
+  - code: ai_geo_brand_cards
+    name: 品牌资料卡
+    path: /ai-geo/data/brands
+    parent_code: ai_geo_data
+    sort_order: 121
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_geo_brand_cards
+    data_perm_mode: TENANT
+  - code: ai_geo_product_cards
+    name: 商品资料卡
+    path: /ai-geo/data/products
+    parent_code: ai_geo_data
+    sort_order: 122
+    platform_only: false
+    tenant_visible: true
+    show_in_admin: true
+    tenant_editable: true
+    include_in_package: true
+    feature_code: ai_geo_product_cards
+    data_perm_mode: TENANT
+operations:
+  - code: ai_geo_workbench_generate
+    name: 生成母稿
+    menu_code: ai_geo_workbench
+    permission_code: ai_geo:workbench:generate
+    include_in_package: true
+    feature_code: ai_geo_workbench
+  - code: ai_geo_draft_manage
+    name: 母稿管理
+    menu_code: ai_geo_drafts
+    permission_code: ai_geo:draft:manage
+    include_in_package: true
+    feature_code: ai_geo_drafts
+  - code: ai_geo_channel_content_manage
+    name: 渠道内容管理
+    menu_code: ai_geo_drafts
+    permission_code: ai_geo:channel_content:manage
+    include_in_package: true
+    feature_code: ai_geo_drafts
+  - code: ai_geo_publish_plan_manage
+    name: 发布计划管理
+    menu_code: ai_geo_plan_queue
+    permission_code: ai_geo:publish_plan:manage
+    include_in_package: true
+    feature_code: ai_geo_plan_queue
+  - code: ai_geo_channel_manage
+    name: 渠道管理维护
+    menu_code: ai_geo_channel_profiles
+    permission_code: ai_geo:channel:manage
+    include_in_package: true
+    feature_code: ai_geo_channel_profiles
+  - code: ai_geo_channel_account_manage
+    name: 渠道账号维护
+    menu_code: ai_geo_channel_accounts
+    permission_code: ai_geo:channel_account:manage
+    include_in_package: true
+    feature_code: ai_geo_channel_accounts
+  - code: ai_geo_data_import
+    name: 动态资料导入
+    menu_code: ai_geo_product_cards
+    permission_code: ai_geo:data:import
+    include_in_package: true
+    feature_code: ai_geo_product_cards
+permissions:
+  - code: /ai-geo
+    name: AI GEO
+    type: MENU
+    menu_code: ai_geo_root
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /ai-geo/dashboard
+    name: 总览
+    type: MENU
+    menu_code: ai_geo_dashboard
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /ai-geo/workbench
+    name: 工作台
+    type: MENU
+    menu_code: ai_geo_workbench
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /ai-geo/drafts
+    name: 母稿
+    type: MENU
+    menu_code: ai_geo_drafts
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /ai-geo/plans
+    name: 发布计划
+    type: MENU
+    menu_code: ai_geo_plans
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /ai-geo/plans/calendar
+    name: 发布日历
+    type: MENU
+    menu_code: ai_geo_plan_calendar
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /ai-geo/plans/queue
+    name: 发布队列
+    type: MENU
+    menu_code: ai_geo_plan_queue
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /ai-geo/channels
+    name: 渠道管理
+    type: MENU
+    menu_code: ai_geo_channels
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /ai-geo/channels/profiles
+    name: 渠道管理
+    type: MENU
+    menu_code: ai_geo_channel_profiles
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /ai-geo/channels/accounts
+    name: 渠道账号
+    type: MENU
+    menu_code: ai_geo_channel_accounts
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /ai-geo/data
+    name: 资料中心
+    type: MENU
+    menu_code: ai_geo_data
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /ai-geo/data/brands
+    name: 品牌资料卡
+    type: MENU
+    menu_code: ai_geo_brand_cards
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: /ai-geo/data/products
+    name: 商品资料卡
+    type: MENU
+    menu_code: ai_geo_product_cards
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: ai_geo:workbench:generate
+    name: 生成母稿
+    type: OPERATION
+    menu_code: ai_geo_workbench
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: ai_geo:draft:manage
+    name: 母稿管理
+    type: OPERATION
+    menu_code: ai_geo_drafts
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: ai_geo:channel_content:manage
+    name: 渠道内容管理
+    type: OPERATION
+    menu_code: ai_geo_drafts
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: ai_geo:publish_plan:manage
+    name: 发布计划管理
+    type: OPERATION
+    menu_code: ai_geo_plan_queue
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: ai_geo:channel:manage
+    name: 渠道管理维护
+    type: OPERATION
+    menu_code: ai_geo_channel_profiles
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: ai_geo:channel_account:manage
+    name: 渠道账号维护
+    type: OPERATION
+    menu_code: ai_geo_channel_accounts
+    include_in_package: true
+    data_perm_mode: TENANT
+  - code: ai_geo:data:import
+    name: 动态资料导入
+    type: OPERATION
+    menu_code: ai_geo_product_cards
+    include_in_package: true
+    data_perm_mode: TENANT
+apis:
+  - method: GET
+    path: /api/ai-geo/overview
+    permission_code: /ai-geo/dashboard
+  - method: GET
+    path: /api/ai-geo/materials/brands
+    permission_code: /ai-geo/data/brands
+  - method: GET
+    path: /api/ai-geo/materials/brands/:id
+    permission_code: /ai-geo/data/brands
+  - method: POST
+    path: /api/ai-geo/materials/brands
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: PUT
+    path: /api/ai-geo/materials/brands/:id
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: DELETE
+    path: /api/ai-geo/materials/brands/:id
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: GET
+    path: /api/ai-geo/materials/products
+    permission_code: /ai-geo/data/products
+  - method: GET
+    path: /api/ai-geo/materials/products/:id
+    permission_code: /ai-geo/data/products
+  - method: POST
+    path: /api/ai-geo/materials/products
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: PUT
+    path: /api/ai-geo/materials/products/:id
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: DELETE
+    path: /api/ai-geo/materials/products/:id
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: GET
+    path: /api/ai-geo/materials/skus
+    permission_code: /ai-geo/data/products
+  - method: GET
+    path: /api/ai-geo/materials/skus/:id
+    permission_code: /ai-geo/data/products
+  - method: POST
+    path: /api/ai-geo/materials/skus
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: PUT
+    path: /api/ai-geo/materials/skus/:id
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: DELETE
+    path: /api/ai-geo/materials/skus/:id
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: GET
+    path: /api/ai-geo/materials/competitors
+    permission_code: /ai-geo/data/products
+  - method: GET
+    path: /api/ai-geo/materials/competitors/:id
+    permission_code: /ai-geo/data/products
+  - method: POST
+    path: /api/ai-geo/materials/competitors
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: PUT
+    path: /api/ai-geo/materials/competitors/:id
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: DELETE
+    path: /api/ai-geo/materials/competitors/:id
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: GET
+    path: /api/ai-geo/materials/keywords
+    permission_code: /ai-geo/data/products
+  - method: GET
+    path: /api/ai-geo/materials/keywords/:id
+    permission_code: /ai-geo/data/products
+  - method: POST
+    path: /api/ai-geo/materials/keywords
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: PUT
+    path: /api/ai-geo/materials/keywords/:id
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: DELETE
+    path: /api/ai-geo/materials/keywords/:id
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: GET
+    path: /api/ai-geo/materials/assets
+    permission_code: /ai-geo/data/products
+  - method: GET
+    path: /api/ai-geo/materials/assets/:id
+    permission_code: /ai-geo/data/products
+  - method: POST
+    path: /api/ai-geo/materials/assets
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: PUT
+    path: /api/ai-geo/materials/assets/:id
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: DELETE
+    path: /api/ai-geo/materials/assets/:id
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: GET
+    path: /api/ai-geo/materials/hotspots
+    permission_code: /ai-geo/data/products
+  - method: GET
+    path: /api/ai-geo/materials/hotspots/:id
+    permission_code: /ai-geo/data/products
+  - method: POST
+    path: /api/ai-geo/materials/hotspots
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: PUT
+    path: /api/ai-geo/materials/hotspots/:id
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: DELETE
+    path: /api/ai-geo/materials/hotspots/:id
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: POST
+    path: /api/ai-geo/external-sources/extract
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: GET
+    path: /api/ai-geo/style-templates
+    permission_code: /ai-geo/data/products
+  - method: GET
+    path: /api/ai-geo/style-templates/:id
+    permission_code: /ai-geo/data/products
+  - method: POST
+    path: /api/ai-geo/style-templates
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: PUT
+    path: /api/ai-geo/style-templates/:id
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: DELETE
+    path: /api/ai-geo/style-templates/:id
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: POST
+    path: /api/ai-geo/materials/imports
+    permission_code: ai_geo:data:import
+    audit: true
+  - method: GET
+    path: /api/ai-geo/materials/imports/:id/errors
+    permission_code: /ai-geo/data/products
+  - method: POST
+    path: /api/ai-geo/workbench/drafts/generate
+    permission_code: ai_geo:workbench:generate
+    audit: true
+  - method: POST
+    path: /api/ai-geo/workbench/ai-stream
+    permission_code: ai_geo:workbench:generate
+    audit: true
+  - method: GET
+    path: /api/ai-geo/drafts
+    permission_code: /ai-geo/drafts
+  - method: GET
+    path: /api/ai-geo/drafts/:id
+    permission_code: /ai-geo/drafts
+  - method: POST
+    path: /api/ai-geo/drafts
+    permission_code: ai_geo:draft:manage
+    audit: true
+  - method: DELETE
+    path: /api/ai-geo/drafts/:id
+    permission_code: ai_geo:draft:manage
+    audit: true
+  - method: POST
+    path: /api/ai-geo/drafts/:id/channel-contents
+    permission_code: ai_geo:channel_content:manage
+    audit: true
+  - method: GET
+    path: /api/ai-geo/channel-contents
+    permission_code: /ai-geo/drafts
+  - method: GET
+    path: /api/ai-geo/channel-contents/:id
+    permission_code: /ai-geo/drafts
+  - method: PUT
+    path: /api/ai-geo/channel-contents/:id
+    permission_code: ai_geo:channel_content:manage
+    audit: true
+  - method: POST
+    path: /api/ai-geo/channel-contents/ai-editor-stream
+    permission_code: ai_geo:channel_content:manage
+    audit: true
+  - method: GET
+    path: /api/ai-geo/publish-plans
+    permission_code: /ai-geo/plans/queue
+  - method: GET
+    path: /api/ai-geo/publish-plans/calendar
+    permission_code: /ai-geo/plans/calendar
+  - method: POST
+    path: /api/ai-geo/publish-plans
+    permission_code: ai_geo:publish_plan:manage
+    audit: true
+  - method: PUT
+    path: /api/ai-geo/publish-plans/:id
+    permission_code: ai_geo:publish_plan:manage
+    audit: true
+  - method: PATCH
+    path: /api/ai-geo/publish-plans/:id/status
+    permission_code: ai_geo:publish_plan:manage
+    audit: true
+  - method: GET
+    path: /api/ai-geo/channels
+    permission_code: /ai-geo/channels/profiles
+  - method: POST
+    path: /api/ai-geo/channels
+    permission_code: ai_geo:channel:manage
+    audit: true
+  - method: PUT
+    path: /api/ai-geo/channels/:id
+    permission_code: ai_geo:channel:manage
+    audit: true
+  - method: POST
+    path: /api/ai-geo/channels/:id/test
+    permission_code: ai_geo:channel:manage
+    audit: true
+  - method: GET
+    path: /api/ai-geo/channel-accounts
+    permission_code: /ai-geo/channels/accounts
+  - method: POST
+    path: /api/ai-geo/channel-accounts
+    permission_code: ai_geo:channel_account:manage
+    audit: true
+package_features:
+  - feature_code: ai_geo_access
+    feature_name: AI GEO 应用访问
+    feature_type: APP
+    menu_code: ai_geo_root
+    description: 允许租户访问 GEO 内容增长应用
+  - feature_code: ai_geo_dashboard
+    feature_name: 总览驾驶舱
+    feature_type: MENU
+    menu_code: ai_geo_dashboard
+    description: 查看资料、母稿、发布计划和渠道接入状态
+  - feature_code: ai_geo_workbench
+    feature_name: AI 创作工作台
+    feature_type: MENU
+    menu_code: ai_geo_workbench
+    description: 基于品牌、商品、SKU、Skill 和热点生成母稿
+  - feature_code: ai_geo_drafts
+    feature_name: 母稿与渠道内容
+    feature_type: MENU
+    menu_code: ai_geo_drafts
+    description: 管理母稿资产、渠道版本和预览
+  - feature_code: ai_geo_plans
+    feature_name: 发布计划
+    feature_type: MENU
+    menu_code: ai_geo_plans
+    description: 管理发布日历与发布队列
+  - feature_code: ai_geo_plan_calendar
+    feature_name: 发布日历
+    feature_type: MENU
+    menu_code: ai_geo_plan_calendar
+    description: 按日期查看发布任务
+  - feature_code: ai_geo_plan_queue
+    feature_name: 发布队列
+    feature_type: MENU
+    menu_code: ai_geo_plan_queue
+    description: 执行发布前置检查和发布任务管理
+  - feature_code: ai_geo_channels
+    feature_name: 渠道管理模块
+    feature_type: MENU
+    menu_code: ai_geo_channels
+    description: 管理渠道资料与渠道账号
+  - feature_code: ai_geo_channel_profiles
+    feature_name: 渠道资料
+    feature_type: MENU
+    menu_code: ai_geo_channel_profiles
+    description: 维护渠道类型、发布入口、内容形态和规则
+  - feature_code: ai_geo_channel_accounts
+    feature_name: 渠道账号
+    feature_type: MENU
+    menu_code: ai_geo_channel_accounts
+    description: 管理渠道授权账号、登录态和发布权限
+  - feature_code: ai_geo_data
+    feature_name: 资料中心
+    feature_type: MENU
+    menu_code: ai_geo_data
+    description: 管理品牌、商品、SKU、竞品、关键词和素材
+  - feature_code: ai_geo_brand_cards
+    feature_name: 品牌资料卡
+    feature_type: MENU
+    menu_code: ai_geo_brand_cards
+    description: 维护品牌定位、目标人群、价格带和内容口径
+  - feature_code: ai_geo_product_cards
+    feature_name: 商品资料卡
+    feature_type: MENU
+    menu_code: ai_geo_product_cards
+    description: 维护商品公共资料、SKU、SKU 覆盖和竞品信息
+quotas:
+  - quota_code: ai_geo_brand_count
+    quota_name: 品牌资料卡数量
+    quota_type: STATIC
+    unit: 个
+    include_in_package: true
+    description: 限制租户可维护的品牌资料卡数量
+  - quota_code: ai_geo_product_count
+    quota_name: 商品资料卡数量
+    quota_type: STATIC
+    unit: 个
+    include_in_package: true
+    description: 限制租户可维护的商品资料卡数量
+  - quota_code: ai_geo_monthly_draft_generations
+    quota_name: 月度母稿生成次数
+    quota_type: PERIODIC
+    unit: 次/月
+    period_type: MONTH
+    include_in_package: true
+    description: 限制每月通过工作台生成母稿的次数
+  - quota_code: ai_geo_monthly_publish_tasks
+    quota_name: 月度发布任务数量
+    quota_type: PERIODIC
+    unit: 次/月
+    period_type: MONTH
+    include_in_package: true
+    description: 限制每月创建发布计划任务的数量
+  - quota_code: ai_geo_channel_account_count
+    quota_name: 渠道账号数量
+    quota_type: STATIC
+    unit: 个
+    include_in_package: true
+    description: 限制租户可配置的渠道账号数量

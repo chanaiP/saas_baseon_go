@@ -42,6 +42,8 @@ func TestRequiredPermissionForOperationRoutes(t *testing.T) {
 	require.Equal(t, "integration_center:connection_manage", requiredPermission("POST", "/api/integration-center/gateway/invoke"))
 	require.Equal(t, "ai_gateway:invoke", requiredPermission("POST", "/api/ai-gateway/v1/invoke"))
 	require.Equal(t, "ai_gateway:invoke", requiredPermission("GET", "/api/ai-gateway/v1/video-tasks/:task_id"))
+	require.Equal(t, "ai_geo:workbench:generate", requiredPermission("POST", "/api/ai-geo/workbench/ai-stream"))
+	require.Equal(t, "ai_geo:channel_content:manage", requiredPermission("POST", "/api/ai-geo/channel-contents/ai-editor-stream"))
 	require.Equal(t, "business_unit:create", requiredPermission("POST", "/api/base/business-units"))
 	require.Equal(t, "business_unit:edit", requiredPermission("PUT", "/api/base/business-units/:id"))
 	require.Equal(t, "business_unit:delete", requiredPermission("DELETE", "/api/base/business-units/:id"))
@@ -111,6 +113,16 @@ func testPlatformAdminUser() models.AppUser {
 
 func testStringPtr(value string) *string {
 	return &value
+}
+
+func TestNormalizedParentMenuPermissionIDIgnoresSelfReference(t *testing.T) {
+	parentID := uint64(9)
+	require.Nil(t, normalizedParentMenuPermissionID(models.Permission{ID: 9, ParentID: &parentID}))
+
+	parentID = 8
+	require.Equal(t, parentID, *normalizedParentMenuPermissionID(models.Permission{ID: 9, ParentID: &parentID}))
+
+	require.Nil(t, normalizedParentMenuPermissionID(models.Permission{ID: 9}))
 }
 
 func TestFallbackHandlerReturnsStrict404(t *testing.T) {

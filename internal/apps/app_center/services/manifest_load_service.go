@@ -671,6 +671,7 @@ func (s *AppService) upsertManifestApp(tx *gorm.DB, env manifestEnvelope, now ti
 	if strings.EqualFold(row.Source, "BUILTIN") {
 		row.IsBuiltin = true
 	}
+	desiredPlatformOnly := row.IsPlatformOnly
 	assignments := map[string]interface{}{
 		"app_name":                row.AppName,
 		"icon":                    row.Icon,
@@ -693,10 +694,13 @@ func (s *AppService) upsertManifestApp(tx *gorm.DB, env manifestEnvelope, now ti
 		"last_manifest_synced_at": row.LastManifestSync,
 		"updated_at":              now,
 	}
-	return tx.Clauses(clause.OnConflict{
+	if err := tx.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "app_code"}},
 		DoUpdates: clause.Assignments(assignments),
-	}).Create(&row).Error
+	}).Create(&row).Error; err != nil {
+		return err
+	}
+	return tx.Exec("UPDATE sys_app SET is_platform_only = ? WHERE app_code = ? AND deleted_at IS NULL", desiredPlatformOnly, row.AppCode).Error
 }
 
 func (s *AppService) repoAppByCode(tx *gorm.DB, appCode string) (models.SysApp, error) {
@@ -906,6 +910,9 @@ func (s *AppService) disableMissingManifestAssets(tx *gorm.DB, env manifestEnvel
 	if err := disableMissingManifestRows(tx, &models.SysAppPermission{}, env.parse.AppCode, "permission_code", declaredPermissions, now); err != nil {
 		return err
 	}
+	if err := disableMissingBasePermissions(tx, env.parse.AppCode, declaredPermissions, now); err != nil {
+		return err
+	}
 
 	declaredFeatures := map[string]struct{}{}
 	for _, feature := range env.manifest.PackageFeatures {
@@ -974,6 +981,20 @@ func disableMissingManifestAPIs(tx *gorm.DB, appCode string, declared map[string
 		}
 	}
 	return nil
+}
+
+func disableMissingBasePermissions(tx *gorm.DB, appCode string, declared map[string]struct{}, now time.Time) error {
+	query := tx.Model(&models.Permission{}).
+		Where("app_code = ? AND enabled = ? AND deleted_at IS NULL", appCode, true)
+	if len(declared) > 0 {
+		query = query.Where("path NOT IN ?", mapKeys(declared))
+	}
+	return query.Updates(map[string]interface{}{
+		"enabled":       false,
+		"visible":       false,
+		"show_in_admin": false,
+		"updated_at":    now,
+	}).Error
 }
 
 func staleManifestPackageFeatureCodes(tx *gorm.DB, appCode string, declared map[string]struct{}) ([]string, error) {
@@ -1241,6 +1262,11 @@ func (s *AppService) syncManifestPermissions(tx *gorm.DB, env manifestEnvelope, 
 		}
 		parentID := menuIDs[perm.MenuCode]
 		permType := manifestPermType(perm.Type)
+		if permType == 3 {
+			if menu, ok := menuByCode[perm.MenuCode]; ok && strings.TrimSpace(menu.Path) == path {
+				continue
+			}
+		}
 		showInAdmin := false
 		sortOrder := 0
 		visible := false

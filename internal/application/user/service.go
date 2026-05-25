@@ -155,12 +155,12 @@ func assertDepartmentsInTenant(tx *gorm.DB, tenantID uint64, departmentIDs []uin
 	}
 	var count int64
 	if err := tx.Model(&models.OrgNode{}).
-		Where("tenant_id = ? AND id IN ? AND deleted_at IS NULL", tenantID, ids).
+		Where("tenant_id = ? AND id IN ? AND status = ? AND deleted_at IS NULL", tenantID, ids, 1).
 		Count(&count).Error; err != nil {
 		return err
 	}
 	if count != int64(len(ids)) {
-		return fmt.Errorf("组织节点不存在或不属于当前主体")
+		return fmt.Errorf("组织节点不存在、已停用或不属于当前主体")
 	}
 	return nil
 }

@@ -1,0 +1,20 @@
+export const aiGeoManifest = {
+  appCode: 'ai-geo',
+  appName: 'AI GEO',
+  backendManifest: 'internal/apps/ai_geo/app.manifest.yaml',
+  routes: [
+    '/ai-geo',
+    '/ai-geo/dashboard',
+    '/ai-geo/workbench',
+    '/ai-geo/drafts',
+    '/ai-geo/plans',
+    '/ai-geo/plans/calendar',
+    '/ai-geo/plans/queue',
+    '/ai-geo/channels',
+    '/ai-geo/channels/profiles',
+    '/ai-geo/channels/accounts',
+    '/ai-geo/data',
+    '/ai-geo/data/brands',
+    '/ai-geo/data/products',
+  ],
+}

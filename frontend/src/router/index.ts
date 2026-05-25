@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import { aiCapabilityCenterRoutes } from '@/apps/ai-capability-center/routes'
+import { aiGeoRoutes } from '@/apps/ai-geo/routes'
 import { dataCenterRoutes } from '@/apps/data-center/routes'
 import { usePermissionStore } from '@/stores/permission'
 import { useSidebarMenuStore } from '@/stores/sidebarMenu'
@@ -84,6 +85,7 @@ const router = createRouter({
           component: () => import('@/apps/model-manager/views/ModelManagerView.vue'),
         },
         ...aiCapabilityCenterRoutes,
+        ...aiGeoRoutes,
         ...dataCenterRoutes,
         {
           path: 'integration-center',

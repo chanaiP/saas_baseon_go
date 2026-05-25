@@ -104,6 +104,23 @@ function buildDepartmentTreeOptions(nodes: OrgNode[], path: string[] = []): Depa
   })
 }
 
+function buildActiveDepartmentTreeOptions(nodes: OrgNode[], path: string[] = []): DepartmentTreeOption[] {
+  const out: DepartmentTreeOption[] = []
+  for (const n of nodes) {
+    if (n.status !== 1) continue
+    const typeLabel = orgNodeTypeLabel(n.node_type)
+    const nextPath = [...path, n.name]
+    const item: DepartmentTreeOption = {
+      value: n.id,
+      label: `${n.name}（${typeLabel}）`,
+      searchText: `${nextPath.join(' ')} ${n.name} ${n.code ?? ''} ${typeLabel} ${n.node_type ?? ''}`.toLowerCase(),
+    }
+    if (n.children?.length) item.children = buildActiveDepartmentTreeOptions(n.children, nextPath)
+    out.push(item)
+  }
+  return out
+}
+
 function filterDepartmentNode(keyword: string, data: DepartmentTreeOption) {
   const q = keyword.trim().toLowerCase()
   if (!q) return true
@@ -111,7 +128,7 @@ function filterDepartmentNode(keyword: string, data: DepartmentTreeOption) {
 }
 
 const departmentOptions = computed(() => flattenDepartmentOptions(org.value))
-const departmentTreeOptions = computed(() => buildDepartmentTreeOptions(org.value))
+const departmentTreeOptions = computed(() => buildActiveDepartmentTreeOptions(org.value))
 const positionCascaderProps = {
   multiple: true,
   emitPath: false,

@@ -167,7 +167,6 @@ function builtInOptions(key: string): FieldOption[] {
     ],
     auth_type: [
       { label: 'API Key', value: 'api_key' },
-      { label: 'DashScope', value: 'dashscope' },
       { label: 'OAuth', value: 'oauth' },
       { label: '无鉴权', value: 'none' },
     ],

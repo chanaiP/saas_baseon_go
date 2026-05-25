@@ -36,8 +36,8 @@ const modeOptions = [
     label: '文本聊天',
     icon: ChatLineRound,
     scenario: 'test_console_chat',
-    description: '走 qwen3.6-plus，多模态聊天兼容文本输入。',
-    placeholder: '输入一段文本，验证百炼聊天路由。',
+    description: '走默认文本聊天路由，验证当前可用供应商链路。',
+    placeholder: '输入一段文本，验证聊天路由。',
   },
   {
     value: 'kimi' as const,
@@ -52,7 +52,7 @@ const modeOptions = [
     label: '图片生成',
     icon: Picture,
     scenario: 'image_generation',
-    description: '走 qwen-image-2.0-pro，提交图片生成请求。',
+    description: '走默认图片生成路由，提交图片生成请求。',
     placeholder: '描述要生成的图片，例如：一张干净的 SaaS 控制台概念图。',
   },
   {

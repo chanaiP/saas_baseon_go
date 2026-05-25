@@ -105,6 +105,9 @@ func seedCoreData(db *gorm.DB) error {
 	if err := seedDictionaries(db, tenant.ID); err != nil {
 		return err
 	}
+	if err := seedBusinessUnitDictionary(db, tenant.ID); err != nil {
+		return err
+	}
 	if err := seedBuiltinApps(db); err != nil {
 		return err
 	}
@@ -700,6 +703,136 @@ func seedDictionaries(db *gorm.DB, tenantID uint64) error {
 	return nil
 }
 
+type seedBusinessUnitDictItem struct {
+	label       string
+	value       string
+	sortOrder   int
+	parentValue string
+}
+
+func seedBusinessUnitDictionary(db *gorm.DB, tenantID uint64) error {
+	remark := "一级为业务单元类型，二级为业务单元分组；业务单元功能唯一使用此字典"
+	dictType := models.DictType{
+		TenantID:       tenantID,
+		Code:           "business_unit",
+		Name:           "业务单元",
+		Remark:         &remark,
+		Scope:          "platform",
+		TenantEditable: true,
+		IsPlatformOnly: false,
+	}
+	if err := db.Where("tenant_id = ? AND code = ?", tenantID, dictType.Code).FirstOrCreate(&dictType).Error; err != nil {
+		return err
+	}
+	if err := db.Model(&dictType).Updates(map[string]interface{}{
+		"name":             dictType.Name,
+		"remark":           remark,
+		"scope":            dictType.Scope,
+		"tenant_editable":  true,
+		"is_platform_only": false,
+		"deleted_at":       nil,
+	}).Error; err != nil {
+		return err
+	}
+
+	items := []seedBusinessUnitDictItem{
+		{label: "门店", value: "store", sortOrder: 10},
+		{label: "仓库", value: "warehouse", sortOrder: 20},
+		{label: "投放广告", value: "ad", sortOrder: 20},
+		{label: "内容直播", value: "content", sortOrder: 30},
+		{label: "项目", value: "project", sortOrder: 30},
+		{label: "业务线", value: "business_line", sortOrder: 40},
+		{label: "供应履约", value: "supply", sortOrder: 40},
+		{label: "品牌", value: "brand", sortOrder: 50},
+		{label: "财务结算", value: "finance", sortOrder: 50},
+		{label: "投放账号", value: "ad_account", sortOrder: 60},
+		{label: "内容账号", value: "content_account", sortOrder: 70},
+		{label: "线上店铺", value: "online_store", sortOrder: 101, parentValue: "store"},
+		{label: "平台店铺", value: "platform_store", sortOrder: 102, parentValue: "store"},
+		{label: "线下门店", value: "offline_store", sortOrder: 103, parentValue: "store"},
+		{label: "抖音", value: "douyin", sortOrder: 11, parentValue: "store"},
+		{label: "京东", value: "jd", sortOrder: 12, parentValue: "store"},
+		{label: "小红书", value: "redbook", sortOrder: 13, parentValue: "store"},
+		{label: "天猫", value: "tmall", sortOrder: 14, parentValue: "store"},
+		{label: "线下门店", value: "offline", sortOrder: 15, parentValue: "store"},
+		{label: "华东", value: "east_china", sortOrder: 21, parentValue: "warehouse"},
+		{label: "华南", value: "south_china", sortOrder: 22, parentValue: "warehouse"},
+		{label: "巨量千川", value: "qianchuan", sortOrder: 201, parentValue: "ad"},
+		{label: "阿里妈妈", value: "alimama", sortOrder: 202, parentValue: "ad"},
+		{label: "京准通", value: "jingzhuntong", sortOrder: 203, parentValue: "ad"},
+		{label: "小红书聚光", value: "xiaohongshu_juguang", sortOrder: 204, parentValue: "ad"},
+		{label: "快手磁力金牛", value: "kuaishou_ad", sortOrder: 205, parentValue: "ad"},
+		{label: "腾讯广告", value: "tencent_ad", sortOrder: 206, parentValue: "ad"},
+		{label: "抖音内容", value: "douyin_content", sortOrder: 301, parentValue: "content"},
+		{label: "小红书内容", value: "xiaohongshu_content", sortOrder: 302, parentValue: "content"},
+		{label: "视频号内容", value: "wechat_video", sortOrder: 303, parentValue: "content"},
+		{label: "快手内容", value: "kuaishou_content", sortOrder: 304, parentValue: "content"},
+		{label: "直播账号", value: "live_account", sortOrder: 305, parentValue: "content"},
+		{label: "达人账号", value: "kol_account", sortOrder: 306, parentValue: "content"},
+		{label: "运营", value: "operation", sortOrder: 31, parentValue: "project"},
+		{label: "交付", value: "delivery", sortOrder: 32, parentValue: "project"},
+		{label: "电商", value: "ecommerce", sortOrder: 41, parentValue: "business_line"},
+		{label: "零售", value: "retail", sortOrder: 42, parentValue: "business_line"},
+		{label: "仓库", value: "warehouse", sortOrder: 401, parentValue: "supply"},
+		{label: "供应商", value: "supplier", sortOrder: 402, parentValue: "supply"},
+		{label: "物流商", value: "logistics", sortOrder: 403, parentValue: "supply"},
+		{label: "采购组织", value: "purchase_org", sortOrder: 404, parentValue: "supply"},
+		{label: "库存组织", value: "inventory_org", sortOrder: 405, parentValue: "supply"},
+		{label: "运营", value: "operation", sortOrder: 51, parentValue: "brand"},
+		{label: "经营主体", value: "operating_entity", sortOrder: 501, parentValue: "finance"},
+		{label: "结算主体", value: "settlement_entity", sortOrder: 502, parentValue: "finance"},
+		{label: "结算账户", value: "settlement_account", sortOrder: 503, parentValue: "finance"},
+		{label: "成本中心", value: "cost_center", sortOrder: 504, parentValue: "finance"},
+		{label: "利润中心", value: "profit_center", sortOrder: 505, parentValue: "finance"},
+		{label: "巨量千川", value: "qianchuan", sortOrder: 61, parentValue: "ad_account"},
+		{label: "抖音", value: "douyin", sortOrder: 71, parentValue: "content_account"},
+		{label: "小红书", value: "redbook", sortOrder: 72, parentValue: "content_account"},
+	}
+	parentIDs := map[string]uint64{}
+	for _, item := range items {
+		if item.parentValue != "" {
+			continue
+		}
+		dictItem := models.DictItem{TenantID: tenantID, DictTypeID: dictType.ID, Label: item.label, Value: item.value, SortOrder: item.sortOrder, Enabled: true}
+		if err := db.Where("tenant_id = ? AND dict_type_id = ? AND value = ? AND parent_id IS NULL", tenantID, dictType.ID, item.value).FirstOrCreate(&dictItem).Error; err != nil {
+			return err
+		}
+		if err := db.Model(&dictItem).Updates(map[string]interface{}{
+			"label":      item.label,
+			"sort_order": item.sortOrder,
+			"enabled":    true,
+			"deleted_at": nil,
+		}).Error; err != nil {
+			return err
+		}
+		parentIDs[item.value] = dictItem.ID
+	}
+	for _, item := range items {
+		if item.parentValue == "" {
+			continue
+		}
+		parentID, ok := parentIDs[item.parentValue]
+		if !ok {
+			continue
+		}
+		dictItem := models.DictItem{TenantID: tenantID, DictTypeID: dictType.ID, ParentID: &parentID, Label: item.label, Value: item.value, SortOrder: item.sortOrder, Enabled: true}
+		if err := db.Where("tenant_id = ? AND dict_type_id = ? AND parent_id = ? AND value = ?", tenantID, dictType.ID, parentID, item.value).FirstOrCreate(&dictItem).Error; err != nil {
+			return err
+		}
+		if err := db.Model(&dictItem).Updates(map[string]interface{}{
+			"parent_id":  parentID,
+			"label":      item.label,
+			"sort_order": item.sortOrder,
+			"enabled":    true,
+			"deleted_at": nil,
+			"updated_at": time.Now(),
+		}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func seedBuiltinApps(db *gorm.DB) error {
 	apps := []models.SysApp{
 		{
@@ -950,6 +1083,9 @@ func seedAIProviderCatalog(db *gorm.DB) error {
 	if err := pruneLegacyAIProviderDemoData(db); err != nil {
 		return err
 	}
+	if err := pruneRemovedAIProviderCatalogEntries(db); err != nil {
+		return err
+	}
 	providers := []aiProviderSeed{
 		{
 			name: "OpenAI 官方账号", code: "openai", providerType: "public_cloud", baseURL: "https://api.openai.com", authType: "api_key", region: "global", qpsLimit: 600, monthlyBudget: 100000, owner: "平台 AI 基础设施组",
@@ -979,11 +1115,6 @@ func seedAIProviderCatalog(db *gorm.DB) error {
 			name: "DeepSeek 官方账号", code: "deepseek", providerType: "public_cloud", baseURL: "https://api.deepseek.com", authType: "api_key", region: "CN", qpsLimit: 500, monthlyBudget: 50000, owner: "平台 AI 基础设施组",
 			apis:   []aiAPISeed{{name: "chat.completions", path: "/v1/chat/completions", apiType: "chat", capabilities: []string{"chat_completion", "text_generation", "reasoning"}, qpsLimit: 260, timeoutMS: 45000}},
 			models: []aiModelSeed{{code: "deepseek-chat", name: "DeepSeek Chat", modelType: "text", capabilities: []string{"chat_completion", "text_generation"}, contextWindow: 64000, unit: "1K tokens", latencyP95: 1500, successRate: 99.70, defaultFor: []string{"chat_completion"}, prices: defaultTextPrices("chat_completion", 0.0008, 0.0016)}, {code: "deepseek-reasoner", name: "DeepSeek Reasoner", modelType: "text", capabilities: []string{"chat_completion", "reasoning"}, contextWindow: 64000, unit: "1K tokens", latencyP95: 2400, successRate: 99.60, defaultFor: []string{"reasoning"}, prices: defaultTextPrices("reasoning", 0.0020, 0.0040)}},
-		},
-		{
-			name: "通义千问 DashScope", code: "dashscope", providerType: "public_cloud", baseURL: "https://dashscope.aliyuncs.com", authType: "dashscope", region: "CN", qpsLimit: 500, monthlyBudget: 60000, owner: "平台 AI 基础设施组",
-			apis:   []aiAPISeed{{name: "generation", path: "/api/v1/services/aigc/text-generation/generation", apiType: "chat", capabilities: []string{"chat_completion", "text_generation"}, qpsLimit: 260, timeoutMS: 30000}, {name: "compatible.chat", path: "/compatible-mode/v1/chat/completions", apiType: "chat", capabilities: []string{"chat_completion", "text_generation"}, qpsLimit: 260, timeoutMS: 30000}, {name: "embeddings", path: "/api/v1/services/embeddings/text-embedding/text-embedding", apiType: "embedding", capabilities: []string{"embedding"}, qpsLimit: 260, timeoutMS: 15000}, {name: "image-synthesis", path: "/api/v1/services/aigc/text2image/image-synthesis", apiType: "image", capabilities: []string{"image_generation"}, qpsLimit: 80, timeoutMS: 90000}},
-			models: []aiModelSeed{{code: "qwen-turbo", name: "通义千问 Turbo", modelType: "text", capabilities: []string{"chat_completion", "text_generation"}, contextWindow: 1000000, unit: "1K tokens", latencyP95: 1300, successRate: 99.70, defaultFor: []string{"chat_completion"}, prices: defaultTextPrices("chat_completion", 0.0006, 0.0012)}, {code: "qwen-plus", name: "通义千问 Plus", modelType: "text", capabilities: []string{"chat_completion", "text_generation", "long_context"}, contextWindow: 131072, unit: "1K tokens", latencyP95: 1600, successRate: 99.70, defaultFor: []string{}, prices: defaultTextPrices("chat_completion", 0.0014, 0.0028)}, {code: "text-embedding-v1", name: "通义文本向量 v1", modelType: "embedding", capabilities: []string{"embedding"}, contextWindow: 8192, unit: "1K tokens", latencyP95: 700, successRate: 99.80, defaultFor: []string{"embedding"}, prices: defaultTextPrices("embedding", 0.00012, 0.00024)}},
 		},
 		{
 			name: "火山方舟", code: "volcengine", providerType: "public_cloud", baseURL: "https://ark.cn-beijing.volces.com", authType: "api_key", region: "CN", qpsLimit: 450, monthlyBudget: 55000, owner: "平台 AI 基础设施组",
@@ -1088,7 +1219,7 @@ func pruneLegacyAIProviderDemoData(db *gorm.DB) error {
 			SELECT a.id
 			FROM ai_provider_accounts a
 			JOIN ai_providers p ON p.id = a.provider_id
-			WHERE p.code IN ('dashscope', 'volcengine')
+			WHERE p.code = 'volcengine'
 			  AND a.account_name IN ('cn-prod', 'vision-prod')
 			  AND a.deleted_at IS NULL
 		  )
@@ -1101,7 +1232,102 @@ func pruneLegacyAIProviderDemoData(db *gorm.DB) error {
 		WHERE deleted_at IS NULL
 		  AND account_name IN ('cn-prod', 'vision-prod')
 		  AND provider_id IN (
-			SELECT id FROM ai_providers WHERE code IN ('dashscope', 'volcengine')
+			SELECT id FROM ai_providers WHERE code = 'volcengine'
+		  )
+	`, now, now).Error; err != nil {
+		return err
+	}
+	return nil
+}
+
+func pruneRemovedAIProviderCatalogEntries(db *gorm.DB) error {
+	now := time.Now()
+	if err := db.Exec(`
+		UPDATE ai_base_route_models
+		SET deleted_at = ?, updated_at = ?, status = 'inactive'
+		WHERE deleted_at IS NULL
+		  AND model_id IN (
+			SELECT m.id
+			FROM ai_models m
+			JOIN ai_providers p ON p.id = m.provider_id
+			WHERE p.code IN ('dashscope', 'aliyun-bailian')
+			   OR p.base_url ILIKE '%dashscope.aliyuncs.com%'
+		  )
+	`, now, now).Error; err != nil {
+		return err
+	}
+	if err := db.Exec(`
+		UPDATE ai_model_price_tiers
+		SET deleted_at = ?, updated_at = ?, enabled = false
+		WHERE deleted_at IS NULL
+		  AND price_policy_id IN (
+			SELECT pp.id
+			FROM ai_model_price_policies pp
+			JOIN ai_models m ON m.id = pp.model_id
+			JOIN ai_providers p ON p.id = m.provider_id
+				WHERE p.code IN ('dashscope', 'aliyun-bailian')
+				   OR p.base_url ILIKE '%dashscope.aliyuncs.com%'
+		  )
+	`, now, now).Error; err != nil {
+		return err
+	}
+	if err := db.Exec(`
+		UPDATE ai_model_price_policies
+		SET deleted_at = ?, updated_at = ?, status = 'inactive'
+		WHERE deleted_at IS NULL
+		  AND model_id IN (
+			SELECT m.id
+			FROM ai_models m
+			JOIN ai_providers p ON p.id = m.provider_id
+			WHERE p.code IN ('dashscope', 'aliyun-bailian')
+			   OR p.base_url ILIKE '%dashscope.aliyuncs.com%'
+		  )
+	`, now, now).Error; err != nil {
+		return err
+	}
+	if err := db.Exec(`
+		UPDATE ai_provider_apis
+		SET deleted_at = ?, updated_at = ?, status = 'inactive'
+		WHERE deleted_at IS NULL
+		  AND provider_id IN (
+				SELECT id FROM ai_providers
+				WHERE code IN ('dashscope', 'aliyun-bailian')
+				   OR base_url ILIKE '%dashscope.aliyuncs.com%'
+		  )
+	`, now, now).Error; err != nil {
+		return err
+	}
+	if err := db.Exec(`
+		UPDATE ai_provider_accounts
+		SET deleted_at = ?, updated_at = ?, status = 'inactive'
+		WHERE deleted_at IS NULL
+		  AND provider_id IN (
+				SELECT id FROM ai_providers
+				WHERE code IN ('dashscope', 'aliyun-bailian')
+				   OR base_url ILIKE '%dashscope.aliyuncs.com%'
+		  )
+	`, now, now).Error; err != nil {
+		return err
+	}
+	if err := db.Exec(`
+		UPDATE ai_models
+		SET deleted_at = ?, updated_at = ?, status = 'inactive'
+		WHERE deleted_at IS NULL
+		  AND provider_id IN (
+				SELECT id FROM ai_providers
+				WHERE code IN ('dashscope', 'aliyun-bailian')
+				   OR base_url ILIKE '%dashscope.aliyuncs.com%'
+		  )
+	`, now, now).Error; err != nil {
+		return err
+	}
+	if err := db.Exec(`
+		UPDATE ai_providers
+		SET deleted_at = ?, updated_at = ?, status = 'inactive'
+		WHERE deleted_at IS NULL
+		  AND (
+			code IN ('dashscope', 'aliyun-bailian')
+			OR base_url ILIKE '%dashscope.aliyuncs.com%'
 		  )
 	`, now, now).Error; err != nil {
 		return err
@@ -1375,6 +1601,10 @@ func seedAIRoutesAndScenarios(db *gorm.DB, modelByCapability map[string][]string
 		{appCode: "integration-center", appName: "第三方集成中心", code: "connector_mapping_reasoning", name: "连接器映射推理", sceneType: "reasoning", capability: "reasoning", modelType: "text", routeID: routeIDs["reasoning"]},
 		{appCode: "data-center", appName: "Ai经营决策中心", code: "anomaly_analysis", name: "经营异常诊断", sceneType: "reasoning", capability: "reasoning", modelType: "text", routeID: routeIDs["reasoning"]},
 		{appCode: "data-center", appName: "Ai经营决策中心", code: "knowledge_embedding", name: "知识库向量化", sceneType: "embedding", capability: "embedding", modelType: "embedding", routeID: routeIDs["embedding"]},
+		{appCode: "ai-geo", appName: "AI GEO", code: "ai_geo_draft_generation", name: "AI GEO 母稿生成", sceneType: "text", capability: "chat_completion", modelType: "text", routeID: routeIDs["chat_completion"]},
+		{appCode: "ai-geo", appName: "AI GEO", code: "channel_content_standard_generate", name: "渠道内容标准生成 Skill", sceneType: "text", capability: "chat_completion", modelType: "text", routeID: routeIDs["chat_completion"]},
+		{appCode: "ai-geo", appName: "AI GEO", code: "ai_geo_channel_content_editor", name: "AI GEO 渠道内容 AI 编辑", sceneType: "text", capability: "chat_completion", modelType: "text", routeID: routeIDs["chat_completion"]},
+		{appCode: "ai-geo", appName: "AI GEO", code: "ai_geo_audit_suggestion", name: "AI GEO 内容审核建议", sceneType: "text", capability: "chat_completion", modelType: "text", routeID: routeIDs["chat_completion"]},
 		{appCode: "workbench", appName: "工作台", code: "poster_image_generate", name: "运营图片生成", sceneType: "image", capability: "image_generation", modelType: "image", routeID: routeIDs["image_generation"]},
 		{appCode: "system-management", appName: "系统管理", code: "policy_doc_review", name: "制度长文审阅", sceneType: "text", capability: "long_context", modelType: "text", routeID: routeIDs["long_context"]},
 	}
