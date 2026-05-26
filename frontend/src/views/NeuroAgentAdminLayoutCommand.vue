@@ -546,19 +546,12 @@ const handleAvatarUploadError = (_error: string) => { /* show toast */ }
 //   return perm.profile?.role_ids?.[0] ? `角色ID: ${perm.profile.role_ids[0]}` : '系统管理员'
 // })
 
-/** 根级单页菜单在 defaultTree 中无目录包裹时可并入顶栏 stem-nav。
- * 首页除外：已有内容区面包屑「首页」药丸，不再在顶栏重复一级标签。 */
-const ROOT_MENU_PRIMARY_PREFIX = '__root_menu:'
-
-// 一级菜单数据 - 从菜单管理配置读取（目录 + 根级菜单，不含 /home）
+// 一级菜单数据 - 从菜单管理配置读取，只展示目录
 const primaryMenu = computed(() => {
   const items: { id: string; title: string }[] = []
   for (const n of finalMenuTree.value) {
     if (n.enabled === false) continue
-    if (n.type === 'menu' && n.path) {
-      if (n.path === '/home') continue
-      items.push({ id: `${ROOT_MENU_PRIMARY_PREFIX}${n.id}`, title: n.title })
-    } else if (n.type === 'directory') {
+    if (n.type === 'directory') {
       items.push({ id: n.id, title: n.title })
     }
   }
@@ -578,15 +571,11 @@ const secondaryMenus = computed(() => {
 
   finalMenuTree.value.forEach((node) => {
     if (node.enabled === false) return
-    if (node.type === 'menu' && node.path) {
-      menus[`${ROOT_MENU_PRIMARY_PREFIX}${node.id}`] = [
-        { id: node.id, title: node.title, description: '', path: node.path },
-      ]
-      return
-    }
     if (node.type === 'directory' && node.children?.length) {
       menus[node.id] = node.children
-        .filter((c): c is MenuNode & { path: string } => c.type === 'menu' && c.enabled !== false && !!c.path)
+        .filter((c): c is MenuNode & { path: string } =>
+          c.type === 'menu' && c.enabled !== false && !!c.path && c.path !== directoryRootPath(node),
+        )
         .map((c) => ({
           id: c.id,
           title: c.title,
@@ -598,6 +587,11 @@ const secondaryMenus = computed(() => {
 
   return menus
 })
+
+function directoryRootPath(node: MenuNode) {
+  if (node.id.startsWith('manifest-app-')) return `/${node.id.slice('manifest-app-'.length)}`
+  return ''
+}
 
 function collectMatrixMenuItems(
   nodes: MenuNode[],
@@ -764,13 +758,6 @@ function findBestMenuInTree(nodes: MenuNode[], routePath: string): (MenuNode & {
 function findRouteMenuMatch(routePath: string): RouteMenuMatch | null {
   for (const root of finalMenuTree.value) {
     if (root.enabled === false) continue
-    if (root.type === 'menu' && root.path && routeMatchesMenuPath(routePath, root.path)) {
-      return {
-        menu: root as MenuNode & { path: string },
-        primaryId: `${ROOT_MENU_PRIMARY_PREFIX}${root.id}`,
-        primaryTitle: root.title,
-      }
-    }
     if (root.type === 'directory') {
       const menu = findBestMenuInTree(root.children || [], routePath)
       if (menu) {
@@ -781,6 +768,20 @@ function findRouteMenuMatch(routePath: string): RouteMenuMatch | null {
         }
       }
     }
+  }
+  return null
+}
+
+function isRootStandaloneMenuRoute(routePath: string): boolean {
+  return finalMenuTree.value.some((root) =>
+    root.enabled !== false && root.type === 'menu' && root.path && routeMatchesMenuPath(routePath, root.path),
+  )
+}
+
+function firstPrimaryDefaultMenu() {
+  for (const item of primaryMenu.value) {
+    const target = defaultMenuForPrimary(item.id)
+    if (target) return target
   }
   return null
 }
@@ -825,6 +826,14 @@ function syncNavigationWithRoute(path: string) {
       currentPage.value = newHome
     }
     return
+  }
+
+  if (isRootStandaloneMenuRoute(path)) {
+    const target = firstPrimaryDefaultMenu()
+    if (target && target.path !== path) {
+      navigateTo(target.path, target.title, target.id)
+      return
+    }
   }
 
   const match = findRouteMenuMatch(path)
@@ -901,12 +910,23 @@ const neuronChain = ref<NeuronNode[]>([
 // 方法
 const activatePrimary = (id: string) => {
   activePrimary.value = id
+  const target = defaultMenuForPrimary(id)
+  if (target) {
+    navigateTo(target.path, target.title, target.id)
+  }
 }
 
 const getPrimaryTitle = (id: string) => primaryMenu.value.find((item) => item.id === id)?.title ?? ''
 
 const getSecondaryMenu = (id: string) => {
   return secondaryMenus.value[id as keyof typeof secondaryMenus.value] || []
+}
+
+function defaultMenuForPrimary(id: string) {
+  const items = visibleSecondaryMenus(getSecondaryMenu(id))
+  if (!items.length) return null
+  const openPaths = new Set(openPages.value.filter((page) => page.id !== 'home').map((page) => page.path))
+  return items.find((item) => openPaths.has(item.path)) ?? items[0]
 }
 
 const integrationSidebarItems = Object.entries(integrationRouteTitles).map(([path, title]) => ({

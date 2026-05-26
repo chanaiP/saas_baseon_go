@@ -544,6 +544,11 @@ func draftGenerationFromGatewayData(data map[string]interface{}, fallback DraftG
 			return sanitizeDraftGenerationResult(parsed, fallback)
 		}
 	}
+	if decoded := looseDraftJSONMap(content); len(decoded) > 0 {
+		if parsed, ok := draftGenerationFromMap(decoded, fallback); ok {
+			return sanitizeDraftGenerationResult(parsed, fallback)
+		}
+	}
 	return draftGenerationFromArticleText(content, fallback)
 }
 
@@ -888,6 +893,61 @@ func normalizeGatewayJSONContent(content string) string {
 	value = strings.TrimPrefix(value, "```JSON")
 	value = strings.TrimPrefix(value, "```")
 	value = strings.TrimSuffix(value, "```")
+	return strings.TrimSpace(value)
+}
+
+func looseDraftJSONMap(content string) map[string]interface{} {
+	value := normalizeGatewayJSONContent(content)
+	if !strings.Contains(value, `"title"`) && !strings.Contains(value, `"body"`) {
+		return nil
+	}
+	result := map[string]interface{}{}
+	if title := looseJSONStringField(value, "title", []string{"summary", "body", "keywords"}); title != "" {
+		result["title"] = title
+	}
+	if summary := looseJSONStringField(value, "summary", []string{"body", "keywords"}); summary != "" {
+		result["summary"] = summary
+	}
+	if body := looseJSONStringField(value, "body", []string{"keywords"}); body != "" {
+		result["body"] = body
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func looseJSONStringField(raw string, key string, nextKeys []string) string {
+	marker := `"` + key + `"`
+	idx := strings.Index(raw, marker)
+	if idx < 0 {
+		return ""
+	}
+	rest := raw[idx+len(marker):]
+	colon := strings.Index(rest, ":")
+	if colon < 0 {
+		return ""
+	}
+	rest = strings.TrimSpace(rest[colon+1:])
+	if !strings.HasPrefix(rest, `"`) {
+		return ""
+	}
+	rest = rest[1:]
+	end := len(rest)
+	for _, nextKey := range nextKeys {
+		for _, nextMarker := range []string{`",` + "\n" + `  "` + nextKey + `"`, `",` + "\n" + `    "` + nextKey + `"`, `",` + "\r\n" + `  "` + nextKey + `"`, `", "` + nextKey + `"`} {
+			if nextIdx := strings.Index(rest, nextMarker); nextIdx >= 0 && nextIdx < end {
+				end = nextIdx
+			}
+		}
+	}
+	value := strings.TrimSpace(rest[:end])
+	value = strings.TrimSuffix(value, `"`)
+	value = strings.TrimSuffix(value, ",")
+	value = strings.TrimSuffix(value, `"`)
+	value = strings.ReplaceAll(value, `\n`, "\n")
+	value = strings.ReplaceAll(value, `\"`, `"`)
+	value = strings.ReplaceAll(value, `\\`, `\`)
 	return strings.TrimSpace(value)
 }
 

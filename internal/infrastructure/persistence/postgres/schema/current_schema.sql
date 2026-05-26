@@ -3238,6 +3238,7 @@ CREATE TABLE IF NOT EXISTS ai_usage_records (
   platform_unit VARCHAR(32),
   platform_amount NUMERIC(18, 6) NOT NULL DEFAULT 0,
   latency_ms INT NOT NULL DEFAULT 0,
+  task_duration_ms INT NOT NULL DEFAULT 0,
   provider_http_status INT NOT NULL DEFAULT 0,
   provider_request_id VARCHAR(200),
   started_at TIMESTAMPTZ,

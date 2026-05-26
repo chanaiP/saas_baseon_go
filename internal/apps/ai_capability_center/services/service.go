@@ -99,6 +99,12 @@ type PageResult struct {
 	Summary interface{} `json:"summary,omitempty"`
 }
 
+type RouteModelListRow struct {
+	models.AIBaseRouteModel
+	ModelCode string `json:"model_code"`
+	ModelName string `json:"model_name"`
+}
+
 type Overview struct {
 	Metrics        []OverviewMetric       `json:"metrics"`
 	TenantMetrics  map[string]interface{} `json:"tenant_metrics"`
@@ -2537,11 +2543,33 @@ func (s *Service) ListBaseRoutes(ctx context.Context, skip, limit int, keyword s
 }
 
 func (s *Service) ListRouteModels(ctx context.Context, skip, limit int, baseRouteID string) (PageResult, error) {
-	q := s.db.WithContext(ctx).Model(&models.AIBaseRouteModel{}).Where("deleted_at IS NULL")
-	if strings.TrimSpace(baseRouteID) != "" {
-		q = q.Where("base_route_id = ?", baseRouteID)
+	if limit <= 0 || limit > 200 {
+		limit = 20
 	}
-	return pageQuery[models.AIBaseRouteModel](q, skip, limit)
+	if skip < 0 {
+		skip = 0
+	}
+	q := s.db.WithContext(ctx).
+		Table("ai_base_route_models AS rm").
+		Where("rm.deleted_at IS NULL")
+	if strings.TrimSpace(baseRouteID) != "" {
+		q = q.Where("rm.base_route_id = ?", baseRouteID)
+	}
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return PageResult{}, err
+	}
+	var rows []RouteModelListRow
+	if err := q.
+		Select("rm.*, m.model_code, m.model_name").
+		Joins("LEFT JOIN ai_models AS m ON m.id = rm.model_id AND m.deleted_at IS NULL").
+		Order("rm.updated_at desc").
+		Offset(skip).
+		Limit(limit).
+		Scan(&rows).Error; err != nil {
+		return PageResult{}, err
+	}
+	return PageResult{Items: rows, Total: total, Skip: skip, Limit: limit}, nil
 }
 
 func (s *Service) ListScenarios(ctx context.Context, skip, limit int, keyword string) (PageResult, error) {

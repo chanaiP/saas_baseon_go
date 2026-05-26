@@ -632,6 +632,16 @@ function menuNodeFromBundle(bundle: MenuBundle): MenuNode {
   }
 }
 
+function manifestAppDirectoryTitle(appCode: string, rootBundle: MenuBundle) {
+  const labels: Record<string, string> = {
+    'ai-capability-center': 'AI 能力中心',
+    'integration-center': '第三方集成中心',
+    'data-center': '数据中心',
+    'ai-geo': 'AI GEO',
+  }
+  return labels[appCode] || rootBundle.title || appCode
+}
+
 function buildManifestAppMenus(nodes: MenuNode[], bundles: MenuBundle[]): MenuNode[] {
   const missingBundles = bundles
     .filter((bundle) => bundle.path && !hasExactMenuPath(nodes, bundle.path))
@@ -650,7 +660,11 @@ function buildManifestAppMenus(nodes: MenuNode[], bundles: MenuBundle[]): MenuNo
     const sorted = [...appBundles]
     const rootBundle = sorted[0]
     const rootPath = rootBundle.path
-    const directoryTitle = rootBundle.title || appCode
+    if (sorted.length === 1) {
+      appMenus.push(menuNodeFromBundle(rootBundle))
+      continue
+    }
+    const directoryTitle = manifestAppDirectoryTitle(appCode, rootBundle)
     const rootPermissionId = rootBundle.menu_permission_id
     const bundleIDs = new Set(sorted.map((bundle) => bundle.menu_permission_id))
     const childBundles = sorted.filter((bundle) => bundle.menu_permission_id !== rootPermissionId)
@@ -673,6 +687,7 @@ function buildManifestAppMenus(nodes: MenuNode[], bundles: MenuBundle[]): MenuNo
       return node
     }
     const children = (childrenByParent.get(rootPermissionId) || []).map(buildNode)
+    const rootMenu = menuNodeFromBundle(rootBundle)
     const directory: MenuNode = {
       id: `manifest-app-${appCode}`,
       type: 'directory',
@@ -686,7 +701,7 @@ function buildManifestAppMenus(nodes: MenuNode[], bundles: MenuBundle[]): MenuNo
       tenantScope: rootBundle.tenant_scope,
       showInAdmin: rootBundle.show_in_admin !== false,
       enabled: true,
-      children: (children.length ? children : [menuNodeFromBundle(rootBundle)])
+      children: [rootMenu, ...children]
         .filter((node) => node.showInAdmin !== false),
     }
 

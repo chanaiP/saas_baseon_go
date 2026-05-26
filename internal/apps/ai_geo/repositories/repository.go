@@ -437,8 +437,9 @@ func (r *Repository) EnsureChannels(ctx context.Context, channels []models.AiGeo
 		return nil
 	}
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "tenant_id"}, {Name: "channel_code"}},
-		DoNothing: true,
+		Columns:     []clause.Column{{Name: "tenant_id"}, {Name: "channel_code"}},
+		TargetWhere: clause.Where{Exprs: []clause.Expression{clause.Eq{Column: clause.Column{Name: "deleted_at"}, Value: nil}}},
+		DoNothing:   true,
 	}).Create(&channels).Error
 }
 

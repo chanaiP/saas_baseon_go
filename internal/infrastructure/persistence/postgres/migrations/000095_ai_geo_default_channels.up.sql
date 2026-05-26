@@ -42,4 +42,4 @@ SELECT
     now()
 FROM active_tenants t
 CROSS JOIN channel_seed s
-ON CONFLICT (tenant_id, channel_code) DO NOTHING;
+ON CONFLICT (tenant_id, channel_code) WHERE deleted_at IS NULL DO NOTHING;

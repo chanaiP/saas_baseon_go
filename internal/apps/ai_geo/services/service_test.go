@@ -233,6 +233,24 @@ func TestGenerateDraftInvokesAICapabilityCenterScenario(t *testing.T) {
 	require.Contains(t, gatewayPrompt(t, gateway.lastRequest.Input), "不得复制原文句子")
 }
 
+func TestDraftGenerationParsesLooseGatewayJSON(t *testing.T) {
+	raw := `{
+  "title": "Kimi链路连通性验证：网络可靠性测试指南",
+  "summary": "深入探讨Kimi链路连通性验证的重要性。",
+  "body": "第一段正文。
+
+第二段正文，包含未转义换行。",
+  "keywords": ["Kimi", "连通性"]
+}`
+	result := draftGenerationFromGatewayData(map[string]interface{}{"content": raw}, DraftGenerationResult{Title: "兜底标题", Body: "兜底正文"})
+
+	require.Equal(t, "Kimi链路连通性验证：网络可靠性测试指南", result.Title)
+	require.Equal(t, "深入探讨Kimi链路连通性验证的重要性。", result.Summary)
+	require.Contains(t, result.Body, "第一段正文。")
+	require.Contains(t, result.Body, "第二段正文，包含未转义换行。")
+	require.NotContains(t, result.Body, `"title"`)
+}
+
 func TestGenerateDraftRejectsCrossTenantStyleTemplate(t *testing.T) {
 	db := newAiGeoTestDB(t)
 	service := NewService(repositories.NewRepository(db))

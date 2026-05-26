@@ -53,9 +53,18 @@ function routePool(routeId: unknown) {
     .sort((a, b) => Number(a.priority ?? 999) - Number(b.priority ?? 999))
 }
 
-function modelName(modelId: unknown) {
-  const model = models.value.items.find((row) => rowId(row) === String(modelId || ''))
-  return text(model?.model_name || model?.model_code || modelId)
+function isUUID(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+}
+
+function modelName(modelId: unknown, node?: AiRow) {
+  const inlineName = text(node?.model_name || node?.model_code, '')
+  if (inlineName) return inlineName
+  const id = String(modelId || '')
+  const model = models.value.items.find((row) => rowId(row) === id || String(row.model_id || '') === id || String(row.model_code || '') === id)
+  const display = text(model?.model_name || model?.model_code, '')
+  if (display) return display
+  return id && !isUUID(id) ? id : '未知模型'
 }
 
 function accountName(accountId: unknown) {
@@ -117,7 +126,7 @@ function fallbackNodes(routeId: unknown) {
 }
 
 function modelPoolTitle(routeId: unknown) {
-  return routePool(routeId).map((node) => `${roleText(node.role)}：${modelName(node.model_id)}`).join('\n')
+  return routePool(routeId).map((node) => `${roleText(node.role)}：${modelName(node.model_id, node)}`).join('\n')
 }
 
 function endpointSummary(routeId: unknown) {
@@ -217,8 +226,8 @@ onMounted(loadData)
           <el-table-column label="模型池" min-width="260">
             <template #default="{ row }">
               <span class="ai-table-cell-main" :title="modelPoolTitle(row.id)">
-                <strong>{{ primaryNode(row.id) ? modelName(primaryNode(row.id)?.model_id) : '未配置主模型' }}</strong>
-                <small v-if="fallbackNodes(row.id).length">备用 {{ fallbackNodes(row.id).length }} 个：{{ fallbackNodes(row.id).map((node) => modelName(node.model_id)).join('、') }}</small>
+                <strong>{{ primaryNode(row.id) ? modelName(primaryNode(row.id)?.model_id, primaryNode(row.id)) : '未配置主模型' }}</strong>
+                <small v-if="fallbackNodes(row.id).length">备用 {{ fallbackNodes(row.id).length }} 个：{{ fallbackNodes(row.id).map((node) => modelName(node.model_id, node)).join('、') }}</small>
                 <small v-else>暂无备用模型</small>
               </span>
             </template>
