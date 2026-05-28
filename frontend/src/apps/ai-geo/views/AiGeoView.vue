@@ -1,5 +1,5 @@
 <template>
-  <div class="geo-growth-page">
+  <div class="geo-growth-page" :class="{ 'is-workbench-mode': activeMenu === 'workbench' }">
     <main class="main">
       <header class="topbar">
         <div>
@@ -1413,19 +1413,26 @@ const InfoBlock = defineComponent({
 })
 
 function isPreviewSectionTitle(line) {
-  const value = String(line || '').trim()
-  if (!value || value.length > 34) return false
+  const value = String(line || '')
+    .trim()
+    .replace(/^\*{1,3}|\*{1,3}$/g, '')
+    .replace(/^#{1,4}\s+/, '')
+    .trim()
+  if (!value) return false
   if (/^(#{1,4})\s+/.test(value)) return true
   if (/^\d+[.、]\s*\S+/.test(value)) return true
-  if (/^(第[一二三四五六七八九十]+部分|[一二三四五六七八九十]+、)/.test(value)) return true
+  if (/^(第[一二三四五六七八九十]+部分|[一二三四五六七八九十]+、).{0,64}$/.test(value)) return true
+  if (value.length > 34) return false
   return /^(职场|约会|周末|通勤|日常|旅行|办公室|场景|选择|搭配|避坑|总结|结论|建议|人群|风格|材质|版型|价格|品牌|商品).{0,14}[：:]\s*\S+/.test(value)
 }
 
 function previewSectionTitleText(line) {
   return String(line || '')
     .trim()
+    .replace(/^\*{1,3}|\*{1,3}$/g, '')
     .replace(/^#{1,4}\s+/, '')
     .replace(/^\d+[.、]\s*/, '')
+    .trim()
 }
 
 function isConclusionHeading(line) {
@@ -1999,6 +2006,10 @@ const stageLabels = {
   ready_to_generate: '可生成母稿',
   draft_generating: '生成中',
   draft_generated: '已生成草稿',
+  draft_generated_initial_optimize: '已生成草稿',
+  draft_optimization_suggesting: '优化建议中',
+  draft_optimization_applicable: '可应用优化',
+  rewrite_all: '准备重生成',
   draft_editing: '修改中',
   review_ready: '可生成渠道',
   approved: '已通过',
@@ -2124,10 +2135,10 @@ const latestDirectionChoiceMessage = computed(() => {
 })
 const hasPendingDirectionChoice = computed(() => {
   const message = latestDirectionChoiceMessage.value
-  return Boolean(message?.id && !selectedDirectionChoiceByMessage[message.id])
+  return Boolean(message?.id && !hasLaterUserMessage(message))
 })
 const aiStageLabel = computed(() => {
-  if (hasPendingDirectionChoice.value) return '待选择方向'
+  if (hasPendingDirectionChoice.value) return latestDirectionChoiceMessage.value?.id && selectedDirectionChoiceByMessage[latestDirectionChoiceMessage.value.id] ? '待发送选择' : '待选择方向'
   if (aiWorkStage.value === 'idle' && !decisionCard.stageLabel) return ''
   return decisionCard.stageLabel || stageLabels[aiWorkStage.value] || '未开始'
 })
@@ -2244,13 +2255,70 @@ function hasActionableWorkbenchContext() {
   return hasBrand && hasContentType
 }
 
+function hasLaterUserMessage(message) {
+  if (!message?.id) return false
+  const messageIndex = chatMessages.findIndex(item => item.id === message.id)
+  if (messageIndex < 0) return false
+  return chatMessages.slice(messageIndex + 1).some(item => item.role === 'user' && String(item.text || '').trim())
+}
+
+function latestUserMessageBefore(message) {
+  const messageIndex = chatMessages.findIndex(item => item.id === message?.id)
+  const candidates = messageIndex >= 0 ? chatMessages.slice(0, messageIndex) : chatMessages
+  return [...candidates].reverse().find(item => item.role === 'user' && String(item.text || '').trim())?.text || ''
+}
+
+function draftOptimizationIntentFromText(userText, aiText = '') {
+  const user = normalizeIntentText(userText)
+  const ai = normalizeIntentText(aiText)
+  if (!user && !ai) return 'unknown_edit'
+  if (/(整体|方向|路线|思路|选题|主题|完全|全部|重来|重写|重新|换方向|不对|跑偏|不是我要|不符合)/.test(user)) return 'rewrite_all'
+  if (/(标题|题目|headline|点击|搜索词|问题感|入口感)/i.test(user) || extractTitleCandidateFromAiReply(aiText)) return 'title_edit'
+  if (/(太长|过长|冗长|啰嗦|压缩|精简|缩短|短一点|简洁|字数|篇幅)/.test(user)) return 'length_edit'
+  if (/(结构|层次|逻辑|顺序|大纲|框架|段落|排版|散|乱|跳)/.test(user)) return 'structure_edit'
+  if (/(geo|搜索|ai引用|引用|关键词|问题词|人群词|场景词|问答|可检索|覆盖)/i.test(user)) return 'geo_edit'
+  if (/(素材|图片|图|视频|商品图|场景图|卖点|资料|说明|证据|参数)/.test(user)) return 'material_edit'
+  if (/(营销|广告|硬广|自夸|夸张|浮夸|套路|销售|油腻|自然|克制|口吻|语气|可信|真实|松弛)/.test(user)) return 'tone_edit'
+  if (/(怪|别扭|不舒服|不满意|不好|不行|一般|弱|改|优化|调整|润色|再来|再给|换一版|感觉)/.test(user)) return 'unknown_edit'
+  if (/(修改|优化|调整|改写|润色|建议|方案|应用|替换)/.test(ai)) return 'unknown_edit'
+  return ''
+}
+
+function latestFeedbackWantsRewrite(message) {
+  return draftOptimizationIntentFromText(latestUserMessageBefore(message), '') === 'rewrite_all'
+}
+
+function isWorkbenchExampleRequest(message) {
+  const user = normalizeIntentText(latestUserMessageBefore(message))
+  return /(范文|示例|样例|例子|参考文|参考一下|给我看)/.test(user) && /(看|给|参考|示例|范文|样例|例子)/.test(user)
+}
+
+function isDraftOptimizationReplyMessage(message) {
+  if (!message || message.role !== 'ai' || !hasEditingDraftContent.value) return false
+  if (latestFeedbackWantsRewrite(message)) return false
+  const idea = message.idea && typeof message.idea === 'object' ? message.idea : {}
+  if (idea.route === 'edit_current_draft' || idea.route === 'title_edit_request' || idea.source === 'draft_quick_action') return true
+  const intent = draftOptimizationIntentFromText(latestUserMessageBefore(message), message.text)
+  return Boolean(intent && intent !== 'rewrite_all')
+}
+
+function shouldAllowDirectionChoices(message) {
+  if (!hasEditingDraftContent.value) return true
+  return latestFeedbackWantsRewrite(message)
+}
+
 function buildWorkbenchReplyActionContext(message) {
   const text = String(message?.text || '').trim()
+  const canUseDirectionChoices = shouldAllowDirectionChoices(message)
   const directionOptions = directionChoiceOptions(message)
-  const hasDirectionOptions = directionOptions.length > 0 || hasReplyDirectionOptions(message, text)
-  const hasUnselectedDirectionOptions = directionOptions.length > 0 && !selectedDirectionChoiceByMessage[message.id]
+  const hasDirectionOptions = canUseDirectionChoices && (directionOptions.length > 0 || hasReplyDirectionOptions(message, text))
+  const hasUnselectedDirectionOptions = directionOptions.length > 0 && !hasLaterUserMessage(message)
+  const latestUserFeedback = latestUserMessageBefore(message)
+  const optimizationIntent = hasEditingDraftContent.value ? draftOptimizationIntentFromText(latestUserFeedback, text) : ''
   return {
     text,
+    latestUserFeedback,
+    optimizationIntent,
     explicitActions: normalizeReplyActions(message?.suggestedActions || message?.suggested_actions || message?.actions),
     requiresChoice: hasUnselectedDirectionOptions || replyRequiresDirectionChoice(text),
     hasDirectionOptions,
@@ -2258,6 +2326,7 @@ function buildWorkbenchReplyActionContext(message) {
     hasRecommendedDirection: Boolean(decisionCard.recommendedDirection),
     isGenerateReady: !hasUnselectedDirectionOptions && (['ready_to_generate', 'direction_recommended'].includes(aiWorkStage.value) || /生成\s*(?:GEO\s*)?母稿/.test(String(decisionCard.nextStepLabel || ''))),
     hasEditingDraft: hasEditingDraftContent.value,
+    isDraftOptimization: hasEditingDraftContent.value && !hasUnselectedDirectionOptions,
     hasActionableContext: hasActionableWorkbenchContext(),
     isClarifyingReply: isClarifyingWorkbenchReply(text),
     hasApplicableDraft: !hasDirectionOptions && replyContainsApplicableDraft(text),
@@ -2267,9 +2336,16 @@ function buildWorkbenchReplyActionContext(message) {
 
 function applyReplyActionSafety(actions, context) {
   const blocksWriteActions = context.requiresChoice || context.hasUnselectedDirectionOptions
-  const safeActions = blocksWriteActions
+  let safeActions = blocksWriteActions
     ? actions.filter(action => !['generate_draft', 'regenerate_draft', 'apply_to_draft', 'apply_title'].includes(action.type))
     : actions
+  if (context.isDraftOptimization) {
+    safeActions = safeActions.filter(action => {
+      if (action.type === 'generate_draft') return false
+      if (action.type === 'regenerate_draft') return context.optimizationIntent === 'rewrite_all'
+      return true
+    })
+  }
   if (blocksWriteActions) {
     appendReplyAction(safeActions, { type: 'recommend_other_directions', label: '换一组方向' })
   }
@@ -2281,8 +2357,70 @@ function applyReplyActionSafety(actions, context) {
   return normalizeReplyActions(payloadSafeActions)
 }
 
+function draftOptimizationFollowupPrompt(intent) {
+  const prompts = {
+    tone_edit: '请基于当前母稿再给一版更克制、更自然、营销感更低的优化方案。不要写入右侧，先给可选择方案。',
+    title_edit: '请基于当前母稿再给 5 个标题候选，标题要更像真实搜索问题或 AI 问答入口，并说明各自适用场景。',
+    length_edit: '请基于当前母稿再给一版压缩方案，保留核心结构和 GEO 价值，说明删减原则。',
+    structure_edit: '请基于当前母稿只调整大纲和段落顺序，给出新结构和关键调整理由，先不要改写全文。',
+    geo_edit: '请基于当前母稿再给一版 GEO 表达强化方案，补充问题词、人群词、场景词和可引用答案。',
+    material_edit: '请基于当前母稿继续补充素材说明，明确需要哪些商品图、场景图、细节图或证据资料。',
+    unknown_edit: '请基于当前右侧母稿继续优化一版，先判断最需要改的是标题、结构、语气、篇幅还是 GEO 表达，并给出可执行方案。',
+  }
+  return prompts[intent] || prompts.unknown_edit
+}
+
+function draftOptimizationActions(context) {
+  const actions = []
+  const intent = context.optimizationIntent || 'unknown_edit'
+  if (context.hasDirectionOptions) return normalizeReplyActions(actions)
+  if (context.hasTitleCandidate && (intent === 'title_edit' || (!context.hasApplicableDraft && /标题|题目/.test(context.text)))) {
+    appendReplyAction(actions, { type: 'apply_title', label: '应用标题', content: context.text })
+  } else if (context.hasApplicableDraft) {
+    const applyLabels = {
+      tone_edit: '应用降营销版',
+      length_edit: '压缩正文',
+      structure_edit: '应用新结构',
+      geo_edit: '应用 GEO 强化版',
+      material_edit: '应用素材说明',
+      unknown_edit: '应用到当前母稿',
+    }
+    appendReplyAction(actions, { type: 'apply_to_draft', label: applyLabels[intent] || '应用到当前母稿', content: context.text })
+  }
+  if (intent === 'rewrite_all') {
+    appendReplyAction(actions, { type: 'regenerate_draft', label: '按当前方向重生成' })
+    appendReplyAction(actions, { type: 'recommend_other_directions', label: '换一组方向' })
+    appendReplyAction(actions, { type: 'copy_reply', label: '复制回复' })
+    return normalizeReplyActions(actions)
+  }
+  const followupLabels = {
+    tone_edit: actions.length ? '再克制一点' : '降低营销感',
+    title_edit: '再给 5 个标题',
+    length_edit: actions.length ? '保留结构压缩' : '压缩正文',
+    structure_edit: actions.length ? '只调整大纲' : '调整内容结构',
+    geo_edit: actions.length ? '继续强化 GEO' : '强化 GEO 表达',
+    material_edit: actions.length ? '继续补充素材' : '优化素材说明',
+    unknown_edit: actions.length ? '再给一版' : '继续优化当前母稿',
+  }
+  appendReplyAction(actions, {
+    type: 'recommend_other_directions',
+    label: followupLabels[intent] || followupLabels.unknown_edit,
+    prompt: draftOptimizationFollowupPrompt(intent),
+  })
+  appendReplyAction(actions, { type: 'copy_reply', label: '复制回复' })
+  return normalizeReplyActions(actions)
+}
+
+function selectedDirectionGenerateActionLabel(context) {
+  const feedback = String(context?.latestUserFeedback || latestWorkbenchUserPrompt.value || '')
+  const selected = feedback.match(/(?:选择|选|按)\s*(?:了|的是|定)?\s*(方案|方向)\s*([一二三四五六七八九十\d]+)/)
+  if (selected) return `按${selected[1]}${selected[2]}生成母稿`
+  return '按当前方向生成母稿'
+}
+
 function impliedReplyActionsFromContext(message, context) {
   if (!context.text || message?.streaming) return []
+  if (context.isDraftOptimization) return draftOptimizationActions(context)
   const actions = []
   if (context.requiresChoice) {
     appendReplyAction(actions, { type: 'recommend_other_directions', label: '换一组方向' })
@@ -2296,14 +2434,14 @@ function impliedReplyActionsFromContext(message, context) {
     appendReplyAction(actions, { type: 'apply_to_draft', label: '应用到母稿', content: context.text })
   }
   if (/(生成完整母稿|生成母稿|进入生成母稿|进入生成完整母稿|直接进入生成)/.test(context.text)) {
-    appendReplyAction(actions, { type: 'generate_draft', label: '生成母稿' })
+    appendReplyAction(actions, { type: 'generate_draft', label: selectedDirectionGenerateActionLabel(context) })
   }
   if (
     !actions.some(action => action.type === 'generate_draft') &&
     context.hasRecommendedDirection &&
     (context.isGenerateReady || shouldOfferGenerateDraftAction(context.text, context.hasDirectionOptions))
   ) {
-    appendReplyAction(actions, { type: 'generate_draft', label: context.hasDirectionOptions ? '按推荐方向生成母稿' : '生成母稿' })
+    appendReplyAction(actions, { type: 'generate_draft', label: context.hasDirectionOptions ? '按推荐方向生成母稿' : selectedDirectionGenerateActionLabel(context) })
   }
   if (context.hasActionableContext && context.isClarifyingReply && !context.hasRecommendedDirection && !context.hasDirectionOptions) {
     appendReplyAction(actions, { type: 'recommend_other_directions', label: '给我 3 个方案' })
@@ -4049,6 +4187,17 @@ async function handleReplyAction(action, message) {
     return
   }
   if (type === 'recommend_other_directions') {
+    const prompt = String(action.prompt || action.payload?.prompt || '').trim()
+    if (prompt && hasEditingDraftContent.value) {
+      appendUserMessage(action.label || prompt)
+      await streamDraftCoCreationReply(prompt, {
+        route: 'edit_current_draft',
+        next_action: 'none',
+        source: 'reply_action',
+        action_label: action.label,
+      })
+      return
+    }
     await recommendAnotherDirection()
     return
   }
@@ -5189,6 +5338,8 @@ async function streamGatewayMentorReply(prompt, idea) {
         else applyAiMessageText(message, '', { replace: false })
         const actions = eventReplyActions(event)
         if (actions.length) message.suggestedActions = actions
+        const context = buildWorkbenchReplyActionContext(message)
+        setAiStage(context.hasApplicableDraft || context.hasTitleCandidate ? 'draft_optimization_applicable' : 'draft_optimization_suggesting')
         queueWorkbenchChatScroll()
       },
       onError(event) {
@@ -6121,7 +6272,7 @@ async function streamDraftCoCreationReply(prompt, routeResult = {}) {
   chatMessages.push(message)
   resumeWorkbenchChatFollow()
   chatStreaming.value = true
-  setAiStage('draft_editing')
+  setAiStage('draft_optimization_suggesting')
   try {
     await streamAiGeoGatewayInvoke({
       app_code: 'ai-geo',
@@ -6141,14 +6292,21 @@ async function streamDraftCoCreationReply(prompt, routeResult = {}) {
               '你是 GEO 母稿共创编辑专家，不是状态播报机器人。',
               '用户正在对已经生成的范文/母稿提出反馈。聊天区只用于共创沟通：总结、解释、诊断、提出方案、给示例；不得声称已经更新、已经应用、已经写入右侧母稿。',
               '只有用户点击界面按钮时，系统才会真正写入右侧编辑器或生成母稿。',
-              '如果用户要求改标题、改正文、降低营销感、换风格，你要先判断反馈真正指向的问题，再给出 2-3 个可选修改方案；每个方案要说明改法、示例标题或片段、适用情况。',
+              '如果用户要求改标题、改正文、降低营销感、换风格，你要先判断反馈真正指向的问题，再给出 2-3 个可落地优化结果；每个结果要包含可直接参考的标题、片段或结构，不要只写抽象分析。',
+              '已生成母稿后的优化回复不要使用“方向一/方向二/方向三”作为结构，除非用户明确要求整体重来或换方向；默认使用“改法一/改法二/改法三”“标题候选一/二/三”或“建议一/二/三”。',
+              '已生成母稿后的优化回复不要让用户在正文里做“选择题”，不要输出“请选择”“选项 A/B”“你倾向哪个方向”；需要继续推进时交给界面按钮。',
+              '标题优化必须以标题候选为主体：先给 3-5 个可直接使用的标题，每个标题后用一句话说明适用场景；分析说明最多 2 句，不要输出长篇策略报告。',
+              'GEO 表达优化必须以可替换的问题词、人群词、场景词、FAQ 或片段为主体；不要把它写成重新选方向。',
+              '素材说明优化必须列出可补充的具体素材类型、用途和放置位置；不要要求用户先选择方向。',
+              '结构优化必须给出新的大纲或段落顺序；不要写成方向候选。',
               '如果用户明确说“给我一篇范例”，可以在聊天区输出范例，但必须说明这只是聊天范例，不写入右侧母稿。',
               '不要只说“已更新右侧母稿”。不要说“没有改动字段”。不要机械确认。',
               '如果用户说“营销味太浓、太硬广、太套路”，你要把表达降到更克制、更像真实经验或内容编辑判断，减少品牌自夸和煽动式形容。',
-              '回复结构建议：我理解你想调整什么、当前问题、方案一、方案二、方案三、建议怎么选。每个方案之间要有真实差异。',
-              '不要只输出分析而不给下一步；如果只是给修改方案，末尾应给可继续推进的按钮，例如重新生成或复制回复。',
+              '回复结构建议：我理解你想调整什么、当前问题、改法一、改法二、改法三、建议优先采用哪一种。每个改法之间要有真实差异。',
+              '不要只输出分析而不给下一步；如果只是给修改方案，末尾应给可继续优化或复制回复的按钮，不要默认建议重生成。',
               '如果你的回复中已经包含可直接写入右侧母稿的明确改稿内容，可在末尾追加 HTML 注释：<!-- actions: [{"type":"apply_to_draft","label":"应用到母稿","payload":{"content":"这里放完整可写入母稿的标题/摘要/正文"}}] -->。',
               '动作 type 只允许 generate_draft、apply_to_draft、apply_title、regenerate_draft、recommend_other_directions、copy_reply、retry；不得输出渠道内容或发布计划动作。',
+              '已生成母稿后的默认目标是优化当前母稿。除非用户明确说整体不对、重来、重新写、换方向，否则不要返回 generate_draft 或 regenerate_draft。',
               '如果你的回复只是分析问题、给修改建议、给多个方案、询问选择，不能给 apply_to_draft。如果只是给出标题修改方案，只能给 apply_title，不能给 apply_to_draft。',
             ].join('\n'),
           },
@@ -6241,10 +6399,10 @@ function applyCoCreatedDraftIfPresent(text, prompt, routeResult = {}) {
   updateDecisionCard({
     recommendedDirection: title,
     reason: selectedOption ? `已按用户选择的方向${selectedOption.label}应用到右侧母稿。` : '已把左侧共创结果应用到右侧母稿。',
-    stageLabel: stageLabels.draft_generated,
+    stageLabel: stageLabels.draft_generated_initial_optimize,
     nextStepLabel: '',
   })
-  setAiStage('draft_generated')
+  setAiStage('draft_generated_initial_optimize')
   return true
 }
 
@@ -6461,17 +6619,38 @@ function inlineMarkdown(text) {
     .replace(/\*{2,3}([^*\n]+?)\*{2,3}/g, '<strong>$1</strong>')
     .replace(/\*([^*\n]{2,80})\*/g, '<strong>$1</strong>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*{2,3}/g, '')
+    .replace(/\*+/g, '')
 }
 
-const CHAT_FIELD_HEADING_PATTERN = '方向定位|内容逻辑|GEO价值|改法|适用情况|示例标题|示例片段(?:（正文）)?|示例片段|母稿标题|标题参考|推荐理由|适合渠道|内容目标'
+const CHAT_FIELD_HEADING_PATTERN = '方向定位|母稿|内容逻辑|GEO价值|改法|适用情况|示例标题|示例片段(?:（正文）)?|示例片段|母稿标题|标题参考|推荐理由|适合渠道|内容目标'
 const CHAT_FIELD_HEADING_RE = new RegExp(`^(?:${CHAT_FIELD_HEADING_PATTERN})$`)
 const CHAT_FIELD_WITH_BODY_RE = new RegExp(`^(?:${CHAT_FIELD_HEADING_PATTERN})[:：]`)
+const DIRECTION_OPTION_MARKER_RE = /(?:^|\n)[ \t]*(?:方向|方案)\s*[一二三四五六七八九十\d]+/g
+const DIRECTION_STRUCTURED_BLOCK_START_RE = /^方向定位[:：]?/
+
+function isChatMarkdownJunkLine(line) {
+  return /^(?:#{1,6}|`{3,}|~{3,}|\*{1,3}|-{3,})$/.test(String(line || '').trim())
+}
+
+function stripWorkbenchReplyMedia(text) {
+  return String(text || '')
+    .replace(/!\[[^\]]*]\((?:data:image\/[^)]+|blob:[^)]+|https?:\/\/[^)]+)\)/gi, '')
+    .replace(/<img\b[^>]*>/gi, '')
+    .replace(/data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=\r\n]+/gi, '')
+}
 
 function normalizeChatMarkdown(text) {
-  return String(text || '')
+  const raw = stripWorkbenchReplyMedia(text)
+  if (/^\s*context deadline exceeded\s*$/i.test(raw)) return 'AI 请求超时，请重试。'
+  return raw
     .replace(/\r\n/g, '\n')
+    .replace(/#{2,6}\s*([^#\n]{1,40})\s*#{2,6}/g, '\n$1\n')
+    .replace(/#{1,6}\s*(?=(?:摘要|标题|正文|范文|示例|改法|建议|适用情况|内容逻辑|GEO价值)[:：]?)/g, '\n')
+    .replace(/(^|\n)\s*#{1,6}\s*(?=\n|$)/g, '\n')
+    .replace(/(^|\n)\s*(?:`{3,}|~{3,}|\*{1,3}|-{3,})\s*(?=\n|$)/g, '\n')
     .replace(/(^|\n)\s*#{1,6}\s*/g, '$1')
+    .replace(/([^\n])\s*(方向|方案)\s*([一二三四五六七八九十\d]+)\*+\s*/g, '$1\n\n$2$3\n')
+    .replace(/(^|\n)\s*(方向|方案)\s*([一二三四五六七八九十\d]+)\*+\s*/g, '$1$2$3\n')
     .replace(/\s+#{1,6}\s*(?=(?:我的建议|方案[一二三四五六七八九十\d]+|方向[一二三四五六七八九十\d]+|改法|适用情况|示例标题|示例片段))/g, '\n\n')
     .replace(/(^|\n)\s*>\s*/g, '$1')
     .replace(/\s*>\s*(?=(?:周[一二三四五六日天]|星期[一二三四五六日天]|第[一二三四五六七八九十\d]+|[一二三四五六七八九十\d]+[.、]))/g, '\n')
@@ -6485,6 +6664,8 @@ function normalizeChatMarkdown(text) {
     .replace(/(^|\n)\s*\*\*\s*(?=\n|$)/g, '\n')
     .replace(/\s+\*\s*(?=\n|$)/g, '')
     .replace(/\s+\*\*\s*(?=\n|$)/g, '')
+    .replace(/(^|\n)\s*\*+\s*$/g, '\n')
+    .replace(/\*+\s*(?=\n|$)/g, '')
     .replace(/\s*[-－]\s*入口([一二三四五六七八九十\d]+)[:：]\s*/g, '\n$1. ')
     .replace(/\s*[-－]\s*(?=(?:标题|标题参考|示例标题|示例片段(?:（正文）)?|母稿标题|方向定位|改法|适用情况|GEO价值|核心逻辑|适合渠道|内容目标|推荐理由|写作说明)[:：])/g, '\n')
     .replace(/(^|\n)\s*(我的建议)\s*[-－]\s*/g, '$1$2：')
@@ -6506,12 +6687,281 @@ function normalizeChatMarkdown(text) {
     .trim()
 }
 
+function injectStructuredDirectionHeadings(source) {
+  const value = String(source || '').trim()
+  if (!value) return ''
+  if ([...value.matchAll(DIRECTION_OPTION_MARKER_RE)].length >= 2) return value
+  const explicitOptionNumbers = new Set(
+    [...value.matchAll(/(?:^|\n)[ \t]*(?:方向|方案)\s*([一二三四五六七八九十\d]+)/g)]
+      .map(match => directionNumberFromLabel(match[1]))
+      .filter(Boolean),
+  )
+  const lines = value.split('\n')
+  const structuredStarts = []
+  lines.forEach((line, index) => {
+    const current = plainChatHeadingText(line)
+    if (!DIRECTION_STRUCTURED_BLOCK_START_RE.test(current)) return
+    const previous = lines.slice(Math.max(0, index - 3), index).join('\n')
+    if (DIRECTION_OPTION_MARKER_RE.test(`\n${previous}`)) {
+      DIRECTION_OPTION_MARKER_RE.lastIndex = 0
+      return
+    }
+    DIRECTION_OPTION_MARKER_RE.lastIndex = 0
+    const following = lines.slice(index, index + 12).join('\n')
+    if (!/(内容逻辑|GEO价值|母稿标题|标题参考|文章标题|标题)[:：\n]/.test(following)) return
+    structuredStarts.push(index)
+  })
+  if (structuredStarts.length < 2) return value
+  const startSet = new Set(structuredStarts)
+  const injected = []
+  let optionIndex = 0
+  lines.forEach((line, index) => {
+    if (startSet.has(index)) {
+      optionIndex += 1
+      if (!explicitOptionNumbers.has(optionIndex)) {
+        injected.push(`方向${chineseDirectionLabel(optionIndex)}`)
+      }
+    }
+    injected.push(line)
+  })
+  return injected.join('\n').replace(/\n{3,}/g, '\n\n').trim()
+}
+
+function directionMarkerFromLine(line) {
+  const value = plainChatHeadingText(line)
+    .replace(/^[-*•]\s*/, '')
+    .replace(/^\d+\s*[)）]\s*/, '')
+    .trim()
+  if (!value || /^方向定位/.test(value)) return null
+  const match = value.match(/^(?:(方向|方案)\s*([一二三四五六七八九十\d]+)|([1-9]\d*)[.、])\s*[:：]?\s*(.*)$/)
+  if (!match) return null
+  const index = directionNumberFromLabel(match[2] || match[3])
+  if (!index) return null
+  const marker = match[1] || '方向'
+  const label = chineseDirectionLabel(index)
+  const title = cleanDirectionOptionSnippet(match[4] || '')
+    .replace(new RegExp(`^(?:${marker}|方向|方案)?\\s*(?:${label}|${index})[.、:：\\s-]*`), '')
+    .trim()
+  return {
+    index,
+    marker,
+    label,
+    displayLabel: `${marker}${label}`,
+    title,
+  }
+}
+
+function directionFieldFromLine(line) {
+  const value = String(line || '').trim().replace(/^[-*•]\s*/, '')
+  const cleanValue = plainChatHeadingText(value)
+  const match = value.match(new RegExp(`^(方向定位|母稿|母稿标题|文章标题|标题参考|标题|内容逻辑|核心逻辑|GEO价值|价值主张)\\s*[:：]?\\s*([\\s\\S]*)$`))
+  if (!match || !cleanValue) return null
+  const rawName = match[1]
+  const rawBody = String(match[2] || '').trim()
+  const nameMap = {
+    母稿标题: '母稿',
+    文章标题: '母稿',
+    标题参考: '母稿',
+    标题: '母稿',
+    核心逻辑: '内容逻辑',
+    价值主张: 'GEO价值',
+  }
+  const name = nameMap[rawName] || rawName
+  const body = rawBody || (rawName !== name ? `${rawName}：` : '')
+  return { name, body, rawName }
+}
+
+function createDirectionBlock(markerInfo, fallbackIndex) {
+  const index = markerInfo?.index || fallbackIndex
+  return {
+    index,
+    marker: markerInfo?.marker || '方向',
+    label: markerInfo?.label || chineseDirectionLabel(index),
+    displayLabel: markerInfo?.displayLabel || `方向${chineseDirectionLabel(index)}`,
+    title: markerInfo?.title || '',
+    fields: [],
+    fieldMap: new Map(),
+  }
+}
+
+function appendDirectionField(block, name, body) {
+  if (!block || !name) return null
+  let field = block.fieldMap.get(name)
+  if (!field) {
+    field = { name, lines: [] }
+    block.fieldMap.set(name, field)
+    block.fields.push(field)
+  }
+  const value = String(body || '').trim()
+  if (value) field.lines.push(value)
+  return field
+}
+
+function mergeDirectionBlocks(blocks) {
+  const merged = []
+  const byIndex = new Map()
+  blocks.forEach(block => {
+    if (!block?.index) return
+    const existing = byIndex.get(block.index)
+    if (!existing) {
+      byIndex.set(block.index, block)
+      merged.push(block)
+      return
+    }
+    if (!existing.title && block.title) existing.title = block.title
+    block.fields.forEach(field => {
+      appendDirectionField(existing, field.name, field.lines.join('\n'))
+    })
+  })
+  return merged
+}
+
+function parseDirectionBlocks(source) {
+  const value = String(source || '').trim()
+  if (!value) return { introLines: [], blocks: [] }
+  const lines = value.split('\n').map(line => line.trim()).filter(line => line && !isChatMarkdownJunkLine(line))
+  const introLines = []
+  const blocks = []
+  let current = null
+  let currentField = null
+  let autoIndex = 0
+  const fieldStartCount = lines.filter(line => directionFieldFromLine(line)?.name === '方向定位').length
+
+  const startBlock = markerInfo => {
+    autoIndex = Math.max(autoIndex + 1, markerInfo?.index || 0)
+    current = createDirectionBlock(markerInfo, markerInfo?.index || autoIndex)
+    currentField = null
+    blocks.push(current)
+  }
+
+  lines.forEach(line => {
+    const markerInfo = directionMarkerFromLine(line)
+    if (markerInfo) {
+      if (current && current.index === markerInfo.index && !markerInfo.title) return
+      startBlock(markerInfo)
+      return
+    }
+
+    const fieldInfo = directionFieldFromLine(line)
+    if (fieldInfo) {
+      if (!current || (fieldInfo.name === '方向定位' && current.fields.length && fieldStartCount >= 2)) {
+        startBlock(null)
+      }
+      currentField = appendDirectionField(current, fieldInfo.name, fieldInfo.body)
+      return
+    }
+
+    if (!current) {
+      if (!/^#{1,6}$/.test(line)) introLines.push(line)
+      return
+    }
+
+    if (currentField) {
+      currentField.lines.push(line)
+      return
+    }
+
+    if (!current.title) current.title = cleanDirectionOptionSnippet(line)
+  })
+
+  const mergedBlocks = mergeDirectionBlocks(blocks)
+    .map(block => {
+      const titleFromPosition = block.fieldMap.get('方向定位')?.lines.join(' ').trim()
+      const titleFromDraft = block.fieldMap.get('母稿')?.lines.join(' ').trim()
+      const title = cleanDirectionOptionSnippet(titleFromPosition || block.title || titleFromDraft || block.displayLabel).slice(0, 72)
+      return { ...block, title }
+    })
+    .filter(block => block.fields.length || block.title)
+    .sort((left, right) => left.index - right.index)
+
+  return {
+    introLines,
+    blocks: mergedBlocks,
+  }
+}
+
+function directionChoiceOptionFromBlock(message, block) {
+  if (!message || !block?.index) return null
+  const title = block.title || block.displayLabel
+  const draftTitle = directionDraftTitleFromParsedBlock(block)
+  return {
+    key: `${message.id}-${block.index}`,
+    index: block.index,
+    marker: block.marker,
+    label: block.label,
+    displayLabel: block.displayLabel,
+    title,
+    draftTitle,
+    prompt: `我选择${block.displayLabel}：${title}。请按这个方向继续生成母稿。`,
+  }
+}
+
+function directionDraftTitleFromParsedBlock(block) {
+  const draftLines = block?.fieldMap?.get('母稿')?.lines || []
+  const joined = draftLines.join('\n')
+  const explicit = joined.match(/(?:^|\n)\s*(?:标题|母稿标题|文章标题|标题参考)[:：]\s*([^\n]+)/)?.[1]
+  const firstTitleLike = draftLines.find(line => /(?:标题|母稿标题|文章标题|标题参考)[:：]/.test(line))
+  const fromTitleLine = firstTitleLike?.split(/[:：]/).slice(1).join('：')
+  const quoted = joined.match(/[《「“"]([^》」”"\n]{8,80})[》」”"]/)
+  const firstReadableLine = draftLines
+    .map(line => cleanDraftTitle(line))
+    .find(line => line && !/^(?:示例片段|正文|母稿|标题)$/.test(line) && line.length >= 8 && line.length <= 80)
+  return cleanDraftTitle(explicit || fromTitleLine || quoted?.[1] || firstReadableLine || '').slice(0, 60)
+}
+
+function renderInlineDirectionChoiceFromOption(message, option) {
+  if (!message || !option) return ''
+  const checked = selectedDirectionChoiceByMessage[message.id] === option.key ? ' checked' : ''
+  return `<label class="message-inline-choice" title="选择${escapeHtml(option.displayLabel)}"><input type="radio" name="direction-choice-${escapeHtml(message.id)}" value="${escapeHtml(option.key)}" data-message-id="${escapeHtml(message.id)}" data-choice-type="direction" data-choice-key="${escapeHtml(option.key)}" data-choice-prompt="${escapeHtml(option.prompt)}"${checked}><span class="message-choice-index">${escapeHtml(option.index)}</span><span>选择</span></label>`
+}
+
+function renderDirectionFieldValue(field) {
+  const value = (field?.lines || [])
+    .map(line => String(line || '').trim())
+    .filter(line => line && !isChatMarkdownJunkLine(line))
+    .join('\n')
+    .replace(/\s*#{1,6}\s*$/g, '')
+    .trim()
+  if (!value) return ''
+  return splitReadableBodyLines(value)
+    .map(line => `<p>${inlineMarkdown(line)}</p>`)
+    .join('')
+}
+
+function directionFieldDisplayName(name) {
+  return name === '母稿' ? '母稿标题' : name
+}
+
+function renderDirectionBlockMessage(source, message = null) {
+  if (!shouldAllowDirectionChoices(message)) return ''
+  const parsed = parseDirectionBlocks(source)
+  if (!message || parsed.blocks.length < 2) return ''
+  const intro = parsed.introLines.length
+    ? `<div class="message-direction-intro">${parsed.introLines.map(line => renderChatLine(line, null)).join('')}</div>`
+    : ''
+  const blocks = parsed.blocks.map(block => {
+    const option = directionChoiceOptionFromBlock(message, block)
+    const fieldOrder = ['方向定位', '母稿', '内容逻辑', 'GEO价值']
+    const fields = fieldOrder
+      .map(name => {
+        const field = block.fieldMap.get(name)
+        const body = renderDirectionFieldValue(field)
+        if (!body) return ''
+        return `<div class="message-direction-field"><dt>${inlineMarkdown(directionFieldDisplayName(name))}</dt><dd>${body}</dd></div>`
+      })
+      .filter(Boolean)
+      .join('')
+    return `<section class="message-direction-block"><h4 class="message-direction-title">${renderInlineDirectionChoiceFromOption(message, option)}<span class="message-direction-label">${inlineMarkdown(block.displayLabel)}</span><em>${inlineMarkdown(block.title)}</em></h4>${fields ? `<dl class="message-direction-fields">${fields}</dl>` : ''}</section>`
+  }).join('')
+  return `${intro}${blocks}`
+}
+
 function plainChatHeadingText(line) {
   return String(line || '')
     .trim()
     .replace(/^#{1,6}\s*/, '')
     .replace(/^\*{1,3}/, '')
-    .replace(/\*{1,3}$/, '')
+    .replace(/\*+$/, '')
     .replace(/[:：]\s*$/, '')
     .replace(/\s*[-－]\s*$/, '')
     .trim()
@@ -6521,7 +6971,7 @@ function inlineDirectionChoiceMarkup(message, headingText) {
   const option = directionOptionForHeading(message, headingText)
   if (!option) return ''
   const checked = selectedDirectionChoiceByMessage[message.id] === option.key ? ' checked' : ''
-  return `<label class="message-inline-choice" title="选择${escapeHtml(option.displayLabel)}"><input type="radio" name="direction-choice-${escapeHtml(message.id)}" value="${escapeHtml(option.key)}" data-message-id="${escapeHtml(message.id)}" data-choice-type="direction" data-choice-key="${escapeHtml(option.key)}" data-choice-prompt="${escapeHtml(option.prompt)}"${checked}><span>选择</span></label>`
+  return `<label class="message-inline-choice" title="选择${escapeHtml(option.displayLabel)}"><input type="radio" name="direction-choice-${escapeHtml(message.id)}" value="${escapeHtml(option.key)}" data-message-id="${escapeHtml(message.id)}" data-choice-type="direction" data-choice-key="${escapeHtml(option.key)}" data-choice-prompt="${escapeHtml(option.prompt)}"${checked}><span class="message-choice-index">${escapeHtml(option.index)}</span><span>选择</span></label>`
 }
 
 function directionOptionForHeading(message, headingText) {
@@ -6545,16 +6995,19 @@ function directionOptionForHeading(message, headingText) {
 
 function renderChatLine(line, message = null) {
   const plainHeading = plainChatHeadingText(line)
-  if (!plainHeading || /^#{1,6}$/.test(String(line || '').trim())) return ''
+  if (!plainHeading || isChatMarkdownJunkLine(line)) return ''
+  if (isDraftOptimizationReplyMessage(message) && /^(?:方案|方向|改法|建议|标题)[一二三四五六七八九十\dA-ZＡ-Ｚ]*[:：]?/.test(plainHeading)) {
+    return `<h4 class="message-optimization-title">${inlineMarkdown(plainHeading)}</h4>`
+  }
   const directionOption = directionOptionForHeading(message, plainHeading)
   if (directionOption) {
-    return `<h4 class="message-direction-title">${inlineDirectionChoiceMarkup(message, plainHeading)}<span>${inlineMarkdown(directionOption.displayLabel)}</span><em>${inlineMarkdown(directionOption.title)}</em></h4>`
+    return `<h4 class="message-direction-title">${inlineDirectionChoiceMarkup(message, plainHeading)}<span class="message-direction-label">${inlineMarkdown(directionOption.displayLabel)}</span><em>${inlineMarkdown(directionOption.title)}</em></h4>`
   }
   if (/^(?:方案|方向)[一二三四五六七八九十\d]+$/.test(plainHeading)) {
     return `<h4 class="message-direction-title">${inlineMarkdown(plainHeading)}${inlineDirectionChoiceMarkup(message, plainHeading)}</h4>`
   }
   if (CHAT_FIELD_HEADING_RE.test(plainHeading)) {
-    return `<h5 class="message-field-title">${inlineMarkdown(plainHeading)}</h5>`
+    return `<h5 class="message-field-title"><span>${inlineMarkdown(plainHeading)}</span></h5>`
   }
   if (/^\*\*[^*]+[:：]?\*\*\s*$/.test(line)) {
     return `<h4>${inlineMarkdown(line)}</h4>`
@@ -6566,7 +7019,7 @@ function renderChatLine(line, message = null) {
   }
   if (CHAT_FIELD_WITH_BODY_RE.test(line)) {
     const [title, ...rest] = line.split(/[:：]/)
-    return `<h5 class="message-field-title">${inlineMarkdown(title)}</h5>${renderMessageFieldBody(rest.join('：'))}`
+    return `<h5 class="message-field-title"><span>${inlineMarkdown(title)}</span></h5>${renderMessageFieldBody(rest.join('：'))}`
   }
   if (/^(?:范本方向|写作思路|建议结构|写作思路与结构建议|结论|信息已经足够|已识别要点|推荐入口|母稿方向|当前上下文|下一步|下一步建议|我的建议|方向定位|入口问题|对比问题|适配问题|核心问题|核心逻辑|内容逻辑|对目标人群的吸引力|价值主张|搜索问题示例|标题参考|示例标题|母稿标题|改法|适用情况|GEO价值|适合渠道|内容目标|推荐理由|可用资料|还差一个关键点|初步判断|生成判断)[:：]/.test(line)) {
     const [title, ...rest] = line.split(/[:：]/)
@@ -6600,6 +7053,8 @@ function splitReadableBodyLines(value) {
 function shouldRenderInlineListChoices(message) {
   const text = String(message?.text || '')
   if (!text || message?.streaming || message?.role !== 'ai' || message.id !== latestVisibleAiMessageId.value) return false
+  if (isWorkbenchExampleRequest(message)) return false
+  if (isDraftOptimizationReplyMessage(message)) return false
   if (directionChoiceOptions(message).length) return false
   return /(选择|选一个|选哪|哪个|哪种|倾向|请告诉|确认|更适合|还是|或者|或)/.test(text)
 }
@@ -6643,14 +7098,16 @@ function splitLongChatParagraphs(line) {
 }
 
 function formatChatMessage(text, message = null) {
-  const source = normalizeChatMarkdown(text)
+  const source = injectStructuredDirectionHeadings(normalizeChatMarkdown(stripWorkbenchReplyMedia(text)))
   if (!source) return '<p></p>'
+  const directionBlockMessage = renderDirectionBlockMessage(source, message)
+  if (directionBlockMessage) return directionBlockMessage
   const blocks = source
     .split(/\n{2,}/)
     .map(block => block.trim())
     .filter(Boolean)
   return blocks.map(block => {
-    const lines = block.split('\n').map(line => line.trim()).filter(Boolean)
+    const lines = block.split('\n').map(line => line.trim()).filter(line => line && !isChatMarkdownJunkLine(line))
     const rendered = []
     let listTag = ''
     let listItems = []
@@ -6894,7 +7351,14 @@ function directionOptionTitleFromBlock(block, marker, label, optionIndex, fallba
 function directionChoiceOptions(message) {
   const text = String(message?.text || '')
   if (!text || message?.streaming || message?.role !== 'ai' || message.id !== latestVisibleAiMessageId.value) return []
-  const source = normalizeChatMarkdown(text)
+  if (!shouldAllowDirectionChoices(message)) return []
+  const source = injectStructuredDirectionHeadings(normalizeChatMarkdown(stripWorkbenchReplyMedia(text)))
+  const parsedDirectionBlocks = parseDirectionBlocks(source)
+  if (parsedDirectionBlocks.blocks.length >= 2) {
+    return parsedDirectionBlocks.blocks
+      .map(block => directionChoiceOptionFromBlock(message, block))
+      .filter(Boolean)
+  }
   const seen = new Set()
   const matches = [...source.matchAll(/(?:^|\n)[ \t]*(?:(方向|方案)\s*([一二三四五六七八九十\d]+)|([1-9]\d*)(?:[.、][ \t]*|[ \t]+(?=\S)|[ \t]*(?=\n|$)))[ \t]*[:：]?[ \t]*([^\n]*)/g)]
     .filter(match => {
@@ -6932,6 +7396,7 @@ function directionChoiceOptions(message) {
       }
     })
     .filter(Boolean)
+    .sort((left, right) => left.index - right.index)
 }
 
 function compactChoiceText(value) {
@@ -6945,6 +7410,8 @@ function compactChoiceText(value) {
 function clarificationChoiceOptions(message) {
   const text = String(message?.text || '')
   if (!text || message?.streaming || message?.role !== 'ai' || message.id !== latestVisibleAiMessageId.value) return []
+  if (isWorkbenchExampleRequest(message)) return []
+  if (isDraftOptimizationReplyMessage(message)) return []
   if (directionChoiceOptions(message).length) return []
   const source = stripMarkdownForDraft(normalizeChatMarkdown(text)).replace(/\n+/g, ' ')
   const pair = source.match(/(?:是|选择|主要吸引)\s*([^？?。]+?)\s*(?:，|,)?\s*(?:还是|或者|或)\s*([^？?。]+?)(?:[？?。]|$)/)
@@ -6994,6 +7461,34 @@ function selectedDirectionOptionFromPrompt(prompt) {
   if (!index) return null
   const raw = latestAiWorkbenchText()
   if (!raw) return null
+  const parsed = parseDirectionBlocks(injectStructuredDirectionHeadings(normalizeChatMarkdown(stripWorkbenchReplyMedia(raw))))
+  const parsedBlock = parsed.blocks.find(block => block.index === index)
+  if (parsedBlock) {
+    const titleDirection = (parsedBlock.title || parsedBlock.displayLabel).slice(0, 60)
+    const draftTitle = directionDraftTitleFromParsedBlock(parsedBlock)
+    const blockText = [
+      `${parsedBlock.displayLabel}：${titleDirection}`,
+      ...parsedBlock.fields.map(field => `${field.name}\n${field.lines.join('\n')}`),
+    ].join('\n')
+    return {
+      index,
+      label: parsedBlock.label,
+      title: titleDirection,
+      draftTitle,
+      block: blockText,
+      fields: Object.fromEntries([...parsedBlock.fieldMap.entries()].map(([name, field]) => [name, field.lines.join('\n')])),
+      draftBrief: {
+        title_direction: titleDirection,
+        draft_title: draftTitle,
+        direction_positioning: parsedBlock.fieldMap.get('方向定位')?.lines.join('\n') || titleDirection,
+        content_logic: parsedBlock.fieldMap.get('内容逻辑')?.lines.join('\n') || '',
+        geo_value: parsedBlock.fieldMap.get('GEO价值')?.lines.join('\n') || '',
+        writing_focus: parsedBlock.fields.flatMap(field => field.lines).filter(Boolean).slice(0, 8),
+        selected_direction_index: index,
+        selected_direction_label: parsedBlock.displayLabel,
+      },
+    }
+  }
   const label = chineseDirectionLabel(index)
   const markers = ['方向', '方案']
   let start = -1
@@ -7026,19 +7521,42 @@ function selectedDirectionOptionFromPrompt(prompt) {
   }
   const block = normalizeDraftArticleText(stripMarkdownForDraft(raw.slice(start, end)))
   const title = directionOptionTitleFromBlock(block, '方向', label, index)
+  const draftTitle = extractDirectionOptionField(block, '母稿标题|标题参考|文章标题|标题')
   const fallbackTitle = `${workbenchBrandName('当前品牌')} ${block.split('\n').find(line => line && !/^方向/.test(line)) || `方向${label}`}`.slice(0, 42)
   const titleDirection = (title || fallbackTitle).slice(0, 60)
   return {
     index,
     label,
     title: titleDirection,
+    draftTitle: cleanDraftTitle(draftTitle).slice(0, 60),
     block,
+    fields: {
+      方向定位: titleDirection,
+      母稿: cleanDraftTitle(draftTitle).slice(0, 60),
+    },
     draftBrief: {
       title_direction: titleDirection,
+      draft_title: cleanDraftTitle(draftTitle).slice(0, 60),
+      direction_positioning: titleDirection,
+      content_logic: extractDirectionOptionField(block, '内容逻辑|核心逻辑'),
+      geo_value: extractDirectionOptionField(block, 'GEO价值|价值主张'),
       writing_focus: block.split('\n').filter(Boolean).slice(0, 6),
       selected_direction_index: index,
       selected_direction_label: `方向${label}`,
     },
+  }
+}
+
+function selectedDirectionGenerationBrief(option) {
+  if (!option) return null
+  return {
+    selected_direction_index: option.index,
+    selected_direction_label: `方向${option.label}`,
+    direction_positioning: option.fields?.方向定位 || option.draftBrief?.direction_positioning || option.title || '',
+    draft_title: option.draftTitle || option.draftBrief?.draft_title || '',
+    content_logic: option.fields?.内容逻辑 || option.draftBrief?.content_logic || '',
+    geo_value: option.fields?.GEO价值 || option.draftBrief?.geo_value || '',
+    writing_focus: option.draftBrief?.writing_focus || [],
   }
 }
 
@@ -7050,6 +7568,22 @@ function extractArticleTitle(text, fallback = '') {
     .split(/[>\n]/)[0]
     .trim()
   return value.slice(0, 42)
+}
+
+function isInternalPlanningTitle(value) {
+  const text = cleanDraftTitle(value)
+  if (!text) return false
+  return /(方案|方向|增强|强化|优化|矩阵|表达|我会|我把|重点放在|不只是|拆成|可搜索|可复用|可延展|内容矩阵|按这个方向|生成母稿)/.test(text) ||
+    text.length > 42
+}
+
+function safeGeneratedDraftTitle(primary, body, fallback = '') {
+  const candidates = [
+    primary,
+    extractArticleTitle(body, ''),
+    fallback,
+  ].map(item => cleanDraftTitle(item)).filter(Boolean)
+  return (candidates.find(item => !isInternalPlanningTitle(item)) || candidates[0] || 'AI GEO 母稿').slice(0, 42)
 }
 
 function extractArticleSummary(summary, body) {
@@ -7179,11 +7713,43 @@ function sanitizeGeneratedDraftBody(text) {
     .replace(/^\s*(?:标题|文章标题)[:：][^\n]+\n+/i, '')
     .replace(/^\s*(?:摘要|summary)[:：][^\n]+\n+/i, '')
     .replace(/^\s*(?:正文|内容|body)[:：]\s*/i, '')
+    .replace(/^(?:可以，)?\s*(?:你选的是|已选|已选择|方案[一二三四五六七八九十\d]+|方向[一二三四五六七八九十\d]+)[^\n]*\n+/i, '')
+    .replace(/(?:^|\n)\s*(?:我会把重点放在|我把重点放在|你可以直接选|按这个方向|这是一版|下面是一版|作为右侧母稿替换的完整内容示例)[^\n]*(?=\n|$)/g, '\n')
+    .replace(/#{1,6}\s*(?=(?:摘要|标题|正文|范文|示例|改法|建议|适用情况|内容逻辑|GEO价值)[:：]?)/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
   const channelStart = value.search(/(?:^|\n)\s*(?:渠道改写建议|渠道改写|渠道拆解|平台分发|小红书|知乎|抖音|公众号)[:：]?\s*(?:\n|$)/)
   if (channelStart > 0) value = value.slice(0, channelStart).trim()
-  return value
+  return compactGeneratedDraftBody(value)
+}
+
+function compactGeneratedDraftBody(value) {
+  const lines = String(value || '').split('\n')
+  const result = []
+  let faqItems = 0
+  let inFaq = false
+  for (const rawLine of lines) {
+    const line = rawLine.trim()
+    if (!line) {
+      if (result.length && result[result.length - 1]) result.push('')
+      continue
+    }
+    const titleText = previewSectionTitleText(line).replace(/\s+/g, '')
+    if (/^[五六七八九十]、/.test(line)) break
+    if (/^(?:GEO关键词|关键词结构|搜索词|延展方向|发布建议|渠道建议|渠道改写|素材建议)/.test(titleText)) break
+    if (/^(?:FAQ|常见问题)/i.test(titleText)) {
+      inFaq = true
+      faqItems = 0
+      result.push(line)
+      continue
+    }
+    if (inFaq && /^(?:\d+[.、]|Q\d*[:：]?)/i.test(line)) {
+      faqItems += 1
+      if (faqItems > 3) continue
+    }
+    result.push(line)
+  }
+  return result.join('\n').replace(/\n{3,}/g, '\n\n').trim()
 }
 
 function parseGeneratedDraftJson(text) {
@@ -7219,7 +7785,7 @@ function applyDraftToEditor(draft, fallback) {
   const keywords = parseJsonArray(apiField(draft, 'keywords', 'Keywords'))
   const fields = normalizedDraftFieldsFromResponse(draft, fallback)
   const rawBody = extractArticleBody(fields.body) || fields.body
-  const title = extractArticleTitle(fields.title || rawBody, fallback.title)
+  const title = safeGeneratedDraftTitle(fields.title, rawBody, fallback.title)
   const body = ensureDraftConclusionBody(rawBody, title, fallback.summary)
   const summary = extractArticleSummary(fields.summary || fallback.summary, body)
   const sourceSnapshot = parseJsonObject(apiField(draft, 'source_snapshot', 'SourceSnapshot', 'sourceSnapshot'))
@@ -7263,7 +7829,7 @@ function restoreDraftToWorkbench(draft, options = {}) {
     restoringWorkbenchContext = false
   }, 0)
   previewMode.value = 'mobile'
-  setAiStage('draft_generated')
+  setAiStage('draft_generated_initial_optimize')
   updateDecisionCard({
     recommendedDirection: editingDraft.title || ideaSession.searchProblem || '',
     reason: '已从母稿列表恢复，可继续编辑或生成渠道内容。',
@@ -7475,19 +8041,20 @@ async function generateDraftFromChat(options = {}) {
   const typedPrompt = String(workbench.prompt || '').trim()
   const latestUserPrompt = latestWorkbenchUserPrompt.value
   const selectedOption = options.selectedDirectionOption || selectedDirectionOptionFromPrompt(options.promptOverride || typedPrompt || latestUserPrompt)
-  const rawPrompt = selectedOption?.title || options.promptOverride || typedPrompt || latestUserPrompt || decisionCard.recommendedDirection
+  const selectedGenerationBrief = selectedDirectionGenerationBrief(selectedOption)
+  const rawPrompt = selectedOption?.draftTitle || selectedOption?.title || options.promptOverride || typedPrompt || latestUserPrompt || decisionCard.recommendedDirection
   const defaultPrompt = `请基于 ${workbenchBrandName('当前资料')}${product ? ` 的 ${product.name}` : ''}，按「${contentType}」生成一篇面向「${selectedSkillProfile.value.goal}」的 GEO 内容母版；缺失的目标人群、场景和口吻由 AI 根据资料合理推断。`
   const prompt = rawPrompt && !isGreetingMessage(rawPrompt) && !isLowSignalIdea(rawPrompt) ? rawPrompt : defaultPrompt
   const referenceArticle = options.referenceArticle || null
   const selectedStyleSnapshot = styleTemplateSourceSnapshot(workbench.styleTemplate)
   const selectedStylePreview = selectedStyleSnapshot ? styleTemplateDetailPreview(workbench.styleTemplate) : null
   const generationSnapshot = workbenchSourceSnapshot({
-    draft_brief: selectedOption?.draftBrief || options.draftBrief || workbenchDraftBrief(prompt),
+    draft_brief: selectedGenerationBrief || selectedOption?.draftBrief || options.draftBrief || workbenchDraftBrief(prompt),
     selected_direction_option: selectedOption ? {
       index: selectedOption.index,
       label: `方向${selectedOption.label}`,
       title: selectedOption.title,
-      block: selectedOption.block,
+      brief: selectedGenerationBrief,
     } : undefined,
     reference_article: referenceArticle?.sourceSnapshot?.reference_article,
     generation_mode: referenceArticle ? 'apply_reference_article' : 'generate_from_brief',
@@ -7508,23 +8075,26 @@ async function generateDraftFromChat(options = {}) {
         '你是 AI GEO 母稿共创专家，不是普通文章生成器。请根据用户选择的资料、内容类型和聊天中收敛出的 brief 生成一份可作为多渠道源文件的 GEO 内容母版。',
         '当前触发方式：用户已经点击“生成母稿”，这代表用户选择 AI 共创/委托生成。你必须直接写完整母稿，禁止继续追问、要求确认或让用户选择篇幅。',
         referenceArticle ? '最高优先级：左侧聊天中已经产出了一篇范文。你必须沿用这篇范文的标题、结构、语气、叙事角度和核心内容，只做必要的母稿字段整理，不得重新改写成另一篇“选择指南/思路拆解”。' : '',
-        selectedOption ? `最高优先级：用户明确选择了方向${selectedOption.label}。本次标题、摘要和正文必须按这个方向生成，不得沿用旧方向或顶部 direction_chip。` : '',
+        selectedOption ? `最高优先级：用户明确选择了方向${selectedOption.label}。本次只能使用下面“结构化方向 brief”的业务字段生成，禁止把聊天中的方案说明、选择过程或运营建议写进标题/摘要/正文。` : '',
+        selectedOption?.draftTitle ? `标题硬约束：右侧母稿标题必须使用「${selectedOption.draftTitle}」，不得自行缩写、改写或另起标题。` : '标题要求：生成真实文章标题，不要使用“方案二、方向二、增强关键词矩阵型GEO表达、我会把重点放在”等方案说明式标题。',
         '如果缺少目标人群、场景、篇幅、口吻、商品或热点，请基于品牌资料、商品资料、内容类型、关键词和对话自行合理推断并补齐，不得阻塞生成。',
         '生成目标：先回答用户真实搜索/AI 问答问题，再自然带出品牌与商品资料；避免空泛品牌介绍和硬广。',
         '重要边界：这是写入右侧母稿编辑器的文章资产，不是聊天回复。禁止出现“好的、明白、我建议、请确认、现在可以生成、母稿使用说明、替换占位符、请补充、你希望、是否可以、还差一个点”等沟通过程或操作说明。',
+        '禁止把以下内部协作表达写进文章：方案一/方案二/方向一/方向二、我会把重点放在、你可以直接选、按这个方向、可作为右侧母稿替换、下面是一版、生成方向。',
         '正文必须是给目标用户阅读的完整文章母稿，不是内容方案、脚本方案、渠道拆解或运营 brief。',
-        '正文需要包含：核心问题、可被 AI 引用的核心答案、目标用户、品牌/产品定位、使用场景、用户痛点、选择理由、对比逻辑、证据与论点、FAQ、GEO 关键词结构。',
-        'FAQ 至少 6 个问题，每个回答要短、准、可引用。',
+        '篇幅硬约束：正文控制在 900-1200 个中文字符，不要写长文，不要展开成完整百科式章节。',
+        '结构硬约束：正文只保留 4 个一级小节：一、核心问题；二、适合人群；三、选择理由；四、结论建议。每节 1-2 段，每段不超过 90 个中文字符。',
+        'FAQ 不是必需模块；如果必须写 FAQ，最多 3 个问题，每个回答不超过 45 个中文字符。',
         '禁止输出小红书、知乎、抖音、公众号、平台分发、短视频脚本、图文笔记、渠道改写建议、发布计划、素材方案等渠道内容。',
         selectedStyleSnapshot ? '参考写作风格：本次必须学习所选风格的结构路径、语气人设和句式手法；只迁移写法，不复制原文句子，不照搬外部事实，品牌/商品资料仍是事实依据。' : '',
         '标题、摘要、正文分别返回；正文只写可发布的母稿正文和必要的 FAQ，不要写创作过程。',
-        selectedOption ? `用户选择的方向块：\n${selectedOption.block}` : '',
+        selectedGenerationBrief ? `结构化方向 brief（只用于生成依据，不得原样复制）：${JSON.stringify(selectedGenerationBrief, null, 2)}` : '',
         `收敛 brief：${ideaSession.brief || prompt}`,
-        (selectedOption?.draftBrief || options.draftBrief) ? `结构化 draft_brief：${JSON.stringify(selectedOption?.draftBrief || options.draftBrief)}` : '',
+        (!selectedGenerationBrief && (selectedOption?.draftBrief || options.draftBrief)) ? `结构化 draft_brief：${JSON.stringify(selectedOption?.draftBrief || options.draftBrief)}` : '',
         referenceArticle ? `左侧范文标题：${referenceArticle.title}` : '',
         referenceArticle ? `左侧范文正文（必须作为母稿主体沿用）：\n${referenceArticle.body}` : '',
-        `用户原始想法：${prompt}`,
-        `本轮对话：${workbenchUserMessages.value.map(msg => msg.text).join(' / ') || prompt}`,
+        selectedOption ? '' : `用户原始想法：${prompt}`,
+        selectedOption ? '' : `本轮对话：${workbenchUserMessages.value.map(msg => msg.text).join(' / ') || prompt}`,
         `内容类型：${contentType}`,
         `内部生成能力：${skill}`,
         selectedStyleSnapshot ? `参考写作风格：${selectedStyleSnapshot.template_name}` : '',
@@ -7540,7 +8110,7 @@ async function generateDraftFromChat(options = {}) {
         ideaSession.tone ? `口吻：${ideaSession.tone}` : '',
         `关键词：${workbenchKeywords.value.join('、') || '未维护'}`,
         workbench.hotspot ? `引用热点：${workbench.hotspot.title}` : '',
-	        '输出要求：标题明确、摘要可发布、正文有问题拆解/选择理由/场景建议/FAQ，关键词可供后续使用。只输出文章本身。',
+	        '输出要求：标题明确、摘要可发布、正文短而结构化；不要输出“GEO关键词结构”“品牌/产品定位”等额外长章节。只输出文章本身。',
 	      ].filter(Boolean).join('\n'),
     })
     if (!referenceArticle && draftLooksLikeClarification(draft)) {
@@ -7548,11 +8118,11 @@ async function generateDraftFromChat(options = {}) {
     }
     const draftToApply = referenceArticle
       ? { ...draft, title: referenceArticle.title, summary: referenceArticle.summary, body: referenceArticle.body, keywords: referenceArticle.keywordsText.split(',').map(item => item.trim()).filter(Boolean), source_snapshot: generationSnapshot }
-      : selectedOption
-        ? { ...draft, title: selectedOption.title, source_snapshot: generationSnapshot }
+      : selectedOption?.draftTitle
+        ? { ...draft, title: selectedOption.draftTitle, source_snapshot: generationSnapshot }
         : draft
     const aiDraftFallback = {
-      title: apiField(draftToApply, 'title', 'Title') || referenceArticle?.title || prompt,
+      title: selectedOption?.draftTitle || apiField(draftToApply, 'title', 'Title') || referenceArticle?.title || prompt,
       summary: apiField(draftToApply, 'summary', 'Summary') || referenceArticle?.summary || '',
       body: apiField(draftToApply, 'body', 'Body') || referenceArticle?.body || '',
       keywordsText: referenceArticle?.keywordsText || workbenchKeywords.value.slice(0, 8).join(', '),
@@ -7565,7 +8135,7 @@ async function generateDraftFromChat(options = {}) {
     const generatedDraftId = Number(apiField(draft, 'id', 'ID') || editingDraft.id || 0)
     rememberWorkbenchDraft(generatedDraftId)
     appendSystemStatus('已生成并自动保存草稿。接下来你可以进行精修。')
-    setAiStage('draft_generated')
+    setAiStage('draft_generated_initial_optimize')
     updateDecisionCard({
       recommendedDirection: selectedOption?.title || prompt,
       reason: selectedOption ? `已按用户选择的方向${selectedOption.label}生成右侧草稿。` : (decisionCard.reason || '已按当前资料生成右侧草稿，可继续局部修改。'),
@@ -8707,3 +9277,5 @@ function publishStatusLabel(status) {
 </script>
 
 <style src="../styles.css"></style>
+    if (/^(?:我会把重点放在|我把重点放在|你可以直接选|按这个方向|这是一版|下面是一版|作为右侧母稿替换的完整内容示例)/.test(line)) continue
+    if (/^(?:方案|方向)[一二三四五六七八九十\d]+/.test(line)) continue

@@ -1,7 +1,7 @@
 <template>
   <div
     class="neuro-command-layout"
-    :class="{ 'is-integration-center-route': isIntegrationCenterRoute }"
+    :class="{ 'is-integration-center-route': isIntegrationCenterRoute, 'is-ai-geo-workbench-route': isAiGeoWorkbenchRoute }"
     :data-theme="theme"
   >
     <!-- 神经背景层 -->
@@ -937,6 +937,7 @@ const integrationSidebarItems = Object.entries(integrationRouteTitles).map(([pat
 }))
 
 const isIntegrationCenterRoute = computed(() => route.path.startsWith('/integration-center'))
+const isAiGeoWorkbenchRoute = computed(() => route.path.startsWith('/ai-geo/workbench'))
 const activeSidebarPrimary = computed(() =>
   activePrimary.value || (isIntegrationCenterRoute.value ? '__integration_center_fallback__' : ''),
 )
@@ -3382,6 +3383,33 @@ const toggleFullscreen = () => {
   display: flex;
   flex-direction: column;
   background: var(--nm-bg-surface);
+}
+
+.neuro-command-layout.is-ai-geo-workbench-route {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.neuro-command-layout.is-ai-geo-workbench-route .neuro-interface {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.neuro-command-layout.is-ai-geo-workbench-route .neuro-content-field {
+  height: calc(100vh - 80px);
+  height: calc(100dvh - 80px);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.neuro-command-layout.is-ai-geo-workbench-route .content-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* 与顶栏一致：业务页根节点勿再叠一层横向内边距 */

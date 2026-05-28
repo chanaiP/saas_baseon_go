@@ -29,7 +29,7 @@ const proxyTarget = `http://127.0.0.1:${apiPort}`
 
 /** 代理连不上后端时在运行 npm run dev 的终端打日志 */
 function proxyToBackend(prefix: string, target: string): ProxyOptions {
-  const proxyMs = 180_000
+  const proxyMs = 300_000
   return {
     target,
     changeOrigin: true,

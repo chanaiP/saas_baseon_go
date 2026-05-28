@@ -1178,7 +1178,7 @@ func gatewayRequestTimeout(route models.AIBaseRoute, routeModel models.AIBaseRou
 		timeoutMS = route.TimeoutMS
 	}
 	if timeoutMS <= 0 {
-		timeoutMS = 30000
+		timeoutMS = 300000
 	}
 	return time.Duration(timeoutMS) * time.Millisecond
 }
@@ -1633,7 +1633,7 @@ func (s *Service) EnsureBaseline(ctx context.Context) error {
 			}
 		}
 		settings := []models.AIGatewaySetting{
-			{SettingKey: "gateway_runtime", SettingValue: `{"default_timeout_ms":30000,"default_max_retry":2,"usage_log_async":true}`, Description: "AI Gateway 默认超时、重试和用量日志写入策略", Status: "active"},
+			{SettingKey: "gateway_runtime", SettingValue: `{"default_timeout_ms":300000,"default_max_retry":2,"usage_log_async":true}`, Description: "AI Gateway 默认超时、重试和用量日志写入策略", Status: "active"},
 			{SettingKey: "security", SettingValue: `{"prompt_plaintext_storage":false,"api_key_encryption":"external-kms-or-env"}`, Description: "密钥和 Prompt 安全归属", Status: "active"},
 		}
 		for _, item := range settings {

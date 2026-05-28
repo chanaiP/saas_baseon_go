@@ -66,7 +66,7 @@ export function resolveHealthUrl(): string {
 const http = axios.create({
   baseURL: resolveApiBase(),
   /** 慢网络或大体量 profile 时避免误当作「登录失效」 */
-  timeout: Number(import.meta.env.VITE_HTTP_TIMEOUT_MS || 60000),
+  timeout: Number(import.meta.env.VITE_HTTP_TIMEOUT_MS || 300000),
 })
 
 /** 解析请求 pathname（不含 query），兼容 baseURL 绝对地址与相对路径 */
